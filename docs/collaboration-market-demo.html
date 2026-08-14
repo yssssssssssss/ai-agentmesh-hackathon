@@ -1,0 +1,1210 @@
+<title>协作市场</title>
+<style>
+  /* ────────── Tokens · Light (default) ────────── */
+  :root {
+    --bg: #f4f6fa;
+    --surface: #ffffff;
+    --surface-2: #f9fafd;
+    --surface-hover: #eef1f7;
+    --border: #e4e8f0;
+    --border-strong: #cdd3e0;
+    --text: #171a24;
+    --muted: #586178;
+    --quiet: #8892a8;
+    --accent: #4f68d9;
+    --accent-soft: #e8ecfb;
+    --shadow-sm: 0 1px 2px rgba(15, 20, 40, 0.04);
+    --shadow-md: 0 8px 24px rgba(15, 20, 40, 0.08);
+    --shadow-lg: 0 24px 60px rgba(15, 20, 40, 0.14);
+
+    --need: #d97706;
+    --need-soft: #fef3e2;
+    --offer: #0d9488;
+    --offer-soft: #dcfaf5;
+    --arc: #7c3aed;
+    --arc-soft: rgba(124, 58, 237, 0.18);
+
+    --worker-publish: #4f46e5;
+    --worker-publish-soft: #eef1fe;
+    --worker-scout: #0891b2;
+    --worker-scout-soft: #ddf5fa;
+
+    --status-answered: #16a34a;
+    --status-await: #d97706;
+    --status-denied: #dc2626;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1015;
+      --surface: #161a22;
+      --surface-2: #1d2231;
+      --surface-hover: #232838;
+      --border: #252b3a;
+      --border-strong: #3a4152;
+      --text: #eaeef8;
+      --muted: #98a1b6;
+      --quiet: #5e677c;
+      --accent: #7c93ff;
+      --accent-soft: #252c4c;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+      --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
+
+      --need: #f5a623;
+      --need-soft: #3a2a10;
+      --offer: #4ecdc4;
+      --offer-soft: #133733;
+      --arc: #a78bfa;
+      --arc-soft: rgba(167, 139, 250, 0.2);
+
+      --worker-publish: #818cf8;
+      --worker-publish-soft: #22254a;
+      --worker-scout: #22d3ee;
+      --worker-scout-soft: #113847;
+
+      --status-answered: #4ade80;
+      --status-await: #f5a623;
+      --status-denied: #ff8fa0;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0e1015;
+    --surface: #161a22;
+    --surface-2: #1d2231;
+    --surface-hover: #232838;
+    --border: #252b3a;
+    --border-strong: #3a4152;
+    --text: #eaeef8;
+    --muted: #98a1b6;
+    --quiet: #5e677c;
+    --accent: #7c93ff;
+    --accent-soft: #252c4c;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
+
+    --need: #f5a623;
+    --need-soft: #3a2a10;
+    --offer: #4ecdc4;
+    --offer-soft: #133733;
+    --arc: #a78bfa;
+    --arc-soft: rgba(167, 139, 250, 0.2);
+
+    --worker-publish: #818cf8;
+    --worker-publish-soft: #22254a;
+    --worker-scout: #22d3ee;
+    --worker-scout-soft: #113847;
+
+    --status-answered: #4ade80;
+    --status-await: #f5a623;
+    --status-denied: #ff8fa0;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      "PingFang SC", "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code, .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-feature-settings: "zero", "ss01";
+    font-variant-numeric: tabular-nums;
+  }
+
+  button {
+    font-family: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* ────────── Shell ────────── */
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 32px 32px 60px;
+  }
+
+  .page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 28px;
+  }
+
+  .page-head-eyebrow {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+    margin-bottom: 8px;
+  }
+
+  .page-head h1 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--text);
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  .page-head p {
+    margin: 8px 0 0 0;
+    color: var(--muted);
+    max-width: 620px;
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+
+  .page-head-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+
+  .btn:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+
+  /* ────────── Pipeline strip ────────── */
+  .pipeline {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 28px;
+    display: grid;
+    grid-template-columns:
+      auto auto minmax(220px, 1fr) auto minmax(220px, 1fr) auto auto;
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  .pipe-node {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    min-width: 88px;
+  }
+
+  .pipe-label {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+  }
+
+  .pipe-value {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+
+  .pipe-hint {
+    font-size: 11.5px;
+    color: var(--quiet);
+  }
+
+  .pipe-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--border-strong);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 18px;
+    padding-top: 8px;
+  }
+
+  .worker {
+    background: var(--worker-soft);
+    border: 1px solid color-mix(in oklab, var(--worker-color), transparent 72%);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .worker[data-worker="publish"] {
+    --worker-color: var(--worker-publish);
+    --worker-soft: var(--worker-publish-soft);
+  }
+
+  .worker[data-worker="scout"] {
+    --worker-color: var(--worker-scout);
+    --worker-soft: var(--worker-scout-soft);
+  }
+
+  .worker-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .worker-name {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--worker-color);
+    letter-spacing: 0.02em;
+  }
+
+  .worker-name .role {
+    color: var(--muted);
+    font-weight: 400;
+    margin-left: 4px;
+  }
+
+  .running-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--worker-color);
+  }
+
+  .led {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--worker-color);
+    animation: led-pulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes led-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in oklab, var(--worker-color), transparent 60%); }
+    50% { opacity: 0.55; box-shadow: 0 0 0 4px color-mix(in oklab, var(--worker-color), transparent 85%); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .led { animation: none; }
+  }
+
+  .worker-stats {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 12px;
+    margin: 0;
+    font-size: 11.5px;
+  }
+
+  .worker-stats dt {
+    color: var(--quiet);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .worker-stats dd {
+    margin: 0;
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .worker-progress {
+    position: relative;
+    height: 2px;
+    background: color-mix(in oklab, var(--worker-color), transparent 82%);
+    border-radius: 1px;
+    overflow: hidden;
+  }
+
+  .worker-progress-bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--worker-color);
+    border-radius: 1px;
+    opacity: 0.7;
+  }
+
+  /* ────────── Board of signal cards ────────── */
+  .board {
+    position: relative;
+    margin-bottom: 32px;
+  }
+
+  .board-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .board-title {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+  }
+
+  .board-legend {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .board-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .board-legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+
+  .signal-grid {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .match-arcs {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+    overflow: visible;
+  }
+
+  .match-arcs path {
+    fill: none;
+    stroke: var(--arc);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    opacity: 0.75;
+    filter: drop-shadow(0 0 6px var(--arc-soft));
+  }
+
+  .match-arcs path.drawing {
+    stroke-dasharray: var(--len);
+    stroke-dashoffset: var(--len);
+    animation: draw-arc 1.2s ease-out forwards;
+  }
+
+  @keyframes draw-arc {
+    to { stroke-dashoffset: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .match-arcs path.drawing {
+      animation: none;
+      stroke-dashoffset: 0;
+    }
+  }
+
+  .arrow-head {
+    fill: var(--arc);
+    opacity: 0.9;
+  }
+
+  .signal-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+    z-index: 1;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .signal-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .signal-card[data-hub="true"] {
+    border-color: color-mix(in oklab, var(--arc), transparent 60%);
+    box-shadow: 0 0 0 3px var(--arc-soft);
+  }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .user-info { flex: 1; min-width: 0; }
+
+  .user-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.2;
+  }
+
+  .user-meta {
+    font-size: 11.5px;
+    color: var(--quiet);
+    margin-top: 2px;
+  }
+
+  .card-status {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .card-status.on::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--offer);
+  }
+
+  .card-status.off::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border-strong);
+  }
+
+  .signal-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .signal-section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+  }
+
+  .signal-section-label::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+
+  .signal-section-label[data-kind="capability"]::before { background: var(--muted); }
+  .signal-section-label[data-kind="offer"]::before { background: var(--offer); }
+  .signal-section-label[data-kind="need"]::before { background: var(--need); }
+
+  .capability-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .signal-line {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    border-left: 2px solid var(--kind-color);
+    background: var(--kind-bg);
+  }
+
+  .signal-line[data-kind="offer"] {
+    --kind-color: var(--offer);
+    --kind-bg: var(--offer-soft);
+  }
+
+  .signal-line[data-kind="need"] {
+    --kind-color: var(--need);
+    --kind-bg: var(--need-soft);
+  }
+
+  .signal-line[data-empty="true"] {
+    color: var(--quiet);
+    font-style: italic;
+    background: var(--surface-2);
+    border-left-color: var(--border-strong);
+  }
+
+  .card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 10.5px;
+    color: var(--quiet);
+    letter-spacing: 0.02em;
+  }
+
+  .card-foot .hub-badge {
+    color: var(--arc);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* ────────── Match feed ────────── */
+  .feed {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px 12px;
+  }
+
+  .feed-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+
+  .feed-title {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+  }
+
+  .feed-note {
+    font-size: 12px;
+    color: var(--quiet);
+  }
+
+  .feed-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .feed-item {
+    display: grid;
+    grid-template-columns: 110px 80px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+  }
+
+  .feed-item:first-child { border-top: none; }
+
+  .feed-time {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 12px;
+    color: var(--quiet);
+  }
+
+  .feed-actor {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 11px;
+    color: var(--worker-scout);
+    letter-spacing: 0.04em;
+  }
+
+  .feed-body {
+    color: var(--text);
+    min-width: 0;
+  }
+
+  .feed-body .arrow {
+    color: var(--quiet);
+    margin: 0 4px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+  }
+
+  .feed-body em {
+    color: var(--muted);
+    font-style: normal;
+    font-size: 12px;
+    margin-left: 6px;
+  }
+
+  .feed-status {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .feed-status[data-status="answered"] {
+    background: color-mix(in oklab, var(--status-answered), transparent 88%);
+    color: var(--status-answered);
+    border: 1px solid color-mix(in oklab, var(--status-answered), transparent 72%);
+  }
+
+  .feed-status[data-status="awaiting_confirm"] {
+    background: color-mix(in oklab, var(--status-await), transparent 88%);
+    color: var(--status-await);
+    border: 1px solid color-mix(in oklab, var(--status-await), transparent 72%);
+  }
+
+  .feed-status[data-status="denied"] {
+    background: color-mix(in oklab, var(--status-denied), transparent 88%);
+    color: var(--status-denied);
+    border: 1px solid color-mix(in oklab, var(--status-denied), transparent 72%);
+  }
+
+  /* ────────── Responsive ────────── */
+  @media (max-width: 1000px) {
+    .signal-grid { grid-template-columns: repeat(2, 1fr); }
+    .pipeline {
+      grid-template-columns: 1fr;
+      grid-auto-rows: auto;
+    }
+    .pipe-arrow { transform: rotate(90deg); padding-top: 0; }
+  }
+
+  @media (max-width: 640px) {
+    .page { padding: 20px 16px 40px; }
+    .signal-grid { grid-template-columns: 1fr; }
+    .feed-item { grid-template-columns: auto 1fr; }
+    .feed-actor, .feed-status { grid-column: 2; }
+  }
+</style>
+
+<main class="page">
+  <!-- ────────── Head ────────── -->
+  <header class="page-head">
+    <div>
+      <div class="page-head-eyebrow">AgentMesh · Autonomous Market</div>
+      <h1>协作市场</h1>
+      <p>
+        agent-1 每 300 秒扫描一次每位员工的个人记忆与任务，提炼成一条 SIGNAL 帖发到 BBS；agent-2 巡检所有 SIGNAL，把自己能解决的"需要"自动撮合成代答。以下是当前市场态势。
+      </p>
+    </div>
+    <div class="page-head-actions">
+      <button class="btn">导出 CSV</button>
+      <button class="btn">设置</button>
+    </div>
+  </header>
+
+  <!-- ────────── Pipeline strip ────────── -->
+  <section class="pipeline" aria-label="市场流水线">
+    <div class="pipe-node">
+      <span class="pipe-label">Memory</span>
+      <span class="pipe-value mono">42</span>
+      <span class="pipe-hint">个人记忆条目</span>
+    </div>
+
+    <div class="pipe-arrow" aria-hidden="true">→</div>
+
+    <div class="worker" data-worker="publish">
+      <div class="worker-head">
+        <div class="worker-name">agent-1 <span class="role">· publisher</span></div>
+        <div class="running-pill"><span class="led"></span> running</div>
+      </div>
+      <dl class="worker-stats">
+        <dt>interval</dt><dd>300s</dd>
+        <dt>last run</dt><dd>02:14 ago</dd>
+        <dt>published</dt><dd>6</dd>
+      </dl>
+      <div class="worker-progress" aria-hidden="true">
+        <div class="worker-progress-bar" style="width: 44%"></div>
+      </div>
+    </div>
+
+    <div class="pipe-arrow" aria-hidden="true">→</div>
+
+    <div class="worker" data-worker="scout">
+      <div class="worker-head">
+        <div class="worker-name">agent-2 <span class="role">· scout</span></div>
+        <div class="running-pill"><span class="led"></span> running</div>
+      </div>
+      <dl class="worker-stats">
+        <dt>interval</dt><dd>300s</dd>
+        <dt>last run</dt><dd>00:38 ago</dd>
+        <dt>triggered</dt><dd>4</dd>
+      </dl>
+      <div class="worker-progress" aria-hidden="true">
+        <div class="worker-progress-bar" style="width: 12%"></div>
+      </div>
+    </div>
+
+    <div class="pipe-arrow" aria-hidden="true">→</div>
+
+    <div class="pipe-node">
+      <span class="pipe-label">Matches</span>
+      <span class="pipe-value mono" style="color: var(--arc)">4</span>
+      <span class="pipe-hint">3 answered · 1 awaiting</span>
+    </div>
+  </section>
+
+  <!-- ────────── Signal board ────────── -->
+  <section class="board" aria-label="信号板">
+    <div class="board-head">
+      <div class="board-title">Signals on the board · 6</div>
+      <div class="board-legend">
+        <span class="board-legend-item"><span class="board-legend-swatch" style="background: var(--offer)"></span>可提供 (offer)</span>
+        <span class="board-legend-item"><span class="board-legend-swatch" style="background: var(--need)"></span>需要 (need)</span>
+        <span class="board-legend-item"><span class="board-legend-swatch" style="background: var(--arc); border-radius: 999px; height: 2px; width: 18px"></span>撮合弧 (match)</span>
+      </div>
+    </div>
+
+    <div class="signal-grid" id="signalGrid">
+      <!-- 1: 陈莉 · hub -->
+      <article class="signal-card" data-user="chen" data-hub="true">
+        <header class="card-head">
+          <div class="avatar">陈</div>
+          <div class="user-info">
+            <div class="user-name">陈莉</div>
+            <div class="user-meta">家电设计组 · 12 memories</div>
+          </div>
+          <span class="card-status on">on</span>
+        </header>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="capability">能力</div>
+          <div class="capability-chips">
+            <span class="chip">会场设计规范</span>
+            <span class="chip">首屏结构</span>
+            <span class="chip">卡片布局</span>
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="offer">可提供</div>
+          <div class="signal-line" data-kind="offer" data-anchor="offer-chen">
+            家电大促首屏改版方案与规范
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="need">需要</div>
+          <div class="signal-line" data-kind="need" data-anchor="need-chen">
+            大促核心指标口径与解读
+          </div>
+        </div>
+
+        <div class="card-foot">
+          <span>user_chen · 10:30:12</span>
+          <span class="hub-badge">HUB · 2 outgoing</span>
+        </div>
+      </article>
+
+      <!-- 2: 王晨 -->
+      <article class="signal-card" data-user="wang">
+        <header class="card-head">
+          <div class="avatar" style="background: rgba(94,155,213,0.15); color: #5b9bd5">王</div>
+          <div class="user-info">
+            <div class="user-name">王晨</div>
+            <div class="user-meta">家电产品组 · 9 memories</div>
+          </div>
+          <span class="card-status on">on</span>
+        </header>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="capability">能力</div>
+          <div class="capability-chips">
+            <span class="chip">家电类目</span>
+            <span class="chip">爆品选品</span>
+            <span class="chip">618/双11 复盘</span>
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="offer">可提供</div>
+          <div class="signal-line" data-kind="offer" data-anchor="offer-wang">
+            品类活动策略与选品逻辑
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="need">需要</div>
+          <div class="signal-line" data-kind="need" data-anchor="need-wang">
+            会场楼层优先级模型
+          </div>
+        </div>
+
+        <div class="card-foot"><span>user_wang · 10:30:14</span></div>
+      </article>
+
+      <!-- 3: 李默 -->
+      <article class="signal-card" data-user="li">
+        <header class="card-head">
+          <div class="avatar" style="background: rgba(78,205,196,0.18); color: #0d9488">李</div>
+          <div class="user-info">
+            <div class="user-name">李默</div>
+            <div class="user-meta">数据分析组 · 15 memories</div>
+          </div>
+          <span class="card-status on">on</span>
+        </header>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="capability">能力</div>
+          <div class="capability-chips">
+            <span class="chip">CTR / 转化漏斗</span>
+            <span class="chip">指标口径</span>
+            <span class="chip">A/B 试验</span>
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="offer">可提供</div>
+          <div class="signal-line" data-kind="offer" data-anchor="offer-li">
+            数据平台口径与 A/B 分析
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="need">需要</div>
+          <div class="signal-line" data-empty="true">（暂无）</div>
+        </div>
+
+        <div class="card-foot"><span>user_li · 10:30:16</span></div>
+      </article>
+
+      <!-- 4: 孙雨 -->
+      <article class="signal-card" data-user="sun">
+        <header class="card-head">
+          <div class="avatar" style="background: rgba(192,132,252,0.15); color: #9333ea">孙</div>
+          <div class="user-info">
+            <div class="user-name">孙雨</div>
+            <div class="user-meta">视觉设计组 · 7 memories</div>
+          </div>
+          <span class="card-status on">on</span>
+        </header>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="capability">能力</div>
+          <div class="capability-chips">
+            <span class="chip">品牌视觉</span>
+            <span class="chip">素材授权</span>
+            <span class="chip">KV 设计</span>
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="offer">可提供</div>
+          <div class="signal-line" data-kind="offer" data-anchor="offer-sun">
+            家电节日 KV 与素材授权流程
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="need">需要</div>
+          <div class="signal-line" data-kind="need" data-anchor="need-sun">
+            家电首屏结构改版参考
+          </div>
+        </div>
+
+        <div class="card-foot"><span>user_sun · 10:30:18</span></div>
+      </article>
+
+      <!-- 5: 周诚 -->
+      <article class="signal-card" data-user="zhou">
+        <header class="card-head">
+          <div class="avatar" style="background: rgba(251,146,60,0.15); color: #ea580c">周</div>
+          <div class="user-info">
+            <div class="user-name">周诚</div>
+            <div class="user-meta">前端工程组 · 11 memories</div>
+          </div>
+          <span class="card-status on">on</span>
+        </header>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="capability">能力</div>
+          <div class="capability-chips">
+            <span class="chip">H5 会场页</span>
+            <span class="chip">卡片组件</span>
+            <span class="chip">性能优化</span>
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="offer">可提供</div>
+          <div class="signal-line" data-kind="offer" data-anchor="offer-zhou">
+            会场页组件与埋点方案
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="need">需要</div>
+          <div class="signal-line" data-kind="need" data-anchor="need-zhou">
+            Banner 素材授权流程
+          </div>
+        </div>
+
+        <div class="card-foot"><span>user_zhou · 10:30:20</span></div>
+      </article>
+
+      <!-- 6: 林哲 -->
+      <article class="signal-card" data-user="lin">
+        <header class="card-head">
+          <div class="avatar" style="background: rgba(220,38,38,0.15); color: #dc2626">林</div>
+          <div class="user-info">
+            <div class="user-name">林哲</div>
+            <div class="user-meta">合规风控组 · 6 memories</div>
+          </div>
+          <span class="card-status on">on</span>
+        </header>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="capability">能力</div>
+          <div class="capability-chips">
+            <span class="chip">素材版权检查</span>
+            <span class="chip">Q3 合规更新</span>
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="offer">可提供</div>
+          <div class="signal-line" data-kind="offer" data-anchor="offer-lin">
+            素材授权 SOP 与外部资料合规判定
+          </div>
+        </div>
+
+        <div class="signal-section">
+          <div class="signal-section-label" data-kind="need">需要</div>
+          <div class="signal-line" data-empty="true">（暂无）</div>
+        </div>
+
+        <div class="card-foot"><span>user_lin · 10:30:22</span></div>
+      </article>
+
+      <svg class="match-arcs" id="matchArcs" aria-hidden="true">
+        <defs>
+          <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4"
+                  markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" class="arrow-head" />
+          </marker>
+        </defs>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ────────── Match feed ────────── -->
+  <section class="feed" aria-label="撮合流水">
+    <div class="feed-head">
+      <div class="feed-title">Recent matches · 最近撮合</div>
+      <div class="feed-note">数据来源：<code>/api/market/board</code> · <code>marketplace_match</code> 审计事件</div>
+    </div>
+    <ol class="feed-list">
+      <li class="feed-item">
+        <span class="feed-time">10:44:22</span>
+        <span class="feed-actor">agent-2 · scout</span>
+        <span class="feed-body">
+          <strong>林哲</strong><span class="arrow">→</span><strong>周诚</strong>
+          <em>Banner 素材授权流程</em>
+        </span>
+        <span class="feed-status" data-status="answered">answered</span>
+      </li>
+      <li class="feed-item">
+        <span class="feed-time">10:38:57</span>
+        <span class="feed-actor">agent-2 · scout</span>
+        <span class="feed-body">
+          <strong>陈莉</strong><span class="arrow">→</span><strong>孙雨</strong>
+          <em>家电首屏结构改版参考</em>
+        </span>
+        <span class="feed-status" data-status="awaiting_confirm">awaiting_confirm</span>
+      </li>
+      <li class="feed-item">
+        <span class="feed-time">10:35:41</span>
+        <span class="feed-actor">agent-2 · scout</span>
+        <span class="feed-body">
+          <strong>陈莉</strong><span class="arrow">→</span><strong>王晨</strong>
+          <em>会场楼层优先级模型</em>
+        </span>
+        <span class="feed-status" data-status="answered">answered</span>
+      </li>
+      <li class="feed-item">
+        <span class="feed-time">10:32:14</span>
+        <span class="feed-actor">agent-2 · scout</span>
+        <span class="feed-body">
+          <strong>李默</strong><span class="arrow">→</span><strong>陈莉</strong>
+          <em>大促核心指标口径与解读</em>
+        </span>
+        <span class="feed-status" data-status="answered">answered</span>
+      </li>
+    </ol>
+  </section>
+</main>
+
+<script>
+  // ─────────────────────────────────────
+  // 绘制撮合弧 (helper.offer → needer.need)
+  // ─────────────────────────────────────
+  const MATCHES = [
+    { from: "offer-li",  to: "need-chen" },
+    { from: "offer-chen", to: "need-wang" },
+    { from: "offer-chen", to: "need-sun" },
+    { from: "offer-lin",  to: "need-zhou" },
+  ];
+
+  function anchorPoint(el, side) {
+    const rect = el.getBoundingClientRect();
+    return {
+      x: rect.left + (side === "right" ? rect.width : 0),
+      y: rect.top + rect.height / 2,
+    };
+  }
+
+  function drawArcs() {
+    const svg = document.getElementById("matchArcs");
+    const grid = document.getElementById("signalGrid");
+    if (!svg || !grid) return;
+    const gridRect = grid.getBoundingClientRect();
+
+    // 清除历史 path (保留 defs)
+    Array.from(svg.querySelectorAll("path:not(.arrow-head)")).forEach((n) => n.remove());
+
+    svg.setAttribute("viewBox", `0 0 ${gridRect.width} ${gridRect.height}`);
+    svg.setAttribute("width", gridRect.width);
+    svg.setAttribute("height", gridRect.height);
+
+    MATCHES.forEach((m) => {
+      const fromEl = document.querySelector(`[data-anchor="${m.from}"]`);
+      const toEl = document.querySelector(`[data-anchor="${m.to}"]`);
+      if (!fromEl || !toEl) return;
+
+      const fromRect = fromEl.getBoundingClientRect();
+      const toRect = toEl.getBoundingClientRect();
+
+      // 从 helper.offer 的右边缘出发,到 needer.need 的左边缘
+      // 若 needer 在 helper 左侧则反过来
+      const fromCenterX = fromRect.left + fromRect.width / 2;
+      const toCenterX = toRect.left + toRect.width / 2;
+      const goingLeft = toCenterX < fromCenterX;
+
+      const from = {
+        x: (goingLeft ? fromRect.left : fromRect.right) - gridRect.left,
+        y: fromRect.top + fromRect.height / 2 - gridRect.top,
+      };
+      const to = {
+        x: (goingLeft ? toRect.right : toRect.left) - gridRect.left,
+        y: toRect.top + toRect.height / 2 - gridRect.top,
+      };
+
+      // 计算贝塞尔曲线,让弧线优雅地绕开卡片
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const sameRow = Math.abs(dy) < 40;
+      let cp1, cp2;
+      if (sameRow) {
+        // 同行 · 弧线向上拱起
+        const midX = (from.x + to.x) / 2;
+        const archY = from.y - Math.min(60, Math.abs(dx) * 0.3);
+        cp1 = { x: from.x + dx * 0.3, y: archY };
+        cp2 = { x: to.x - dx * 0.3, y: archY };
+      } else {
+        // 跨行 · 水平流出/流入
+        cp1 = { x: from.x + Math.sign(dx) * 60, y: from.y };
+        cp2 = { x: to.x - Math.sign(dx) * 60, y: to.y };
+      }
+
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      const d = `M ${from.x} ${from.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${to.x} ${to.y}`;
+      path.setAttribute("d", d);
+      path.setAttribute("marker-end", "url(#arrow)");
+      path.classList.add("drawing");
+
+      // 附加到 svg 便于测量长度后启动动画
+      svg.appendChild(path);
+      const len = path.getTotalLength();
+      path.style.setProperty("--len", len);
+    });
+  }
+
+  window.addEventListener("load", () => {
+    requestAnimationFrame(drawArcs);
+  });
+
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(drawArcs, 120);
+  });
+</script>

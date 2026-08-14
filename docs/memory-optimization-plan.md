@@ -481,3 +481,21 @@ flowchart LR
 **第三步（2-3 周）**：P2 + R1，语义检索上线。需要选定 embedding 方案并灌入历史数据。
 
 **后续按需求优先级选做**：P3/P4/A3/C1。
+
+---
+
+## 九、实施完成记录
+
+| 编号 | 状态 | 提交 | 备注 |
+|------|------|------|------|
+| P0 | ✅ 完成 | 4eb7bdf | FTS5 trigram 全文检索 |
+| P1 | ✅ 完成 | 4eb7bdf | max_results + max_chars 双预算 |
+| A1 | ✅ 完成 | 4eb7bdf | 个人→项目同步 + MemoryRelation |
+| A2 | ✅ 完成 | 4eb7bdf | member_ids 项目成员校验 |
+| P2 | ✅ 完成 | 17e0ccf | Qwen3-Embedding + RRF 混合排序 |
+| R1 | ✅ 完成 | dcda229 | TEAM→PROJECT→PRIVATE 分层检索 |
+| A3 | ✅ 完成 | 3e15b0b | team_id + TeamMembership 隔离 |
+| R2 | ✅ 完成 | 0a1a7f4 | citation rate + latency 度量 |
+| P3 | ✅ 完成 | 1394f20 | bigram pattern 提取 + Skill 匹配 |
+| P4 | ✅ 完成 | bbbc882 | AgentMemoryBinding 精准装备 |
+| C1 | ✅ 完成 | — | 文档切片 → long_term 自动导入 |

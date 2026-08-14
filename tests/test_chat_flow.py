@@ -5,6 +5,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 import agentmesh.routes.agents as agents_module
+import agentmesh.routes.chat as chat_routes
 from agentmesh.acquisition import AcquisitionRequest, AcquisitionResult, MockAcquisitionAgent
 from agentmesh.agents import PersonalAgent
 from agentmesh.app import app
@@ -88,6 +89,150 @@ def test_auth_login_me_logout_and_unauthorized_write() -> None:
     assert logout_response.status_code == 200
     assert client.get("/api/auth/me").status_code == 401
 
+def test_chat_thread_messages_returns_owner_history_in_created_order() -> None:
+    clear_store()
+    client = authenticated_client()
+    thread = store.add_chat_thread(
+        ChatThread(workspace_id=WORKSPACE.id, project_id=PROJECT.id, user_id=USER.id, title="可恢复会话")
+    )
+    later = store.add_chat_message(
+        ChatMessage(thread_id=thread.id, role=ChatRole.ASSISTANT, content="第二条", created_at=now_utc())
+    )
+    earlier = store.add_chat_message(
+        ChatMessage(
+            thread_id=thread.id,
+            role=ChatRole.USER,
+            content="第一条",
+            created_at=later.created_at - timedelta(minutes=1),
+        )
+    )
+
+    response = client.get(f"/api/chat/threads/{thread.id}/messages")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [earlier.id, later.id]
+
+
+def test_chat_thread_messages_requires_authentication() -> None:
+    clear_store()
+    client = TestClient(app)
+
+    response = client.get("/api/chat/threads/missing/messages")
+
+    assert response.status_code == 401
+
+
+def test_chat_thread_messages_hides_foreign_and_missing_threads() -> None:
+    clear_store()
+    thread = store.add_chat_thread(
+        ChatThread(workspace_id=WORKSPACE.id, project_id=PROJECT.id, user_id=USER.id, title="私人会话")
+    )
+    other_user_client = authenticated_client(TEAM_LEAD.id)
+
+    foreign_response = other_user_client.get(f"/api/chat/threads/{thread.id}/messages")
+    missing_response = other_user_client.get("/api/chat/threads/missing/messages")
+
+    assert foreign_response.status_code == 404
+    assert missing_response.status_code == 404
+
+
+def test_chat_threads_list_is_owner_scoped_and_recent_first() -> None:
+    clear_store()
+    client = authenticated_client()
+    now = now_utc()
+    older = store.add_chat_thread(
+        ChatThread(
+            workspace_id=WORKSPACE.id,
+            project_id=PROJECT.id,
+            user_id=USER.id,
+            title="较早会话",
+            updated_at=now - timedelta(hours=1),
+        )
+    )
+    recent = store.add_chat_thread(
+        ChatThread(
+            workspace_id=WORKSPACE.id,
+            project_id=PROJECT.id,
+            user_id=USER.id,
+            title="最近会话",
+            updated_at=now,
+        )
+    )
+    store.add_chat_thread(
+        ChatThread(workspace_id=WORKSPACE.id, project_id=PROJECT.id, user_id=TEAM_LEAD.id, title="他人会话")
+    )
+
+    response = client.get("/api/chat/threads")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [recent.id, older.id]
+    assert TestClient(app).get("/api/chat/threads").status_code == 401
+
+
+def test_chat_message_rejects_foreign_thread_without_reading_or_writing_it() -> None:
+    clear_store()
+    thread = store.add_chat_thread(
+        ChatThread(workspace_id=WORKSPACE.id, project_id=PROJECT.id, user_id=USER.id, title="私人会话")
+    )
+    existing = store.add_chat_message(
+        ChatMessage(thread_id=thread.id, role=ChatRole.USER, content="只有本人可见")
+    )
+    other_user_client = authenticated_client(TEAM_LEAD.id)
+
+    response = other_user_client.post(
+        "/api/chat/messages",
+        json={"content": "尝试写入他人会话", "thread_id": thread.id},
+    )
+
+    assert response.status_code == 404
+    assert [message.id for message in store.list_thread_messages(thread.id)] == [existing.id]
+
+
+def test_chat_turn_trace_is_returned_persisted_and_owner_scoped() -> None:
+    clear_store()
+    client = authenticated_client()
+
+    response = client.post("/api/chat/messages", json={"content": "你好，这是执行依据测试"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    trace = payload["turn_trace"]
+    assert trace["thread_id"] == payload["thread_id"]
+    assert trace["assistant_message_id"] == payload["assistant_message"]["id"]
+    assert trace["intent"] == "general_chat"
+    assert trace["selected_workflow"] == "chat"
+    assert trace["steps"] == []
+
+    history_response = client.get(f"/api/chat/threads/{payload['thread_id']}/turn-traces")
+
+    assert history_response.status_code == 200
+    assert history_response.json()["items"] == [trace]
+    assert TestClient(app).get(f"/api/chat/threads/{payload['thread_id']}/turn-traces").status_code == 401
+    other_user_client = authenticated_client(TEAM_LEAD.id)
+    assert other_user_client.get(f"/api/chat/threads/{payload['thread_id']}/turn-traces").status_code == 404
+
+
+def test_chat_turn_updates_thread_activity_time() -> None:
+    clear_store()
+    client = authenticated_client()
+    original_time = now_utc() - timedelta(hours=1)
+    thread = store.add_chat_thread(
+        ChatThread(
+            workspace_id=WORKSPACE.id,
+            project_id=PROJECT.id,
+            user_id=USER.id,
+            title="继续讨论",
+            updated_at=original_time,
+        )
+    )
+
+    response = client.post("/api/chat/messages", json={"content": "继续", "thread_id": thread.id})
+
+    assert response.status_code == 200
+    updated = store.get_chat_thread(thread.id)
+    assert updated is not None
+    assert updated.updated_at > original_time
+
 
 def test_app_page_route_serves_workspace_shell() -> None:
     client = TestClient(app)
@@ -132,10 +277,19 @@ def test_chat_creates_task_blackboard_evidence_and_activity() -> None:
     assert len(store.audit_events) >= 2
 
 
-def test_chat_data_query_uses_data_agent_and_writes_metrics_evidence() -> None:
+def test_chat_data_query_uses_data_agent_and_writes_metrics_evidence(monkeypatch) -> None:
     clear_store()
     client = authenticated_client()
+    registry = chat_routes.agent.data_agent.registry
+    original_query = registry.query_first_available
+    connector_calls = 0
 
+    def counted_query(*args, **kwargs):
+        nonlocal connector_calls
+        connector_calls += 1
+        return original_query(*args, **kwargs)
+
+    monkeypatch.setattr(registry, "query_first_available", counted_query)
     response = client.post(
         "/api/chat/messages",
         json={"content": "$data.query 618 会场入口点击率数据"},
@@ -144,6 +298,7 @@ def test_chat_data_query_uses_data_agent_and_writes_metrics_evidence() -> None:
     assert response.status_code == 200
     payload = response.json()
 
+    assert connector_calls == 1
     assert payload["task"]["intent"] == "request_data_query"
     assert payload["request_post"]["current_owner_agent_id"] == "data_agent"
     assert payload["request_post"]["read_by_agents"] == ["data_agent"]
@@ -155,6 +310,37 @@ def test_chat_data_query_uses_data_agent_and_writes_metrics_evidence() -> None:
         log["category"] == "external_agent" and "data_agent" in log["summary"] for log in payload["activity_logs"]
     )
 
+
+def test_chat_data_query_denies_disabled_grant_before_connector(monkeypatch) -> None:
+    clear_store()
+    client = authenticated_client()
+    grant = next(
+        item
+        for item in store.list_agent_tool_grants(USER.personal_agent_id)
+        if item.tool_id == "tool_data_query"
+    )
+    grant.enabled = False
+    store.save_agent_tool_grant(grant)
+    connector_called = False
+
+    def forbidden_connector(*args, **kwargs):
+        nonlocal connector_called
+        connector_called = True
+        raise AssertionError("connector executed before authorization")
+
+    monkeypatch.setattr(
+        chat_routes.agent.data_agent.registry,
+        "query_first_available",
+        forbidden_connector,
+    )
+    response = client.post(
+        "/api/chat/messages",
+        json={"content": "$data.query 618 会场入口点击率数据"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Data query tool grant is required"
+    assert connector_called is False
 
 def test_audit_api_lists_recent_events_with_filters_and_counts() -> None:
     clear_store()

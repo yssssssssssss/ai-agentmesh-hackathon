@@ -38,6 +38,18 @@ class MemoryLayer(StrEnum):
     MID_TERM = "mid_term"
     LONG_TERM = "long_term"
 
+class MemorySearchScope(StrEnum):
+    AUTO = "auto"
+    PERSONAL = "personal"
+    PROJECT = "project"
+    TEAM = "team"
+
+
+class MemoryKind(StrEnum):
+    PERSONAL = "personal"
+    PROJECT = "project"
+    TEAM = "team"
+
 
 class TaskStatus(StrEnum):
     CREATED = "created"
@@ -788,6 +800,29 @@ class SearchResult(BaseModel):
     scope: Scope
     sources: list[Source] = Field(default_factory=list)
     created_at: datetime
+    project_id: str | None = None
+    team_id: str | None = None
+
+class RetrievedMemoryEvidence(BaseModel):
+    result_id: str
+    result_type: str
+    memory_kind: MemoryKind
+    citation_label: str
+    title: str
+    summary: str
+    rank: int
+    scope: Scope
+    project_id: str | None = None
+    team_id: str | None = None
+    sources: list[Source] = Field(default_factory=list)
+
+
+class MemorySearchTrace(BaseModel):
+    requested_scope: MemorySearchScope = MemorySearchScope.AUTO
+    personal_count: int = 0
+    project_count: int = 0
+    team_count: int = 0
+    results: list[RetrievedMemoryEvidence] = Field(default_factory=list)
 
 
 class BootstrapMetrics(BaseModel):
@@ -821,6 +856,10 @@ class RetrievalMetrics(BaseModel):
     source_ids_cited: list[str] = Field(default_factory=list)
     latency_ms: int = 0
     llm_used: bool = False
+    requested_scope: MemorySearchScope = MemorySearchScope.AUTO
+    task_id: str | None = None
+    thread_id: str | None = None
+    assistant_message_id: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
 
 
@@ -861,6 +900,24 @@ class ChatWorkflowTrace(BaseModel):
     fallback_reason: str | None = None
 
 
+class ChatTurnTrace(BaseModel):
+    id: str = Field(default_factory=lambda: new_id("trace"))
+    thread_id: str
+    user_message_id: str
+    assistant_message_id: str
+    task_id: str | None = None
+    intent: Intent
+    source: str
+    selected_workflow: str
+    persisted: bool
+    llm_used: bool
+    fallback_reason: str | None = None
+    steps: list[str] = Field(default_factory=list)
+    sources: list[Source] = Field(default_factory=list)
+    memory_search: MemorySearchTrace | None = None
+    created_at: datetime = Field(default_factory=now_utc)
+
+
 class ChatResponse(BaseModel):
     thread_id: str
     user_message: ChatMessage
@@ -874,6 +931,7 @@ class ChatResponse(BaseModel):
     memory_items: list[MemoryItem]
     user_memory_items: list[UserMemoryItem] = Field(default_factory=list)
     workflow_trace: ChatWorkflowTrace | None = None
+    turn_trace: ChatTurnTrace | None = None
 
 
 # --- API Response Wrappers ---

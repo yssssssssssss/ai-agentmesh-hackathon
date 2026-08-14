@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-AgentMesh is a Python 3.12+ FastAPI prototype. Core backend code lives in `agentmesh/`. Route handlers are under `agentmesh/routes/`, domain models are in `agentmesh/models.py`, persistence is in `agentmesh/store.py`, seed data is in `agentmesh/seed.py`, and agent/tool integrations are split across files such as `agents.py`, `tools.py`, `o2.py`, and `web_research.py`. The current frontend is the single static file `app.html`. Tests live in `tests/`; evaluation helpers live in `eval/`; ADRs and planning docs live in `docs/`. Runtime SQLite data is stored under `data/` and should not be committed.
+AgentMesh is a Python 3.12+ FastAPI prototype. Core backend code lives in `agentmesh/`. Route handlers are under `agentmesh/routes/`, domain models are in `agentmesh/models.py`, persistence is in `agentmesh/store.py`, seed data is in `agentmesh/seed.py`, and agent/tool integrations are split across files such as `agents.py`, `tools.py`, `o2.py`, and `web_research.py`. The current frontend is the React/Vite app in `agentmesh-demo/`; root `app.html` is the legacy fallback during migration. Tests live in `tests/`; evaluation helpers live in `eval/`; ADRs and planning docs live in `docs/`. Runtime SQLite data is stored under `data/` and should not be committed.
 
 ## Build, Test, and Development Commands
 
@@ -13,13 +13,20 @@ Create and install the local environment:
 .venv/bin/python -m pip install -e '.[dev]'
 ```
 
-Run the app locally:
+Install frontend dependencies:
+
+```bash
+npm --prefix agentmesh-demo install
+```
+
+Run the backend and current React frontend in separate terminals:
 
 ```bash
 .venv/bin/uvicorn agentmesh.app:app --reload --port 8010
+npm --prefix agentmesh-demo run dev -- --port 5178 --strictPort
 ```
 
-Open `http://127.0.0.1:8010/app.html`. If port `8010` is busy, inspect it with `lsof -nP -iTCP:8010 -sTCP:LISTEN` or use another port.
+Open `http://127.0.0.1:5178`. Vite proxies `/api` to `8010`; the legacy static page remains at `http://127.0.0.1:8010/app.html`. If a port is busy, inspect it with `lsof -nP -iTCP:<port> -sTCP:LISTEN` before starting another process.
 
 Run tests and lint:
 

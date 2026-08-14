@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-slate-200 font-sans antialiased;
+    font-feature-settings: 'tnum' on, 'lnum' on;
+  }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.16);
+    background-clip: padding-box;
+  }
+}
+
+@layer components {
+  /* 低对比边框卡片，悬浮状态清晰 */
+  .card-base {
+    @apply rounded-card border border-white/[0.06] bg-surface-1 shadow-card;
+  }
+
+  .hairline {
+    @apply border-white/[0.06];
+  }
+
+  .text-muted {
+    @apply text-slate-400;
+  }
+  .text-faint {
+    @apply text-slate-500;
+  }
+}

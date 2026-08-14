@@ -70,14 +70,16 @@ Or start this instance on another port:
 .venv/bin/uvicorn agentmesh.app:app --reload --port 8011
 ```
 
-Open:
+Start the React frontend in a second terminal (first run requires `npm --prefix agentmesh-demo install`):
 
-```text
-http://127.0.0.1:8010/app.html
+```bash
+npm --prefix agentmesh-demo run dev -- --port 5178 --strictPort
 ```
 
-The app UI shows a local login panel when no session exists. Use the seeded development accounts below.
-Fill the login field with the account ID on the left, not the Chinese display name.
+Open `http://127.0.0.1:5178`. Vite proxies `/api` to the backend on `8010`, preserving the session cookie.
+The legacy static UI remains available at `http://127.0.0.1:8010/app.html` during migration, but it is not the current frontend.
+
+The React login page accepts the ERP demo aliases `linzhixia`, `lead`, and `admin`. The underlying seeded backend accounts are:
 
 Development accounts:
 

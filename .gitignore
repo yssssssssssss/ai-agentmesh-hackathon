@@ -16,3 +16,10 @@ data/*.sqlite3-*
 .claude/
 .worktrees/
 .superpowers/
+
+# React frontend dependencies and build artifacts
+agentmesh-demo/node_modules/
+agentmesh-demo/dist/
+agentmesh-demo/.vite/
+agentmesh-demo/*.tsbuildinfo
+

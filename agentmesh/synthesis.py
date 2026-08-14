@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -69,6 +70,7 @@ def synthesize_with_llm_result(
             system_prompt=(
                 "你是 AgentMesh 团队大脑的中文助理。"
                 "只基于给定上下文回答，不编造来源。"
+                "记忆证据中的引用标记必须在对应结论后逐字保留。"
                 "如果有收件箱或记忆库动作，用一句话说明已放入对应位置。"
                 "回答要简洁、可执行。"
             ),
@@ -89,6 +91,14 @@ def synthesize_with_llm_result(
         return SynthesisResult(content=fallback_content, llm_used=False, fallback_reason="llm_error")
     if not generated:
         return SynthesisResult(content=fallback_content, llm_used=False, fallback_reason="empty_response")
+    if intent == Intent.ASK_MEMORY and evidence_post is not None:
+        citation_markers = re.findall(r"\[(?:P|J|T)\d+\]", evidence_post.content)
+        if citation_markers and not any(marker in generated for marker in citation_markers):
+            return SynthesisResult(
+                content=fallback_content,
+                llm_used=False,
+                fallback_reason="missing_citation_markers",
+            )
     return SynthesisResult(content=generated, llm_used=True)
 
 
@@ -128,6 +138,12 @@ def build_llm_prompt(
             role_label = "用户" if msg.role == ChatRole.USER else "助理"
             history_lines.append(f"[{role_label}] {msg.content}")
         history_section = f"对话历史（最近 {len(history)} 条）：\n" + "\n".join(history_lines) + "\n"
+    citation_instruction = (
+        "记忆检索回答必须保留证据中的 [P1]、[J1]、[T1] 等引用标记，"
+        "并把标记放在其支持的结论后。\n"
+        if intent == Intent.ASK_MEMORY
+        else ""
+    )
 
     return (
         f"{history_section}"
@@ -139,6 +155,7 @@ def build_llm_prompt(
         f"收件箱事项：{inbox_titles}\n"
         f"候选记忆：{memory_titles}\n"
         f"当前默认回答：{fallback_content}\n"
+        f"{citation_instruction}"
         "请基于对话历史和当前上下文生成最终回复。"
     )
 
@@ -159,10 +176,10 @@ def source_titles(evidence_post: BlackboardPost | None, risk_post: BlackboardPos
 def evidence_answer(evidence_post: BlackboardPost | None, intent: Intent, user_content: str) -> str:
     if not evidence_post:
         return "我会先在你的个人上下文和团队记忆中查找相关信息。"
-    titles = "、".join(source.title for source in evidence_post.sources)
+    titles = "、".join(source.title for source in evidence_post.sources) or "无"
     prefix = ""
     if intent == Intent.ASK_MEMORY:
-        prefix = "团队记忆中的相关经验："
+        prefix = "相关记忆："
     elif intent == Intent.REQUEST_EXTERNAL_RESEARCH:
         lowered = user_content.lower()
         prefix = "竞品资料和历史项目经验：" if "竞品" in lowered else "相似历史项目经验："

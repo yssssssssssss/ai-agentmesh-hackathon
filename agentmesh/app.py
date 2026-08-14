@@ -98,11 +98,6 @@ def app_page() -> FileResponse:
     return FileResponse(ROOT_DIR / "app.html")
 
 
-@app.get("/market.html")
-def market_page() -> FileResponse:
-    return FileResponse(ROOT_DIR / "market.html")
-
-
 static_dir = ROOT_DIR / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")

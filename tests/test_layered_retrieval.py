@@ -18,6 +18,7 @@ from agentmesh.store import store
 
 def _reset_and_seed() -> None:
     store.reset()
+    store.save_project(PROJECT)
 
 
 class TestLayeredRetrieval:

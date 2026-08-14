@@ -23,6 +23,7 @@ from agentmesh.models import (
     BlackboardPostType,
     ChatMessage,
     ChatThread,
+    ChatTurnTrace,
     ConsentGrant,
     ContributionPoint,
     DocumentParseJob,
@@ -61,6 +62,15 @@ DEFAULT_DB_PATH = ROOT_DIR / "data" / "agentmesh.sqlite3"
 _FTS_COLLECTIONS = frozenset(
     {"chat_messages", "activity_logs", "blackboard_posts", "memory_items", "user_memory_items", "documents"}
 )
+
+_RESULT_TYPE_COLLECTIONS = {
+    "chat_message": "chat_messages",
+    "activity_log": "activity_logs",
+    "blackboard_evidence": "blackboard_posts",
+    "memory_item": "memory_items",
+    "user_memory_item": "user_memory_items",
+    "document": "documents",
+}
 
 
 @dataclass(slots=True)
@@ -388,6 +398,11 @@ class SQLiteStore:
         return self._list("chat_threads", ChatThread)
 
     @property
+    def chat_turn_traces(self) -> list[ChatTurnTrace]:
+        return self._list("chat_turn_traces", ChatTurnTrace)
+
+
+    @property
     def tasks(self) -> list[Task]:
         return self._list("tasks", Task)
 
@@ -598,6 +613,11 @@ class SQLiteStore:
     def add_chat_thread(self, thread: ChatThread) -> ChatThread:
         self._upsert("chat_threads", thread)
         return thread
+
+    def add_chat_turn_trace(self, trace: ChatTurnTrace) -> ChatTurnTrace:
+        self._upsert("chat_turn_traces", trace)
+        return trace
+
 
     def save_chat_thread(self, thread: ChatThread) -> ChatThread:
         self._upsert("chat_threads", thread)
@@ -857,6 +877,19 @@ class SQLiteStore:
     def list_thread_messages(self, thread_id: str) -> list[ChatMessage]:
         return [message for message in self.chat_messages if message.thread_id == thread_id]
 
+    def list_thread_turn_traces(self, thread_id: str) -> list[ChatTurnTrace]:
+        traces = [trace for trace in self.chat_turn_traces if trace.thread_id == thread_id]
+        return sorted(traces, key=lambda trace: trace.created_at)
+
+    def list_chat_threads(self, user_id: str) -> list[ChatThread]:
+        threads = [thread for thread in self.chat_threads if thread.user_id == user_id]
+        return sorted(
+            threads,
+            key=lambda thread: (thread.updated_at, thread.created_at, thread.id),
+            reverse=True,
+        )
+
+
     def list_user_memory_items(
         self,
         user_id: str,
@@ -891,6 +924,8 @@ class SQLiteStore:
         user_id: str | None = None,
         max_results: int = 20,
         max_chars: int = 8000,
+        result_types: set[str] | None = None,
+        allowed_record_ids: set[str] | None = None,
     ) -> list[SearchResult]:
         needle = query.strip()
         if not needle:
@@ -898,12 +933,52 @@ class SQLiteStore:
 
         scope_values = [s.value for s in allowed_scopes]
         placeholders = ",".join("?" for _ in scope_values)
+        allowed_collections: set[str] | None = None
+        if result_types is not None:
+            allowed_collections = {
+                collection
+                for result_type, collection in _RESULT_TYPE_COLLECTIONS.items()
+                if result_type in result_types
+            }
+            if not allowed_collections:
+                return []
+        if allowed_record_ids is not None and not allowed_record_ids:
+            return []
+
 
         with self._connect() as connection:
-            fts_rows = self._fts_match(connection, needle, scope_values, placeholders)
+            fts_rows = self._fts_match(
+                connection,
+                needle,
+                scope_values,
+                placeholders,
+                allowed_collections,
+                allowed_record_ids,
+            )
             if not fts_rows:
-                fts_rows = self._fts_like_fallback(connection, needle, scope_values, placeholders)
-            vec_rows = self._vec_search(connection, needle, scope_values, placeholders)
+                fts_rows = self._fts_like_fallback(
+                    connection,
+                    needle,
+                    scope_values,
+                    placeholders,
+                    allowed_collections,
+                    allowed_record_ids,
+                )
+            vec_rows = self._vec_search(
+                connection,
+                needle,
+                scope_values,
+                placeholders,
+                allowed_collections,
+                allowed_record_ids,
+            )
+
+        if allowed_collections is not None:
+            fts_rows = [row for row in fts_rows if row["collection"] in allowed_collections]
+            vec_rows = [row for row in vec_rows if row["collection"] in allowed_collections]
+        if allowed_record_ids is not None:
+            fts_rows = [row for row in fts_rows if row["record_id"] in allowed_record_ids]
+            vec_rows = [row for row in vec_rows if row["record_id"] in allowed_record_ids]
 
         rows = self._rrf_merge(fts_rows, vec_rows)
 
@@ -979,6 +1054,7 @@ class SQLiteStore:
                         summary=post.content,
                         scope=post.scope,
                         sources=post.sources,
+                        project_id=thread.project_id if thread else None,
                         created_at=post.created_at,
                     )
                 )
@@ -1003,6 +1079,8 @@ class SQLiteStore:
                         summary=item.summary,
                         scope=item.scope,
                         sources=item.sources,
+                        project_id=item.project_id,
+                        team_id=item.team_id,
                         created_at=item.created_at,
                     )
                 )
@@ -1025,6 +1103,7 @@ class SQLiteStore:
                         summary=item.summary,
                         scope=item.scope,
                         sources=item.sources,
+                        project_id=item.project_id,
                         created_at=item.created_at,
                     )
                 )
@@ -1047,11 +1126,17 @@ class SQLiteStore:
                         summary=document.text[:500],
                         scope=Scope.PRIVATE,
                         sources=[document.source],
+                        project_id=document.project_id,
                         created_at=document.created_at,
                     )
                 )
 
-        # Results already in RRF relevance order from _rrf_merge; preserve that order.
+        # Filter record kinds before applying the result/character budget so
+        # unrelated same-scope records cannot crowd out strict memory results.
+        if result_types is not None:
+            results = [result for result in results if result.result_type in result_types]
+        if allowed_record_ids is not None:
+            results = [result for result in results if result.id in allowed_record_ids]
         return self._apply_budget(results, max_results, max_chars)
 
     @staticmethod
@@ -1070,11 +1155,26 @@ class SQLiteStore:
 
     @staticmethod
     def _fts_match(
-        connection: sqlite3.Connection, needle: str, scope_values: list[str], placeholders: str
+        connection: sqlite3.Connection,
+        needle: str,
+        scope_values: list[str],
+        placeholders: str,
+        allowed_collections: set[str] | None = None,
+        allowed_record_ids: set[str] | None = None,
     ) -> list[sqlite3.Row]:
         if not _can_use_fts_match(needle):
             return []
         fts_query = _build_fts_query(needle)
+        collection_values = sorted(allowed_collections) if allowed_collections is not None else []
+        collection_clause = ""
+        if collection_values:
+            collection_placeholders = ",".join("?" for _ in collection_values)
+            collection_clause = f" AND collection IN ({collection_placeholders})"
+        record_id_values = sorted(allowed_record_ids) if allowed_record_ids is not None else []
+        record_id_clause = ""
+        if record_id_values:
+            record_id_placeholders = ",".join("?" for _ in record_id_values)
+            record_id_clause = f" AND record_id IN ({record_id_placeholders})"
         try:
             return connection.execute(
                 f"""
@@ -1083,19 +1183,36 @@ class SQLiteStore:
                 FROM records_fts
                 WHERE records_fts MATCH ?
                   AND scope IN ({placeholders})
+                  {collection_clause}
+                  {record_id_clause}
                 ORDER BY score
                 LIMIT 200
                 """,
-                [fts_query, *scope_values],
+                [fts_query, *scope_values, *collection_values, *record_id_values],
             ).fetchall()
         except sqlite3.OperationalError:
             return []
 
     @staticmethod
     def _fts_like_fallback(
-        connection: sqlite3.Connection, needle: str, scope_values: list[str], placeholders: str
+        connection: sqlite3.Connection,
+        needle: str,
+        scope_values: list[str],
+        placeholders: str,
+        allowed_collections: set[str] | None = None,
+        allowed_record_ids: set[str] | None = None,
     ) -> list[sqlite3.Row]:
         like_pattern = f"%{needle}%"
+        collection_values = sorted(allowed_collections) if allowed_collections is not None else []
+        collection_clause = ""
+        if collection_values:
+            collection_placeholders = ",".join("?" for _ in collection_values)
+            collection_clause = f" AND collection IN ({collection_placeholders})"
+        record_id_values = sorted(allowed_record_ids) if allowed_record_ids is not None else []
+        record_id_clause = ""
+        if record_id_values:
+            record_id_placeholders = ",".join("?" for _ in record_id_values)
+            record_id_clause = f" AND record_id IN ({record_id_placeholders})"
         return connection.execute(
             f"""
             SELECT collection, record_id, scope, workspace_id, project_id,
@@ -1103,14 +1220,21 @@ class SQLiteStore:
             FROM records_fts
             WHERE (title LIKE ? OR body LIKE ?)
               AND scope IN ({placeholders})
+              {collection_clause}
+              {record_id_clause}
             LIMIT 200
             """,
-            [like_pattern, like_pattern, *scope_values],
+            [like_pattern, like_pattern, *scope_values, *collection_values, *record_id_values],
         ).fetchall()
 
     @staticmethod
     def _vec_search(
-        connection: sqlite3.Connection, needle: str, scope_values: list[str], placeholders: str
+        connection: sqlite3.Connection,
+        needle: str,
+        scope_values: list[str],
+        placeholders: str,
+        allowed_collections: set[str] | None = None,
+        allowed_record_ids: set[str] | None = None,
     ) -> list[dict]:
         from agentmesh.embedding import EMBEDDING_ENABLED, cosine_similarity, deserialize_embedding, embed_text
 
@@ -1119,6 +1243,16 @@ class SQLiteStore:
         query_embedding = embed_text(needle)
         if query_embedding is None:
             return []
+        collection_values = sorted(allowed_collections) if allowed_collections is not None else []
+        collection_clause = ""
+        if collection_values:
+            collection_placeholders = ",".join("?" for _ in collection_values)
+            collection_clause = f" AND rf.collection IN ({collection_placeholders})"
+        record_id_values = sorted(allowed_record_ids) if allowed_record_ids is not None else []
+        record_id_clause = ""
+        if record_id_values:
+            record_id_placeholders = ",".join("?" for _ in record_id_values)
+            record_id_clause = f" AND rf.record_id IN ({record_id_placeholders})"
         rows = connection.execute(
             f"""
             SELECT rv.collection, rv.record_id, rv.embedding,
@@ -1126,8 +1260,10 @@ class SQLiteStore:
             FROM records_vec rv
             JOIN records_fts rf ON rv.collection = rf.collection AND rv.record_id = rf.record_id
             WHERE rf.scope IN ({placeholders})
+              {collection_clause}
+              {record_id_clause}
             """,
-            scope_values,
+            [*scope_values, *collection_values, *record_id_values],
         ).fetchall()
         scored: list[tuple[float, dict]] = []
         for row in rows:

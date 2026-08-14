@@ -32,12 +32,3 @@ def test_market_board_returns_signals_and_matches() -> None:
     assert isinstance(payload["signals"], list)
     assert isinstance(payload["matches"], list)
 
-
-def test_market_page_is_served() -> None:
-    client = TestClient(app)
-
-    response = client.get("/market.html")
-
-    assert response.status_code == 200
-    assert "协作市场看板" in response.text
-

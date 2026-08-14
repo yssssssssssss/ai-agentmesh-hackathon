@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agentmesh.models import Intent
+from agentmesh.models import Intent, MemorySearchScope
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,7 @@ class ChatSkillSpec:
     placeholder: str
     aliases: tuple[str, ...] = ()
     requires_input: bool = True
+    memory_search_scope: MemorySearchScope | None = None
 
     def to_public_dict(self) -> dict[str, object]:
         return {
@@ -27,6 +28,7 @@ class ChatSkillSpec:
             "placeholder": self.placeholder,
             "aliases": list(self.aliases),
             "requires_input": self.requires_input,
+            "memory_search_scope": self.memory_search_scope.value if self.memory_search_scope else None,
         }
 
 
@@ -46,6 +48,34 @@ CHAT_SKILLS: tuple[ChatSkillSpec, ...] = (
         intent=Intent.ASK_MEMORY,
         placeholder="输入要查询的项目、经验或关键词",
         aliases=("$memory", "$search.memory"),
+        memory_search_scope=MemorySearchScope.AUTO,
+    ),
+    ChatSkillSpec(
+        command="$memory.personal",
+        title="查询个人记忆",
+        description="仅检索当前用户的个人记忆。",
+        usage="$memory.personal 618 家电会场首屏经验",
+        intent=Intent.ASK_MEMORY,
+        placeholder="输入要查询的个人记忆或关键词",
+        memory_search_scope=MemorySearchScope.PERSONAL,
+    ),
+    ChatSkillSpec(
+        command="$memory.project",
+        title="查询项目记忆",
+        description="仅检索当前对话所属项目的共享记忆。",
+        usage="$memory.project 618 家电会场首屏经验",
+        intent=Intent.ASK_MEMORY,
+        placeholder="输入要查询的项目记忆或关键词",
+        memory_search_scope=MemorySearchScope.PROJECT,
+    ),
+    ChatSkillSpec(
+        command="$memory.team",
+        title="查询团队记忆",
+        description="仅检索当前用户可访问的已采纳团队记忆。",
+        usage="$memory.team 618 家电会场首屏经验",
+        intent=Intent.ASK_MEMORY,
+        placeholder="输入要查询的团队记忆或关键词",
+        memory_search_scope=MemorySearchScope.TEAM,
     ),
     ChatSkillSpec(
         command="$brief.create",
@@ -117,7 +147,9 @@ _SKILL_BY_COMMAND = {
     key: spec for spec in CHAT_SKILLS for key in (spec.command, *spec.aliases)
 }
 
-_SKILL_BY_INTENT: dict[Intent, ChatSkillSpec] = {spec.intent: spec for spec in CHAT_SKILLS}
+_SKILL_BY_INTENT: dict[Intent, ChatSkillSpec] = {}
+for _spec in CHAT_SKILLS:
+    _SKILL_BY_INTENT.setdefault(_spec.intent, _spec)
 
 
 def spec_for_intent(intent: Intent) -> ChatSkillSpec | None:

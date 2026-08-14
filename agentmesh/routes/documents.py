@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Response, UploadFile
 
+from agentmesh.chunker import chunk_text
 from agentmesh.documents import CompositeDocumentParser, DocumentIngestionRequest, UnsupportedDocumentTypeError
 from agentmesh.models import (
     DocumentParseJob,
     DocumentRecord,
     DocumentUpdateRequest,
     MemoryLayer,
+    Scope,
+    Source,
     User,
     UserMemoryItem,
     UserRole,
@@ -133,6 +136,7 @@ def parse_document_request(request: DocumentIngestionRequest) -> DocumentRecord:
             sources=[document.source],
         )
     )
+    import_document_chunks(document)
     return document
 
 
@@ -167,3 +171,55 @@ def summarize_document_text(text: str) -> str:
     if not normalized:
         return "文档没有解析出可用正文。"
     return normalized[:1200]
+
+
+def import_document_chunks(document: DocumentRecord) -> list[UserMemoryItem]:
+    """Chunk document text and write each chunk as a long-term memory item."""
+    chunks = chunk_text(document.text)
+    items: list[UserMemoryItem] = []
+    for i, chunk in enumerate(chunks):
+        item = store.add_user_memory_item(
+            UserMemoryItem(
+                user_id=document.uploaded_by,
+                layer=MemoryLayer.LONG_TERM,
+                title=f"{document.title} [{i + 1}/{len(chunks)}]",
+                summary=chunk,
+                source_kind="document_import",
+                memory_type="document_chunk",
+                memory_date=now_utc().date(),
+                scope=Scope.PRIVATE,
+                workspace_id=document.workspace_id,
+                project_id=document.project_id,
+                sources=[
+                    Source(
+                        title=document.file_name,
+                        source_type="document",
+                        reference=f"document://{document.id}#chunk_{i}",
+                    )
+                ],
+            )
+        )
+        items.append(item)
+    return items
+
+
+@router.post("/{document_id}/import-to-memory")
+def import_document_to_memory(
+    document_id: str,
+    user: User = Depends(current_user),
+) -> dict[str, object]:
+    """Manually trigger chunk import for an existing document."""
+    document = store.get_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if user.role != UserRole.ADMIN and document.uploaded_by != user.id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    existing = [
+        item for item in store.user_memory_items
+        if item.source_kind == "document_import"
+        and any(f"document://{document_id}" in s.reference for s in item.sources)
+    ]
+    if existing:
+        return {"status": "already_imported", "chunk_count": len(existing)}
+    items = import_document_chunks(document)
+    return {"status": "imported", "chunk_count": len(items)}

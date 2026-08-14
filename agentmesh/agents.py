@@ -26,6 +26,7 @@ from agentmesh.models import (
     ChatResponse,
     ChatRole,
     ChatThread,
+    ChatTurnTrace,
     ChatWorkflowTrace,
     CollaborationStage,
     ConsentGrant,
@@ -36,9 +37,13 @@ from agentmesh.models import (
     InboxItem,
     Intent,
     MemoryItem,
+    MemoryKind,
     MemoryLayer,
     MemoryRelation,
+    MemorySearchScope,
+    MemorySearchTrace,
     RetrievalMetrics,
+    RetrievedMemoryEvidence,
     Scope,
     SearchResult,
     Source,
@@ -79,6 +84,11 @@ class _ChatTurnState:
     user_memory_items: list[UserMemoryItem] = field(default_factory=list)
     pending_tool_approval: bool = False
     retrieval_metrics: RetrievalMetrics | None = None
+    memory_search: MemorySearchTrace | None = None
+
+
+class ChatThreadAccessError(RuntimeError):
+    """Raised when a chat thread is missing or owned by another user."""
 
 
 class RequestAlreadyFulfilledError(RuntimeError):
@@ -118,6 +128,8 @@ class PersonalAgent:
 
     def handle_chat(self, content: str, thread_id: str | None = None, user: User = USER) -> ChatResponse:
         actual_thread_id = thread_id or new_id("thread")
+        if thread_id is not None:
+            self._validate_thread_access(actual_thread_id, user)
 
         # 读取对话历史用于上下文
         history = self._get_thread_history(actual_thread_id)
@@ -248,7 +260,7 @@ class PersonalAgent:
             intent, invocation.spec.command, persisted=True, source=intent_source, confidence=confidence,
         )
 
-        self._ensure_thread(thread_id, content, user)
+        thread = self._ensure_thread(thread_id, content, user)
 
         user_message = self.repository.add_chat_message(
             ChatMessage(
@@ -279,7 +291,15 @@ class PersonalAgent:
 
         try:
             if intent == Intent.ASK_MEMORY:
-                self._handle_memory_search(task, skill_content, user, state)
+                self._handle_memory_search(
+                    task,
+                    skill_content,
+                    user,
+                    state,
+                    search_scope=invocation.spec.memory_search_scope or MemorySearchScope.AUTO,
+                    workspace_id=thread.workspace_id,
+                    project_id=thread.project_id,
+                )
 
             if intent == Intent.REQUEST_DATA_QUERY:
                 self._handle_data_query(task, skill_content, user, state)
@@ -298,8 +318,17 @@ class PersonalAgent:
             raise
 
         assistant_content = self._assistant_content_for_turn(intent, skill_content, state, user)
+        strict_memory_scope = bool(
+            state.memory_search
+            and state.memory_search.requested_scope != MemorySearchScope.AUTO
+        )
+        strict_memory_miss = bool(strict_memory_scope and not state.memory_search.results)
 
-        if not state.pending_tool_approval and intent not in {Intent.ASK_SYSTEM_INFO, Intent.GENERATE_BRIEF}:
+        if (
+            not strict_memory_miss
+            and not state.pending_tool_approval
+            and intent not in {Intent.ASK_SYSTEM_INFO, Intent.GENERATE_BRIEF}
+        ):
             synthesis = self._synthesize_with_llm(
                 fallback_content=assistant_content,
                 user_content=skill_content,
@@ -309,7 +338,7 @@ class PersonalAgent:
                 inbox_items=state.inbox_items,
                 memory_items=state.memory_items,
                 user=user,
-                history=history,
+                history=None if strict_memory_scope else history,
             )
             assistant_content = synthesis.content
             workflow_trace.llm_used = synthesis.llm_used
@@ -317,13 +346,16 @@ class PersonalAgent:
 
         if state.retrieval_metrics is not None:
             state.retrieval_metrics.llm_used = workflow_trace.llm_used if workflow_trace else False
-            state.retrieval_metrics.results_cited = self._count_cited_sources(
-                assistant_content, state.retrieval_metrics.source_ids_returned
-            )
+            citation_labels = {
+                result.citation_label: result.result_id
+                for result in state.memory_search.results
+            } if state.memory_search else None
             state.retrieval_metrics.source_ids_cited = self._find_cited_source_ids(
-                assistant_content, state.retrieval_metrics.source_ids_returned
+                assistant_content,
+                state.retrieval_metrics.source_ids_returned,
+                citation_labels,
             )
-            self.repository.add_retrieval_metrics(state.retrieval_metrics)
+            state.retrieval_metrics.results_cited = len(state.retrieval_metrics.source_ids_cited)
 
         state.activity_logs.append(
             self._activity(
@@ -353,6 +385,17 @@ class PersonalAgent:
             )
         )
         self._audit("return_chat_response", "chat_message", assistant_message.id, {"task_id": task.id})
+        if state.retrieval_metrics is not None:
+            state.retrieval_metrics.assistant_message_id = assistant_message.id
+            self.repository.add_retrieval_metrics(state.retrieval_metrics)
+        turn_trace = self._persist_turn_trace(
+            workflow_trace,
+            thread_id=thread_id,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            task=task,
+            memory_search=state.memory_search,
+        )
         memory_item = self._record_short_term_memory(task, intent, skill_content, assistant_content, state, user)
         if memory_item is not None:
             state.user_memory_items.append(memory_item)
@@ -371,6 +414,7 @@ class PersonalAgent:
             memory_items=state.memory_items,
             user_memory_items=state.user_memory_items,
             workflow_trace=workflow_trace,
+            turn_trace=turn_trace,
         )
 
     def _persist_private_chat_turn(
@@ -391,6 +435,21 @@ class PersonalAgent:
         assistant_message = self.repository.add_chat_message(
             ChatMessage(thread_id=thread_id, role=ChatRole.ASSISTANT, content=assistant_content, scope=Scope.PRIVATE)
         )
+        workflow_trace = ChatWorkflowTrace(
+            intent=Intent.GENERAL_CHAT,
+            confidence=1.0,
+            source=source,
+            selected_workflow=selected_workflow,
+            persisted=True,
+            llm_used=llm_used,
+            fallback_reason=fallback_reason,
+        )
+        turn_trace = self._persist_turn_trace(
+            workflow_trace,
+            thread_id=thread_id,
+            user_message=user_message,
+            assistant_message=assistant_message,
+        )
         return ChatResponse(
             thread_id=thread_id,
             user_message=user_message,
@@ -400,16 +459,50 @@ class PersonalAgent:
             inbox_items=[],
             memory_items=[],
             user_memory_items=[],
-            workflow_trace=ChatWorkflowTrace(
-                intent=Intent.GENERAL_CHAT,
-                confidence=1.0,
-                source=source,
-                selected_workflow=selected_workflow,
-                persisted=True,
-                llm_used=llm_used,
-                fallback_reason=fallback_reason,
-            ),
+            workflow_trace=workflow_trace,
+            turn_trace=turn_trace,
         )
+
+    def _persist_turn_trace(
+        self,
+        workflow_trace: ChatWorkflowTrace,
+        *,
+        thread_id: str,
+        user_message: ChatMessage,
+        assistant_message: ChatMessage,
+        task: Task | None = None,
+        memory_search: MemorySearchTrace | None = None,
+    ) -> ChatTurnTrace:
+        sources: list[Source] = []
+        seen_source_ids: set[str] = set()
+        for source in assistant_message.sources:
+            if source.id in seen_source_ids:
+                continue
+            seen_source_ids.add(source.id)
+            sources.append(source)
+
+        trace = self.repository.add_chat_turn_trace(
+            ChatTurnTrace(
+                thread_id=thread_id,
+                user_message_id=user_message.id,
+                assistant_message_id=assistant_message.id,
+                task_id=task.id if task is not None else None,
+                intent=workflow_trace.intent,
+                source=workflow_trace.source,
+                selected_workflow=workflow_trace.selected_workflow,
+                persisted=workflow_trace.persisted,
+                llm_used=workflow_trace.llm_used,
+                fallback_reason=workflow_trace.fallback_reason,
+                steps=list(task.steps) if task is not None else [],
+                sources=sources,
+                memory_search=memory_search,
+            )
+        )
+        thread = self.repository.get_chat_thread(thread_id)
+        if thread is not None:
+            thread.updated_at = now_utc()
+            self.repository.save_chat_thread(thread)
+        return trace
 
     @staticmethod
     def _unknown_skill_answer(invocation: ChatSkillInvocation) -> str:
@@ -452,28 +545,62 @@ class PersonalAgent:
             )
         )
 
-    def _handle_memory_search(self, task: Task, content: str, user: User, state: _ChatTurnState) -> None:
+    def _handle_memory_search(
+        self,
+        task: Task,
+        content: str,
+        user: User,
+        state: _ChatTurnState,
+        *,
+        search_scope: MemorySearchScope = MemorySearchScope.AUTO,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> None:
+        resolved_workspace_id = workspace_id or user.workspace_id
+        resolved_project_id = project_id or user.default_project_id
         t0 = time.perf_counter()
-        results = self._search_team_brain(content, user)
+        results = self._search_team_brain(
+            content,
+            user,
+            search_scope=search_scope,
+            workspace_id=resolved_workspace_id,
+            project_id=resolved_project_id,
+        )
         latency_ms = int((time.perf_counter() - t0) * 1000)
+        state.memory_search = self._build_memory_search_trace(search_scope, results)
 
-        source_ids = [r.id for r in results]
+        source_ids = [result.id for result in results]
         state.retrieval_metrics = RetrievalMetrics(
             query_text=content[:200],
             user_id=user.id,
             results_returned=len(results),
             source_ids_returned=source_ids,
             latency_ms=latency_ms,
+            requested_scope=search_scope,
+            task_id=task.id,
+            thread_id=task.thread_id,
         )
 
         if results:
-            state.evidence_post = self._create_memory_search_evidence(task, results)
+            state.evidence_post = self._create_memory_search_evidence(task, state.memory_search.results)
             state.synthesis_evidence_post = state.evidence_post
             task.steps.append("searched_memory")
             state.activity_logs.append(
                 self._activity(
-                    title="检索个人与团队记忆",
-                    summary=f"命中 {len(results)} 条个人、项目或团队记忆，未发起新的 BBS 求助。",
+                    title="检索个人、项目与团队记忆",
+                    summary=f"命中 {len(results)} 条记忆，未发起新的 BBS 求助。",
+                    category="personal",
+                    scope=Scope.PRIVATE,
+                )
+            )
+            return
+
+        if search_scope != MemorySearchScope.AUTO:
+            task.steps.append("searched_memory")
+            state.activity_logs.append(
+                self._activity(
+                    title="指定记忆范围未命中",
+                    summary=f"{search_scope.value} 范围内没有找到结果，未跨范围检索或求助。",
                     category="personal",
                     scope=Scope.PRIVATE,
                 )
@@ -500,14 +627,110 @@ class PersonalAgent:
             )
         )
 
-    def _search_team_brain(self, query: str, user: User) -> list[SearchResult]:
-        """Layered retrieval: high-tier memory first, drill down only if needed."""
-        # Layer 1: long_term + TEAM_ACCEPTED (high-value condensed memory)
+    def _search_team_brain(
+        self,
+        query: str,
+        user: User,
+        *,
+        search_scope: MemorySearchScope = MemorySearchScope.AUTO,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[SearchResult]:
+        """Search only memory visible in the requested thread context."""
+        effective_workspace_id = workspace_id or user.workspace_id
+        effective_project_id = project_id or user.default_project_id
+
+        if search_scope == MemorySearchScope.PERSONAL:
+            allowed_record_ids = {
+                item.id
+                for item in self.repository.user_memory_items
+                if item.user_id == user.id and item.workspace_id == effective_workspace_id
+            }
+            results = self.repository.search(
+                query,
+                {Scope.PRIVATE},
+                workspace_id=effective_workspace_id,
+                user_id=user.id,
+                max_results=10,
+                result_types={"user_memory_item"},
+                allowed_record_ids=allowed_record_ids,
+            )
+            return [result for result in results if result.result_type == "user_memory_item"][:5]
+
+        if search_scope == MemorySearchScope.PROJECT:
+            if not effective_project_id:
+                return []
+            project = self.repository.get_project(effective_project_id)
+            can_access_project = bool(
+                project
+                and project.workspace_id == effective_workspace_id
+                and (
+                    not project.member_ids
+                    or user.id in project.member_ids
+                    or user.role in {"admin", "team_lead"}
+                )
+            )
+            allowed_record_ids = {
+                item.id
+                for item in self.repository.memory_items
+                if can_access_project
+                and item.workspace_id == effective_workspace_id
+                and item.project_id == effective_project_id
+                and item.scope == Scope.PROJECT
+            }
+            results = self.repository.search(
+                query,
+                {Scope.PROJECT},
+                workspace_id=effective_workspace_id,
+                project_id=effective_project_id,
+                user_id=user.id,
+                max_results=10,
+                result_types={"memory_item"},
+                allowed_record_ids=allowed_record_ids,
+            )
+            return [
+                result
+                for result in results
+                if result.result_type == "memory_item" and result.scope == Scope.PROJECT
+            ][:5]
+
+        if search_scope == MemorySearchScope.TEAM:
+            accessible_team_ids = {
+                membership.team_id
+                for membership in self.repository.list_team_memberships(user_id=user.id)
+            }
+            can_access_all_teams = user.role in {"admin", "team_lead"}
+            allowed_record_ids = {
+                item.id
+                for item in self.repository.memory_items
+                if item.workspace_id == effective_workspace_id
+                and item.scope == Scope.TEAM_ACCEPTED
+                and (
+                    item.team_id is None
+                    or can_access_all_teams
+                    or item.team_id in accessible_team_ids
+                )
+            }
+            results = self.repository.search(
+                query,
+                {Scope.TEAM_ACCEPTED},
+                workspace_id=effective_workspace_id,
+                user_id=user.id,
+                max_results=10,
+                result_types={"memory_item"},
+                allowed_record_ids=allowed_record_ids,
+            )
+            return [
+                result
+                for result in results
+                if result.result_type == "memory_item" and result.scope == Scope.TEAM_ACCEPTED
+            ][:5]
+
         tier1_results = self.repository.search(
             query,
             {Scope.TEAM_ACCEPTED},
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=effective_workspace_id,
+            project_id=effective_project_id,
             user_id=user.id,
             max_results=5,
         )
@@ -515,12 +738,11 @@ class PersonalAgent:
         if len(tier1_results) >= 3:
             return tier1_results[:5]
 
-        # Layer 2: mid_term + PROJECT (project-level shared memory)
         tier2_results = self.repository.search(
             query,
             {Scope.PROJECT, Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE},
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=effective_workspace_id,
+            project_id=effective_project_id,
             user_id=user.id,
             max_results=10,
         )
@@ -528,12 +750,11 @@ class PersonalAgent:
         if len(tier2_results) >= 3:
             return tier2_results[:5]
 
-        # Layer 3: short_term + PRIVATE (personal fine-grained facts)
         tier3_results = self.repository.search(
             query,
             {Scope.PRIVATE, Scope.PROJECT, Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED},
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=effective_workspace_id,
+            project_id=effective_project_id,
             user_id=user.id,
             max_results=10,
         )
@@ -541,10 +762,9 @@ class PersonalAgent:
         if tier3_results:
             return tier3_results[:5]
 
-        # Fallback: broad term matching over full memory pool
         terms = self._search_terms(query)
         scored_results: list[tuple[int, SearchResult]] = []
-        for result in self._memory_search_pool(user):
+        for result in self._memory_search_pool(user, effective_workspace_id, effective_project_id):
             text = f"{result.title} {result.summary}".lower()
             score = sum(1 for term in terms if term in text)
             if score >= 2:
@@ -560,29 +780,47 @@ class PersonalAgent:
         ]
 
     @staticmethod
-    def _count_cited_sources(llm_output: str, source_ids: list[str]) -> int:
-        """Count how many returned sources were referenced in the LLM output."""
+    def _count_cited_sources(
+        llm_output: str,
+        source_ids: list[str],
+        citation_labels: dict[str, str] | None = None,
+    ) -> int:
+        """Count returned result IDs referenced directly or through stable labels."""
         if not llm_output or not source_ids:
             return 0
-        return len(PersonalAgent._find_cited_source_ids(llm_output, source_ids))
+        return len(PersonalAgent._find_cited_source_ids(llm_output, source_ids, citation_labels))
 
     @staticmethod
-    def _find_cited_source_ids(llm_output: str, source_ids: list[str]) -> list[str]:
-        """Find source IDs whose content appears referenced in LLM output."""
+    def _find_cited_source_ids(
+        llm_output: str,
+        source_ids: list[str],
+        citation_labels: dict[str, str] | None = None,
+    ) -> list[str]:
+        """Map direct IDs and stable citation labels back to returned result IDs."""
         if not llm_output:
             return []
-        cited: list[str] = []
-        for source_id in source_ids:
-            if source_id in llm_output:
-                cited.append(source_id)
-        return cited
+        cited_by_label = {
+            result_id
+            for label, result_id in (citation_labels or {}).items()
+            if f"[{label}]" in llm_output
+        }
+        return [
+            source_id
+            for source_id in source_ids
+            if source_id in llm_output or source_id in cited_by_label
+        ]
 
-    def _memory_search_pool(self, user: User) -> list[SearchResult]:
+    def _memory_search_pool(
+        self,
+        user: User,
+        workspace_id: str,
+        project_id: str | None,
+    ) -> list[SearchResult]:
         results: list[SearchResult] = []
         for item in self.repository.user_memory_items:
-            if item.user_id != user.id:
+            if item.user_id != user.id or item.workspace_id != workspace_id:
                 continue
-            if item.workspace_id != WORKSPACE.id or item.project_id != PROJECT.id:
+            if item.project_id != project_id:
                 continue
             results.append(
                 SearchResult(
@@ -592,13 +830,26 @@ class PersonalAgent:
                     summary=item.summary,
                     scope=item.scope,
                     sources=item.sources,
+                    project_id=item.project_id,
                     created_at=item.created_at,
                 )
             )
 
+        team_ids = {
+            membership.team_id
+            for membership in self.repository.list_team_memberships(user_id=user.id)
+        }
+        can_access_all_teams = user.role in {"admin", "team_lead"}
         for item in self.repository.memory_items:
-            if item.workspace_id != WORKSPACE.id or item.project_id != PROJECT.id:
+            if item.workspace_id != workspace_id:
                 continue
+            if item.scope == Scope.PROJECT and item.project_id != project_id:
+                continue
+            if item.scope in {Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE}:
+                if item.project_id != project_id:
+                    continue
+                if item.team_id and not can_access_all_teams and item.team_id not in team_ids:
+                    continue
             results.append(
                 SearchResult(
                     id=item.id,
@@ -607,6 +858,8 @@ class PersonalAgent:
                     summary=item.summary,
                     scope=item.scope,
                     sources=item.sources,
+                    project_id=item.project_id,
+                    team_id=item.team_id,
                     created_at=item.created_at,
                 )
             )
@@ -614,7 +867,7 @@ class PersonalAgent:
         for document in self.repository.documents:
             if document.uploaded_by != user.id:
                 continue
-            if document.workspace_id != WORKSPACE.id or document.project_id != PROJECT.id:
+            if document.workspace_id != workspace_id or document.project_id != project_id:
                 continue
             results.append(
                 SearchResult(
@@ -624,10 +877,13 @@ class PersonalAgent:
                     summary=document.text[:500],
                     scope=Scope.PRIVATE,
                     sources=[document.source],
+                    project_id=document.project_id,
                     created_at=document.created_at,
                 )
             )
 
+        tasks_by_id = {task.id: task for task in self.repository.tasks}
+        threads_by_id = {thread.id: thread for thread in self.repository.chat_threads}
         for post in self.repository.blackboard_posts:
             if post.scope not in {Scope.PROJECT, Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED}:
                 continue
@@ -638,6 +894,10 @@ class PersonalAgent:
                 BlackboardPostType.ARCHIVE,
             }:
                 continue
+            task = tasks_by_id.get(post.task_id)
+            thread = threads_by_id.get(task.thread_id) if task else None
+            if thread is None or thread.workspace_id != workspace_id or thread.project_id != project_id:
+                continue
             results.append(
                 SearchResult(
                     id=post.id,
@@ -646,17 +906,74 @@ class PersonalAgent:
                     summary=post.content,
                     scope=post.scope,
                     sources=post.sources,
+                    project_id=thread.project_id,
                     created_at=post.created_at,
                 )
             )
         return results
 
     @staticmethod
-    def _create_memory_search_evidence(task: Task, results: list[SearchResult]) -> BlackboardPost:
-        sources: list[Source] = []
-        for result in results:
-            sources.extend(result.sources)
-        lines = [f"{index}. {result.title}：{result.summary}" for index, result in enumerate(results[:3], start=1)]
+    def _memory_kind(result: SearchResult) -> MemoryKind:
+        if result.result_type == "user_memory_item" or result.scope == Scope.PRIVATE:
+            return MemoryKind.PERSONAL
+        if result.scope == Scope.PROJECT:
+            return MemoryKind.PROJECT
+        return MemoryKind.TEAM
+
+    @classmethod
+    def _build_memory_search_trace(
+        cls,
+        requested_scope: MemorySearchScope,
+        results: list[SearchResult],
+    ) -> MemorySearchTrace:
+        prefixes = {
+            MemoryKind.PERSONAL: "P",
+            MemoryKind.PROJECT: "J",
+            MemoryKind.TEAM: "T",
+        }
+        kind_ranks = {kind: 0 for kind in MemoryKind}
+        evidence: list[RetrievedMemoryEvidence] = []
+        for rank, result in enumerate(results, start=1):
+            memory_kind = cls._memory_kind(result)
+            kind_ranks[memory_kind] += 1
+            evidence.append(
+                RetrievedMemoryEvidence(
+                    result_id=result.id,
+                    result_type=result.result_type,
+                    memory_kind=memory_kind,
+                    citation_label=f"{prefixes[memory_kind]}{kind_ranks[memory_kind]}",
+                    title=result.title,
+                    summary=result.summary,
+                    rank=rank,
+                    scope=result.scope,
+                    project_id=result.project_id,
+                    team_id=result.team_id,
+                    sources=result.sources,
+                )
+            )
+        return MemorySearchTrace(
+            requested_scope=requested_scope,
+            personal_count=kind_ranks[MemoryKind.PERSONAL],
+            project_count=kind_ranks[MemoryKind.PROJECT],
+            team_count=kind_ranks[MemoryKind.TEAM],
+            results=evidence,
+        )
+
+    @staticmethod
+    def _create_memory_search_evidence(
+        task: Task,
+        results: list[RetrievedMemoryEvidence],
+    ) -> BlackboardPost:
+        kind_labels = {
+            MemoryKind.PERSONAL: "个人记忆",
+            MemoryKind.PROJECT: "项目记忆",
+            MemoryKind.TEAM: "团队记忆",
+        }
+        sources = [source for result in results for source in result.sources]
+        lines = [
+            f"[{result.citation_label}][{kind_labels[result.memory_kind]}] {result.title}：{result.summary}"
+            for result in results
+        ]
         return BlackboardPost(
             task_id=task.id,
             post_type=BlackboardPostType.EVIDENCE,
@@ -1524,6 +1841,19 @@ class PersonalAgent:
             return "这个请求涉及高风险工具调用，需要你先在收件箱审批，我不会在审批前执行。"
         if state.evidence_post and state.evidence_post.status == "needs_review":
             return "外部资料存在安全风险，已放入收件箱等待审核。"
+        if (
+            intent == Intent.ASK_MEMORY
+            and state.memory_search
+            and state.memory_search.requested_scope != MemorySearchScope.AUTO
+            and not state.memory_search.results
+        ):
+            scope_labels = {
+                MemorySearchScope.PERSONAL: "个人记忆",
+                MemorySearchScope.PROJECT: "当前项目记忆",
+                MemorySearchScope.TEAM: "可访问的已采纳团队记忆",
+            }
+            scope_label = scope_labels[state.memory_search.requested_scope]
+            return f"没有在{scope_label}中找到相关结果；未跨范围检索或发起团队求助。"
         if intent == Intent.ASK_MEMORY and state.request_post and state.evidence_post is None:
             return "我没有在个人、项目或团队记忆中找到足够结果，已在项目 BBS 发帖等待团队或服务 Agent 补充。"
         return self._evidence_answer(state.synthesis_evidence_post, intent, content)
@@ -1624,9 +1954,17 @@ class PersonalAgent:
             done_when="个人 Agent 完成证据合成并返回用户",
         )
 
+    def _validate_thread_access(self, thread_id: str, user: User) -> ChatThread:
+        thread = self.repository.get_chat_thread(thread_id)
+        if thread is None or thread.user_id != user.id:
+            raise ChatThreadAccessError("Chat thread not found")
+        return thread
+
     def _ensure_thread(self, thread_id: str, content: str, user: User) -> ChatThread:
         existing_thread = self.repository.get_chat_thread(thread_id)
         if existing_thread is not None:
+            if existing_thread.user_id != user.id:
+                raise ChatThreadAccessError("Chat thread not found")
             return existing_thread
         title = content.strip()[:60] or "新的团队大脑对话"
         return self.repository.add_chat_thread(
