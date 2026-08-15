@@ -55,7 +55,7 @@ Never commit `.env`, OAuth secrets, API keys, or local SQLite databases. Use `.e
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`gh` CLI); repo is `yssssssssssss/ai-agentmesh`. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues (`gh` CLI); repo is `yssssssssssss/ai-agentmesh-hackathon` (`https://github.com/yssssssssssss/ai-agentmesh-hackathon.git`). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

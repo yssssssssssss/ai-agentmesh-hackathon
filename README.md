@@ -2,6 +2,8 @@
 
 Chat-first team agent platform prototype.
 
+**Repository**: <https://github.com/yssssssssssss/ai-agentmesh-hackathon>
+
 ## Current Slice
 
 The first implementation slice proves:
