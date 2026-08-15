@@ -44,11 +44,32 @@ Set up an isolated environment:
 .venv/bin/python -m pip install -e '.[dev]'
 ```
 
-Start the app:
+Install and build the React frontend for FastAPI hosting:
+
+```bash
+cd agentmesh-demo
+npm ci
+npm run api:types
+npm run build
+cd ..
+```
+
+Start the app with production-safe defaults:
 
 ```bash
 .venv/bin/uvicorn agentmesh.app:app --reload --port 8010
 ```
+
+The default startup does not create demo users, fixed passwords, or demo content. This MVP supports one Workspace, one default Project, one application instance, and one SQLite database; do not expose it to the public internet.
+
+For an isolated local demo database only, opt in explicitly:
+
+```bash
+AGENTMESH_DEMO_MODE=1 AGENTMESH_DB_PATH=data/agentmesh-demo.sqlite3 \
+  .venv/bin/uvicorn agentmesh.app:app --reload --port 8010
+```
+
+Demo mode creates deterministic fixture accounts and content with known local-only credentials. Never enable it for a shared or production database.
 
 Port `8000` is intentionally avoided because it may already be used by another local backend.
 If `8010` is already in use, first check whether AgentMesh is already running:
@@ -73,19 +94,24 @@ Or start this instance on another port:
 Open:
 
 ```text
-http://127.0.0.1:8010/app.html
+http://127.0.0.1:8010/
 ```
 
-The app UI shows a local login panel when no session exists. Use the seeded development accounts below.
-Fill the login field with the account ID on the left, not the Chinese display name.
+The app UI shows a local login panel when no session exists. In explicit demo mode, use the fixture-account controls shown by the local UI; production-safe mode has no built-in account credentials.
 
-Development accounts:
+For frontend development, keep FastAPI on port `8010` and run `npm run dev` in `agentmesh-demo/`; Vite serves `http://127.0.0.1:5178/` and proxies `/api` to FastAPI. The retired single-file UI remains temporarily available at `/legacy/app.html` and `/app.html` for one release cycle.
 
-```text
-usr_current_designer / designer123
-usr_team_lead / lead123
-usr_admin / admin123
+### Deployment boundaries
+
+This internal-pilot MVP supports one Workspace, one application process, and one SQLite database. Run it only on a trusted internal network. Multi-workspace tenancy, multi-process SQLite coordination, horizontal scaling, high availability, and public-internet hardening are Post-MVP work.
+
+Before an internal release, run the real read-only Provider gate from a host with approved credentials and CLIs:
+
+```bash
+.venv/bin/python scripts/provider_smoke.py --embedding --o2 --web --data --llm
 ```
+
+The command prints only redacted provider readiness, mode, latency, and stable error categories. A release is blocked unless all five providers report `ready=true` and `mode=real`.
 
 ## Test
 
@@ -110,6 +136,8 @@ Override it with:
 AGENTMESH_DB_PATH=/path/to/agentmesh.sqlite3 .venv/bin/uvicorn agentmesh.app:app --port 8010
 ```
 
+Embedding is disabled by default and search remains FTS-only. To enable vector search, set `AGENTMESH_EMBEDDING_ENABLED=true`, `AGENTMESH_EMBEDDING_API_URL`, and `AGENTMESH_EMBEDDING_API_KEY` in the server environment. Inject the key through your deployment secret manager; do not commit or log it.
+
 ## Auth and Permissions
 
 AgentMesh uses a minimal local auth and user-management layer for the current MVP slice:
@@ -121,7 +149,7 @@ AgentMesh uses a minimal local auth and user-management layer for the current MV
 - `POST /api/auth/logout` revokes the session.
 - `GET /api/auth/me` returns the current user.
 - `POST /api/auth/password` lets the current user rotate their password and revokes existing sessions.
-- Users are seeded into SQLite on startup if missing.
+- Demo users are seeded only when `AGENTMESH_DEMO_MODE=1`; production-safe startup creates no built-in credentials.
 - Admins can create local users with initial passwords.
 - Admins can reset local user passwords and revoke existing sessions.
 - Creating a local user also creates that user's personal Agent.
@@ -255,7 +283,7 @@ export AGENTMESH_LLM_TIMEOUT_SECONDS=30
 export AGENTMESH_LLM_CONNECT_TIMEOUT_SECONDS=5
 ```
 
-If the chat model times out, AgentMesh returns the deterministic local answer and records the reason in `workflow_trace.fallback_reason`.
+If the chat model times out, AgentMesh returns the deterministic local answer and records the reason in `workflow_trace.model_fallback_reason`.
 
 Additional selectable models use `AGENTMESH_MODELS` plus per-model variables:
 
@@ -268,7 +296,13 @@ export AGENTMESH_MODEL_GPT55_LABEL="GPT-5.5 高"
 export AGENTMESH_MODEL_GPT55_API_KEY=your-api-key
 ```
 
-The UI stores only `model_id` on the Agent. API keys stay server-side and are never returned by `/api/models`. If a selected model is missing or the model call fails, AgentMesh falls back to the deterministic local response.
+Configure one optional automatic fallback model with:
+
+```bash
+export AGENTMESH_LLM_FALLBACK_MODEL_ID=fast
+```
+
+The UI stores only `model_id` on the Agent. API keys stay server-side and are never returned by `/api/models`. Eligible primary failures (`timeout`, request/HTTP errors, malformed or empty responses) try the configured fallback once; authentication failures remain explicit. Persisted traces expose requested/actual model and model fallback reason separately from acquisition Provider provenance.
 
 ## Acquisition Agent Boundary
 
@@ -282,7 +316,18 @@ AgentMesh keeps external acquisition as an interface boundary:
 - External content is treated as untrusted input. Suspicious prompt-injection text is saved for audit, marked `needs_review`, routed to Inbox, and excluded from LLM synthesis.
 - High-risk tool requests such as batch crawling, batch downloads, intranet access, or automatic team-memory writes are routed to Inbox for approval before any acquisition connector runs.
 
-To enable command-backed Web research:
+To enable the native Tavily Web provider:
+
+```bash
+export AGENTMESH_WEB_PROVIDER=tavily
+export AGENTMESH_TAVILY_API_URL=https://api.tavily.com/search
+export AGENTMESH_TAVILY_API_KEY=your-api-key
+export AGENTMESH_TAVILY_TIMEOUT_SECONDS=20
+```
+
+The Tavily connector sends a basic search request, returns only title/URL/content snippets, and never returns its key or provider response body. Command-backed providers remain available as alternatives.
+
+To enable command-backed Web research instead:
 
 ```bash
 export AGENTMESH_WEB_PROVIDER=opencli

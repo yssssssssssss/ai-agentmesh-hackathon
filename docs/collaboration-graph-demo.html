@@ -1,0 +1,1554 @@
+<title>协作图</title>
+<style>
+  /* ────────────────────────────────────────────────
+     Tokens · Light (default) — 冷调结构白,避开 AI 默认暖奶油
+     ──────────────────────────────────────────────── */
+  :root {
+    --bg: #f4f6fa;
+    --surface: #ffffff;
+    --surface-2: #f9fafd;
+    --surface-hover: #eef1f7;
+    --border: #e4e8f0;
+    --border-strong: #cdd3e0;
+    --text: #171a24;
+    --muted: #586178;
+    --quiet: #8892a8;
+    --accent: #4f68d9;
+    --accent-soft: #e8ecfb;
+    --focus-ring: rgba(79, 104, 217, 0.35);
+    --shadow-sm: 0 1px 2px rgba(15, 20, 40, 0.04);
+    --shadow-md: 0 8px 24px rgba(15, 20, 40, 0.08);
+    --shadow-lg: 0 24px 60px rgba(15, 20, 40, 0.14);
+
+    /* Post-type 语义色 · light */
+    --c-request: #d97706;
+    --c-evidence: #0d9488;
+    --c-risk: #dc2626;
+    --c-decision: #2563eb;
+    --c-handoff: #9333ea;
+    --c-digest: #16a34a;
+    --c-memory: #ca8a04;
+    --c-correction: #ea580c;
+    --c-archive: #64748b;
+
+    /* Stage 状态色 */
+    --stage-execution: #16a34a;
+    --stage-review: #2563eb;
+    --stage-discussion: #64748b;
+    --stage-blocked: #dc2626;
+    --stage-completed: #7c93ff;
+  }
+
+  /* ────────────────────────────────────────────────
+     Dark tokens · 系统默认 + 显式选择
+     ──────────────────────────────────────────────── */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1015;
+      --surface: #161a22;
+      --surface-2: #1d2231;
+      --surface-hover: #232838;
+      --border: #252b3a;
+      --border-strong: #3a4152;
+      --text: #eaeef8;
+      --muted: #98a1b6;
+      --quiet: #5e677c;
+      --accent: #7c93ff;
+      --accent-soft: #252c4c;
+      --focus-ring: rgba(124, 147, 255, 0.35);
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+      --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
+
+      --c-request: #f5a623;
+      --c-evidence: #4ecdc4;
+      --c-risk: #ff6b6b;
+      --c-decision: #5b9bd5;
+      --c-handoff: #c084fc;
+      --c-digest: #7ed957;
+      --c-memory: #facc15;
+      --c-correction: #fb923c;
+      --c-archive: #94a3b8;
+
+      --stage-execution: #4ade80;
+      --stage-review: #93c5fd;
+      --stage-discussion: #94a3b8;
+      --stage-blocked: #ff8fa0;
+      --stage-completed: #b8c4ff;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0e1015;
+    --surface: #161a22;
+    --surface-2: #1d2231;
+    --surface-hover: #232838;
+    --border: #252b3a;
+    --border-strong: #3a4152;
+    --text: #eaeef8;
+    --muted: #98a1b6;
+    --quiet: #5e677c;
+    --accent: #7c93ff;
+    --accent-soft: #252c4c;
+    --focus-ring: rgba(124, 147, 255, 0.35);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
+
+    --c-request: #f5a623;
+    --c-evidence: #4ecdc4;
+    --c-risk: #ff6b6b;
+    --c-decision: #5b9bd5;
+    --c-handoff: #c084fc;
+    --c-digest: #7ed957;
+    --c-memory: #facc15;
+    --c-correction: #fb923c;
+    --c-archive: #94a3b8;
+
+    --stage-execution: #4ade80;
+    --stage-review: #93c5fd;
+    --stage-discussion: #94a3b8;
+    --stage-blocked: #ff8fa0;
+    --stage-completed: #b8c4ff;
+  }
+
+  /* ────────────────────────────────────────────────
+     Base
+     ──────────────────────────────────────────────── */
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      "PingFang SC", "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+  }
+
+  code, .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+      "Liberation Mono", monospace;
+    font-feature-settings: "zero", "ss01";
+  }
+
+  button {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* ────────────────────────────────────────────────
+     Layout shell
+     ──────────────────────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+
+  .brand-title {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+
+  .brand-eyebrow {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+  }
+
+  .breadcrumb {
+    color: var(--quiet);
+    font-size: 13px;
+  }
+
+  .breadcrumb .sep {
+    padding: 0 8px;
+    color: var(--border-strong);
+  }
+
+  .breadcrumb .current {
+    color: var(--muted);
+  }
+
+  .view-switcher {
+    display: inline-flex;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .view-switcher button {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--muted);
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+
+  .view-switcher button:hover {
+    color: var(--text);
+  }
+
+  .view-switcher button.active {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ────────────────────────────────────────────────
+     Main grid
+     ──────────────────────────────────────────────── */
+  .workspace {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 0;
+    min-height: 0;
+  }
+
+  .sidebar {
+    padding: 24px 20px 32px;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    overflow-y: auto;
+  }
+
+  .canvas {
+    padding: 28px 32px 40px;
+    overflow: auto;
+    min-width: 0;
+  }
+
+  /* ────────────────────────────────────────────────
+     Stat tiles
+     ──────────────────────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .stat-tile {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--quiet);
+    letter-spacing: 0.02em;
+  }
+
+  .stat-value {
+    font-size: 22px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    color: var(--text);
+  }
+
+  .stat-value .delta {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--stage-execution);
+    margin-left: 4px;
+  }
+
+  /* ────────────────────────────────────────────────
+     Sidebar labels & lists
+     ──────────────────────────────────────────────── */
+  .section-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+    margin-bottom: 10px;
+  }
+
+  .section-label .count {
+    font-size: 11px;
+    color: var(--quiet);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 999px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .task-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .task-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    transition: background 0.12s ease, border-color 0.12s ease;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .task-item:hover {
+    background: var(--surface-2);
+  }
+
+  .task-item.active {
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+  }
+
+  .task-item.active::before {
+    content: "";
+    position: absolute;
+    top: 12px;
+    bottom: 12px;
+    left: 0;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+
+  .task-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+
+  .task-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--quiet);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+  }
+
+  .stage-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .stage-chip::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--stage-color, var(--stage-discussion));
+  }
+
+  .stage-chip[data-stage="execution"] { --stage-color: var(--stage-execution); }
+  .stage-chip[data-stage="review"] { --stage-color: var(--stage-review); }
+  .stage-chip[data-stage="discussion"] { --stage-color: var(--stage-discussion); }
+  .stage-chip[data-stage="blocked"] { --stage-color: var(--stage-blocked); }
+  .stage-chip[data-stage="completed"] { --stage-color: var(--stage-completed); }
+
+  /* ────────────────────────────────────────────────
+     Task header (canvas)
+     ──────────────────────────────────────────────── */
+  .task-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .task-header-main h1 {
+    margin: 0 0 10px 0;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--text);
+    text-wrap: balance;
+    line-height: 1.3;
+  }
+
+  .task-header-facts {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .task-header-facts .fact-key {
+    color: var(--quiet);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-right: 6px;
+  }
+
+  .task-header-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  }
+
+  .btn:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  .btn-primary:hover {
+    background: color-mix(in oklab, var(--accent), black 8%);
+    color: white;
+  }
+
+  /* ────────────────────────────────────────────────
+     Swimlane
+     ──────────────────────────────────────────────── */
+  .swimlane {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .swimlane-header {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+
+  .swimlane-header-actor {
+    padding: 14px 16px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+    border-right: 1px solid var(--border);
+  }
+
+  .time-ruler {
+    position: relative;
+    padding: 14px 40px;
+    min-height: 40px;
+  }
+
+  .time-tick {
+    position: absolute;
+    top: 14px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 11px;
+    color: var(--quiet);
+    transform: translateX(-50%);
+    letter-spacing: 0.02em;
+  }
+
+  .swimlane-body {
+    position: relative;
+  }
+
+  /* 隐约的时间刻度背景线 */
+  .swimlane-gridlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .swimlane-gridlines .gridlines-track {
+    position: relative;
+  }
+
+  .gridlines-track::before,
+  .gridlines-track::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border);
+    opacity: 0.5;
+  }
+
+  .gridlines-track::before { left: 25%; }
+  .gridlines-track::after { left: 50%; }
+
+  .gridline-3 {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 75%;
+    width: 1px;
+    background: var(--border);
+    opacity: 0.5;
+  }
+
+  .lane {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    min-height: 96px;
+    border-top: 1px solid var(--border);
+  }
+
+  .lane:first-child { border-top: none; }
+
+  .lane-actor {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-right: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+
+  .actor-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    flex-shrink: 0;
+  }
+
+  .actor-avatar[data-role="research"] { background: rgba(147, 197, 253, 0.15); color: var(--c-evidence); }
+  .actor-avatar[data-role="data"] { background: rgba(94, 155, 213, 0.15); color: var(--c-decision); }
+  .actor-avatar[data-role="risk"] { background: rgba(255, 107, 107, 0.15); color: var(--c-risk); }
+
+  .actor-info {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .actor-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    line-height: 1.2;
+  }
+
+  .actor-role {
+    font-size: 11px;
+    color: var(--quiet);
+    margin-top: 2px;
+  }
+
+  .lane-track {
+    position: relative;
+    padding: 20px 40px;
+  }
+
+  /* Nodes */
+  .node {
+    position: absolute;
+    top: 50%;
+    left: var(--pos);
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    z-index: 2;
+  }
+
+  .node-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--node-color);
+    box-shadow: 0 0 0 4px var(--surface);
+    transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.18s ease;
+    position: relative;
+  }
+
+  .node-dot::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: var(--node-color);
+    opacity: 0.9;
+  }
+
+  .node:hover .node-dot,
+  .node:focus-visible .node-dot {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 4px var(--surface), 0 0 0 6px var(--node-color);
+  }
+
+  .node.locked .node-dot {
+    animation: node-pulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes node-pulse {
+    0%, 100% {
+      box-shadow: 0 0 0 4px var(--surface), 0 0 0 5px var(--node-color);
+    }
+    50% {
+      box-shadow: 0 0 0 4px var(--surface), 0 0 0 10px color-mix(in oklab, var(--node-color), transparent 65%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .node.locked .node-dot {
+      animation: none;
+      box-shadow: 0 0 0 4px var(--surface), 0 0 0 6px var(--node-color);
+    }
+  }
+
+  .node-label {
+    font-size: 10.5px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    line-height: 1;
+  }
+
+  .node[data-type="request"] { --node-color: var(--c-request); }
+  .node[data-type="evidence"] { --node-color: var(--c-evidence); }
+  .node[data-type="risk"] { --node-color: var(--c-risk); }
+  .node[data-type="decision"] { --node-color: var(--c-decision); }
+  .node[data-type="handoff"] { --node-color: var(--c-handoff); }
+  .node[data-type="digest"] { --node-color: var(--c-digest); }
+  .node[data-type="memory_candidate"] { --node-color: var(--c-memory); }
+  .node[data-type="correction"] { --node-color: var(--c-correction); }
+  .node[data-type="archive"] { --node-color: var(--c-archive); }
+
+  /* SVG 连线 */
+  .connections {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    overflow: visible;
+  }
+
+  .connections path {
+    fill: none;
+    stroke: var(--border-strong);
+    stroke-width: 1.5;
+    opacity: 0.7;
+  }
+
+  .connections path.handoff {
+    stroke-dasharray: 5 4;
+    stroke: var(--c-handoff);
+    opacity: 0.6;
+  }
+
+  .connections path.highlighted {
+    stroke: var(--accent);
+    opacity: 1;
+    stroke-width: 2;
+  }
+
+  /* Live badge on locked track */
+  .live-indicator {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    letter-spacing: 0.06em;
+    background: color-mix(in oklab, var(--stage-execution), transparent 88%);
+    color: var(--stage-execution);
+    border: 1px solid color-mix(in oklab, var(--stage-execution), transparent 75%);
+    z-index: 3;
+  }
+
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--stage-execution);
+    animation: live-pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ────────────────────────────────────────────────
+     Legend
+     ──────────────────────────────────────────────── */
+  .legend {
+    margin-top: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 18px;
+    font-size: 12px;
+    color: var(--muted);
+    padding: 0 4px;
+  }
+
+  .legend-label {
+    font-size: 10.5px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+    margin-right: 6px;
+  }
+
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+
+  /* ────────────────────────────────────────────────
+     Drawer (右侧滑出)
+     ──────────────────────────────────────────────── */
+  .scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 20, 40, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.24s ease;
+    z-index: 40;
+  }
+
+  :root[data-theme="dark"] .scrim,
+  :root:not([data-theme="light"]) .scrim {
+    background: rgba(0, 0, 0, 0.55);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .scrim {
+      background: rgba(0, 0, 0, 0.55);
+    }
+  }
+
+  .scrim.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(480px, 92vw);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .drawer.open {
+    transform: translateX(0);
+  }
+
+  .drawer-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 24px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .drawer-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: color-mix(in oklab, var(--type-color), transparent 88%);
+    color: var(--type-color);
+    border: 1px solid color-mix(in oklab, var(--type-color), transparent 75%);
+    margin-bottom: 10px;
+  }
+
+  .drawer-title {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .drawer-close {
+    color: var(--quiet);
+    padding: 4px;
+    line-height: 1;
+    transition: color 0.12s;
+  }
+
+  .drawer-close:hover { color: var(--text); }
+
+  .drawer-body {
+    padding: 20px 24px 32px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .drawer-meta {
+    display: grid;
+    grid-template-columns: 82px 1fr;
+    gap: 8px 16px;
+    font-size: 13px;
+  }
+
+  .drawer-meta dt {
+    color: var(--quiet);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding-top: 2px;
+  }
+
+  .drawer-meta dd {
+    margin: 0;
+    color: var(--text);
+  }
+
+  .drawer-content {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+
+  .drawer-section-label {
+    font-size: 10.5px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+    margin-bottom: 8px;
+  }
+
+  .handoff-packet {
+    background: color-mix(in oklab, var(--c-handoff), transparent 92%);
+    border: 1px solid color-mix(in oklab, var(--c-handoff), transparent 72%);
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: grid;
+    grid-template-columns: 68px 1fr;
+    gap: 8px 14px;
+    font-size: 13px;
+  }
+
+  .handoff-packet .field-key {
+    color: var(--c-handoff);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding-top: 2px;
+  }
+
+  .handoff-packet .field-val {
+    color: var(--text);
+    line-height: 1.55;
+  }
+
+  .lock-panel {
+    background: color-mix(in oklab, var(--stage-execution), transparent 92%);
+    border: 1px solid color-mix(in oklab, var(--stage-execution), transparent 72%);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .lock-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: color-mix(in oklab, var(--stage-execution), transparent 82%);
+    color: var(--stage-execution);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .lock-info { flex: 1; }
+
+  .lock-title {
+    color: var(--stage-execution);
+    font-weight: 500;
+    font-size: 12px;
+    margin-bottom: 2px;
+  }
+
+  .lock-detail {
+    color: var(--muted);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+  }
+
+  /* ────────────────────────────────────────────────
+     Responsive
+     ──────────────────────────────────────────────── */
+  @media (max-width: 960px) {
+    .workspace {
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .task-header {
+      flex-direction: column;
+    }
+  }
+</style>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-eyebrow">AgentMesh · Blackboard</span>
+      <span class="brand-title">协作图</span>
+      <span class="breadcrumb">
+        <span>工作台</span><span class="sep">/</span><span class="current">618 家电会场首屏改版</span>
+      </span>
+    </div>
+    <div class="view-switcher" role="tablist" aria-label="视图切换">
+      <button class="active" role="tab" aria-selected="true">泳道</button>
+      <button role="tab" aria-selected="false">时间线</button>
+      <button role="tab" aria-selected="false">关系图</button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <!-- ────────── Sidebar ────────── -->
+    <aside class="sidebar">
+      <section>
+        <div class="section-label"><span>态势</span></div>
+        <div class="stats">
+          <div class="stat-tile">
+            <div class="stat-label">活跃任务</div>
+            <div class="stat-value">3</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-label">执行中锁</div>
+            <div class="stat-value">1</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-label">待处理请求</div>
+            <div class="stat-value">2</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-label">今日新增</div>
+            <div class="stat-value">8<span class="delta">+3</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-label">
+          <span>任务 · Task</span>
+          <span class="count">3</span>
+        </div>
+        <div class="task-list" role="list">
+          <button class="task-item active" role="listitem" aria-current="true">
+            <div class="task-title">618 家电会场首屏改版</div>
+            <div class="task-meta">
+              <span class="stage-chip" data-stage="execution">执行中</span>
+              <span>4&nbsp;agents</span>
+              <span>·</span>
+              <span>8&nbsp;posts</span>
+            </div>
+          </button>
+          <button class="task-item" role="listitem">
+            <div class="task-title">家电组品策略预研</div>
+            <div class="task-meta">
+              <span class="stage-chip" data-stage="review">审阅</span>
+              <span>2&nbsp;agents</span>
+              <span>·</span>
+              <span>4&nbsp;posts</span>
+            </div>
+          </button>
+          <button class="task-item" role="listitem">
+            <div class="task-title">618 促销复盘证据整理</div>
+            <div class="task-meta">
+              <span class="stage-chip" data-stage="completed">已完成</span>
+              <span>3&nbsp;agents</span>
+              <span>·</span>
+              <span>11&nbsp;posts</span>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-label"><span>参与 agent</span></div>
+        <div class="task-list">
+          <div class="task-item" style="cursor: default;">
+            <div class="task-meta">
+              <span class="mono" style="color: var(--text)">personal_agent</span>
+            </div>
+            <div style="font-size: 11px; color: var(--quiet); margin-top: 4px;">路由用户意图 · 3 posts</div>
+          </div>
+          <div class="task-item" style="cursor: default;">
+            <div class="task-meta">
+              <span class="mono" style="color: var(--text)">research_agent</span>
+            </div>
+            <div style="font-size: 11px; color: var(--quiet); margin-top: 4px;">历史经验 · 执行中锁定</div>
+          </div>
+          <div class="task-item" style="cursor: default;">
+            <div class="task-meta">
+              <span class="mono" style="color: var(--text)">data_agent</span>
+            </div>
+            <div style="font-size: 11px; color: var(--quiet); margin-top: 4px;">指标查询 · 1 post</div>
+          </div>
+          <div class="task-item" style="cursor: default;">
+            <div class="task-meta">
+              <span class="mono" style="color: var(--text)">risk_agent</span>
+            </div>
+            <div style="font-size: 11px; color: var(--quiet); margin-top: 4px;">风险审核 · 1 post</div>
+          </div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ────────── Canvas ────────── -->
+    <main class="canvas">
+      <div class="task-header">
+        <div class="task-header-main">
+          <h1>618 家电会场首屏改版</h1>
+          <div class="task-header-facts">
+            <span><span class="fact-key">Stage</span><span class="stage-chip" data-stage="execution" style="vertical-align: middle;">执行中</span></span>
+            <span><span class="fact-key">Owner</span><span class="mono">research_agent</span></span>
+            <span><span class="fact-key">Done when</span>提交首屏结构改版建议 v2</span>
+          </div>
+        </div>
+        <div class="task-header-actions">
+          <button class="btn">导出</button>
+          <button class="btn btn-primary">+ 交接</button>
+        </div>
+      </div>
+
+      <div class="swimlane">
+        <div class="swimlane-header">
+          <div class="swimlane-header-actor">Actor</div>
+          <div class="time-ruler">
+            <span class="time-tick" style="left: 5%">10:12</span>
+            <span class="time-tick" style="left: 30%">10:16</span>
+            <span class="time-tick" style="left: 55%">10:19</span>
+            <span class="time-tick" style="left: 80%">10:24</span>
+            <span class="time-tick" style="left: 96%">now</span>
+          </div>
+        </div>
+
+        <div class="swimlane-body" id="swimlaneBody">
+          <div class="swimlane-gridlines" aria-hidden="true">
+            <div></div>
+            <div class="gridlines-track">
+              <div class="gridline-3"></div>
+            </div>
+          </div>
+
+          <div class="live-indicator">
+            <span class="live-dot"></span> LIVE
+          </div>
+
+          <!-- personal_agent -->
+          <div class="lane">
+            <div class="lane-actor">
+              <div class="actor-avatar">P</div>
+              <div class="actor-info">
+                <div class="actor-name">personal_agent</div>
+                <div class="actor-role">路由 · 3 posts</div>
+              </div>
+            </div>
+            <div class="lane-track" data-actor="personal_agent">
+              <button class="node" data-type="request" data-node-id="bb1" style="--pos: 5%" aria-label="10:12 request">
+                <span class="node-dot"></span>
+                <span class="node-label">request</span>
+              </button>
+              <button class="node" data-type="request" data-node-id="bb3" style="--pos: 30%" aria-label="10:16 request">
+                <span class="node-dot"></span>
+                <span class="node-label">request</span>
+              </button>
+              <button class="node" data-type="decision" data-node-id="bb6" style="--pos: 71%" aria-label="10:22 decision">
+                <span class="node-dot"></span>
+                <span class="node-label">decision</span>
+              </button>
+              <button class="node" data-type="handoff" data-node-id="bb7" style="--pos: 86%" aria-label="10:24 handoff">
+                <span class="node-dot"></span>
+                <span class="node-label">handoff</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- research_agent -->
+          <div class="lane">
+            <div class="lane-actor">
+              <div class="actor-avatar" data-role="research">R</div>
+              <div class="actor-info">
+                <div class="actor-name">research_agent</div>
+                <div class="actor-role">历史经验查询</div>
+              </div>
+            </div>
+            <div class="lane-track" data-actor="research_agent">
+              <button class="node" data-type="evidence" data-node-id="bb2" style="--pos: 14%" aria-label="10:14 evidence">
+                <span class="node-dot"></span>
+                <span class="node-label">evidence</span>
+              </button>
+              <button class="node locked" data-type="evidence" data-node-id="bb8" style="--pos: 96%" aria-label="10:26 evidence · 执行中">
+                <span class="node-dot"></span>
+                <span class="node-label">执行中…</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- data_agent -->
+          <div class="lane">
+            <div class="lane-actor">
+              <div class="actor-avatar" data-role="data">D</div>
+              <div class="actor-info">
+                <div class="actor-name">data_agent</div>
+                <div class="actor-role">指标查询</div>
+              </div>
+            </div>
+            <div class="lane-track" data-actor="data_agent">
+              <button class="node" data-type="evidence" data-node-id="bb4" style="--pos: 36%" aria-label="10:17 evidence">
+                <span class="node-dot"></span>
+                <span class="node-label">evidence</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- risk_agent -->
+          <div class="lane">
+            <div class="lane-actor">
+              <div class="actor-avatar" data-role="risk">S</div>
+              <div class="actor-info">
+                <div class="actor-name">risk_agent</div>
+                <div class="actor-role">风险审核</div>
+              </div>
+            </div>
+            <div class="lane-track" data-actor="risk_agent">
+              <button class="node" data-type="risk" data-node-id="bb5" style="--pos: 50%" aria-label="10:19 risk">
+                <span class="node-dot"></span>
+                <span class="node-label">risk</span>
+              </button>
+            </div>
+          </div>
+
+          <svg class="connections" id="connections" aria-hidden="true"></svg>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span class="legend-label">Post types</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: var(--c-request)"></span>request</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: var(--c-evidence)"></span>evidence</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: var(--c-risk)"></span>risk</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: var(--c-decision)"></span>decision</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: var(--c-handoff)"></span>handoff</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: var(--c-digest)"></span>digest</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: var(--c-memory)"></span>memory_candidate</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: var(--c-correction)"></span>correction</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: var(--c-archive)"></span>archive</span>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Drawer -->
+<div class="scrim" id="scrim" aria-hidden="true"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" tabindex="-1">
+  <header class="drawer-head">
+    <div>
+      <span class="drawer-type-badge" id="drawerBadge" style="--type-color: var(--c-request)">request</span>
+      <h2 class="drawer-title" id="drawerTitle">补充 618 家电会场首屏改版参考</h2>
+    </div>
+    <button class="drawer-close" id="drawerClose" aria-label="关闭">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </header>
+
+  <div class="drawer-body">
+    <dl class="drawer-meta">
+      <dt>Actor</dt>
+      <dd class="mono" id="drawerActor">personal_agent</dd>
+      <dt>Post ID</dt>
+      <dd class="mono" id="drawerPostId" style="color: var(--muted)">bb_seed_research_request</dd>
+      <dt>Time</dt>
+      <dd class="mono" id="drawerTime" style="color: var(--muted)">2026-08-14 10:12:03</dd>
+      <dt>Scope</dt>
+      <dd id="drawerScope">project_visible</dd>
+    </dl>
+
+    <div>
+      <div class="drawer-section-label">Content</div>
+      <div class="drawer-content" id="drawerContent">
+        请 research_agent 查找过往大促会场首屏结构调整的复盘结论，重点关注入口效率、信息密度和用户点击路径。
+      </div>
+    </div>
+
+    <div id="handoffBlock" hidden>
+      <div class="drawer-section-label">Structured Handoff</div>
+      <div class="handoff-packet">
+        <div class="field-key">Goal</div>
+        <div class="field-val" id="handoffGoal"></div>
+        <div class="field-key">Result</div>
+        <div class="field-val" id="handoffResult"></div>
+        <div class="field-key">Done when</div>
+        <div class="field-val" id="handoffDone"></div>
+        <div class="field-key">Next</div>
+        <div class="field-val mono" id="handoffNext"></div>
+      </div>
+    </div>
+
+    <div id="lockBlock" hidden>
+      <div class="drawer-section-label">Execution Lock</div>
+      <div class="lock-panel">
+        <div class="lock-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <rect x="2.5" y="6" width="9" height="6.5" rx="1" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M4.5 6V4.5a2.5 2.5 0 015 0V6" stroke="currentColor" stroke-width="1.4"/>
+          </svg>
+        </div>
+        <div class="lock-info">
+          <div class="lock-title">research_agent 正在执行</div>
+          <div class="lock-detail">acquired · 10:26:12 · 已运行 00:00:47</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<script>
+  // ─────────────────────────────────────
+  // Mock posts (mirrors BlackboardPost 模型)
+  // ─────────────────────────────────────
+  const POSTS = {
+    bb1: {
+      type: "request", title: "补充 618 家电会场首屏改版参考",
+      actor: "personal_agent", time: "2026-08-14 10:12:03",
+      scope: "project_visible", postId: "bb_seed_research_request",
+      content: "请 research_agent 查找过往大促会场首屏结构调整的复盘结论，重点关注入口效率、信息密度和用户点击路径。",
+    },
+    bb2: {
+      type: "evidence", title: "过往项目复盘证据",
+      actor: "research_agent", time: "2026-08-14 10:14:22",
+      scope: "project_visible", postId: "bb_seed_research_evidence",
+      content: "2025 年 618 家电会场复盘显示：沉浸式头图带来视觉记忆点，但首屏核心入口点击率下降。后续方案建议将利益点、类目入口和爆品卡片前置，并减少横向滚动入口。引用 3 条项目复盘记录。",
+    },
+    bb3: {
+      type: "request", title: "查询首屏点击率历史指标",
+      actor: "personal_agent", time: "2026-08-14 10:16:41",
+      scope: "project_visible", postId: "bb_data_metric_request",
+      content: "请 data_agent 拉取过去 3 次大促首屏点击率、下滑深度、爆品卡片停留时间三项指标的对比。",
+    },
+    bb4: {
+      type: "evidence", title: "首屏点击率指标",
+      actor: "data_agent", time: "2026-08-14 10:17:58",
+      scope: "project_visible", postId: "bb_data_metric_evidence",
+      content: "首屏点击率 618 峰值 12.4%，双 11 峰值 9.8%，年货节峰值 11.1%。爆品卡片停留时长中位数 1.9s → 2.6s。数据源：数据平台 v2 · 指标口径已核对。",
+    },
+    bb5: {
+      type: "risk", title: "外部素材权限检查",
+      actor: "risk_agent", time: "2026-08-14 10:19:12",
+      scope: "project_visible", postId: "bb_risk_external",
+      content: "研究证据中引用了 2 条外部图文素材：1 条为公开来源可直接引用；1 条来自内部素材库，需向素材组申请复用授权。已生成申请单。",
+    },
+    bb6: {
+      type: "decision", title: "首屏结构调整方案 v1",
+      actor: "personal_agent", time: "2026-08-14 10:22:07",
+      scope: "project_visible", postId: "bb_decision_structure",
+      content: "综合 research/data/risk 三方证据，决策：（1）保留沉浸式头图但压缩至 400px；（2）利益点 + 类目入口前置至首屏 60% 位置；（3）爆品卡片改为 3×2 网格，减少横滑；（4）延续外部素材授权流程后再上线。",
+    },
+    bb7: {
+      type: "handoff", title: "任务交接 → research_agent",
+      actor: "personal_agent", time: "2026-08-14 10:24:33",
+      scope: "project_visible", postId: "bb_handoff_to_research",
+      content: "结构调整方案已形成初稿，需 research_agent 检索类似改版落地后的效果数据以佐证方向。",
+      handoff: {
+        goal: "补充结构调整方案落地效果的历史证据",
+        result: "已有 v1 结构调整方案，需佐证",
+        done: "至少 2 条同类改版效果对比数据入库",
+        next: "research_agent",
+      },
+    },
+    bb8: {
+      type: "evidence", title: "落地效果证据检索中",
+      actor: "research_agent", time: "2026-08-14 10:26:12",
+      scope: "project_visible", postId: "bb_pending_evidence",
+      content: "research_agent 已获取执行锁，正在检索 2024 – 2026 年家电大促首屏改版落地效果数据。预计 2 分钟内返回。",
+      locked: true,
+    },
+  };
+
+  // Drawer 逻辑
+  const drawer = document.getElementById("drawer");
+  const scrim = document.getElementById("scrim");
+  const drawerClose = document.getElementById("drawerClose");
+  const drawerBadge = document.getElementById("drawerBadge");
+  const drawerTitle = document.getElementById("drawerTitle");
+  const drawerActor = document.getElementById("drawerActor");
+  const drawerTime = document.getElementById("drawerTime");
+  const drawerPostId = document.getElementById("drawerPostId");
+  const drawerScope = document.getElementById("drawerScope");
+  const drawerContent = document.getElementById("drawerContent");
+  const handoffBlock = document.getElementById("handoffBlock");
+  const lockBlock = document.getElementById("lockBlock");
+
+  const TYPE_COLOR = {
+    request: "var(--c-request)",
+    evidence: "var(--c-evidence)",
+    risk: "var(--c-risk)",
+    decision: "var(--c-decision)",
+    handoff: "var(--c-handoff)",
+    digest: "var(--c-digest)",
+    memory_candidate: "var(--c-memory)",
+    correction: "var(--c-correction)",
+    archive: "var(--c-archive)",
+  };
+
+  function openDrawer(nodeId) {
+    const post = POSTS[nodeId];
+    if (!post) return;
+
+    drawerBadge.textContent = post.type;
+    drawerBadge.style.setProperty("--type-color", TYPE_COLOR[post.type]);
+    drawerTitle.textContent = post.title;
+    drawerActor.textContent = post.actor;
+    drawerTime.textContent = post.time;
+    drawerPostId.textContent = post.postId;
+    drawerScope.textContent = post.scope;
+    drawerContent.textContent = post.content;
+
+    if (post.handoff) {
+      handoffBlock.hidden = false;
+      document.getElementById("handoffGoal").textContent = post.handoff.goal;
+      document.getElementById("handoffResult").textContent = post.handoff.result;
+      document.getElementById("handoffDone").textContent = post.handoff.done;
+      document.getElementById("handoffNext").textContent = post.handoff.next;
+    } else {
+      handoffBlock.hidden = true;
+    }
+
+    lockBlock.hidden = !post.locked;
+
+    drawer.classList.add("open");
+    scrim.classList.add("open");
+    drawer.focus();
+  }
+
+  function closeDrawer() {
+    drawer.classList.remove("open");
+    scrim.classList.remove("open");
+  }
+
+  document.querySelectorAll(".node").forEach((node) => {
+    node.addEventListener("click", () => openDrawer(node.dataset.nodeId));
+  });
+  drawerClose.addEventListener("click", closeDrawer);
+  scrim.addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeDrawer();
+  });
+
+  // ─────────────────────────────────────
+  // 绘制 SVG 连线
+  // 关系: bb1→bb2, bb3→bb4, bb2/bb4/bb5→bb6, bb6→bb7, bb7→bb8 (handoff)
+  // ─────────────────────────────────────
+  const CONNECTIONS = [
+    { from: "bb1", to: "bb2" },
+    { from: "bb3", to: "bb4" },
+    { from: "bb2", to: "bb6" },
+    { from: "bb4", to: "bb6" },
+    { from: "bb5", to: "bb6" },
+    { from: "bb6", to: "bb7" },
+    { from: "bb7", to: "bb8", type: "handoff" },
+  ];
+
+  function drawConnections() {
+    const svg = document.getElementById("connections");
+    const body = document.getElementById("swimlaneBody");
+    if (!svg || !body) return;
+    const rect = body.getBoundingClientRect();
+    svg.innerHTML = "";
+    svg.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
+
+    CONNECTIONS.forEach((conn) => {
+      const fromEl = document.querySelector(`[data-node-id="${conn.from}"] .node-dot`);
+      const toEl = document.querySelector(`[data-node-id="${conn.to}"] .node-dot`);
+      if (!fromEl || !toEl) return;
+      const fromRect = fromEl.getBoundingClientRect();
+      const toRect = toEl.getBoundingClientRect();
+      const x1 = fromRect.left + fromRect.width / 2 - rect.left;
+      const y1 = fromRect.top + fromRect.height / 2 - rect.top;
+      const x2 = toRect.left + toRect.width / 2 - rect.left;
+      const y2 = toRect.top + toRect.height / 2 - rect.top;
+
+      // 贝塞尔曲线控制点 - 水平流出/流入
+      const midX = (x1 + x2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute(
+        "d",
+        `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`,
+      );
+      if (conn.type === "handoff") path.setAttribute("class", "handoff");
+      svg.appendChild(path);
+    });
+  }
+
+  // 首次渲染 & resize 重绘
+  window.addEventListener("load", () => {
+    requestAnimationFrame(drawConnections);
+  });
+  window.addEventListener("resize", drawConnections);
+
+  // 顶部视图切换 (仅演示，非功能)
+  document.querySelectorAll(".view-switcher button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".view-switcher button").forEach((b) => {
+        b.classList.remove("active");
+        b.setAttribute("aria-selected", "false");
+      });
+      btn.classList.add("active");
+      btn.setAttribute("aria-selected", "true");
+    });
+  });
+
+  // 侧栏任务选中
+  document.querySelectorAll(".task-item").forEach((item) => {
+    if (item.getAttribute("style")) return; // 静态项跳过
+    item.addEventListener("click", () => {
+      document.querySelectorAll(".task-item").forEach((t) => t.classList.remove("active"));
+      item.classList.add("active");
+    });
+  });
+</script>
