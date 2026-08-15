@@ -24,6 +24,39 @@
 4. 当前仓库仍保留不少参考组件和 Mock 数据，但正式页面不再挂载它们。
 5. AI 工作台已经形成独立的真实会话、Skill、上传、搜索、执行依据和来源链路。本轮页面对齐不得破坏该链路。
 
+## 开发基线冻结
+
+实施开始前必须完成一次基线冻结，后续 Agent 不再自行重新解释参考页面或公共接口。
+
+### 代码基线
+
+1. 记录当前 `HEAD`、分支、工作区修改和未跟踪文件。
+2. 当前前端可以构建且核心 Workspace Playwright 通过后，创建一个可回退的基线提交。提交、推送仍需用户明确授权。
+3. 实施期间如果 `AppLayout`、共享 UI、四个目标页面或 Presenter 公共接口被其他任务修改，立即停止该波次，重新确认基线，不在漂移代码上继续叠加。
+
+### 参考基线
+
+1. 为 `/Users/heyunshen/Downloads/agentmesh-demo/` 中 App、Layout、四个页面和关联组件生成文件清单与 SHA-256。
+2. 在 1512px 保存 DigitalSelf、Insights、Knowledge、Collaboration 和代表性 Drawer 的参考截图。
+3. 页面 Agent 只读取任务简报中列出的参考文件，不再遍历整个参考项目。
+4. 参考文件校验值变化时，必须先更新设计和截图，不静默使用新版本。
+
+### 公共接口冻结
+
+基础波次完成后冻结以下文件，页面 Agent 只能消费，不能修改：
+
+- `agentmesh-demo/src/lib/presentation.ts`
+- `agentmesh-demo/src/components/ui/DataSourceBadge.tsx`
+- `agentmesh-demo/src/components/layout/AppLayout.tsx`
+- `agentmesh-demo/src/components/layout/Sidebar.tsx`
+- `agentmesh-demo/src/components/ui/Tabs.tsx`
+
+四个页面并行实施时，每个 Agent 只拥有自己的 `pages`、`features/<page>/presenter.ts`、`components/<page>` 和对应测试文件。
+
+### AI 工作台冻结
+
+AI 工作台当前实现作为独立基线。页面对齐期间禁止修改 Workspace、Composer、ConversationThread、`features/workspace` 和聊天后端。每个波次结束后只运行一次 Workspace 聚焦回归，不在每个页面任务中重复执行。
+
 ## 目标
 
 完成后应满足：
@@ -291,7 +324,7 @@ Presenter 映射：
 - ChatTurnTrace。
 - P/J/T 记忆检索标注。
 
-每个页面任务完成后必须运行 Workspace Playwright 主链和回归用例。
+每个实施波次完成后运行一次 Workspace 聚焦回归；四个页面任务不重复执行同一套 Workspace Playwright。
 
 ## 网络状态和降级
 
@@ -301,27 +334,64 @@ Presenter 映射：
 - 权限导致的空结果不得用 Mock 数据补齐。
 - Mock fallback 不能掩盖 401、403、409 和版本冲突。
 
+## 精简验证策略
+
+验证按风险分层，但工具链只保留 Vitest、Vite build 和 Playwright。不得为同一事实同时使用多个浏览器工具、手工脚本和重复 E2E。
+
+### Level 1：Presenter 单元测试
+
+- 每个 Presenter 使用 Vitest 覆盖真实优先、Mock fallback、字段级 M/T、权限空结果和网络错误。
+- 只运行本波次新增或修改的测试文件。
+- 不用 Playwright 验证纯数据映射。
+
+### Level 2：波次构建
+
+- 公共基础波次结束后运行一次 `npm run build`。
+- 四页面并行波次合并后运行一次 `npm run build`。
+- 最终交付前运行一次 `npm run build`。
+- 不在每个页面 Agent 完成时重复完整构建。
+
+### Level 3：聚焦 Playwright
+
+- 公共壳层只运行 shell parity。
+- 四页面合并后运行一份 combined reference-pages smoke，检查模块顺序、Tab、Drawer 和 M/T 标签。
+- Workspace 只运行 pending、自动滚动、`$` Skill、历史恢复这一条聚焦回归。
+- Knowledge 和 Collaboration 只运行会改变真实状态的关键 mutation 流程。
+- 不为每个字段、计数和 Presenter 分支编写 E2E。
+
+### Level 4：最终视觉检查
+
+- 1512px 对比四个页面和代表性 Drawer 的参考截图。
+- 390px、768px 只检查导航、溢出、Drawer/Modal 和关键操作可达，不重复完整内容验收。
+- 最终视觉检查只执行一次。
+
+### 后端验证边界
+
+- 本轮默认不修改后端，因此不运行完整后端测试。
+- 如果某个页面任务确实修改后端契约，只运行对应路由和状态机的聚焦测试。
+- 不因为纯前端 Presenter 变化运行全量 `pytest` 或全量 Ruff。
+
 ## 验收标准
 
 ### 视觉
 
-- 1512px 与参考截图进行模块顺序、宽度、间距和视觉层级对比。
+- 1512px 的模块顺序、宽度、间距和视觉层级与冻结参考一致。
 - 768px 和 390px 保持当前响应式能力。
-- 参考中的主要模块不得因为后端缺字段而直接消失，必须显示真实、Mock 或明确未接入状态。
+- 参考主要模块必须显示真实、Mock 或明确未接入状态，不能直接消失。
 
 ### 数据
 
-- T 数据可以追溯到具体 API 响应。
-- M 数据可以追溯到参考 `mockData.ts` 或页面常量。
-- mixed 模块的每个 Mock 指标和结论都有 M 数据标识。
+- T 数据可追溯到具体 API 响应。
+- M 数据可追溯到参考 `mockData.ts` 或页面常量。
+- mixed 模块中的 Mock 指标和结论均有 M 数据标识。
 - mutation 不允许 Mock fallback。
 
-### 回归
+### 最小回归门禁
 
 - 登录、会话恢复和退出通过。
-- Workspace pending、自动滚动、Skill、历史、上传、搜索和 trace 通过。
-- Knowledge 版本冲突与团队候选审核通过。
-- Collaboration allowed actions 和详情 mutation 通过。
+- Workspace pending、自动滚动、`$` Skill 和历史恢复通过。
+- Knowledge 的版本确认和团队候选接受通过。
+- Collaboration 的 allowed actions 和一个代表性 mutation 通过。
 
 ## 风险
 
