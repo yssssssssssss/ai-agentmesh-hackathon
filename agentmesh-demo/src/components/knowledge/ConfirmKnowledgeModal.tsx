@@ -4,12 +4,14 @@ import { Check, FileText } from 'lucide-react'
 import type { DocumentRecord, InboxItem } from '../../features/knowledge/api'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
+import { DataSourceBadge } from '../ui/DataSourceBadge'
 import { Modal } from '../ui/Modal'
 
 interface ConfirmKnowledgeModalProps {
   open: boolean
   item: InboxItem | null
   document: DocumentRecord | null
+  disabled?: boolean
   loading: boolean
   onClose: () => void
   onConfirm: (text: string, expectedDocumentVersion: number) => Promise<void>
@@ -19,6 +21,7 @@ export function ConfirmKnowledgeModal({
   open,
   item,
   document,
+  disabled = false,
   loading,
   onClose,
   onConfirm,
@@ -64,7 +67,7 @@ export function ConfirmKnowledgeModal({
           <Button variant="ghost" onClick={onClose}>取消</Button>
           <Button
             loading={submitting}
-            disabled={loading || !document || draftVersion === null || !draft.trim()}
+            disabled={disabled || loading || !document || draftVersion === null || !draft.trim()}
             icon={<Check className="h-4 w-4" />}
             onClick={() => void submit()}
           >
@@ -81,6 +84,8 @@ export function ConfirmKnowledgeModal({
             <FileText className="h-4 w-4 text-knowledge" />
             <span className="text-sm font-medium text-slate-200">{document.title}</span>
             <Badge tone="knowledge">{item?.metadata?.artifact_type ?? 'brief_draft'}</Badge>
+            <Badge tone="neutral">v{draftVersion ?? document.version}</Badge>
+            <DataSourceBadge source="T" />
           </div>
           <div>
             <label htmlFor="brief-body" className="mb-2 block text-xs font-medium text-slate-400">

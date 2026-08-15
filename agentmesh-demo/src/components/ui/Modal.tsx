@@ -41,6 +41,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
         aria-labelledby={title ? titleId : undefined}
         aria-label={title ? undefined : '对话框'}
         tabIndex={-1}
+        autoFocus
         className={cn(
           'relative z-10 flex w-full flex-col overflow-hidden rounded-[16px] border border-white/[0.08] bg-surface-2 shadow-pop animate-scale-in',
           size === 'workspace'
@@ -65,7 +66,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
             </button>
           </header>
         )}
-        <div className={cn('overflow-y-auto px-4 py-4 sm:px-6 sm:py-5', size === 'workspace' ? 'min-h-0 flex-1' : 'max-h-[70vh]')}>{children}</div>
+        <div className={cn('overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-6 sm:py-5', size === 'workspace' ? 'min-h-0 flex-1' : 'max-h-[70vh]')}>{children}</div>
         {footer && (
           <footer className="flex items-center justify-end gap-3 border-t border-white/[0.06] bg-surface-1/60 px-6 py-4">
             {footer}

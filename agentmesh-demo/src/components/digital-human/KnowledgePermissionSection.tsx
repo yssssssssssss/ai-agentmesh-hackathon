@@ -5,7 +5,9 @@ import { SectionCard } from '../ui/Card'
 import { StatTile } from '../ui/StatTile'
 import { SegmentedControl } from '../ui/SegmentedControl'
 import { ShareTimeline } from '../knowledge/ShareTimeline'
-import { DIGITAL_PROFILE, type ShareEvent } from '../../data/mockData'
+import { DIGITAL_PROFILE } from '../../data/mockData'
+import type { KnowledgeUsageView } from '../../features/knowledge/presenter'
+import { presentedValue } from '../../lib/presentation'
 import { SCOPE_LABELS, useDemo, type ShareScope } from '../../store/DemoContext'
 import { cn } from '../../lib/cn'
 
@@ -26,7 +28,26 @@ export function KnowledgePermissionSection() {
   // 默认共享范围为装饰态(context 未暴露 setter),本地维护以便交互演示。
   const [scope, setScope] = useState<ShareScope>(shareScope)
 
-  const openEvent = (_event: ShareEvent) => navigate('/knowledge?tab=shared')
+  const mockUsageEvents: KnowledgeUsageView[] = shareEvents.map((event) => ({
+    kind: 'reuse_event',
+    id: presentedValue(event.id, 'M', '数字人管理仍使用参考共享记录'),
+    type: presentedValue(event.type, 'M', '数字人管理仍使用参考共享记录'),
+    knowledgeId: presentedValue(event.knowledgeId, 'M'),
+    knowledgeTitle: presentedValue(event.knowledgeTitle, 'M'),
+    actor: presentedValue(event.actor, 'M'),
+    actorRole: presentedValue(event.actorRole ?? '演示角色', 'M'),
+    project: presentedValue(event.project, 'M'),
+    purpose: presentedValue(event.purpose ?? '', 'M'),
+    time: presentedValue(event.time, 'M'),
+    statusLabel: presentedValue(event.statusLabel, 'M'),
+    tone: presentedValue(event.tone, 'M'),
+    description: presentedValue(event.description, 'M'),
+    detail: presentedValue(event.detail ?? '', 'M'),
+    primaryAction: presentedValue(event.primaryAction, 'M'),
+    needsAction: presentedValue(event.needsAction ?? false, 'M'),
+    allowedActions: presentedValue([], 'M', '演示记录不提供真实操作'),
+  }))
+  const openEvent = (_event: KnowledgeUsageView) => navigate('/knowledge?tab=shared')
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -91,7 +112,12 @@ export function KnowledgePermissionSection() {
       {/* 授权与引用记录(复用 ShareTimeline,隐藏自带头部) */}
       <div>
         <h2 className="mb-3 text-[15px] font-semibold text-slate-100">授权与引用记录</h2>
-        <ShareTimeline events={shareEvents} totalCount={shareEventCount} onOpenEvent={openEvent} showHeader={false} />
+        <ShareTimeline
+          events={mockUsageEvents}
+          totalCount={presentedValue(shareEventCount, 'M', '数字人管理仍使用参考共享记录')}
+          sources={['M']}
+          onOpenEvent={openEvent}
+        />
       </div>
     </div>
   )

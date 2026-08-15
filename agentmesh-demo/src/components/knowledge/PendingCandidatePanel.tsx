@@ -1,232 +1,136 @@
+import type { ReactNode } from 'react'
 import {
-  Lightbulb,
-  AlertCircle,
-  BarChart3,
-  Workflow,
-  Target,
-  User as UserIcon,
-  Clock,
-  Check,
-  Pencil,
-  Sparkles,
   ArrowUpRight,
-  Users,
+  Check,
+  Clock,
+  FileCheck2,
+  FolderClock,
   Info,
+  Lightbulb,
+  ShieldAlert,
+  X,
 } from 'lucide-react'
+
+import type { PendingKnowledgeView } from '../../features/knowledge/presenter'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
-import { NEW_KNOWLEDGE } from '../../data/mockData'
-import { useDemo } from '../../store/DemoContext'
-import type { ReactNode } from 'react'
+import { DataSourceBadge } from '../ui/DataSourceBadge'
 
 interface Props {
-  onConfirm: () => void
-  onModify: () => void
-  onOpenDetail: () => void
+  items: PendingKnowledgeView[]
+  busy: boolean
+  readOnly: boolean
+  onConfirm: (item: PendingKnowledgeView) => void
+  onSnooze: (item: PendingKnowledgeView) => void
+  onResolve: (item: PendingKnowledgeView) => void
+  onInjection: (item: PendingKnowledgeView, action: 'release' | 'discard') => void
+  onAccept: (item: PendingKnowledgeView) => void
+  onOpenDetail: (item: PendingKnowledgeView) => void
 }
 
-/**
- * Tab 2 · 待我确认(修改文档 §9.5):
- *   区域一:知识候选结论(标题 / 结论 / 状态 / 类型 / 来源)
- *   区域二:形成依据(问题 / 数据 / 决策 / 结果 / 适用范围 / 限制条件)
- *   区域三:确认与权限(AI 建议 + 主要操作)
- * 不使用整页高饱和绿色边框(§13),主按钮只保留"确认并沉淀"。
- */
-export function PendingCandidatePanel({ onConfirm, onModify, onOpenDetail }: Props) {
-  const { showToast } = useDemo()
-
+export function PendingCandidatePanel({
+  items,
+  busy,
+  readOnly,
+  onConfirm,
+  onSnooze,
+  onResolve,
+  onInjection,
+  onAccept,
+  onOpenDetail,
+}: Props) {
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* ────── 区域一:知识候选结论 ────── */}
-      <section className="card-base p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-3.5">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-mint-400/12 text-mint-300">
-              <Lightbulb className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Badge tone="remind" dot>
-                  待确认
-                </Badge>
-                <Badge tone="knowledge">{NEW_KNOWLEDGE.suggestedTypeLabel}</Badge>
-                <Badge tone="neutral">{NEW_KNOWLEDGE.sourceProject}</Badge>
-              </div>
-              <h2 className="mt-2 text-[18px] font-semibold leading-snug text-white">
-                {NEW_KNOWLEDGE.title}
-              </h2>
-              <p className="mt-2 text-[14px] leading-relaxed text-slate-300">
-                {NEW_KNOWLEDGE.conclusion}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onOpenDetail}
-            className="hidden shrink-0 items-center gap-1 text-xs text-slate-500 transition-colors hover:text-slate-200 md:inline-flex"
-          >
-            查看完整复盘 <ArrowUpRight className="h-3 w-3" />
-          </button>
-        </div>
-      </section>
-
-      {/* ────── 区域二:形成依据 ────── */}
-      <section className="card-base p-6">
-        <SubTitle icon={<Info className="h-4 w-4" />} label="形成依据" />
-        <div className="mt-4 grid gap-5 lg:grid-cols-2">
-          {/* 项目问题 */}
-          <EvidenceBlock icon={<AlertCircle className="h-4 w-4" />} label="项目问题">
-            <p>{NEW_KNOWLEDGE.problem}</p>
-          </EvidenceBlock>
-
-          {/* 原始数据 */}
-          <EvidenceBlock icon={<BarChart3 className="h-4 w-4" />} label="原始数据">
-            <ul className="space-y-2">
-              {NEW_KNOWLEDGE.rawData.map((d) => (
-                <li
-                  key={d.label}
-                  className="flex items-center justify-between gap-2 rounded-[9px] border border-white/[0.06] bg-surface-1 px-3 py-2"
-                >
-                  <span className="text-[12.5px] text-slate-400">{d.label}</span>
-                  <span className="tabular-nums text-[12.5px] font-semibold text-slate-200">
-                    {d.value}
+    <div className="animate-fade-in space-y-5">
+      {items.map((item) => {
+        const actions = item.allowedActions.value
+        const injectionReview = item.itemType.value === 'prompt_injection_review'
+        return (
+          <article key={`${item.kind}-${item.id.value}`} className="card-base overflow-hidden">
+            <section className="p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-3.5">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-mint-400/12 text-mint-300">
+                    {injectionReview ? <ShieldAlert className="h-5 w-5" /> : item.kind === 'team_candidate' ? <Lightbulb className="h-5 w-5" /> : <FileCheck2 className="h-5 w-5" />}
                   </span>
-                </li>
-              ))}
-            </ul>
-          </EvidenceBlock>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone={item.status.value === 'snoozed' ? 'neutral' : 'remind'} dot>
+                        {item.status.value === 'snoozed' ? '已稍后处理' : '待确认'}
+                      </Badge>
+                      <Badge tone="knowledge">{item.memoryType.value}</Badge>
+                      <Badge tone="neutral">{item.sourceProject.value}</Badge>
+                      <DataSourceBadge source={item.title.source} />
+                    </div>
+                    <h2 className="mt-2 text-[18px] font-semibold leading-snug text-white">{item.title.value}</h2>
+                    <p className="mt-2 text-[14px] leading-relaxed text-slate-300">{item.summary.value}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenDetail(item)}
+                  className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-lg px-2 text-xs text-slate-500 transition-colors active:scale-[0.98] hover:bg-white/[0.04] hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+                >
+                  查看详情 <ArrowUpRight className="h-3 w-3" />
+                </button>
+              </div>
+            </section>
 
-          {/* 项目决策 */}
-          <EvidenceBlock icon={<Workflow className="h-4 w-4" />} label="项目决策">
-            <ul className="space-y-1.5">
-              {NEW_KNOWLEDGE.decisions.map((d) => (
-                <li key={d} className="flex gap-2 text-[13px] leading-relaxed text-slate-300">
-                  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-500" />
-                  {d}
-                </li>
-              ))}
-            </ul>
-          </EvidenceBlock>
+            <section className="border-t border-white/[0.06] bg-surface-1/45 px-6 py-4">
+              <div className="grid gap-3 text-xs text-slate-400 sm:grid-cols-2 lg:grid-cols-4">
+                <Meta icon={<FolderClock className="h-3.5 w-3.5" />} label="来源项目" value={item.sourceProject.value} source={item.sourceProject.source} />
+                <Meta icon={<Info className="h-3.5 w-3.5" />} label="候选类型" value={item.itemType.value} source={item.itemType.source} />
+                <Meta icon={<Clock className="h-3.5 w-3.5" />} label="形成时间" value={formatTime(item.createdAt.value)} source={item.createdAt.source} />
+                <Meta icon={<FileCheck2 className="h-3.5 w-3.5" />} label="文档版本" value={item.documentVersion.value === null ? '不适用' : `v${item.documentVersion.value}`} source={item.documentVersion.source} />
+              </div>
+            </section>
 
-          {/* 项目结果(不编造提升比例) */}
-          <EvidenceBlock icon={<Check className="h-4 w-4" />} label="项目结果">
-            <p>{NEW_KNOWLEDGE.result}</p>
-          </EvidenceBlock>
+            <section className="border-t border-white/[0.06] px-6 py-5">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {actions.includes('confirm_brief') ? (
+                  <Button loading={busy} disabled={readOnly} icon={<Check className="h-4 w-4" />} onClick={() => onConfirm(item)}>确认 Brief</Button>
+                ) : null}
+                {actions.includes('accept') ? (
+                  <Button loading={busy} disabled={readOnly} icon={<Check className="h-4 w-4" />} onClick={() => onAccept(item)}>接受候选</Button>
+                ) : null}
+                {actions.includes('snooze') ? (
+                  <Button variant="subtle" disabled={busy || readOnly} icon={<Clock className="h-4 w-4" />} onClick={() => onSnooze(item)}>稍后处理</Button>
+                ) : null}
+                {actions.includes('release') ? (
+                  <Button variant="secondary" disabled={busy || readOnly} onClick={() => onInjection(item, 'release')}>释放内容</Button>
+                ) : null}
+                {actions.includes('discard') ? (
+                  <Button variant="danger" disabled={busy || readOnly} icon={<X className="h-4 w-4" />} onClick={() => onInjection(item, 'discard')}>丢弃内容</Button>
+                ) : null}
+                {actions.includes('resolve') ? (
+                  <Button variant="ghost" disabled={busy || readOnly} onClick={() => onResolve(item)}>标记已解决</Button>
+                ) : null}
+                {actions.length === 0 ? <span className="text-xs text-slate-500">服务端未开放可执行操作。</span> : null}
+              </div>
+            </section>
+          </article>
+        )
+      })}
 
-          {/* 适用范围 */}
-          <EvidenceBlock icon={<Target className="h-4 w-4" />} label="适用范围">
-            <div className="flex flex-wrap gap-1.5">
-              {NEW_KNOWLEDGE.scope.map((s) => (
-                <Badge key={s} tone="knowledge">
-                  {s}
-                </Badge>
-              ))}
-            </div>
-          </EvidenceBlock>
-
-          {/* 限制条件 */}
-          <EvidenceBlock icon={<AlertCircle className="h-4 w-4" />} label="限制条件">
-            <p>{NEW_KNOWLEDGE.limitation}</p>
-          </EvidenceBlock>
-        </div>
-
-        {/* 来源与贡献 */}
-        <div className="mt-5 flex flex-wrap items-center gap-4 rounded-[10px] border border-white/[0.05] bg-surface-1 px-4 py-3 text-[12px] text-slate-400">
-          <span className="inline-flex items-center gap-1.5">
-            <UserIcon className="h-3.5 w-3.5 text-slate-500" />
-            项目负责人:
-            <span className="text-slate-200">{NEW_KNOWLEDGE.contributor}</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5 text-slate-500" />
-            提炼时间:
-            <span className="text-slate-200">{NEW_KNOWLEDGE.formedAt}</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-slate-500" />
-            形成方式:
-            <span className="text-slate-200">{NEW_KNOWLEDGE.formationMethod}</span>
-          </span>
-        </div>
-      </section>
-
-      {/* ────── 区域三:确认与权限 ────── */}
-      <section className="card-base p-6">
-        <SubTitle icon={<Users className="h-4 w-4" />} label="确认与权限" />
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
-          <p className="max-w-2xl text-[13px] leading-relaxed text-slate-400">
-            AI 建议将这条知识共享给「
-            <span className="text-slate-200">{NEW_KNOWLEDGE.recommendVisibilityLabel}</span>
-            」,方便家电设计组的其他数字人在类似决策中引用。你可以在确认时修改类型、适用范围或权限,
-            <span className="text-slate-300">所有引用都会保留来源与适用范围</span>。
-          </p>
-          <div className="rounded-[10px] border border-knowledge/20 bg-knowledge/[0.05] px-3.5 py-2 text-xs text-knowledge">
-            AI 建议共享给「{NEW_KNOWLEDGE.recommendVisibilityLabel}」
-          </div>
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center gap-2.5">
-          <Button variant="primary" icon={<Check className="h-4 w-4" />} onClick={onConfirm}>
-            确认并沉淀
-          </Button>
-          <Button variant="secondary" icon={<Pencil className="h-4 w-4" />} onClick={onModify}>
-            修改内容
-          </Button>
-          <Button
-            variant="subtle"
-            icon={<Clock className="h-4 w-4" />}
-            onClick={() =>
-              showToast('已暂后处理,数字人会保留候选,不会自动共享或引用', 'info')
-            }
-          >
-            暂后处理
-          </Button>
-          <Button
-            variant="ghost"
-            icon={<ArrowUpRight className="h-4 w-4" />}
-            onClick={() =>
-              showToast('已退回补充复盘,请到工作洞察补充材料后再形成候选', 'info')
-            }
-          >
-            退回补充复盘
-          </Button>
-        </div>
-      </section>
-
-      {/* 底部提示:确认与权限的边界 */}
       <div className="flex items-start gap-2 text-[12px] leading-relaxed text-slate-500">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        AI 从项目复盘中形成候选,但不会直接称为知识。只有你确认后才成为知识资产;只有你授权后其他数字人才能引用。
+        候选只有在服务端返回对应 allowed_actions 后才可处理。确认 Brief 会携带当前文档版本，避免覆盖并发更新。
       </div>
     </div>
   )
 }
 
-/* ---------- 小组件 ---------- */
-function SubTitle({ icon, label }: { icon: ReactNode; label: string }) {
+function Meta({ icon, label, value, source }: { icon: ReactNode; label: string; value: string; source: 'M' | 'T' }) {
   return (
-    <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-100">
-      <span className="text-mint-300">{icon}</span>
-      {label}
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className="shrink-0 text-slate-500">{icon}</span>
+      <span className="shrink-0 text-slate-500">{label}:</span>
+      <span className="truncate text-slate-300">{value}</span>
+      <DataSourceBadge source={source} />
     </div>
   )
 }
 
-function EvidenceBlock({
-  icon,
-  label,
-  children,
-}: {
-  icon: ReactNode
-  label: string
-  children: ReactNode
-}) {
-  return (
-    <div>
-      <div className="mb-2 flex items-center gap-1.5 text-[11.5px] font-medium uppercase tracking-wide text-slate-500">
-        <span className="text-slate-400">{icon}</span>
-        {label}
-      </div>
-      <div className="text-[13px] leading-relaxed text-slate-300">{children}</div>
-    </div>
-  )
+function formatTime(value: string) {
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? value : new Date(timestamp).toLocaleString('zh-CN')
 }

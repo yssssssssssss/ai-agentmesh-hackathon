@@ -8,6 +8,7 @@ import {
 } from '../../data/mockData'
 import { useDemo } from '../../store/DemoContext'
 import { cn } from '../../lib/cn'
+import { DataSourceBadge } from '../ui/DataSourceBadge'
 
 interface DemoConversationThreadProps {
   activeRefId?: string
@@ -73,6 +74,7 @@ export function DemoConversationThread({
         <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
           <Sparkles className="h-3.5 w-3.5 text-mint-300" />
           当前任务
+          <DataSourceBadge source="M" />
         </div>
         <h1 className="mt-1.5 text-[19px] font-bold tracking-tight text-white">2026 年 618 家电会场首页改版</h1>
         <p className="mt-1 text-[12px] text-slate-500">准备阶段 · 当前目标：确定首屏设计方向</p>

@@ -1,479 +1,392 @@
-# AgentMesh Reference UI and M/T Data Implementation Plan
+# AgentMesh Reference UI and M/T Data Optimized Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
+> **For agentic workers:** Use subagent-driven development. Wave 2 contains four isolated page tasks that may run in parallel after Wave 1 freezes shared interfaces.
 
-**Goal:** 在保持 FastAPI 为事实源的前提下，把 DigitalSelf、Insights、Knowledge、Collaboration 的布局和内容表达恢复到参考 Mock 前端，并用 `M数据`、`T数据` 标明每个展示模块或字段的数据来源。
+**Goal:** 在不修改聊天与后端状态机的前提下，把 DigitalSelf、Knowledge、Collaboration、Insights 恢复到参考 Mock 前端的视觉和产品结构，并对展示字段使用 `M数据`、`T数据` 标识。
 
-**Architecture:** 页面通过 Presenter 将 React Query 的 Canonical Model 和参考 `mockData.ts` 合成为 Reference View Model。页面只消费 View Model。身份、权限、状态和 mutation 永远使用后端；Mock 只补展示字段。AI 工作台业务逻辑保持隔离，只运行回归测试。
-
-**Tech Stack:** React 18、TypeScript 5.6、Vite 5、Tailwind 3、TanStack Query 5、Vitest 2、Playwright 1.48、FastAPI、SQLite。
+**Architecture:** FastAPI 和 SQLite 继续提供身份、权限、状态和 mutation。页面 Presenter 把真实查询与参考 Mock 合成为 Reference View Model。公共 M/T 接口在 Wave 1 冻结，四个页面在 Wave 2 并行实现，Wave 3 统一验收。
 
 **Design:** `docs/superpowers/specs/2026-08-14-reference-ui-mt-data-design.md`
+
+**Tech Stack:** React 18、TypeScript 5.6、TanStack Query 5、Vitest 2、Playwright 1.48、Vite 5、Tailwind 3。
+
+## Execution Order Override
+
+用户已要求先完成全部页面修改，最终验证改由真人执行。Wave 2 reviewer 修复完成后，停止自动测试、build、Playwright 和截图对比。原 Wave 3 自动门禁保留为历史计划，不再由 Agent 执行。人工验收入口：`docs/superpowers/plans/2026-08-14-reference-ui-mt-data-human-acceptance.md`。
 
 ## Global Constraints
 
 - `/Users/heyunshen/Downloads/agentmesh-demo/` 是视觉和产品内容基线。
-- FastAPI、SQLite、allowed_actions、版本和权限是唯一业务事实源。
-- Mock 数据只用于展示 fallback，不得改变服务端业务状态。
+- FastAPI、SQLite、权限、版本和 allowed_actions 是唯一业务事实源。
 - 标签只使用 `M数据` 和 `T数据`。
-- mixed 模块必须字段级标注，不能只显示一个模糊总标签。
-- 不修改 AI 工作台消息、Skill、历史、上传、搜索、trace 和记忆检索协议。
-- 不新增后端服务、数据库表、SSE 或 WebSocket。
-- 每个页面任务独立可用、可测试、可回滚。
-- 每个页面任务完成后运行 Workspace 主链和回归 Playwright。
-- 视口验收覆盖 390px、768px、1512px。
+- Mock 只补展示，不得模拟真实 mutation 成功。
+- AI 工作台和聊天后端是冻结区，不修改业务逻辑。
+- 验证工具只使用 Vitest、Vite build、Playwright。
+- 每个波次最多运行一次完整 build 和一次 Workspace 聚焦回归。
+- 默认不运行后端全量测试；仅在确实修改后端时运行对应聚焦测试。
+- Wave 2 的页面任务不得修改 Wave 1 冻结的公共文件。
 
 ---
 
-## Task 1: Data provenance primitives and Presenter contract
+## Wave 0: Freeze the implementation baseline
+
+**Purpose:** 消除并行修改、参考版本漂移和 Agent 重复探索。
+
+**Files:**
+
+- Create: `docs/superpowers/specs/2026-08-14-reference-ui-mt-data-baseline.md`
+- Create: `agentmesh-demo/e2e/reference-baselines/manifest.json`
+- Create: `agentmesh-demo/e2e/reference-baselines/` 下稳定截图
+- Read only: 当前 Git 状态、参考项目、当前四个页面和 Workspace
+
+- [ ] **Record repository state**
+
+  记录：
+
+  ```bash
+  git rev-parse HEAD
+  git status --short --branch -uall
+  ```
+
+  文档中列出当前分支、HEAD、已修改文件、未跟踪文件和当前运行端口。
+
+- [ ] **Freeze reference files**
+
+  对参考项目中的以下文件生成 SHA-256：
+
+  - `src/App.tsx`
+  - `src/index.css`
+  - `tailwind.config.js`
+  - `src/components/layout/**`
+  - `src/components/ui/**`
+  - `src/pages/{DigitalSelf,Knowledge,Collaboration,Insights}.tsx`
+  - 四个页面对应的组件目录
+  - `src/data/mockData.ts`
+
+  将路径和校验值写入 `manifest.json`。
+
+- [ ] **Capture reference screenshots once**
+
+  在 1512px 捕获：
+
+  - DigitalSelf
+  - Knowledge 三个 Tab
+  - Collaboration 主页面和详情 Drawer
+  - Insights 主页面和代表性 Drawer
+
+  只保存稳定页面，不捕获动态时间、随机 ID 和动画帧。
+
+- [ ] **Run baseline gates once**
+
+  ```bash
+  npm --prefix agentmesh-demo run build
+  npm --prefix agentmesh-demo run test:e2e -- e2e/workspace-mvp.spec.ts --grep "creates, selects|shows pending immediately"
+  ```
+
+- [ ] **Create a baseline checkpoint after explicit authorization**
+
+  未取得提交授权时，只记录建议命令，不执行：
+
+  ```bash
+  git add agentmesh-demo docs/superpowers/specs docs/superpowers/plans
+  git commit -m "Checkpoint reference UI migration baseline"
+  ```
+
+**Exit criteria:** 当前代码、参考文件、参考截图和 Workspace 行为都有不可歧义的基线。
+
+---
+
+## Wave 1: Build and freeze shared presentation foundations
+
+**Purpose:** 公共接口只实现一次，避免四个页面重复读写和相互覆盖。
 
 **Files:**
 
 - Create: `agentmesh-demo/src/lib/presentation.ts`
 - Create: `agentmesh-demo/src/lib/presentation.test.ts`
 - Create: `agentmesh-demo/src/components/ui/DataSourceBadge.tsx`
-- Test DataSourceBadge rendering in `agentmesh-demo/e2e/reference-shell-parity.spec.ts`; do not add a new DOM test dependency.
-
-**Interfaces:**
-
-- Produces `DataSourceKind = 'M' | 'T'`.
-- Produces `PresentedValue<T>` with `value`, `source`, and optional `reason`.
-- Produces `PresentedModule<T>` with `data`, `sources`, `missingFields`, `loading`, `error`.
-- Produces `<DataSourceBadge source="M" | "T" />` rendering exact text `M数据` or `T数据`.
-
-- [ ] **Step 1: Add failing provenance tests**
-
-  Test exact label text, aria-label, mixed-source aggregation, and refusal to silently coerce an unknown source.
-
-- [ ] **Step 2: Run RED**
-
-  ```bash
-  npm --prefix agentmesh-demo run test -- src/lib/presentation.test.ts
-  ```
-
-  Expected: fail because presentation types/helpers do not exist.
-
-- [ ] **Step 3: Implement presentation primitives**
-
-  Keep the interface small. Presenter helpers may combine fields and source metadata, but may not fetch, mutate, read global auth state, or infer permission.
-
-- [ ] **Step 4: Implement DataSourceBadge**
-
-  Requirements:
-
-  - T data uses mint low-contrast styling.
-  - M data uses remind low-contrast styling.
-  - Text and aria-label are exactly `T数据` or `M数据`.
-  - The component composes the existing Badge primitive without modifying Badge defaults.
-
-- [ ] **Step 5: Run GREEN and build**
-
-  ```bash
-  npm --prefix agentmesh-demo run test -- src/lib/presentation.test.ts
-  npm --prefix agentmesh-demo run build
-  ```
-
-- [ ] **Step 6: Commit suggestion**
-
-  ```bash
-  git add agentmesh-demo/src/lib/presentation.ts agentmesh-demo/src/lib/presentation.test.ts agentmesh-demo/src/components/ui/DataSourceBadge.tsx
-  git commit -m "Add frontend data provenance primitives"
-  ```
-
----
-
-## Task 2: Align the global shell without weakening auth or responsiveness
-
-**Files:**
-
 - Modify: `agentmesh-demo/src/components/layout/AppLayout.tsx`
 - Modify: `agentmesh-demo/src/components/layout/Sidebar.tsx`
 - Modify: `agentmesh-demo/src/components/layout/SettingsDrawer.tsx`
 - Modify: `agentmesh-demo/src/components/ui/Tabs.tsx`
 - Modify: `agentmesh-demo/src/components/ui/Modal.tsx`
 - Modify: `agentmesh-demo/src/components/ui/Drawer.tsx`
-- Test: `agentmesh-demo/e2e/reference-shell-parity.spec.ts`
-- Reference: `/Users/heyunshen/Downloads/agentmesh-demo/src/components/layout/**`
-- Reference: `/Users/heyunshen/Downloads/agentmesh-demo/src/components/ui/{Tabs,Modal,Drawer}.tsx`
+- Create: `agentmesh-demo/e2e/reference-shell-parity.spec.ts`
 
-**Interfaces:**
+**Produces:**
 
-- Consumes real AuthProvider user/bootstrap/capabilities.
-- Preserves mobile navigation and current admin capability routing.
-- Produces the common 1240px reference content shell and reference navigation hierarchy.
+- `DataSourceKind = 'M' | 'T'`
+- `PresentedValue<T>`
+- `PresentedModule<T>`
+- `DataSourceBadge`
+- 参考宽度、侧栏层级、Tabs 语义和 Modal/Drawer focus 行为
 
-- [ ] **Step 1: Write shell parity tests**
+- [ ] **Write one table-driven Presenter foundation test**
 
-  Assertions at 1512px:
+  覆盖：
 
-  - Main content max width is 1240px.
-  - Sidebar width remains 260px.
-  - Brand hierarchy and primary navigation text match the reference.
-  - Real user, workspace badge, profile, settings and logout remain reachable.
-  - Tabs support tablist/tab semantics and ArrowLeft/ArrowRight/Home/End.
+  - T 数据原样保留。
+  - 真实值缺失时允许 M 数据 fallback。
+  - mixed 字段保留各自来源。
+  - 权限空结果和错误不能触发 Mock fallback。
+  - 未知 source 直接报错，不静默转成 M 数据。
 
-  Assertions at 390px and 768px:
-
-  - Mobile header and overlay remain operable.
-  - Sidebar can open and close.
-  - No horizontal overflow.
-
-- [ ] **Step 2: Run RED**
+- [ ] **Run the focused RED test**
 
   ```bash
+  npm --prefix agentmesh-demo run test -- src/lib/presentation.test.ts
+  ```
+
+- [ ] **Implement presentation primitives and DataSourceBadge**
+
+  `DataSourceBadge` 只显示 `M数据` 或 `T数据`，并提供同名 aria-label。组件复用现有 Badge，不修改 Badge 默认样式。
+
+- [ ] **Align the shell once**
+
+  - 普通内容宽度恢复参考 `1240px`。
+  - 保留 AuthProvider、QueryClient、capability、移动导航、Profile、真实退出。
+  - 恢复参考品牌和导航视觉层级。
+  - Tabs 恢复参考 active 样式和键盘行为。
+  - Modal/Drawer 恢复 focus trap 和标题关联。
+
+- [ ] **Run Wave 1 verification once**
+
+  ```bash
+  npm --prefix agentmesh-demo run test -- src/lib/presentation.test.ts
+  npm --prefix agentmesh-demo run build
   npm --prefix agentmesh-demo run test:e2e -- e2e/reference-shell-parity.spec.ts
-  ```
-
-- [ ] **Step 3: Align AppLayout and Sidebar**
-
-  Restore reference width, spacing, brand and navigation hierarchy. Keep dynamic badges, capabilities, profile, logout, mobile overlay and AuthProvider behavior.
-
-- [ ] **Step 4: Restore shared primitive semantics**
-
-  Restore reference Tabs visuals and keyboard behavior. Restore Modal/Drawer focus management and title wiring. Keep current Drawer headerAction support.
-
-- [ ] **Step 5: Verify**
-
-  ```bash
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-shell-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/auth-shell.spec.ts
-  npm --prefix agentmesh-demo run build
-  ```
-
-- [ ] **Step 6: Commit suggestion**
-
-  ```bash
-  git add agentmesh-demo/src/components/layout agentmesh-demo/src/components/ui agentmesh-demo/e2e/reference-shell-parity.spec.ts
-  git commit -m "Align the authenticated shell with the reference UI"
-  ```
-
----
-
-## Task 3: Restore the DigitalSelf reference composition
-
-**Files:**
-
-- Create: `agentmesh-demo/src/features/digital-self/presenter.ts`
-- Create: `agentmesh-demo/src/features/digital-self/presenter.test.ts`
-- Modify: `agentmesh-demo/src/pages/DigitalSelf.tsx`
-- Modify: `agentmesh-demo/src/components/digital-self/WelcomeHero.tsx`
-- Modify: `agentmesh-demo/src/components/digital-self/UnderstandingList.tsx`
-- Modify: `agentmesh-demo/src/components/digital-self/RecentGrowth.tsx`
-- Modify: `agentmesh-demo/src/components/digital-self/MyImpact.tsx`
-- Modify: `agentmesh-demo/src/components/digital-self/TodayWork.tsx` if it remains part of the reference composition.
-- Test: `agentmesh-demo/e2e/reference-digital-self-parity.spec.ts`
-- Reference: `/Users/heyunshen/Downloads/agentmesh-demo/src/pages/DigitalSelf.tsx`
-- Reference: `/Users/heyunshen/Downloads/agentmesh-demo/src/components/digital-self/**`
-
-**Presenter mapping:**
-
-- Hero identity/project: T data from bootstrap.
-- Hero narrative/participant count without backend aggregation: M data.
-- Pending items: T data from visible Inbox/Task when present; otherwise reference M data.
-- Understanding: T data from UserMemoryItem when present; otherwise reference M data.
-- Growth: T data from memory overview; missing category breakdown fields use M data.
-- Impact: future real reuse records; current reference values are M data.
-- Agent identity/runtime/model: T data, shown without changing reference module order.
-
-- [ ] **Step 1: Write Presenter RED tests**
-
-  Cover all-real, all-mock, mixed, loading, error, empty-permission and unavailable aggregation cases. Assert exact M/T provenance per field.
-
-- [ ] **Step 2: Implement DigitalSelf Presenter**
-
-  The Presenter accepts bootstrap, Agent, activity, memory overview and reference Mock data. It returns a complete reference View Model even when real endpoints are empty.
-
-- [ ] **Step 3: Restore reference page composition**
-
-  Restore Hero, pending section and the three equal dynamic cards. Reattach MyImpact. Integrate the real Agent identity into the reference hierarchy rather than inserting a new top-level dashboard card.
-
-- [ ] **Step 4: Add DataSourceBadge**
-
-  Label each module or field according to Presenter provenance. Do not mark real identity/project as M data because the narrative is Mock.
-
-- [ ] **Step 5: Browser verification**
-
-  ```bash
-  npm --prefix agentmesh-demo run test -- src/features/digital-self/presenter.test.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-digital-self-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/workspace-mvp.spec.ts --grep "creates, selects|shows pending immediately"
-  npm --prefix agentmesh-demo run build
-  ```
-
-- [ ] **Step 6: Commit suggestion**
-
-  ```bash
-  git add agentmesh-demo/src/features/digital-self agentmesh-demo/src/pages/DigitalSelf.tsx agentmesh-demo/src/components/digital-self agentmesh-demo/e2e/reference-digital-self-parity.spec.ts
-  git commit -m "Restore the reference digital self experience"
-  ```
-
----
-
-## Task 4: Restore the Knowledge reference information architecture
-
-**Files:**
-
-- Create: `agentmesh-demo/src/features/knowledge/presenter.ts`
-- Create: `agentmesh-demo/src/features/knowledge/presenter.test.ts`
-- Modify: `agentmesh-demo/src/pages/Knowledge.tsx`
-- Modify: `agentmesh-demo/src/components/knowledge/AssetsPanel.tsx`
-- Modify: `agentmesh-demo/src/components/knowledge/AssetCard.tsx`
-- Modify: `agentmesh-demo/src/components/knowledge/PendingCandidatePanel.tsx`
-- Modify: `agentmesh-demo/src/components/knowledge/KnowledgeDetailDrawer.tsx`
-- Modify: `agentmesh-demo/src/components/knowledge/ShareTimeline.tsx`
-- Modify: `agentmesh-demo/src/components/knowledge/ConfirmKnowledgeModal.tsx`
-- Keep or adapt: `KnowledgeCard.tsx`, `PendingKnowledgeCard.tsx`, `ReuseSection.tsx` as internal renderers if they earn their interface.
-- Test: `agentmesh-demo/e2e/reference-knowledge-parity.spec.ts`
-- Reference: `/Users/heyunshen/Downloads/agentmesh-demo/src/pages/Knowledge.tsx`
-- Reference: `/Users/heyunshen/Downloads/agentmesh-demo/src/components/knowledge/**`
-
-**Presenter mapping:**
-
-- Reference “已沉淀知识”: UserMemoryItem, accepted MemoryItem and DocumentRecord。
-- Reference “待我确认”: open InboxItem and proposed team_candidate MemoryItem。
-- Reference “使用与反馈”: real reuse/feedback events when available; otherwise reference M timeline。
-- All versions, allowed_actions and state transitions remain T data.
-
-- [ ] **Step 1: Write Presenter RED tests**
-
-  Cover five current resource sets mapping into three reference tabs. Assert resolved Inbox does not appear, team candidate stays pending, team accepted appears as asset, documents map to assets without fabricated memory fields, and missing reuse events fall back to M data.
-
-- [ ] **Step 2: Restore reference three-tab shell**
-
-  Keep URL tab synchronization. Default to “已沉淀知识”. Restore reference counts, panels and unified detail Drawer。
-
-- [ ] **Step 3: Restore assets and filtering**
-
-  Reuse AssetsPanel/AssetCard visuals. Presenter provides safe defaults for missing scope, limitation, citation and feedback fields, with M data labels next to only those fields.
-
-- [ ] **Step 4: Preserve real governance**
-
-  Confirm Brief with text and expected document version. Accept team candidates only when allowed_actions includes accept. Resolve/snooze/injection actions remain real. No DemoContext mutation.
-
-- [ ] **Step 5: Restore usage timeline**
-
-  Real events are T data. If unavailable, show the reference timeline as M data. M timeline actions remain disabled or explicitly marked demo; they cannot mutate backend state.
-
-- [ ] **Step 6: Verify**
-
-  ```bash
-  npm --prefix agentmesh-demo run test -- src/features/knowledge/presenter.test.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-knowledge-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/governance-collaboration-mvp.spec.ts --grep "Brief|candidate|version"
   npm --prefix agentmesh-demo run test:e2e -- e2e/workspace-mvp.spec.ts --grep "shows pending immediately"
-  npm --prefix agentmesh-demo run build
   ```
 
-- [ ] **Step 7: Commit suggestion**
+- [ ] **Freeze shared ownership**
 
-  ```bash
-  git add agentmesh-demo/src/features/knowledge agentmesh-demo/src/pages/Knowledge.tsx agentmesh-demo/src/components/knowledge agentmesh-demo/e2e/reference-knowledge-parity.spec.ts
-  git commit -m "Restore the reference knowledge experience"
-  ```
+  Wave 2 页面 Agent 禁止修改：
+
+  - `src/lib/presentation.ts`
+  - `src/components/ui/DataSourceBadge.tsx`
+  - `src/components/layout/**`
+  - `src/components/ui/Tabs.tsx`
+  - `src/components/ui/Modal.tsx`
+  - `src/components/ui/Drawer.tsx`
+  - `src/pages/Workspace.tsx`
+  - `src/components/workspace/**`
+  - `src/features/workspace/**`
+
+**Exit criteria:** 公共接口、壳层和 M/T 视觉均已通过一次构建和浏览器门禁，之后不再由页面任务修改。
 
 ---
 
-## Task 5: Restore Collaboration narrative over real Task and Post data
+## Wave 2: Implement four page presenters in parallel
 
-**Files:**
+**Purpose:** 四个页面共享冻结接口，但文件所有权完全隔离。
 
-- Create: `agentmesh-demo/src/features/collaboration/presenter.ts`
-- Create: `agentmesh-demo/src/features/collaboration/presenter.test.ts`
-- Modify: `agentmesh-demo/src/pages/Collaboration.tsx`
-- Modify: `agentmesh-demo/src/components/collaboration/MyCollabCard.tsx`
-- Modify: `agentmesh-demo/src/components/collaboration/PeerCard.tsx`
-- Modify: `agentmesh-demo/src/components/collaboration/HelpRequestCard.tsx`
-- Modify: `agentmesh-demo/src/components/collaboration/CollabTimelineDrawer.tsx`
-- Modify: `agentmesh-demo/src/features/collaboration/api.ts` only if an existing backend field is not exposed.
-- Modify: `agentmesh-demo/src/features/knowledge/api.ts` only to reuse existing Inbox reads, not to duplicate them.
-- Test: `agentmesh-demo/e2e/reference-collaboration-parity.spec.ts`
-- Reference: `/Users/heyunshen/Downloads/agentmesh-demo/src/pages/Collaboration.tsx`
-- Reference: `/Users/heyunshen/Downloads/agentmesh-demo/src/components/collaboration/**`
+### Page A: DigitalSelf
 
-**Presenter mapping:**
+**Owned files:**
 
-- Task/Post status, stage, owner, lock, sources, actions: T data.
-- upstream/downstream agents, actor and handoff: T data mapped to participants and contributions.
-- Market counts/signals/matches/consent/participants: T data where returned.
-- Ability percentages, period aggregates and unavailable matching reasons: M data.
-- Inbox authorization: T data when a real Inbox resource and dedicated action exist; otherwise M display with no fake mutation.
+- `agentmesh-demo/src/features/digital-self/presenter.ts`
+- `agentmesh-demo/src/features/digital-self/presenter.test.ts`
+- `agentmesh-demo/src/pages/DigitalSelf.tsx`
+- `agentmesh-demo/src/components/digital-self/**`
 
-- [ ] **Step 1: Write Presenter RED tests**
+**Requirements:**
 
-  Cover TaskCard to narrative card, Post timeline ordering, participant extraction, allowed action projection, Market aggregation fallback, authorization unavailable state and M/T provenance.
+- 恢复参考 Hero、待处理事项、理解、成长、影响三卡结构。
+- 用户、Workspace、Project、Agent、Activity、Memory overview 使用 T 数据。
+- 后端缺少的推进叙事、参与人数、影响力聚合使用 M 数据。
+- 恢复 MyImpact 挂载。
+- 权限空结果不使用 Mock 补齐。
 
-- [ ] **Step 2: Restore reference page structure**
+- [ ] Write Presenter tests for all-real, mixed, all-display-fallback, loading, error and permission-empty.
+- [ ] Implement Presenter and reference composition.
+- [ ] Add module/field M/T labels.
+- [ ] Run only `src/features/digital-self/presenter.test.ts`.
 
-  Restore network overview, capability distribution, participant groups, collaboration records and the reference tab hierarchy. Add Market as a secondary tab without replacing the main collaboration view.
+### Page B: Knowledge
 
-- [ ] **Step 3: Restore narrative Drawer**
+**Owned files:**
 
-  Default view maps real posts into semantic steps with numbering, avatars, reason, contribution and result. Add a collapsed “技术详情” section for raw post_type, actor, owner, lock and done_when。
+- `agentmesh-demo/src/features/knowledge/presenter.ts`
+- `agentmesh-demo/src/features/knowledge/presenter.test.ts`
+- `agentmesh-demo/src/pages/Knowledge.tsx`
+- `agentmesh-demo/src/components/knowledge/**`
 
-- [ ] **Step 4: Preserve real mutations**
+**Requirements:**
 
-  reply, handoff, lock, unlock and mark read remain visible only when allowed_actions permits. Mutation errors and optimistic state remain real.
+- 恢复“已沉淀知识、待我确认、使用与反馈”三类用户心智。
+- UserMemory、accepted Memory、Document、Inbox、team candidate 使用 T 数据。
+- 缺少真实 reuse/feedback 时使用 M Timeline，并禁用 Mock mutation。
+- 保留版本检查、Brief 确认、candidate accept、Inbox allowed actions。
+- 恢复 AssetsPanel、筛选、详情 Drawer 和参考卡片视觉。
 
-- [ ] **Step 5: Restore application and authorization slots**
+- [ ] Write mapping and mutation-visibility Presenter tests.
+- [ ] Implement three-tab View Model and reference components.
+- [ ] Add M/T labels without changing real mutations.
+- [ ] Run only `src/features/knowledge/presenter.test.ts`.
 
-  Reuse real Inbox where possible. When approve/deny is not implemented, show “能力暂未接入”; do not replace it with generic resolve or local Toast success。
+### Page C: Collaboration
 
-- [ ] **Step 6: Verify**
+**Owned files:**
 
-  ```bash
-  npm --prefix agentmesh-demo run test -- src/features/collaboration/presenter.test.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-collaboration-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/governance-collaboration-mvp.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/workspace-mvp.spec.ts --grep "shows pending immediately"
-  npm --prefix agentmesh-demo run build
-  ```
+- `agentmesh-demo/src/features/collaboration/presenter.ts`
+- `agentmesh-demo/src/features/collaboration/presenter.test.ts`
+- `agentmesh-demo/src/pages/Collaboration.tsx`
+- `agentmesh-demo/src/components/collaboration/**`
 
-- [ ] **Step 7: Commit suggestion**
+**Requirements:**
 
-  ```bash
-  git add agentmesh-demo/src/features/collaboration agentmesh-demo/src/pages/Collaboration.tsx agentmesh-demo/src/components/collaboration agentmesh-demo/e2e/reference-collaboration-parity.spec.ts
-  git commit -m "Restore the reference collaboration narrative"
-  ```
+- 恢复网络概览、能力分布、参与人、协作记录和参考 Tabs。
+- Task/Post/status/owner/lock/source/allowed_actions 使用 T 数据。
+- upstream/downstream/actor/handoff 映射成参与人和贡献。
+- 缺少的比例、周期聚合、匹配原因使用 M 数据。
+- Drawer 默认是用户叙事，原始 Task/Post 放入“技术详情”。
+- reply、handoff、lock、unlock、read 保持真实。
+
+- [ ] Write Task/Post/Market/Inbox Presenter tests.
+- [ ] Implement reference page structure and narrative Drawer.
+- [ ] Add M/T labels and preserve allowed actions.
+- [ ] Run only `src/features/collaboration/presenter.test.ts`.
+
+### Page D: Insights
+
+**Owned files:**
+
+- `agentmesh-demo/src/features/insights/presenter.ts`
+- `agentmesh-demo/src/features/insights/presenter.test.ts`
+- `agentmesh-demo/src/pages/Insights.tsx`
+- `agentmesh-demo/src/components/insights/**`
+
+**Requirements:**
+
+- 恢复近期工作、洞察、历史复盘、依据和知识形成的纵向结构。
+- Project、Task、Activity、Memory、Audit 使用 T 数据。
+- 跨项目规律、KPI、复盘建议、Workflow 推荐使用 M 数据。
+- Mock 操作显示“能力暂未接入”，不得修改本地业务状态。
+- 原始 Task/Audit 面板下沉到详情或折叠区。
+
+- [ ] Write current-facts and fallback Presenter tests.
+- [ ] Implement reference information architecture.
+- [ ] Add M/T labels and honest unavailable actions.
+- [ ] Run only `src/features/insights/presenter.test.ts`.
+
+### Wave 2 integration
+
+四个页面 Agent 完成后，由主会话统一执行：
+
+- [ ] Resolve only page-local merge conflicts. Shared frozen files must remain unchanged.
+- [ ] Run all four Presenter tests in one Vitest command.
+- [ ] Run one production build.
+- [ ] Create and run one combined `reference-pages-smoke.spec.ts` at 1512px.
+- [ ] Run one Workspace focused regression.
+
+```bash
+npm --prefix agentmesh-demo run test -- \
+  src/features/digital-self/presenter.test.ts \
+  src/features/knowledge/presenter.test.ts \
+  src/features/collaboration/presenter.test.ts \
+  src/features/insights/presenter.test.ts
+npm --prefix agentmesh-demo run build
+npm --prefix agentmesh-demo run test:e2e -- e2e/reference-pages-smoke.spec.ts
+npm --prefix agentmesh-demo run test:e2e -- e2e/workspace-mvp.spec.ts --grep "shows pending immediately"
+```
+
+**Exit criteria:** 四个页面在 1512px 具备参考模块结构和正确 M/T 标识，Workspace 不回归。
 
 ---
 
-## Task 6: Restore the Insights product narrative with honest fallbacks
+## Wave 3: Final integration and minimal release gate
+
+**Purpose:** 一次性完成最终功能、视觉和响应式检查，不重复各页面局部验证。
 
 **Files:**
 
-- Create: `agentmesh-demo/src/features/insights/presenter.ts`
-- Create: `agentmesh-demo/src/features/insights/presenter.test.ts`
-- Modify: `agentmesh-demo/src/pages/Insights.tsx`
-- Modify: `agentmesh-demo/src/components/insights/ReadModelPanels.tsx`
-- Modify: `agentmesh-demo/src/components/insights/ProjectReviewDrawer.tsx`
-- Create or restore focused reference modules under `agentmesh-demo/src/components/insights/` rather than leaving a 500-line page.
-- Test: `agentmesh-demo/e2e/reference-insights-parity.spec.ts`
-- Reference: `/Users/heyunshen/Downloads/agentmesh-demo/src/pages/Insights.tsx`
-
-**Presenter mapping:**
-
-- Current project, tasks, activity, memory and audit: T data.
-- Cross-project pattern, historical review, KPI, evidence narrative and Workflow recommendation: M data until backend models exist.
-- Audit remains a detail/evidence surface, not the primary product module.
-
-- [ ] **Step 1: Write Presenter RED tests**
-
-  Cover current project facts, Task/Activity/Memory/Audit mapping, missing insight/KPI fallback, M/T provenance, endpoint failure and permission-empty behavior.
-
-- [ ] **Step 2: Restore the reference vertical information architecture**
-
-  Restore work overview, insight card, historical review, evidence and knowledge formation sections. Keep the current read models as inputs and details, not as four top-level equal cards.
-
-- [ ] **Step 3: Restore reference interactions honestly**
-
-  Source chips can open real details where possible. Mock review/Workflow actions display M data and “能力暂未接入”; they cannot create local success state。
-
-- [ ] **Step 4: Retain operational diagnostics as secondary content**
-
-  Move raw Task/Activity/Audit panels into drawers, expandable evidence or a secondary section. Do not expose project IDs and English technical labels in the main visual hierarchy.
-
-- [ ] **Step 5: Verify**
-
-  ```bash
-  npm --prefix agentmesh-demo run test -- src/features/insights/presenter.test.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-insights-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/read-model-admin-mvp.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/workspace-mvp.spec.ts --grep "shows pending immediately"
-  npm --prefix agentmesh-demo run build
-  ```
-
-- [ ] **Step 6: Commit suggestion**
-
-  ```bash
-  git add agentmesh-demo/src/features/insights agentmesh-demo/src/pages/Insights.tsx agentmesh-demo/src/components/insights agentmesh-demo/e2e/reference-insights-parity.spec.ts
-  git commit -m "Restore the reference insights narrative"
-  ```
-
----
-
-## Task 7: Cross-page visual parity and non-regression gate
-
-**Files:**
-
+- Modify: `agentmesh-demo/e2e/reference-pages-smoke.spec.ts`
 - Create: `agentmesh-demo/e2e/reference-visual-parity.spec.ts`
 - Modify: `agentmesh-demo/e2e/mvp-parity.spec.ts`
-- Modify: `agentmesh-demo/e2e/workspace-mvp.spec.ts` only to add regression coverage, never to weaken existing assertions.
-- Modify: `README.md` and `CONTEXT.md` after implementation to document M/T semantics and completed pages.
+- Modify: `README.md`
+- Modify: `CONTEXT.md`
 
-- [ ] **Step 1: Capture reference checkpoints**
-
-  At 1512px record module order, headings, key card counts, Drawer titles and representative screenshots for DigitalSelf, Insights, Knowledge and Collaboration. Store only stable reference screenshots needed by Playwright.
-
-- [ ] **Step 2: Add structural parity assertions**
-
-  Assert module order, page headings, tab labels, Drawer entry points and M/T labels. Avoid pixel assertions for dynamic text and counts.
-
-- [ ] **Step 3: Add M/T integrity assertions**
-
-  - Every Mock fallback module contains `M数据`.
-  - Every real-only module contains `T数据`.
-  - Mixed modules expose field-level labels.
-  - No mutation button exists on a Mock-only capability.
-
-- [ ] **Step 4: Run the complete frontend gate**
+- [ ] **Run Vitest once**
 
   ```bash
   npm --prefix agentmesh-demo run test
+  ```
+
+- [ ] **Run production build once**
+
+  ```bash
   npm --prefix agentmesh-demo run build
-  npm --prefix agentmesh-demo run test:e2e -- e2e/auth-shell.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/workspace-mvp.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-shell-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-digital-self-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-knowledge-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-collaboration-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-insights-parity.spec.ts
-  npm --prefix agentmesh-demo run test:e2e -- e2e/reference-visual-parity.spec.ts
   ```
 
-- [ ] **Step 5: Run backend gates covering real mutations**
+- [ ] **Run the minimum browser gate**
 
   ```bash
-  .venv/bin/python -m pytest tests/test_frontend_contracts.py tests/test_read_models.py tests/test_chat_flow.py -q
-  .venv/bin/ruff check agentmesh tests
+  npm --prefix agentmesh-demo run test:e2e -- \
+    e2e/auth-shell.spec.ts \
+    e2e/reference-pages-smoke.spec.ts \
+    e2e/workspace-mvp.spec.ts
   ```
 
-  If the known `test_chat_data_query_denies_disabled_grant_before_connector` fixture failure still exists, isolate and resolve it as a separate test hygiene task before claiming the full backend suite is green.
-
-- [ ] **Step 6: Manual responsive acceptance**
-
-  At 390px, 768px and 1512px verify:
-
-  - No horizontal overflow.
-  - Sidebar/mobile navigation works.
-  - M/T labels remain legible without dominating cards.
-  - Drawers and modals fit the viewport.
-  - Workspace pending, auto-scroll and `$` Skill remain operational.
-
-- [ ] **Step 7: Update product reality docs**
-
-  Document which modules are T data, M data or mixed, and list backend gaps that still require Mock fallback.
-
-- [ ] **Step 8: Commit suggestion**
+  Knowledge 和 Collaboration 的真实 mutation 只运行代表性用例：
 
   ```bash
-  git add agentmesh-demo/e2e README.md CONTEXT.md
-  git commit -m "Add reference UI parity gates"
+  npm --prefix agentmesh-demo run test:e2e -- \
+    e2e/governance-collaboration-mvp.spec.ts \
+    --grep "Brief|candidate|handoff|lock"
   ```
+
+- [ ] **Run visual comparison once**
+
+  - 1512px 对比 DigitalSelf、Knowledge、Collaboration、Insights 和代表性 Drawer。
+  - 390px、768px 只检查导航、溢出、Drawer/Modal 和关键按钮。
+  - 不对动态数值、时间和服务端文本做像素断言。
+
+- [ ] **Check M/T integrity once**
+
+  - Mock fallback 模块有 `M数据`。
+  - 真实模块有 `T数据`。
+  - mixed 模块对 Mock 字段单独标注。
+  - Mock-only 模块没有可修改服务端状态的按钮。
+
+- [ ] **Backend tests only if backend changed**
+
+  如果整个实施只改前端，跳过 pytest 和后端 Ruff。如果某页需要新后端字段，只运行对应 route/state tests，不运行全套后端测试。
+
+- [ ] **Update product reality docs**
+
+  README 和 CONTEXT 记录：
+
+  - 哪些模块是 T 数据。
+  - 哪些模块是 M 数据。
+  - 哪些模块 mixed。
+  - 哪些真实能力仍未接入。
+  - Workspace 隔离边界和回归命令。
+
+**Final exit criteria:** 参考结构、M/T 诚信、真实 mutation、响应式和 Workspace 核心行为均通过一套最小门禁。
 
 ---
 
-## Delivery order
+## Toolchain policy
 
-1. Task 1, provenance foundation.
-2. Task 2, global shell.
-3. Task 3, DigitalSelf.
-4. Task 4, Knowledge.
-5. Task 5, Collaboration.
-6. Task 6, Insights.
-7. Task 7, whole-frontend gate.
+实施只使用：
 
-Each task is independently mergeable. If later tasks stop, completed pages remain usable and real mutations remain intact.
+- Read/Edit/Write 完成代码变更。
+- Vitest 验证 Presenter。
+- Vite build 验证 TypeScript 和生产构建。
+- Playwright 验证用户行为、视觉结构和响应式。
+
+不使用：
+
+- 多套浏览器自动化工具重复验证同一页面。
+- 每个页面完成后重复完整 build。
+- 每个页面完成后重复 Workspace E2E。
+- 纯前端变更触发全量后端测试。
+- 为 Presenter 映射编写 E2E。
+- 对动态服务端内容做脆弱的像素级断言。
 
 ## Rollback
 
-All changes are front-end presentation and test changes. Roll back one page by restoring its current endpoint-shaped page and removing only that page Presenter. Do not roll back backend data, permissions or state. `DataSourceBadge` can remain even if a page Presenter is reverted.
+- Wave 1 可整体回滚公共壳层和 Presentation primitives。
+- Wave 2 每个页面独立回滚，不影响其他页面和后端状态。
+- Wave 3 只包含测试和文档，可独立回滚。
+- 任何回滚不得修改 SQLite 数据。

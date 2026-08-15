@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-08-15T03:16:56.796677+00:00",
+  "reference_root": "/Users/heyunshen/Downloads/agentmesh-demo",
+  "files": {
+    "src/App.tsx": {
+      "sha256": "1a211e0e97d58a9f5bdd29d1d251c39c7e3e1b3b582920bb1115a90f74f7b302",
+      "bytes": 1332
+    },
+    "src/components/collaboration/CollabTimelineDrawer.tsx": {
+      "sha256": "b29c4580ad8040643e5f260943641c96884ebaac47382ed6ced7359eace0f118",
+      "bytes": 3199
+    },
+    "src/components/collaboration/HelpRequestCard.tsx": {
+      "sha256": "5964bffe83dd32b3460732bfc94c7b555adf35d45f1a36763ca48254a5ae347a",
+      "bytes": 4798
+    },
+    "src/components/collaboration/MyCollabCard.tsx": {
+      "sha256": "34e5bf60fa842c048ee0781c1db98f822912259c939b188deb8a3fb6176f8f2a",
+      "bytes": 4437
+    },
+    "src/components/collaboration/PeerCard.tsx": {
+      "sha256": "37c7926a2579d97f54a676582fbbe9a7e3ab2b13685727ade1f840cbfbad6f4a",
+      "bytes": 1724
+    },
+    "src/components/digital-self/MyImpact.tsx": {
+      "sha256": "91956b879f2cf5e69e262ff214854efbab90be7f3d7c211886102d240062f87d",
+      "bytes": 2595
+    },
+    "src/components/digital-self/RecentGrowth.tsx": {
+      "sha256": "26a573ce840baaeaf3c7df7106bbb165cc5cf6e48b2913089349a42af8d09886",
+      "bytes": 2396
+    },
+    "src/components/digital-self/TodayWork.tsx": {
+      "sha256": "20fe612db05266a8358ed6c1f50f8215aeee12af76f2823ee46a9ffc6cec95b2",
+      "bytes": 2031
+    },
+    "src/components/digital-self/UnderstandingList.tsx": {
+      "sha256": "959dbe6dfe3b65e4a49f9a3825e577a3c66cc8b541f8b36ad8bbc33db5b40e17",
+      "bytes": 2239
+    },
+    "src/components/digital-self/WelcomeHero.tsx": {
+      "sha256": "6b19077edb1f1e791c27d4e9b27350b60c5eee8cb602e0bc4d5ac39d7bf83ffb",
+      "bytes": 3096
+    },
+    "src/components/insights/ProjectReviewDrawer.tsx": {
+      "sha256": "0b6d83e4112fcecbf3cb1042a63f1fefa546e6a739853a7af3adb48f730e1b94",
+      "bytes": 13835
+    },
+    "src/components/knowledge/AssetCard.tsx": {
+      "sha256": "40c150eb4d046eb496c14e52c15ff13a7be232562610330cbbb37432b7371731",
+      "bytes": 3957
+    },
+    "src/components/knowledge/AssetsPanel.tsx": {
+      "sha256": "a02e8c770152b73a7609e91b7acb43dba7f389ca7285552e3e34c4ac8549a578",
+      "bytes": 13439
+    },
+    "src/components/knowledge/ConfirmKnowledgeModal.tsx": {
+      "sha256": "3a02b05844a32aed8522ee79db1f5f1a1609a33891308cf4fbe1fd4d3f58508c",
+      "bytes": 16150
+    },
+    "src/components/knowledge/KnowledgeDetailDrawer.tsx": {
+      "sha256": "141e982806c231b10aa0a379335939d8e3e642dcf9bd0ba2730e58943b4c3f07",
+      "bytes": 12723
+    },
+    "src/components/knowledge/PendingCandidatePanel.tsx": {
+      "sha256": "f3223afb72228a1768f1916de6b18abe6578de6b28df37fc34e3843b8159695c",
+      "bytes": 9072
+    },
+    "src/components/knowledge/ShareTimeline.tsx": {
+      "sha256": "1cbb0f12517c677f3197a8e7145310f9971eecc27cb441478fe7179b29247c11",
+      "bytes": 12377
+    },
+    "src/components/layout/AppLayout.tsx": {
+      "sha256": "c7319ef5773e8d11525d6482f415df5255897dfa1e74004dba8c6ba2e70704bd",
+      "bytes": 2066
+    },
+    "src/components/layout/LogoutConfirmModal.tsx": {
+      "sha256": "324f05888b2f625ee1c415fd54ffe9e6804303d3742a9e1b2262e12d96aae868",
+      "bytes": 1771
+    },
+    "src/components/layout/SettingsDrawer.tsx": {
+      "sha256": "d802b9a5e922bacfc53d24beffdea5c5fc23e21350b48cb2b7298550b5769936",
+      "bytes": 5192
+    },
+    "src/components/layout/Sidebar.tsx": {
+      "sha256": "ae0472bb5b4926014d86bbd36e401c86e879e5e6295120b558566d099d1193e3",
+      "bytes": 6930
+    },
+    "src/components/ui/Avatar.tsx": {
+      "sha256": "fa05bc6a7aca3b1ded5a285216ce4d6e61296412d48a20c14ec7799db0ea2a28",
+      "bytes": 963
+    },
+    "src/components/ui/Badge.tsx": {
+      "sha256": "c9941c1d7a22dff9d217574e4f064e30df1bbda8d71da8bb8b22f52cc4e01315",
+      "bytes": 1203
+    },
+    "src/components/ui/BarRow.tsx": {
+      "sha256": "d25a687613543baeaace61450e567af197111d1772ae473ca0d1924a2db7477f",
+      "bytes": 986
+    },
+    "src/components/ui/Button.tsx": {
+      "sha256": "2a64c4c813f57d8da0fdfeb6ce211f6793b4691262dd6352bf80ac00afb337a6",
+      "bytes": 2177
+    },
+    "src/components/ui/Card.tsx": {
+      "sha256": "4dbbb8ed8f1ad504694ef193fcb933099718f4ed4b6970d98cab7783a26c1683",
+      "bytes": 1719
+    },
+    "src/components/ui/DigitalHumanMark.tsx": {
+      "sha256": "dd51dd3ce0337fe3a3ef06a3b8d34d37cbd65eb06cfb5c3588553c1f23a0853a",
+      "bytes": 1000
+    },
+    "src/components/ui/Drawer.tsx": {
+      "sha256": "1c7a7d5fd1db50bdc4a41d71ebe9d66dca2193ac659fc074735eb2c7e5f4f0bb",
+      "bytes": 2554
+    },
+    "src/components/ui/Modal.tsx": {
+      "sha256": "4f91b6a90425eaa2cf9ad81aa9cc55c0b94aa6206cc7eb9d797377fa74d818e5",
+      "bytes": 2225
+    },
+    "src/components/ui/PageHeader.tsx": {
+      "sha256": "702e07a3ef6488a191e02511058f4614441274a43564ff0bfdeda2d4544e9b4e",
+      "bytes": 749
+    },
+    "src/components/ui/SegmentedControl.tsx": {
+      "sha256": "824718b3fdea29ad0438a1f5a7fe070e1cbebdb041a53505f21259401fa0fbb1",
+      "bytes": 1111
+    },
+    "src/components/ui/StatTile.tsx": {
+      "sha256": "085af2db2eb6471e1c522d760d40d3053069602e115b625f6fd09e6cc0b9211f",
+      "bytes": 1466
+    },
+    "src/components/ui/Tabs.tsx": {
+      "sha256": "891feeaaf7f50c22d2107561bf963637b087df0d19eb1f2292833a5178603690",
+      "bytes": 1614
+    },
+    "src/components/ui/ToastViewport.tsx": {
+      "sha256": "afc12cd21dbd5fdbaa11bd00c56a2aec17136e29d94cd12c90ddd27732385a34",
+      "bytes": 1252
+    },
+    "src/data/mockData.ts": {
+      "sha256": "9e3faf5cbd7511cfc16537ea4563ac687ec7011b2f2acda26251871dfb0c36e8",
+      "bytes": 47367
+    },
+    "src/index.css": {
+      "sha256": "2d106db251abf572e34a20617d09ec65fc3ceca069a25e9f9bcdf7c7cdc0b734",
+      "bytes": 1035
+    },
+    "src/pages/Collaboration.tsx": {
+      "sha256": "7db73a66708c9eca8a2af562ae85753b88403b9cda148ed4f170c034fb8b12d7",
+      "bytes": 18840
+    },
+    "src/pages/DigitalSelf.tsx": {
+      "sha256": "9574af252cfe3c7a22df01b417b3480366ed6b33c9b6e6be71ac8624e0c560a8",
+      "bytes": 1567
+    },
+    "src/pages/Insights.tsx": {
+      "sha256": "0a16ac9d4384267d809575e4bb84498cca322847c5ce865a475e9dc0b04d06d4",
+      "bytes": 29509
+    },
+    "src/pages/Knowledge.tsx": {
+      "sha256": "99917d6686b39e5380498f1ba80c6269031de1adb236867fd030479ac24f2a80",
+      "bytes": 6538
+    },
+    "tailwind.config.js": {
+      "sha256": "d2ecd88d89e91fca4a1b3c3d0c161c3e0eba83b21332862015ee7df523ea0b09",
+      "bytes": 2402
+    }
+  },
+  "screenshots": {
+    "collaboration-drawer.webp": {
+      "sha256": "4f2f8cac2bad51e6edec3e72977cf80ae03d3032c1b71eb73c138112b43e569f",
+      "bytes": 12260,
+      "capture_viewport": {
+        "width": 1512,
+        "height": 944
+      },
+      "artifact_pixels": {
+        "width": 1024,
+        "height": 639
+      }
+    },
+    "collaboration.webp": {
+      "sha256": "359be3d8e430946d46bc1819fa9324c6b4fb611b291ad7eecd460150ebd8f801",
+      "bytes": 23584,
+      "capture_viewport": {
+        "width": 1512,
+        "height": 944
+      },
+      "artifact_pixels": {
+        "width": 1024,
+        "height": 639
+      }
+    },
+    "digital-self.webp": {
+      "sha256": "46c393feb13b879a99850de9754e0bab1305869486f51154c77b65f6fb8a4667",
+      "bytes": 23756,
+      "capture_viewport": {
+        "width": 1512,
+        "height": 944
+      },
+      "artifact_pixels": {
+        "width": 1024,
+        "height": 639
+      }
+    },
+    "insights.webp": {
+      "sha256": "df40d744bedb79374a12d785be1d66dd87710b198bda06b57e54a3576a4dbed7",
+      "bytes": 22960,
+      "capture_viewport": {
+        "width": 1512,
+        "height": 944
+      },
+      "artifact_pixels": {
+        "width": 1024,
+        "height": 639
+      }
+    },
+    "knowledge-assets.webp": {
+      "sha256": "c6e5ef07f85e50e811319a3ddd9037d2ad91cb23e00e1d1a81feb5b911a3a943",
+      "bytes": 21918,
+      "capture_viewport": {
+        "width": 1512,
+        "height": 944
+      },
+      "artifact_pixels": {
+        "width": 1024,
+        "height": 639
+      }
+    },
+    "knowledge-pending.webp": {
+      "sha256": "058033c1b6776c51d911e4f5352fe640d0fc22ece65c6d40e0a3c65e682bbd7f",
+      "bytes": 25796,
+      "capture_viewport": {
+        "width": 1512,
+        "height": 944
+      },
+      "artifact_pixels": {
+        "width": 1024,
+        "height": 639
+      }
+    },
+    "knowledge-shared.webp": {
+      "sha256": "3adbdef1131129ae0f8a54d6541548eac255bcfa7b8cca03eb9ade9ff876602a",
+      "bytes": 20816,
+      "capture_viewport": {
+        "width": 1512,
+        "height": 944
+      },
+      "artifact_pixels": {
+        "width": 1024,
+        "height": 639
+      }
+    }
+  }
+}

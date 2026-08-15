@@ -1,8 +1,10 @@
-import { FileSearch, Search } from 'lucide-react'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { FileSearch } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { Composer } from '../components/workspace/Composer'
+import { DemoConversationThread } from '../components/workspace/DemoConversationThread'
+import { DemoConversationDetailPanel, type DemoDetailSelection } from '../components/workspace/DemoConversationDetailPanel'
 import { ConversationThread } from '../components/workspace/ConversationThread'
 import { DetailPanel } from '../components/workspace/DetailPanel'
 import { ToolLauncherBar } from '../features/tool-labs/ToolLauncherBar'
@@ -10,7 +12,6 @@ import { WorkspaceToolDialog } from '../features/tool-labs/WorkspaceToolDialog'
 import type { WorkspaceToolId } from '../features/tool-labs/types'
 import {
   useDocumentJobsQuery,
-  useSearchQuery,
   useSendMessageMutation,
   useSkillsQuery,
   useThreadDetailQuery,
@@ -38,12 +39,15 @@ const JOB_STATUS_LABEL = {
   failed: '失败',
 } as const
 
+const DEMO_THREAD_ID = 'thread_graph_demo'
+
 export function Workspace() {
   const scope = useWorkspaceScope()
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const threadId = threadIdFromPath(pathname)
-  const thread = useThreadDetailQuery(scope, threadId)
+  const isDemoThread = threadId === DEMO_THREAD_ID
+  const thread = useThreadDetailQuery(scope, isDemoThread ? null : threadId)
   const skills = useSkillsQuery(scope)
   const sendMessage = useSendMessageMutation(scope)
   const upload = useUploadDocumentMutation(scope)
@@ -58,9 +62,10 @@ export function Workspace() {
   const [selection, setSelection] = useState<ResourceSelection | null>(null)
   const [activeTool, setActiveTool] = useState<WorkspaceToolId | null>(null)
   const closeActiveTool = useCallback(() => setActiveTool(null), [])
-  const [searchInput, setSearchInput] = useState('')
-  const [submittedSearch, setSubmittedSearch] = useState('')
-  const search = useSearchQuery(scope, submittedSearch)
+  const [demoSelection, setDemoSelection] = useState<DemoDetailSelection | null>(null)
+  useEffect(() => {
+    if (!isDemoThread) setDemoSelection(null)
+  }, [isDemoThread])
   const scrollRef = useRef<HTMLDivElement>(null)
 
   async function send(content = draft) {
@@ -71,7 +76,7 @@ export function Workspace() {
     setSendError(null)
     try {
       const response = await sendMessage.mutateAsync({
-        threadId,
+        threadId: isDemoThread ? null : threadId,
         content: normalized,
         clientTurnId,
       })
@@ -102,22 +107,27 @@ export function Workspace() {
   useLayoutEffect(() => {
     const scrollContainer = scrollRef.current
     if (!scrollContainer) return
+    if (isDemoThread) {
+      scrollContainer.scrollTop = 0
+      return
+    }
     scrollContainer.scrollTop = scrollContainer.scrollHeight
-  }, [messages.length, pending?.content, pending?.status, thread.isLoading])
+  }, [isDemoThread, messages.length, pending?.content, pending?.status, thread.isLoading])
   const uploadFileName = upload.variables?.name
+  const showResources = Boolean(upload.isPending || upload.data || upload.isError || jobs.data?.items.length)
 
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden">
       <div ref={scrollRef} aria-label="对话滚动区域" className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[1120px] px-4 pb-52 pt-6 md:px-6 md:pt-8">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <div className={showResources ? 'grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]' : ''}>
             <div className="min-w-0">
               {sendError ? (
                 <p role="alert" className="mb-4 rounded-[10px] border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">
                   {sendError}
                 </p>
               ) : null}
-              {thread.isError ? (
+              {!isDemoThread && thread.isError ? (
                 <div className="mb-4 rounded-[12px] border border-rose/20 bg-rose/10 px-4 py-4">
                   <p role="alert" className="text-sm text-rose">{workspaceErrorMessage(thread.error)}</p>
                   <button type="button" onClick={() => navigate('/workspace')} className="mt-3 text-xs font-semibold text-mint-300">
@@ -125,73 +135,26 @@ export function Workspace() {
                   </button>
                 </div>
               ) : null}
-              <ConversationThread
-                title={thread.data?.thread.title}
-                messages={messages}
-                tracesByAssistantMessageId={tracesByAssistantMessageId}
-                pending={pending}
-                loading={thread.isLoading}
-                onOpenSource={(source) => setSelection({ kind: 'source', source })}
-              />
+              {isDemoThread ? (
+                <DemoConversationThread
+                  activeRefId={demoSelection?.kind === 'ref' ? demoSelection.ref.id : undefined}
+                  onOpenRef={(reference) => setDemoSelection({ kind: 'ref', ref: reference })}
+                  onOpenSources={() => setDemoSelection({ kind: 'sources' })}
+                  onOpenBrief={() => setDemoSelection({ kind: 'brief' })}
+                />
+              ) : (
+                <ConversationThread
+                  title={thread.data?.thread.title}
+                  messages={messages}
+                  tracesByAssistantMessageId={tracesByAssistantMessageId}
+                  pending={pending}
+                  loading={thread.isLoading}
+                  onOpenSource={(source) => setSelection({ kind: 'source', source })}
+                />
+              )}
             </div>
 
-            <aside className="space-y-4" aria-label="Workspace resources">
-              <section className="rounded-[14px] border border-white/[0.07] bg-surface-1 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-                  <Search className="h-4 w-4 text-mint-300" aria-hidden="true" />
-                  搜索可见资料
-                </div>
-                <form
-                  className="mt-3 flex gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    setSubmittedSearch(searchInput.trim())
-                  }}
-                >
-                  <input
-                    aria-label="搜索资料"
-                    value={searchInput}
-                    onChange={(event) => setSearchInput(event.target.value)}
-                    className="min-w-0 flex-1 rounded-[9px] border border-white/[0.08] bg-base px-3 py-2 text-xs text-slate-100 outline-none focus:border-mint-400/40"
-                    placeholder="关键词"
-                  />
-                  <button type="submit" disabled={!searchInput.trim()} className="rounded-[9px] bg-mint-400 px-3 py-2 text-xs font-semibold text-[#06231c] disabled:opacity-40">
-                    搜索
-                  </button>
-                </form>
-                {search.isFetching ? <p className="mt-3 text-xs text-slate-500">正在搜索…</p> : null}
-                {search.isError ? <p role="alert" className="mt-3 text-xs text-rose">{workspaceErrorMessage(search.error)}</p> : null}
-                {search.data?.items.length === 0 ? <p className="mt-3 text-xs text-slate-500">没有可见结果。</p> : null}
-                <div className="mt-3 space-y-2">
-                  {search.data?.items.map((result) => (
-                    <article key={`${result.result_type}-${result.id}`} data-testid="search-result" className="rounded-[10px] border border-white/[0.06] bg-base p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold text-slate-200">{result.title}</p>
-                          <p className="mt-1 text-[11px] text-slate-500">{result.result_type} · {result.scope}</p>
-                        </div>
-                        {result.result_type === 'document' || result.sources?.[0] ? (
-                          <button
-                            type="button"
-                            onClick={() => setSelection(
-                              result.result_type === 'document'
-                                ? { kind: 'document', id: result.id }
-                                : { kind: 'source', source: result.sources![0] },
-                            )}
-                            className="shrink-0 text-[11px] font-semibold text-mint-300"
-                          >
-                            查看详情
-                          </button>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-400">{result.summary}</p>
-                      {result.sources?.map((source) => (
-                        <p key={source.id ?? source.reference} className="mt-1 truncate text-[11px] text-slate-500">来源：{source.title} · {source.source_type}</p>
-                      ))}
-                    </article>
-                  ))}
-                </div>
-              </section>
+            {showResources ? <aside className="space-y-4" aria-label="Workspace resources">
 
               {upload.isPending || upload.data || upload.isError ? (
                 <section data-testid="upload-status" className="rounded-[14px] border border-white/[0.07] bg-surface-1 p-4 text-xs">
@@ -218,7 +181,7 @@ export function Workspace() {
                   </div>
                 </section>
               ) : null}
-            </aside>
+            </aside> : null}
           </div>
         </div>
       </div>
@@ -243,7 +206,11 @@ export function Workspace() {
         onUpload={(file) => upload.mutate(file)}
       />
       <WorkspaceToolDialog activeTool={activeTool} onClose={closeActiveTool} />
-      <DetailPanel selection={selection} scope={scope} onClose={() => setSelection(null)} />
+      {isDemoThread ? (
+        <DemoConversationDetailPanel selection={demoSelection} onClose={() => setDemoSelection(null)} />
+      ) : (
+        <DetailPanel selection={selection} scope={scope} onClose={() => setSelection(null)} />
+      )}
     </div>
   )
 }

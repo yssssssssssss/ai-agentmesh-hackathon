@@ -292,7 +292,7 @@ export const WORKSPACE_REFERENCES: WorkspaceRef[] = [
 ]
 
 /** 核心结论所依据的团队经验（单独引用，演示 experience 详情） */
-export const CORE_EXPERIENCE_REF: WorkspaceRef = {
+export const CORE_EXPERIENCE_REF = {
   id: 'ref-exp',
   kind: 'experience',
   title: '团队经验：首屏核心入口优先',
@@ -304,7 +304,7 @@ export const CORE_EXPERIENCE_REF: WorkspaceRef = {
     lastVerified: '最近验证：2025 年 618 大促，数据再次支持该结论。',
     citedBy: ['2024 家电超级品类日', 'PLUS 会员日活动页', '清凉家电会场（引用中）'],
   },
-}
+} satisfies WorkspaceRef
 
 /* ============ 会场 Brief 内容 ============ */
 export const BRIEF = {
