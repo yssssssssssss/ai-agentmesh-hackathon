@@ -1,5 +1,5 @@
 import { ArrowUp, Paperclip, RotateCcw, Sparkles } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type { Skill } from '../../features/workspace/types'
 import { cn } from '../../lib/cn'
@@ -10,6 +10,7 @@ interface ComposerProps {
   sending: boolean
   sendState: 'retryable' | 'processing' | 'failed' | 'unknown' | null
   statusMessage: string | null
+  toolLauncher?: ReactNode
   onChange: (value: string) => void
   onSend: () => void
   onRetry: () => void
@@ -22,6 +23,7 @@ export function Composer({
   sending,
   sendState,
   statusMessage,
+  toolLauncher,
   onChange,
   onSend,
   onRetry,
@@ -51,6 +53,7 @@ export function Composer({
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-base via-base/95 to-transparent px-4 pb-5 pt-10 md:px-6">
       <div className="pointer-events-auto mx-auto max-w-[840px]">
+        {toolLauncher ? <div className="mb-2">{toolLauncher}</div> : null}
         {sendState ? (
           <div className="mb-2 flex items-center justify-between gap-3 rounded-[10px] border border-rose/25 bg-rose/10 px-3 py-2 text-xs text-rose">
             <span>{statusMessage ?? '发送状态已变化，草稿已保留。'}</span>

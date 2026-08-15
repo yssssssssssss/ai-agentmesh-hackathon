@@ -1,10 +1,13 @@
 import { FileSearch, Search } from 'lucide-react'
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { Composer } from '../components/workspace/Composer'
 import { ConversationThread } from '../components/workspace/ConversationThread'
 import { DetailPanel } from '../components/workspace/DetailPanel'
+import { ToolLauncherBar } from '../features/tool-labs/ToolLauncherBar'
+import { WorkspaceToolDialog } from '../features/tool-labs/WorkspaceToolDialog'
+import type { WorkspaceToolId } from '../features/tool-labs/types'
 import {
   useDocumentJobsQuery,
   useSearchQuery,
@@ -53,6 +56,8 @@ export function Workspace() {
   } | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
   const [selection, setSelection] = useState<ResourceSelection | null>(null)
+  const [activeTool, setActiveTool] = useState<WorkspaceToolId | null>(null)
+  const closeActiveTool = useCallback(() => setActiveTool(null), [])
   const [searchInput, setSearchInput] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
   const search = useSearchQuery(scope, submittedSearch)
@@ -224,6 +229,7 @@ export function Workspace() {
         sending={sendMessage.isPending}
         sendState={pending?.status === 'sending' ? null : pending?.status ?? null}
         statusMessage={pending?.status === 'sending' ? null : sendError}
+        toolLauncher={<ToolLauncherBar activeTool={activeTool} onOpen={setActiveTool} />}
         onChange={(value) => {
           setDraft(value)
           if (pending?.status === 'retryable') {
@@ -236,6 +242,7 @@ export function Workspace() {
         onRetry={() => void send(pending?.content ?? draft)}
         onUpload={(file) => upload.mutate(file)}
       />
+      <WorkspaceToolDialog activeTool={activeTool} onClose={closeActiveTool} />
       <DetailPanel selection={selection} scope={scope} onClose={() => setSelection(null)} />
     </div>
   )

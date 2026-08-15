@@ -10,7 +10,7 @@ interface ModalProps {
   subtitle?: string
   children: ReactNode
   footer?: ReactNode
-  size?: 'md' | 'lg'
+  size?: 'md' | 'lg' | 'workspace'
 }
 
 export function Modal({ open, onClose, title, subtitle, children, footer, size = 'md' }: ModalProps) {
@@ -29,7 +29,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
@@ -42,8 +42,10 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
         aria-label={title ? undefined : '对话框'}
         tabIndex={-1}
         className={cn(
-          'relative z-10 w-full overflow-hidden rounded-[16px] border border-white/[0.08] bg-surface-2 shadow-pop animate-scale-in',
-          size === 'lg' ? 'max-w-2xl' : 'max-w-lg',
+          'relative z-10 flex w-full flex-col overflow-hidden rounded-[16px] border border-white/[0.08] bg-surface-2 shadow-pop animate-scale-in',
+          size === 'workspace'
+            ? 'h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] sm:h-[86vh] sm:max-w-[94vw]'
+            : size === 'lg' ? 'max-w-2xl' : 'max-w-lg',
         )}
       >
         {(title || subtitle) && (
@@ -63,7 +65,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
             </button>
           </header>
         )}
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">{children}</div>
+        <div className={cn('overflow-y-auto px-4 py-4 sm:px-6 sm:py-5', size === 'workspace' ? 'min-h-0 flex-1' : 'max-h-[70vh]')}>{children}</div>
         {footer && (
           <footer className="flex items-center justify-end gap-3 border-t border-white/[0.06] bg-surface-1/60 px-6 py-4">
             {footer}

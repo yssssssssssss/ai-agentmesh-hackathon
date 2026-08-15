@@ -2,6 +2,8 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
+Repository: `yssssssssssss/ai-agentmesh-hackathon` (`https://github.com/yssssssssssss/ai-agentmesh-hackathon.git`).
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
