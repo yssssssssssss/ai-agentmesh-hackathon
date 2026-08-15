@@ -1,0 +1,8 @@
+title = "AgentMesh gitleaks configuration"
+
+[allowlist]
+description = "Known test-only false positives in immutable feature-branch history"
+fingerprints = [
+  "9231c9ac5d7d4994daffa6071ba69dbfa88e3f2d:tests/test_admin_capabilities.py:generic-api-key:91",
+  "1d28865e3802d584f516d54935fbdfac9373273d:tests/test_mvp_provider_contracts.py:generic-api-key:420",
+]

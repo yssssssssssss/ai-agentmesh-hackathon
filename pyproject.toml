@@ -8,6 +8,7 @@ dependencies = [
   "uvicorn",
   "pydantic",
   "httpx",
+  "pymupdf",
   "python-multipart",
 ]
 

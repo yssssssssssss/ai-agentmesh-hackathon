@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend clean install, Ruff, pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -e '.[dev]'
+      - run: .venv/bin/ruff check .
+      - run: .venv/bin/python -m pytest --ignore=tests/test_frontend_routes.py
+        env:
+          AGENTMESH_EMBEDDING_ENABLED: "false"
+
+  frontend:
+    name: Frontend types, unit tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: agentmesh-demo/package-lock.json
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -e '.[dev]'
+      - run: npm ci
+        working-directory: agentmesh-demo
+      - run: npm run api:types
+        working-directory: agentmesh-demo
+      - run: npm run test
+        working-directory: agentmesh-demo
+      - run: npm run build
+        working-directory: agentmesh-demo
+      - run: .venv/bin/python -m pytest tests/test_frontend_routes.py
+
+  e2e:
+    name: Core Playwright flows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: agentmesh-demo/package-lock.json
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -e '.[dev]'
+      - run: npm ci
+        working-directory: agentmesh-demo
+      - run: npm run api:types && npm run build
+        working-directory: agentmesh-demo
+      - run: npx playwright install --with-deps chromium
+        working-directory: agentmesh-demo
+      - run: npm run test:e2e
+        working-directory: agentmesh-demo
+        env:
+          AGENTMESH_EMBEDDING_ENABLED: "false"
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

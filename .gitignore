@@ -1,4 +1,4 @@
-.venv/
+.venv
 .env
 .env.*
 !.env.example
@@ -11,8 +11,25 @@ data/*.sqlite3
 data/*.sqlite3-*
 .DS_Store
 
+# React/Vite/Playwright generated artifacts
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+test-results/
+playwright-report/
+blob-report/
+agentmesh-demo/openapi.json
+
 # Local-only tooling & throwaway artifacts
 .scratch/
 .claude/
 .worktrees/
 .superpowers/
+
+# React frontend dependencies and build artifacts
+agentmesh-demo/node_modules/
+agentmesh-demo/dist/
+agentmesh-demo/.vite/
+agentmesh-demo/*.tsbuildinfo
+
