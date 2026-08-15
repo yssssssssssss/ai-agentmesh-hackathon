@@ -12,11 +12,9 @@ from collections import defaultdict
 
 from agentmesh.models import (
     LearnedSkill,
-    MemoryLayer,
     Scope,
     SkillStatus,
     UserMemoryItem,
-    now_utc,
 )
 
 logger = logging.getLogger(__name__)

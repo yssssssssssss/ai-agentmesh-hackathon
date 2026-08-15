@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import os
+from time import monotonic
 from typing import Any
 
 import httpx
 
 from agentmesh.models import ModelDefinition
+from agentmesh.provider_status import ProviderStatus, ProviderTelemetry, build_provider_status
 
 DEFAULT_MODEL_ID = "default"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
 DEFAULT_LLM_CONNECT_TIMEOUT_SECONDS = 5.0
 DEFAULT_CHAT_LLM_TIMEOUT_SECONDS = 30.0
 DEFAULT_MARKET_LLM_TIMEOUT_SECONDS = 60.0
+_llm_telemetry = ProviderTelemetry()
 
 
 class LLMClient:
@@ -57,19 +60,29 @@ class LLMClient:
         return httpx.Timeout(self.timeout_seconds, connect=connect)
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
+        started = monotonic()
         try:
             if self.api_style == "gemini_contents":
-                return self._complete_with_gemini_contents(system_prompt, user_prompt)
-            if self.api_style == "responses":
-                return self._complete_with_responses_api(system_prompt, user_prompt)
-            return self._complete_with_chat_completions(system_prompt, user_prompt)
+                result = self._complete_with_gemini_contents(system_prompt, user_prompt)
+            elif self.api_style == "responses":
+                result = self._complete_with_responses_api(system_prompt, user_prompt)
+            else:
+                result = self._complete_with_chat_completions(system_prompt, user_prompt)
+            _llm_telemetry.success((monotonic() - started) * 1000)
+            return result
         except httpx.TimeoutException as error:
+            _llm_telemetry.failure(error, (monotonic() - started) * 1000)
             raise LLMRequestError("timeout", f"LLM request timed out after {self.timeout_seconds:g}s") from error
         except httpx.HTTPStatusError as error:
-            raise LLMRequestError("http_status", f"LLM service returned HTTP {error.response.status_code}") from error
+            reason = "auth_error" if error.response.status_code in {401, 403} else "http_status"
+            wrapped = LLMRequestError(reason, f"LLM service returned HTTP {error.response.status_code}")
+            _llm_telemetry.failure(wrapped, (monotonic() - started) * 1000)
+            raise wrapped from error
         except httpx.RequestError as error:
+            _llm_telemetry.failure(error, (monotonic() - started) * 1000)
             raise LLMRequestError("request_error", "LLM request failed before receiving a response") from error
         except (KeyError, TypeError, ValueError) as error:
+            _llm_telemetry.failure(error, (monotonic() - started) * 1000)
             raise LLMRequestError("invalid_response", "LLM response payload could not be parsed") from error
 
     def _complete_with_chat_completions(self, system_prompt: str, user_prompt: str) -> str:
@@ -153,6 +166,17 @@ def model_config_from_env(model_id: str | None) -> dict[str, str] | None:
         "model_name": model,
         "api_style": api_style,
     }
+
+
+def llm_provider_status() -> ProviderStatus:
+    configured = model_config_from_env(os.getenv("AGENTMESH_MODEL_DEFAULT") or DEFAULT_MODEL_ID) is not None
+    return build_provider_status(
+        name="llm",
+        configured=configured,
+        ready=configured,
+        telemetry=_llm_telemetry,
+        error=None if configured else "not_configured",
+    )
 
 
 class LLMRequestError(RuntimeError):

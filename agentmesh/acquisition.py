@@ -5,6 +5,7 @@ from typing import Protocol
 from pydantic import BaseModel, Field
 
 from agentmesh.models import Intent, Source
+from agentmesh.provider_status import provider_metadata
 
 
 class AcquisitionRequest(BaseModel):
@@ -47,7 +48,16 @@ class MockAcquisitionAgent:
                 "后续方案改为效率型楼层结构，并保留重点商品入口。"
             ),
             sources=[source],
-            metadata={"provider": "mock", "request_post_id": request.request_post_id},
+            metadata={
+                **provider_metadata(
+                    requested_provider="research",
+                    actual_provider="mock",
+                    mode="fallback",
+                    fallback_reason="no_real_provider_configured",
+                    latency_ms=0.0,
+                ),
+                "request_post_id": request.request_post_id,
+            },
         )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import subprocess
@@ -259,7 +260,11 @@ def _parsed_document(request: DocumentIngestionRequest, parser_name: str, title:
         workspace_id=request.workspace_id,
         project_id=request.project_id,
         uploaded_by=request.uploaded_by,
-        metadata={"parser": parser_name, "content_type": request.content_type},
+        metadata={
+            "parser": parser_name,
+            "content_type": request.content_type,
+            "content_sha256": hashlib.sha256(request.content).hexdigest(),
+        }
     )
 
 

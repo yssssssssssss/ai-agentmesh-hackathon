@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 
 from agentmesh.auth import create_password_hash
@@ -30,7 +31,9 @@ from agentmesh.models import (
     UserRole,
     Workspace,
 )
+from agentmesh.permissions import capabilities_for_user
 from agentmesh.store import SQLiteStore
+from agentmesh.tools import ensure_tool_seed_data
 
 WORKSPACE = Workspace(
     id="ws_home_appliance_design",
@@ -396,7 +399,38 @@ def list_projects(repository: SQLiteStore, workspace_id: str | None = None) -> l
     return [project for project in merged if project.workspace_id == workspace_id]
 
 
-def ensure_seed_data(repository: SQLiteStore) -> None:
+def demo_mode_enabled() -> bool:
+    return os.getenv("AGENTMESH_DEMO_MODE", "").strip() == "1"
+
+
+def ensure_base_workspace_data(repository: SQLiteStore) -> None:
+    if repository.get_workspace(WORKSPACE.id) is None:
+        repository.save_workspace(WORKSPACE)
+    if repository.get_project(PROJECT.id) is None:
+        repository.save_project(PROJECT)
+    if repository.get_team(TEAM.id) is None:
+        repository.save_team(TEAM)
+
+
+def ensure_user_default_membership(repository: SQLiteStore, user: User) -> None:
+    ensure_base_workspace_data(repository)
+    project = repository.get_project(user.default_project_id)
+    if project is not None and project.workspace_id == user.workspace_id and user.id not in project.member_ids:
+        project.member_ids.append(user.id)
+        repository.save_project(project)
+    if user.workspace_id == TEAM.workspace_id and not repository.list_team_memberships(
+        team_id=TEAM.id, user_id=user.id
+    ):
+        repository.save_team_membership(
+            TeamMembership(team_id=TEAM.id, user_id=user.id, role=user.role)
+        )
+
+
+def ensure_demo_seed_data(repository: SQLiteStore) -> None:
+    if not demo_mode_enabled():
+        return
+    ensure_tool_seed_data(repository, granted_by="system")
+    ensure_base_workspace_data(repository)
     if repository.get_workspace(WORKSPACE.id) is None:
         repository.save_workspace(WORKSPACE)
     if repository.get_project(PROJECT.id) is None:
@@ -417,6 +451,11 @@ def ensure_seed_data(repository: SQLiteStore) -> None:
                     password_hash=create_password_hash(DEFAULT_PASSWORDS[user.id]),
                 )
             )
+
+
+def ensure_seed_data(repository: SQLiteStore) -> None:
+    """Seed deterministic demo identities when the test/demo environment opts in."""
+    ensure_demo_seed_data(repository)
 
 
 def ensure_initial_blackboard_data(repository: SQLiteStore) -> None:
@@ -461,6 +500,7 @@ def bootstrap_state(repository: SQLiteStore, user: User = USER) -> BootstrapStat
         teams=repository.list_teams(workspace_id=user.workspace_id),
         team_memberships=repository.list_team_memberships(user_id=user.id),
         agents=agents,
+        capabilities=capabilities_for_user(user, repository.permission_policy_rules),
         metrics=BootstrapMetrics(
             personal_activity_count=len(
                 [log for log in repository.list_personal_activity() if log.project_id == PROJECT.id]

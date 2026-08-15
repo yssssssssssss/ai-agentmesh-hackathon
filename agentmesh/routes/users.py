@@ -11,6 +11,7 @@ from agentmesh.models import (
     ItemResponse,
     ItemsResponse,
     PasswordResetRequest,
+    PermissionPoliciesResponse,
     PermissionPolicyRule,
     PermissionPolicyRuleCreateRequest,
     PermissionPolicyRuleUpdateRequest,
@@ -21,26 +22,35 @@ from agentmesh.models import (
     TeamMembershipRequest,
     User,
     UserCreateRequest,
+    UserItemResponse,
+    UsersResponse,
     UserUpdateRequest,
     now_utc,
 )
-from agentmesh.permissions import ensure_admin
+from agentmesh.permissions import (
+    ACTION_MANAGE_PERMISSION_POLICIES,
+    ACTION_MANAGE_TEAM_MEMBERSHIP,
+    ACTION_MANAGE_USERS,
+    ACTION_VIEW_PERMISSION_POLICIES,
+)
 from agentmesh.routes.auth import revoke_user_sessions
-from agentmesh.routes.deps import create_audit_event, current_user
+from agentmesh.routes.deps import create_audit_event, current_user, require_permission
 from agentmesh.seed import PROJECT, WORKSPACE, list_users
 from agentmesh.store import store
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
-@router.get("", response_model=ItemsResponse)
-def users(_: User = Depends(current_user)) -> ItemsResponse:
-    return ItemsResponse(items=list_users(store))
+@router.get("", response_model=UsersResponse)
+def users(_: User = Depends(require_permission(ACTION_MANAGE_USERS))) -> UsersResponse:
+    return UsersResponse(items=list_users(store))
 
 
-@router.post("", response_model=ItemResponse)
-def create_user(request: UserCreateRequest, user: User = Depends(current_user)) -> ItemResponse:
-    ensure_admin(user)
+@router.post("", response_model=UserItemResponse)
+def create_user(
+    request: UserCreateRequest,
+    user: User = Depends(require_permission(ACTION_MANAGE_USERS)),
+) -> UserItemResponse:
     workspace_id = request.workspace_id or WORKSPACE.id
     default_project_id = request.default_project_id or PROJECT.id
     if store.get_workspace(workspace_id) is None:
@@ -75,12 +85,24 @@ def create_user(request: UserCreateRequest, user: User = Depends(current_user)) 
             password_hash=create_password_hash(request.password),
         )
     )
-    return ItemResponse(item=new_user)
+    store.add_audit_event(
+        create_audit_event(
+            user.id,
+            "create_user",
+            "user",
+            new_user.id,
+            {"role": str(new_user.role), "workspace_id": workspace_id},
+        )
+    )
+    return UserItemResponse(item=new_user)
 
 
-@router.patch("/{user_id}", response_model=ItemResponse)
-def update_user(user_id: str, request: UserUpdateRequest, user: User = Depends(current_user)) -> ItemResponse:
-    ensure_admin(user)
+@router.patch("/{user_id}", response_model=UserItemResponse)
+def update_user(
+    user_id: str,
+    request: UserUpdateRequest,
+    user: User = Depends(require_permission(ACTION_MANAGE_USERS)),
+) -> UserItemResponse:
     target = store.get_user(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -105,16 +127,25 @@ def update_user(user_id: str, request: UserUpdateRequest, user: User = Depends(c
             raise HTTPException(status_code=404, detail="Project not found")
         updated.default_project_id = request.default_project_id
     updated.updated_at = now_utc()
-    return ItemResponse(item=store.save_user(updated))
+    saved = store.save_user(updated)
+    store.add_audit_event(
+        create_audit_event(
+            user.id,
+            "update_user",
+            "user",
+            saved.id,
+            {"role": str(saved.role), "status": saved.status},
+        )
+    )
+    return UserItemResponse(item=saved)
 
 
 @router.post("/{user_id}/password", response_model=StatusResponse)
 def reset_user_password(
     user_id: str,
     request: PasswordResetRequest,
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission(ACTION_MANAGE_USERS)),
 ) -> StatusResponse:
-    ensure_admin(user)
     target = store.get_user(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -132,17 +163,18 @@ def reset_user_password(
     return StatusResponse(status="ok")
 
 
-@router.get("/permission-policies", response_model=ItemsResponse)
-def permission_policies(_: User = Depends(current_user)) -> ItemsResponse:
-    return ItemsResponse(items=store.permission_policy_rules)
+@router.get("/permission-policies", response_model=PermissionPoliciesResponse)
+def permission_policies(
+    _: User = Depends(require_permission(ACTION_VIEW_PERMISSION_POLICIES)),
+) -> PermissionPoliciesResponse:
+    return PermissionPoliciesResponse(items=store.permission_policy_rules)
 
 
 @router.post("/permission-policies", response_model=ItemResponse)
 def create_permission_policy(
     request: PermissionPolicyRuleCreateRequest,
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission(ACTION_MANAGE_PERMISSION_POLICIES)),
 ) -> ItemResponse:
-    ensure_admin(user)
     rule = store.save_permission_policy_rule(
         PermissionPolicyRule(
             role=request.role,
@@ -162,9 +194,8 @@ def create_permission_policy(
 def update_permission_policy(
     rule_id: str,
     request: PermissionPolicyRuleUpdateRequest,
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission(ACTION_MANAGE_PERMISSION_POLICIES)),
 ) -> ItemResponse:
-    ensure_admin(user)
     rule = store.get_permission_policy_rule(rule_id)
     if rule is None:
         raise HTTPException(status_code=404, detail="Permission policy rule not found")
@@ -199,8 +230,10 @@ def teams(_: User = Depends(current_user)) -> ItemsResponse:
 
 
 @router.post("/teams", response_model=ItemResponse)
-def create_team(request: TeamCreateRequest, user: User = Depends(current_user)) -> ItemResponse:
-    ensure_admin(user)
+def create_team(
+    request: TeamCreateRequest,
+    user: User = Depends(require_permission(ACTION_MANAGE_TEAM_MEMBERSHIP)),
+) -> ItemResponse:
     workspace_id = request.workspace_id or WORKSPACE.id
     if store.get_workspace(workspace_id) is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -225,8 +258,11 @@ def team_detail(team_id: str, _: User = Depends(current_user)) -> ItemResponse:
 
 
 @router.post("/teams/{team_id}/members", response_model=ItemResponse)
-def add_team_member(team_id: str, request: TeamMembershipRequest, user: User = Depends(current_user)) -> ItemResponse:
-    ensure_admin(user)
+def add_team_member(
+    team_id: str,
+    request: TeamMembershipRequest,
+    user: User = Depends(require_permission(ACTION_MANAGE_TEAM_MEMBERSHIP)),
+) -> ItemResponse:
     team = store.get_team(team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -248,8 +284,11 @@ def add_team_member(team_id: str, request: TeamMembershipRequest, user: User = D
 
 
 @router.delete("/teams/{team_id}/members/{user_id}", response_model=StatusResponse)
-def remove_team_member(team_id: str, user_id: str, user: User = Depends(current_user)) -> StatusResponse:
-    ensure_admin(user)
+def remove_team_member(
+    team_id: str,
+    user_id: str,
+    user: User = Depends(require_permission(ACTION_MANAGE_TEAM_MEMBERSHIP)),
+) -> StatusResponse:
     memberships = store.list_team_memberships(team_id=team_id, user_id=user_id)
     if not memberships:
         raise HTTPException(status_code=404, detail="Team membership not found")

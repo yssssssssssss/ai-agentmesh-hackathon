@@ -9,12 +9,17 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agentmesh.models import (
+    Agent,
+    AutoBlackboardPostCreateRequest,
     AutoBlackboardPostRequest,
     BlackboardHandoffRequest,
     BlackboardPost,
     BlackboardPostCreateRequest,
+    BlackboardPostsResponse,
+    BlackboardPostView,
     BlackboardTaskCard,
     BlackboardTaskCardsResponse,
+    BlackboardTaskDetail,
     CollaborationStage,
     DrainAutoPostsResponse,
     ExecutionLock,
@@ -23,13 +28,19 @@ from agentmesh.models import (
     ItemResponse,
     ItemsResponse,
     MemoryItem,
-    PaginatedResponse,
     Scope,
     Source,
     StructuredHandoffPacket,
     User,
     UserRole,
     now_utc,
+)
+from agentmesh.permissions import (
+    authorize_blackboard_action,
+    can_control_blackboard_task,
+    ensure_admin,
+    ensure_can_manage_agent,
+    ensure_can_release_execution_lock,
 )
 from agentmesh.routes.agents import agent_display_name
 from agentmesh.routes.deps import create_audit_event, current_user
@@ -105,7 +116,7 @@ async def auto_post_worker_loop() -> None:
         await asyncio.sleep(AUTO_POST_WORKER_INTERVAL_SECONDS)
         auto_post_worker_state["last_run_at"] = now_utc().isoformat()
         try:
-            result = drain_queued_auto_blackboard_posts("auto_post_worker")
+            result = await asyncio.to_thread(drain_queued_auto_blackboard_posts, "auto_post_worker")
             auto_post_worker_state["last_posted"] = result["posted"]
             auto_post_worker_state["last_error"] = None
         except Exception as error:  # pragma: no cover - defensive worker boundary
@@ -196,7 +207,7 @@ async def research_dispatch_worker_loop() -> None:
         await asyncio.sleep(RESEARCH_DISPATCH_WORKER_INTERVAL_SECONDS)
         research_dispatch_worker_state["last_run_at"] = now_utc().isoformat()
         try:
-            result = drain_dispatchable_research_requests("research_dispatch_worker")
+            result = await asyncio.to_thread(drain_dispatchable_research_requests, "research_dispatch_worker")
             research_dispatch_worker_state["last_dispatched"] = result["dispatched"]
             research_dispatch_worker_state["last_error"] = None
         except Exception as error:  # pragma: no cover
@@ -233,13 +244,13 @@ def handoff_summary(packet: StructuredHandoffPacket, next_owner_label: str) -> s
     )
 
 
-@router.get("", response_model=PaginatedResponse)
+@router.get("", response_model=BlackboardPostsResponse)
 def blackboard_posts(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=50),
     task_id: str | None = Query(default=None, min_length=1, max_length=120),
     user: User = Depends(current_user),
-) -> PaginatedResponse:
+) -> BlackboardPostsResponse:
     posts = list(reversed(store.blackboard_posts))
     if task_id is not None:
         posts = [post for post in posts if post.task_id == task_id]
@@ -249,8 +260,8 @@ def blackboard_posts(
     posts = [post for post in posts if post_visible_to_user(post, posts_by_task.get(post.task_id, []), user)]
     start = (page - 1) * page_size
     end = start + page_size
-    return PaginatedResponse(
-        items=posts[start:end],
+    return BlackboardPostsResponse(
+        items=[blackboard_post_view(post, user) for post in posts[start:end]],
         total=len(posts),
         page=page,
         page_size=page_size,
@@ -259,44 +270,78 @@ def blackboard_posts(
 
 
 @router.get("/task-cards", response_model=BlackboardTaskCardsResponse)
-def blackboard_task_cards(user: User = Depends(current_user)) -> BlackboardTaskCardsResponse:
-    latest_posts_by_task: dict[str, BlackboardPost] = {}
+def blackboard_task_cards(
+    project_id: str = Query(min_length=1, max_length=120),
+    user: User = Depends(current_user),
+) -> BlackboardTaskCardsResponse:
+    project = store.get_project(project_id)
+    if (
+        project is None
+        or project.workspace_id != user.workspace_id
+        or not store.user_can_access_project(user.id, project_id)
+    ):
+        raise HTTPException(status_code=404, detail="Project not found")
     posts_by_task: dict[str, list[BlackboardPost]] = {}
     for post in store.blackboard_posts:
-        latest_posts_by_task[post.task_id] = post
         posts_by_task.setdefault(post.task_id, []).append(post)
-    cards = []
-    for task in reversed(store.tasks):
-        latest_post = latest_posts_by_task.get(task.id)
-        task_posts = posts_by_task.get(task.id, [])
-        if not task_visible_to_user(task.thread_id, task_posts, user):
-            continue
-        locked_post = next(
-            (post for post in reversed(task_posts) if post.execution_lock and post.execution_lock.active),
-            None,
-        )
-        active_lock = locked_post.execution_lock if locked_post and locked_post.execution_lock else None
-        state_post = locked_post or latest_post
-        thread = store.get_chat_thread(task.thread_id)
-        cards.append(
-            BlackboardTaskCard(
-                task=task,
-                latest_post=latest_post,
-                stage=state_post.collaboration_stage if state_post else task.collaboration_stage,
-                owner=state_post.current_owner_label
-                if state_post and state_post.current_owner_label
-                else task.current_owner_label,
-                done_when=state_post.done_when if state_post and state_post.done_when else task.done_when,
-                active_lock=active_lock,
-                post_count=len(task_posts),
-                initiator_user_id=thread.user_id if thread else None,
-                initiated_by_current_user=thread is not None and thread.user_id == user.id,
-                claimed_by_personal_agent=task_claimed_by_personal_agent(task, task_posts, user),
-                upstream_agents=task_upstream_agents(task_posts),
-                downstream_agents=task_downstream_agents(task, task_posts, active_lock),
-            )
-        )
+    cards = [
+        card
+        for task in reversed(store.tasks)
+        if (thread := store.get_chat_thread(task.thread_id)) is not None
+        and thread.project_id == project_id
+        and thread.workspace_id == user.workspace_id
+        and (card := build_task_card(task, posts_by_task.get(task.id, []), user)) is not None
+    ]
     return BlackboardTaskCardsResponse(items=cards)
+
+
+@router.get("/tasks/{task_id}", response_model=BlackboardTaskDetail)
+def blackboard_task_detail(task_id: str, user: User = Depends(current_user)) -> BlackboardTaskDetail:
+    task = store.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    posts = [post for post in store.blackboard_posts if post.task_id == task.id]
+    card = build_task_card(task, posts, user)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    visible_posts = [post for post in posts if post_visible_to_user(post, posts, user)]
+    return BlackboardTaskDetail(
+        task_card=card,
+        posts=[blackboard_post_view(post, user) for post in visible_posts],
+    )
+
+
+def build_task_card(task, task_posts: list[BlackboardPost], user: User) -> BlackboardTaskCard | None:
+    if not task_visible_to_user(task.thread_id, task_posts, user):
+        return None
+    latest_post = task_posts[-1] if task_posts else None
+    locked_post = next(
+        (post for post in reversed(task_posts) if post.execution_lock and post.execution_lock.active),
+        None,
+    )
+    active_lock = locked_post.execution_lock if locked_post and locked_post.execution_lock else None
+    state_post = locked_post or latest_post
+    thread = store.get_chat_thread(task.thread_id)
+    return BlackboardTaskCard(
+        task=task,
+        latest_post=blackboard_post_view(latest_post, user) if latest_post else None,
+        stage=state_post.collaboration_stage if state_post else task.collaboration_stage,
+        owner=(
+            state_post.current_owner_label
+            if state_post and state_post.current_owner_label
+            else task.current_owner_label
+        ),
+        done_when=state_post.done_when if state_post and state_post.done_when else task.done_when,
+        active_lock=active_lock,
+        post_count=len(task_posts),
+        initiator_user_id=thread.user_id if thread else None,
+        initiated_by_current_user=thread is not None and thread.user_id == user.id,
+        claimed_by_personal_agent=task_claimed_by_personal_agent(task, task_posts, user),
+        upstream_agents=task_upstream_agents(task_posts),
+        downstream_agents=task_downstream_agents(task, task_posts, active_lock),
+        target_post_id=state_post.id if state_post else None,
+        allowed_actions=blackboard_allowed_actions(state_post, user) if state_post else [],
+    )
 
 
 def task_claimed_by_personal_agent(task, posts: list[BlackboardPost], user: User) -> bool:
@@ -349,14 +394,18 @@ def unique_non_empty(values) -> list[str]:
 
 
 def task_visible_to_user(thread_id: str, posts: list[BlackboardPost], user: User) -> bool:
-    if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
-        return True
     thread = store.get_chat_thread(thread_id)
-    if thread and thread.user_id == user.id:
-        return True
-    if thread and thread.user_id != user.id:
+    if thread is not None:
+        if thread.workspace_id != user.workspace_id or not store.user_can_access_project(user.id, thread.project_id):
+            return False
+        if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
+            return True
+        if thread.user_id == user.id:
+            return True
         personal_agent_ids = {user.personal_agent_id}
     else:
+        if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
+            return True
         personal_agent_ids = {"personal_agent", user.personal_agent_id}
     for post in posts:
         values = {
@@ -374,13 +423,17 @@ def task_visible_to_user(thread_id: str, posts: list[BlackboardPost], user: User
 
 
 def post_visible_to_user(post: BlackboardPost, task_posts: list[BlackboardPost], user: User) -> bool:
+    task = store.get_task(post.task_id)
+    if task is not None:
+        if not task_visible_to_user(task.thread_id, task_posts, user):
+            return False
+        if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
+            return True
+        return post.scope != Scope.PRIVATE or post.actor in {user.id, user.personal_agent_id, "personal_agent"}
     if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
         return True
     if post.scope == Scope.PRIVATE and post.actor not in {user.id, user.personal_agent_id, "personal_agent"}:
         return False
-    task = store.get_task(post.task_id)
-    if task is not None:
-        return task_visible_to_user(task.thread_id, task_posts, user)
     if post.scope == Scope.PROJECT:
         return True
     return (
@@ -388,6 +441,102 @@ def post_visible_to_user(post: BlackboardPost, task_posts: list[BlackboardPost],
         or post.actor in {user.id, user.personal_agent_id, "personal_agent"}
         or user.personal_agent_id in post.read_by_agents
         or "personal_agent" in post.read_by_agents
+    )
+
+
+def task_initiator_user_id(post: BlackboardPost) -> str | None:
+    task = store.get_task(post.task_id)
+    if task is not None:
+        thread = store.get_chat_thread(task.thread_id)
+        return thread.user_id if thread is not None else None
+    if post.task_id.startswith("manual_"):
+        return post.task_id.removeprefix("manual_")
+    return None
+
+
+def blackboard_post_context(post: BlackboardPost) -> tuple[str, str] | None:
+    task = store.get_task(post.task_id)
+    if task is not None:
+        thread = store.get_chat_thread(task.thread_id)
+        if thread is not None:
+            return thread.workspace_id, thread.project_id
+    initiator_id = task_initiator_user_id(post)
+    initiator = store.get_user(initiator_id) if initiator_id is not None else None
+    if initiator is None:
+        return None
+    return initiator.workspace_id, initiator.default_project_id
+
+
+def resolve_handoff_recipient(post: BlackboardPost, agent_id: str) -> Agent:
+    context = blackboard_post_context(post)
+    if context is None:
+        raise HTTPException(status_code=409, detail="Task context is unavailable")
+    workspace_id, project_id = context
+    agent = store.get_agent(agent_id) or next((item for item in AGENTS if item.id == agent_id), None)
+    if agent is None or agent.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Eligible handoff Agent not found")
+    if agent.status != "online":
+        raise HTTPException(status_code=409, detail="Handoff Agent is not eligible")
+
+    owner = store.get_user(agent.owner_user_id) if agent.owner_user_id is not None else None
+    if agent.agent_type == "personal" and owner is None:
+        raise HTTPException(status_code=409, detail="Handoff Agent is not eligible")
+    if owner is not None:
+        project = store.get_project(project_id)
+        in_project = owner.default_project_id == project_id or (
+            project is not None and owner.id in project.member_ids
+        )
+        if owner.workspace_id != workspace_id or not in_project:
+            raise HTTPException(status_code=404, detail="Eligible handoff Agent not found")
+        if owner.status != "active":
+            raise HTTPException(status_code=409, detail="Handoff Agent is not eligible")
+    return agent
+
+
+def authorize_post_action(post: BlackboardPost, user: User, action: str) -> None:
+    task_posts = [item for item in store.blackboard_posts if item.task_id == post.task_id]
+    authorize_blackboard_action(
+        user,
+        post,
+        action,
+        visible=post_visible_to_user(post, task_posts, user),
+        task_initiator_user_id=task_initiator_user_id(post),
+    )
+
+
+def blackboard_allowed_actions(post: BlackboardPost, user: User) -> list[str]:
+    task_posts = [item for item in store.blackboard_posts if item.task_id == post.task_id]
+    if not post_visible_to_user(post, task_posts, user):
+        return []
+
+    actions = []
+    if user.personal_agent_id not in post.read_by_agents:
+        actions.append("read")
+    controls_task = can_control_blackboard_task(user, post, task_initiator_user_id(post))
+    if not controls_task:
+        return actions
+
+    actions.append("reply")
+    lock = post.execution_lock
+    can_release = (
+        lock is None
+        or not lock.active
+        or user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}
+        or lock.owner_agent_id == user.personal_agent_id
+    )
+    if lock is None or not lock.active or lock.owner_agent_id == user.personal_agent_id:
+        actions.append("lock")
+    if lock is not None and lock.active and can_release:
+        actions.append("unlock")
+    if can_release:
+        actions.append("handoff")
+    return actions
+
+
+def blackboard_post_view(post: BlackboardPost, user: User) -> BlackboardPostView:
+    return BlackboardPostView(
+        **post.model_dump(),
+        allowed_actions=blackboard_allowed_actions(post, user),
     )
 
 
@@ -399,9 +548,7 @@ def create_memory_candidate_from_blackboard_post(
     post = store.get_blackboard_post(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Blackboard post not found")
-    task_posts = [item for item in store.blackboard_posts if item.task_id == post.task_id]
-    if not post_visible_to_user(post, task_posts, user):
-        raise HTTPException(status_code=403, detail="Not allowed to use this blackboard post")
+    authorize_post_action(post, user, "create memory from")
     if post.post_type not in {"evidence", "decision", "digest", "archive", "memory_candidate"}:
         raise HTTPException(status_code=400, detail="Blackboard post cannot become a memory candidate")
 
@@ -417,6 +564,7 @@ def create_memory_candidate_from_blackboard_post(
             summary=post.content,
             memory_type="bbs_evidence" if post.post_type == "evidence" else "bbs_decision",
             scope=Scope.TEAM_CANDIDATE,
+            owner_user_id=user.id,
             workspace_id=user.workspace_id,
             project_id=user.default_project_id,
             sources=[source, *post.sources],
@@ -446,9 +594,7 @@ def dispatch_blackboard_request(
     post = store.get_blackboard_post(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Blackboard post not found")
-    task_posts = [item for item in store.blackboard_posts if item.task_id == post.task_id]
-    if not post_visible_to_user(post, task_posts, user):
-        raise HTTPException(status_code=403, detail="Not allowed to use this blackboard post")
+    authorize_post_action(post, user, "dispatch")
     if post.post_type != "request":
         raise HTTPException(status_code=400, detail="Only request posts can be dispatched")
 
@@ -462,8 +608,8 @@ def dispatch_blackboard_request(
 
     try:
         fulfillment = agent.fulfill_research_request(post, user)
-    except RequestAlreadyFulfilledError:
-        raise HTTPException(status_code=409, detail="Request has already been fulfilled")
+    except RequestAlreadyFulfilledError as error:
+        raise HTTPException(status_code=409, detail="Request has already been fulfilled") from error
 
     store.add_audit_event(
         create_audit_event(
@@ -490,7 +636,8 @@ def dispatch_blackboard_request(
 
 
 @router.get("/auto-posts", response_model=ItemsResponse)
-def auto_blackboard_posts(_: User = Depends(current_user)) -> ItemsResponse:
+def auto_blackboard_posts(user: User = Depends(current_user)) -> ItemsResponse:
+    ensure_admin(user)
     return ItemsResponse(items=list(reversed(store.auto_blackboard_post_requests)))
 
 
@@ -501,22 +648,29 @@ def auto_blackboard_worker_status(_: User = Depends(current_user)) -> dict[str, 
 
 @router.post("/auto-posts", response_model=ItemResponse)
 def enqueue_auto_blackboard_post(
-    request: AutoBlackboardPostRequest,
+    request: AutoBlackboardPostCreateRequest,
     user: User = Depends(current_user),
 ) -> ItemResponse:
-    if request.actor == "personal_agent":
-        reader = store.get_agent(user.personal_agent_id) or next(
-            (item for item in AGENTS if item.id == user.personal_agent_id),
-            None,
-        )
-        actor = reader.name if reader else request.actor
-        request = request.model_copy(update={"actor": actor})
-    return ItemResponse(item=store.enqueue_auto_blackboard_post(request))
+    task = store.get_task(request.task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    thread = store.get_chat_thread(task.thread_id)
+    if user.role not in {UserRole.TEAM_LEAD, UserRole.ADMIN} and (
+        thread is None or thread.user_id != user.id
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed to enqueue for this task")
+    queued = AutoBlackboardPostRequest(
+        **request.model_dump(),
+        actor=user.personal_agent_id,
+        submitted_by_user_id=user.id,
+    )
+    return ItemResponse(item=store.enqueue_auto_blackboard_post(queued))
 
 
 @router.post("/auto-posts/drain", response_model=DrainAutoPostsResponse)
-def drain_auto_blackboard_posts_endpoint(_: User = Depends(current_user)) -> DrainAutoPostsResponse:
-    return drain_queued_auto_blackboard_posts("manual_drain")
+def drain_auto_blackboard_posts_endpoint(user: User = Depends(current_user)) -> DrainAutoPostsResponse:
+    ensure_admin(user)
+    return drain_queued_auto_blackboard_posts(user.id)
 
 
 @router.get("/research-dispatch/worker")
@@ -525,12 +679,14 @@ def research_dispatch_worker_status(_: User = Depends(current_user)) -> dict[str
 
 
 @router.post("/research-dispatch/drain")
-def drain_research_dispatch_endpoint(_: User = Depends(current_user)) -> dict[str, object]:
-    return drain_dispatchable_research_requests("manual_drain")
+def drain_research_dispatch_endpoint(user: User = Depends(current_user)) -> dict[str, object]:
+    ensure_admin(user)
+    return drain_dispatchable_research_requests(user.id)
 
 
 @router.post("/auto-posts/{request_id}/review", response_model=ItemResponse)
 def review_auto_blackboard_post(request_id: str, user: User = Depends(current_user)) -> ItemResponse:
+    ensure_admin(user)
     request = next((item for item in store.auto_blackboard_post_requests if item.id == request_id), None)
     if request is None:
         raise HTTPException(status_code=404, detail="Auto blackboard post not found")
@@ -553,15 +709,11 @@ def create_blackboard_post(
         BlackboardPost(
             task_id=f"manual_{user.id}",
             post_type=request.post_type,
-            actor=request.actor,
+            actor=user.personal_agent_id,
             title=request.title,
             content=request.content,
             scope=request.scope,
             permission=request.permission,
-            related_post_id=request.related_post_id,
-            collaboration_stage=request.collaboration_stage,
-            done_when=request.done_when,
-            handoff=request.handoff,
         )
     )
     return ItemResponse(item=post)
@@ -576,11 +728,19 @@ def acquire_blackboard_execution_lock(
     post = store.get_blackboard_post(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Blackboard post not found")
+    authorize_post_action(post, user, "lock")
+    owner_agent = store.get_agent(request.owner_agent_id) or next(
+        (item for item in AGENTS if item.id == request.owner_agent_id),
+        None,
+    )
+    if owner_agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    ensure_can_manage_agent(user, owner_agent, store.permission_policy_rules)
     active_lock = post.execution_lock if post.execution_lock and post.execution_lock.active else None
     if active_lock and active_lock.owner_agent_id != request.owner_agent_id:
         raise HTTPException(status_code=409, detail=f"{active_lock.owner_label} already owns execution")
 
-    owner_label = request.owner_label or agent_display_name(request.owner_agent_id)
+    owner_label = agent_display_name(request.owner_agent_id)
     lock = ExecutionLock(owner_agent_id=request.owner_agent_id, owner_label=owner_label)
     post.execution_lock = lock
     post.current_owner_agent_id = request.owner_agent_id
@@ -612,6 +772,8 @@ def release_blackboard_execution_lock(
     post = store.get_blackboard_post(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Blackboard post not found")
+    authorize_post_action(post, user, "unlock")
+    ensure_can_release_execution_lock(user, post)
     if post.execution_lock and post.execution_lock.active:
         post.execution_lock.released_at = now_utc()
         post.execution_lock.released_reason = request.reason
@@ -642,6 +804,9 @@ def create_blackboard_handoff(
     parent = store.get_blackboard_post(post_id)
     if parent is None:
         raise HTTPException(status_code=404, detail="Blackboard post not found")
+    authorize_post_action(parent, user, "handoff")
+    ensure_can_release_execution_lock(user, parent)
+    next_owner = resolve_handoff_recipient(parent, request.next_owner_agent_id)
     packet = StructuredHandoffPacket(
         goal=request.goal,
         current_result=request.current_result,
@@ -650,7 +815,7 @@ def create_blackboard_handoff(
         blockers=[item.strip() for item in request.blockers if item.strip()],
         requires_input_from=[item.strip() for item in request.requires_input_from if item.strip()],
     )
-    next_owner_label = agent_display_name(packet.next_owner_agent_id)
+    next_owner_label = next_owner.name
     post = store.add_blackboard_post(
         BlackboardPost(
             task_id=parent.task_id,
@@ -696,11 +861,8 @@ def mark_blackboard_post_read(post_id: str, user: User = Depends(current_user)) 
     post = next((item for item in store.blackboard_posts if item.id == post_id), None)
     if post is None:
         raise HTTPException(status_code=404, detail="Blackboard post not found")
-    reader = store.get_agent(user.personal_agent_id) or next(
-        (item for item in AGENTS if item.id == user.personal_agent_id),
-        None,
-    )
-    reader_id = reader.name if reader else user.personal_agent_id
+    authorize_post_action(post, user, "read")
+    reader_id = user.personal_agent_id
     if reader_id not in post.read_by_agents:
         post.read_by_agents.append(reader_id)
         store.add_blackboard_post(post)
@@ -713,8 +875,24 @@ def reply_blackboard_post(
     request: BlackboardPostCreateRequest,
     user: User = Depends(current_user),
 ) -> ItemResponse:
-    parent = next((item for item in store.blackboard_posts if item.id == post_id), None)
+    parent = store.get_blackboard_post(post_id)
     if parent is None:
         raise HTTPException(status_code=404, detail="Blackboard post not found")
-    reply = request.model_copy(update={"related_post_id": post_id})
-    return create_blackboard_post(reply, user)
+    authorize_post_action(parent, user, "reply to")
+    post = store.add_blackboard_post(
+        BlackboardPost(
+            task_id=parent.task_id,
+            post_type=request.post_type,
+            actor=user.personal_agent_id,
+            title=request.title,
+            content=request.content,
+            scope=parent.scope,
+            permission=parent.permission,
+            related_post_id=parent.id,
+            collaboration_stage=parent.collaboration_stage,
+            current_owner_agent_id=parent.current_owner_agent_id,
+            current_owner_label=parent.current_owner_label,
+            done_when=parent.done_when,
+        )
+    )
+    return ItemResponse(item=post)

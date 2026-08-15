@@ -16,16 +16,17 @@ from agentmesh.models import (
     GroupMemorySummaryRequest,
     ItemResponse,
     ItemsResponse,
-    LearnedSkill,
     MemoryCreateRequest,
     MemoryItem,
+    MemoryItemsResponse,
+    MemoryItemView,
     MemoryLayer,
+    MemoryOverviewResponse,
     MemoryRelation,
     MemoryStatus,
     MemoryUpdateRequest,
     ProjectArchiveRequest,
     ProjectMemorySummaryRequest,
-    RetrievalMetrics,
     Scope,
     SkillStatus,
     User,
@@ -34,9 +35,8 @@ from agentmesh.models import (
     UserRole,
     now_utc,
 )
-from agentmesh.permissions import ensure_can_update_memory
+from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, ensure_can_update_memory, has_permission
 from agentmesh.routes.deps import current_user
-from agentmesh.seed import PROJECT, WORKSPACE
 from agentmesh.store import store
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
@@ -69,21 +69,31 @@ daily_summary_worker_state: dict[str, object] = {
 }
 
 
-@router.get("", response_model=ItemsResponse)
-def memory_items(user: User = Depends(current_user)) -> ItemsResponse:
-    return ItemsResponse(items=_visible_memory_items(user))
+@router.get("", response_model=MemoryItemsResponse)
+def memory_items(
+    project_id: str | None = Query(default=None, min_length=1, max_length=120),
+    user: User = Depends(current_user),
+) -> MemoryItemsResponse:
+    resolved_project_id = _resolve_user_project_id(user, project_id)
+    items = [memory_item_view(item, user) for item in _visible_memory_items(user, resolved_project_id)]
+    return MemoryItemsResponse(items=items)
 
 
 @router.post("", response_model=ItemResponse)
-def create_memory_item(request: MemoryCreateRequest, _: User = Depends(current_user)) -> ItemResponse:
+def create_memory_item(request: MemoryCreateRequest, user: User = Depends(current_user)) -> ItemResponse:
+    if request.scope == Scope.TEAM_ACCEPTED:
+        raise HTTPException(status_code=403, detail="Team memory must be reviewed before acceptance")
+    scope = Scope.TEAM_CANDIDATE if request.scope == Scope.PROJECT else request.scope
     item = store.add_memory_item(
         MemoryItem(
             title=request.title,
             summary=request.summary,
             memory_type=request.memory_type,
-            scope=request.scope,
-            workspace_id=request.workspace_id or WORKSPACE.id,
-            project_id=request.project_id or PROJECT.id,
+            scope=scope,
+            status=MemoryStatus.PROPOSED,
+            owner_user_id=user.id,
+            workspace_id=user.workspace_id,
+            project_id=user.default_project_id,
         )
     )
     return ItemResponse(item=item)
@@ -100,13 +110,13 @@ def user_memory_items(
     return ItemsResponse(items=store.list_user_memory_items(user.id, layer, project_id, memory_date, memory_type))
 
 
-@router.get("/overview")
+@router.get("/overview", response_model=MemoryOverviewResponse)
 def memory_overview(
     project_id: str | None = Query(default=None, min_length=1, max_length=120),
     memory_date: dt_date | None = Query(default=None),
     memory_type: str | None = Query(default=None, min_length=1, max_length=80),
     user: User = Depends(current_user),
-) -> dict[str, object]:
+) -> MemoryOverviewResponse:
     resolved_project_id = _resolve_user_project_id(user, project_id)
     sections = {
         "short": store.list_user_memory_items(
@@ -130,18 +140,22 @@ def memory_overview(
             None,
             memory_type,
         ),
-        "team": _visible_team_memory_items(user, resolved_project_id, memory_type),
+        "team": [
+            memory_item_view(item, user)
+            for item in _visible_team_memory_items(user, resolved_project_id, memory_type)
+        ],
     }
-    return {
-        "project_id": resolved_project_id,
-        "sections": sections,
-        "counts": {key: len(items) for key, items in sections.items()},
-        "daily_summary_worker": daily_summary_worker_state,
-    }
+    return MemoryOverviewResponse(
+        project_id=resolved_project_id,
+        sections=sections,
+        counts={key: len(items) for key, items in sections.items()},
+        daily_summary_worker=daily_summary_worker_state,
+    )
 
 
 @router.post("/user", response_model=ItemResponse)
 def create_user_memory_item(request: UserMemoryCreateRequest, user: User = Depends(current_user)) -> ItemResponse:
+    project_id = _resolve_user_project_id(user, request.project_id)
     item = UserMemoryItem(
         user_id=user.id,
         layer=request.layer,
@@ -151,7 +165,7 @@ def create_user_memory_item(request: UserMemoryCreateRequest, user: User = Depen
         memory_type=request.memory_type,
         memory_date=request.memory_date or now_utc().date(),
         workspace_id=user.workspace_id,
-        project_id=request.project_id or user.default_project_id,
+        project_id=project_id,
     )
     return ItemResponse(item=store.add_user_memory_item(item))
 
@@ -254,16 +268,21 @@ def share_user_memory_to_project(item_id: str, user: User = Depends(current_user
         raise HTTPException(status_code=400, detail="Memory has no associated project")
 
     project = store.get_project(source_item.project_id)
-    if project is None:
+    if (
+        project is None
+        or project.workspace_id != user.workspace_id
+        or not store.user_can_access_project(user.id, source_item.project_id)
+    ):
         raise HTTPException(status_code=404, detail="Project not found")
 
     shared = MemoryItem(
         title=source_item.title,
         summary=source_item.summary,
         memory_type=source_item.memory_type,
-        scope=Scope.PROJECT,
-        status=MemoryStatus.ACCEPTED,
-        workspace_id=source_item.workspace_id,
+        scope=Scope.TEAM_CANDIDATE,
+        status=MemoryStatus.PROPOSED,
+        owner_user_id=user.id,
+        workspace_id=user.workspace_id,
         project_id=source_item.project_id,
         sources=source_item.sources,
     )
@@ -288,13 +307,12 @@ def update_memory_item(
     item = store.get_memory_item(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Memory item not found")
-    ensure_can_update_memory(user, request.status, request.scope, store.permission_policy_rules)
-    if request.status is not None:
+    ensure_can_update_memory(user, item, request.status, request.scope, store.permission_policy_rules)
+    if request.status == MemoryStatus.ACCEPTED or request.scope == Scope.TEAM_ACCEPTED:
+        item.status = MemoryStatus.ACCEPTED
+        item.scope = Scope.TEAM_ACCEPTED
+    elif request.status is not None:
         item.status = request.status
-        if request.status == MemoryStatus.ACCEPTED and request.scope is None:
-            item.scope = Scope.TEAM_ACCEPTED
-    if request.scope is not None:
-        item.scope = request.scope
     store.save_memory_item(item)
     return ItemResponse(item=item)
 
@@ -302,7 +320,11 @@ def update_memory_item(
 def _resolve_user_project_id(user: User, requested_project_id: str | None) -> str:
     project_id = requested_project_id or user.default_project_id
     project = store.get_project(project_id)
-    if project is None or project.workspace_id != user.workspace_id:
+    if (
+        project is None
+        or project.workspace_id != user.workspace_id
+        or not store.user_can_access_project(user.id, project_id)
+    ):
         raise HTTPException(status_code=404, detail="Project not found")
     return project_id
 
@@ -357,7 +379,7 @@ async def daily_memory_worker_loop() -> None:
         await asyncio.sleep(DAILY_SUMMARY_WORKER_INTERVAL_SECONDS)
         daily_summary_worker_state["last_run_at"] = now_utc().isoformat()
         try:
-            result = generate_daily_memory_summaries()
+            result = await asyncio.to_thread(generate_daily_memory_summaries)
             daily_summary_worker_state["last_created"] = result["created"]
             daily_summary_worker_state["last_skipped_existing"] = result["skipped_existing"]
             daily_summary_worker_state["last_skipped_empty"] = result["skipped_empty"]
@@ -427,10 +449,23 @@ def _project_name(project_id: str) -> str:
     return project.name if project is not None else project_id
 
 
-def _visible_memory_items(user: User) -> list[MemoryItem]:
+def memory_item_view(item: MemoryItem, user: User) -> MemoryItemView:
+    actions = []
+    if (
+        item.status == MemoryStatus.PROPOSED
+        and item.scope == Scope.TEAM_CANDIDATE
+        and has_permission(user, ACTION_ACCEPT_TEAM_MEMORY, store.permission_policy_rules)
+    ):
+        actions.append("accept")
+    return MemoryItemView(**item.model_dump(), allowed_actions=actions)
+
+
+def _visible_memory_items(user: User, project_id: str) -> list[MemoryItem]:
     items: list[MemoryItem] = []
     for item in store.memory_items:
-        if item.scope == Scope.PRIVATE:
+        if item.project_id != project_id:
+            continue
+        if item.scope == Scope.PRIVATE and item.owner_user_id != user.id:
             continue
         if item.scope == Scope.TEAM_CANDIDATE and user.role not in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
             continue
@@ -443,9 +478,8 @@ def _visible_memory_items(user: User) -> list[MemoryItem]:
 def _visible_team_memory_items(user: User, project_id: str, memory_type: str | None = None) -> list[MemoryItem]:
     items = [
         item
-        for item in _visible_memory_items(user)
+        for item in _visible_memory_items(user, project_id)
         if item.scope in {Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED}
-        and (item.project_id is None or item.project_id == project_id)
     ]
     if memory_type is not None:
         items = [item for item in items if item.memory_type == memory_type]

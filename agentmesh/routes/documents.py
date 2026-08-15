@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Response, UploadFile
+import os
+
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 
 from agentmesh.documents import CompositeDocumentParser, DocumentIngestionRequest, UnsupportedDocumentTypeError
+from agentmesh.ingestion import DocumentIngestionService, IngestionQueueFullError
 from agentmesh.models import (
+    DocumentJobStatus,
     DocumentParseJob,
     DocumentRecord,
     DocumentUpdateRequest,
-    MemoryLayer,
     User,
     UserMemoryItem,
     UserRole,
@@ -21,14 +24,18 @@ from agentmesh.store import store
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-MAX_SYNC_UPLOAD_BYTES = 1024 * 1024
+MAX_SYNC_UPLOAD_BYTES = int(os.getenv("AGENTMESH_DOCUMENT_SYNC_THRESHOLD_BYTES", str(1024 * 1024)))
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 document_parser = CompositeDocumentParser()
+ingestion_service = DocumentIngestionService(repository=store, parser=document_parser)
+
+
+def document_visible_to_user(document: DocumentRecord | DocumentParseJob, user: User) -> bool:
+    return user.role == UserRole.ADMIN or document.uploaded_by == user.id
 
 
 @router.post("/upload")
 async def upload_document(
-    background_tasks: BackgroundTasks,
     response: Response,
     file: UploadFile = File(...),
     user: User = Depends(current_user),
@@ -44,31 +51,38 @@ async def upload_document(
         project_id=PROJECT.id,
         uploaded_by=user.id,
     )
+    job = ingestion_service.create_job(request)
     if len(content) > MAX_SYNC_UPLOAD_BYTES:
-        job = store.save_document_parse_job(
-            DocumentParseJob(
-                file_name=request.file_name,
-                content_type=request.content_type,
-                workspace_id=request.workspace_id,
-                project_id=request.project_id,
-                uploaded_by=request.uploaded_by,
-            )
-        )
-        background_tasks.add_task(parse_document_job, job.id, request)
+        try:
+            ingestion_service.submit(job.id, request)
+        except IngestionQueueFullError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
         response.status_code = 202
         return {"job": job}
+
     try:
-        document = parse_document_request(request)
-    except (UnsupportedDocumentTypeError, UnicodeDecodeError) as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        completed_job = await ingestion_service.run_async(job.id, request)
+    except IngestionQueueFullError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    if completed_job.status == DocumentJobStatus.FAILED:
+        status_code = 400 if completed_job.error_type in {
+            UnsupportedDocumentTypeError.__name__,
+            UnicodeDecodeError.__name__,
+        } else 500
+        raise HTTPException(status_code=status_code, detail=completed_job.error or "Document ingestion failed")
+    document = store.get_document(completed_job.document_id) if completed_job.document_id else None
+    if document is None:
+        raise HTTPException(status_code=500, detail="Document ingestion completed without a document")
     return {"item": document}
 
 
 @router.get("/jobs")
 def document_jobs(user: User = Depends(current_user)) -> dict[str, object]:
-    jobs = list(reversed(store.document_parse_jobs))
-    if user.role != UserRole.ADMIN:
-        jobs = [job for job in jobs if job.uploaded_by == user.id]
+    jobs = [
+        job
+        for job in reversed(store.document_parse_jobs)
+        if document_visible_to_user(job, user)
+    ]
     return {"items": jobs}
 
 
@@ -77,74 +91,42 @@ def document_job_detail(job_id: str, user: User = Depends(current_user)) -> dict
     job = store.get_document_parse_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Document parse job not found")
-    if user.role != UserRole.ADMIN and job.uploaded_by != user.id:
+    if not document_visible_to_user(job, user):
         raise HTTPException(status_code=404, detail="Document parse job not found")
     return {"item": job}
 
 
-def parse_document_job(job_id: str, request: DocumentIngestionRequest) -> None:
-    job = store.get_document_parse_job(job_id)
-    if job is None:
-        return
-    job.status = "running"
-    job.updated_at = now_utc()
-    store.save_document_parse_job(job)
-    try:
-        document = parse_document_request(request)
-    except (UnsupportedDocumentTypeError, UnicodeDecodeError) as error:
-        job.status = "failed"
-        job.error = str(error)
-        job.updated_at = now_utc()
-        store.save_document_parse_job(job)
-        return
-    job.status = "completed"
-    job.document_id = document.id
-    job.updated_at = now_utc()
-    store.save_document_parse_job(job)
+def parse_document_job(job_id: str, request: DocumentIngestionRequest) -> DocumentParseJob:
+    """Compatibility entry point for workers and focused tests."""
+    return ingestion_service.run_job(job_id, request)
 
 
 def parse_document_request(request: DocumentIngestionRequest) -> DocumentRecord:
-    parsed = document_parser.parse(request)
-    store.add_source(parsed.source)
-    document = store.add_document(
-        DocumentRecord(
-            title=parsed.title,
-            file_name=request.file_name,
-            content_type=request.content_type,
-            text=parsed.text,
-            source=parsed.source,
-            workspace_id=parsed.workspace_id,
-            project_id=parsed.project_id,
-            uploaded_by=parsed.uploaded_by,
-            metadata=parsed.metadata,
-        )
-    )
-    store.add_user_memory_item(
-        UserMemoryItem(
-            user_id=request.uploaded_by,
-            layer=MemoryLayer.SHORT_TERM,
-            title=f"文档摘要：{document.title}",
-            summary=summarize_document_text(document.text),
-            source_kind="document_upload",
-            memory_type="document_summary",
-            memory_date=now_utc().date(),
-            workspace_id=document.workspace_id,
-            project_id=document.project_id,
-            sources=[document.source],
-        )
-    )
+    """Synchronous compatibility helper; async routes use the bounded executor."""
+    job = ingestion_service.create_job(request)
+    completed = ingestion_service.run_job(job.id, request)
+    if completed.status == DocumentJobStatus.FAILED:
+        raise RuntimeError(completed.error or "Document ingestion failed")
+    document = store.get_document(completed.document_id) if completed.document_id else None
+    if document is None:
+        raise RuntimeError("Document ingestion completed without a document")
     return document
 
 
 @router.get("")
-def documents(_: User = Depends(current_user)) -> dict[str, object]:
-    return {"items": list(reversed(store.documents))}
+def documents(user: User = Depends(current_user)) -> dict[str, object]:
+    items = [
+        document
+        for document in reversed(store.documents)
+        if document_visible_to_user(document, user)
+    ]
+    return {"items": items}
 
 
 @router.get("/{document_id}")
-def document_detail(document_id: str, _: User = Depends(current_user)) -> dict[str, object]:
+def document_detail(document_id: str, user: User = Depends(current_user)) -> dict[str, object]:
     document = store.get_document(document_id)
-    if document is None:
+    if document is None or not document_visible_to_user(document, user):
         raise HTTPException(status_code=404, detail="Document not found")
     return {"item": document}
 
@@ -152,18 +134,40 @@ def document_detail(document_id: str, _: User = Depends(current_user)) -> dict[s
 @router.patch("/{document_id}")
 def update_document(document_id: str, request: DocumentUpdateRequest, user: User = Depends(current_user)) -> dict[str, object]:
     document = store.get_document(document_id)
-    if document is None:
+    if document is None or not document_visible_to_user(document, user):
         raise HTTPException(status_code=404, detail="Document not found")
-    if user.role != UserRole.ADMIN and document.uploaded_by != user.id:
-        raise HTTPException(status_code=403, detail="Not allowed to update this document")
-    document.text = request.text
-    document.metadata["edited_by"] = user.id
-    document.metadata["edited_at"] = now_utc().isoformat()
-    return {"item": store.save_document(document)}
+    if request.expected_version != document.version:
+        raise HTTPException(status_code=409, detail="Document version conflict")
+    updated = document.model_copy(deep=True)
+    updated.version = request.expected_version + 1
+    updated.text = request.text
+    updated.expected_chunks = 0
+    updated.completed_chunks = 0
+    updated.updated_at = now_utc()
+    updated.metadata["edited_by"] = user.id
+    updated.metadata["edited_at"] = updated.updated_at.isoformat()
+    if not store.save_document_if_version(updated, request.expected_version):
+        raise HTTPException(status_code=409, detail="Document version conflict")
+    ingestion_service.invalidate_prior_version_chunks(updated)
+    return {"item": updated}
 
 
-def summarize_document_text(text: str) -> str:
-    normalized = " ".join(text.split())
-    if not normalized:
-        return "文档没有解析出可用正文。"
-    return normalized[:1200]
+def import_document_chunks(document: DocumentRecord) -> list[UserMemoryItem]:
+    """Compatibility wrapper around versioned, idempotent ingestion."""
+    return ingestion_service.import_document_chunks(document)
+
+
+@router.post("/{document_id}/import-to-memory")
+def import_document_to_memory(
+    document_id: str,
+    user: User = Depends(current_user),
+) -> dict[str, object]:
+    """Manually complete missing chunks for the document's current version."""
+    document = store.get_document(document_id)
+    if document is None or not document_visible_to_user(document, user):
+        raise HTTPException(status_code=404, detail="Document not found")
+    existing = ingestion_service.current_version_chunks(document)
+    if document.expected_chunks > 0 and len(existing) == document.expected_chunks:
+        return {"status": "already_imported", "chunk_count": len(existing)}
+    items = ingestion_service.import_document_chunks(document)
+    return {"status": "imported", "chunk_count": len(items)}

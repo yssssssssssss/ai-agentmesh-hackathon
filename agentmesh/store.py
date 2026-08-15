@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import sqlite3
 from dataclasses import dataclass
@@ -22,7 +23,11 @@ from agentmesh.models import (
     BlackboardPost,
     BlackboardPostType,
     ChatMessage,
+    ChatResponse,
     ChatThread,
+    ChatTurnReceipt,
+    ChatTurnReceiptStatus,
+    ChatTurnTrace,
     ConsentGrant,
     ContributionPoint,
     DocumentParseJob,
@@ -49,18 +54,43 @@ from agentmesh.models import (
     UserMemoryItem,
     UserRole,
     Workspace,
+    now_utc,
 )
+from agentmesh.vector_index import VectorIndex, VectorState, VectorStatus, VectorWork
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = ROOT_DIR / "data" / "agentmesh.sqlite3"
 
+class BriefConfirmationError(RuntimeError):
+    def __init__(self, code: str, detail: str):
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+
+
+@dataclass(slots=True)
+class BriefConfirmationResult:
+    inbox_item: InboxItem
+    document: DocumentRecord
+    memory_item: MemoryItem
+
+
 # --- FTS5 infrastructure ---
 
 _FTS_COLLECTIONS = frozenset(
     {"chat_messages", "activity_logs", "blackboard_posts", "memory_items", "user_memory_items", "documents"}
 )
+
+_RESULT_TYPE_COLLECTIONS = {
+    "chat_message": "chat_messages",
+    "activity_log": "activity_logs",
+    "blackboard_evidence": "blackboard_posts",
+    "memory_item": "memory_items",
+    "user_memory_item": "user_memory_items",
+    "document": "documents",
+}
 
 
 @dataclass(slots=True)
@@ -100,6 +130,7 @@ def _extract_fts_doc(collection: str, item: BaseModel) -> _FTSDoc | None:
         scope = getattr(item, "scope", "")
         workspace_id = getattr(item, "workspace_id", "") or ""
         project_id = getattr(item, "project_id", "") or ""
+        user_id = getattr(item, "user_id", "") or ""
         created_at = _dt_str(getattr(item, "created_at", None))
     elif collection == "blackboard_posts":
         title = getattr(item, "title", "")
@@ -112,8 +143,14 @@ def _extract_fts_doc(collection: str, item: BaseModel) -> _FTSDoc | None:
         scope = getattr(item, "scope", "")
         workspace_id = getattr(item, "workspace_id", "") or ""
         project_id = getattr(item, "project_id", "") or ""
+        user_id = getattr(item, "owner_user_id", "") or ""
         created_at = _dt_str(getattr(item, "created_at", None))
     elif collection == "user_memory_items":
+        if (
+            getattr(item, "source_kind", "") in {"document_import", "document_upload"}
+            and getattr(item, "status", "active") != "active"
+        ):
+            return None
         title = getattr(item, "title", "")
         summary = getattr(item, "summary", "")
         memory_type = getattr(item, "memory_type", "")
@@ -186,6 +223,7 @@ class SQLiteStore:
         configured_path = db_path or os.getenv("AGENTMESH_DB_PATH") or DEFAULT_DB_PATH
         self.db_path = Path(configured_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.vector_index = VectorIndex(self.db_path)
         self._init_schema()
         self._backfill_fts()
         self._backfill_vec()
@@ -245,14 +283,17 @@ class SQLiteStore:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_records_vec_collection ON records_vec(collection)"
         )
+        VectorIndex.ensure_schema(connection)
 
     def reset(self) -> None:
         with self._connect() as connection:
             connection.execute("DELETE FROM records")
             connection.execute("DELETE FROM records_fts")
             connection.execute("DELETE FROM records_vec")
+            connection.execute("DELETE FROM vector_states")
 
     def _upsert(self, collection: str, item: BaseModel) -> None:
+        work: VectorWork | None = None
         with self._connect() as connection:
             connection.execute(
                 """
@@ -264,40 +305,60 @@ class SQLiteStore:
                 (collection, item.id, item.model_dump_json()),
             )
             self._sync_fts(connection, collection, item)
-            self._sync_vec(connection, collection, item)
+            doc = _extract_fts_doc(collection, item)
+            if doc is not None:
+                work = self.vector_index.prepare(
+                    connection,
+                    collection,
+                    item.id,
+                    f"{doc.title} {doc.body}".strip(),
+                )
+            elif collection in _FTS_COLLECTIONS:
+                self.vector_index.mark_stale(connection, collection, item.id)
+
+        if work is not None:
+            from agentmesh.embedding import EMBEDDING_ENABLED
+
+            if EMBEDDING_ENABLED:
+                self.vector_index.process(work)
 
     def _sync_fts(self, connection: sqlite3.Connection, collection: str, item: BaseModel) -> None:
+        connection.execute(
+            "DELETE FROM records_fts WHERE collection = ? AND record_id = ?",
+            (collection, item.id),
+        )
         doc = _extract_fts_doc(collection, item)
         if doc is None:
             return
-        connection.execute(
-            "DELETE FROM records_fts WHERE collection = ? AND record_id = ?",
-            (doc.collection, doc.record_id),
-        )
+        if collection == "chat_messages":
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("chat_threads", getattr(item, "thread_id", "")),
+            ).fetchone()
+            if row is not None:
+                thread = ChatThread.model_validate_json(row["payload"])
+                doc.workspace_id = thread.workspace_id
+                doc.project_id = thread.project_id
+                doc.user_id = thread.user_id
+        elif collection == "blackboard_posts":
+            task_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("tasks", getattr(item, "task_id", "")),
+            ).fetchone()
+            if task_row is not None:
+                task = Task.model_validate_json(task_row["payload"])
+                thread_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("chat_threads", task.thread_id),
+                ).fetchone()
+                if thread_row is not None:
+                    thread = ChatThread.model_validate_json(thread_row["payload"])
+                    doc.workspace_id = thread.workspace_id
+                    doc.project_id = thread.project_id
+                    doc.user_id = thread.user_id
         connection.execute(
             "INSERT INTO records_fts(collection, record_id, title, body, scope, workspace_id, project_id, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (doc.collection, doc.record_id, doc.title, doc.body, doc.scope, doc.workspace_id, doc.project_id, doc.user_id, doc.created_at),
-        )
-
-    def _sync_vec(self, connection: sqlite3.Connection, collection: str, item: BaseModel) -> None:
-        doc = _extract_fts_doc(collection, item)
-        if doc is None:
-            return
-        text = f"{doc.title} {doc.body}".strip()
-        if not text:
-            return
-        from agentmesh.embedding import embed_text, serialize_embedding
-
-        embedding = embed_text(text)
-        if embedding is None:
-            return
-        connection.execute(
-            "DELETE FROM records_vec WHERE collection = ? AND record_id = ?",
-            (doc.collection, doc.record_id),
-        )
-        connection.execute(
-            "INSERT INTO records_vec(collection, record_id, embedding) VALUES (?, ?, ?)",
-            (doc.collection, doc.record_id, serialize_embedding(embedding)),
         )
 
     def _backfill_fts(self) -> None:
@@ -308,7 +369,13 @@ class SQLiteStore:
                 f"SELECT COUNT(*) FROM records WHERE collection IN ({placeholders})"
             ).fetchone()[0]
             fts_count = connection.execute("SELECT COUNT(*) FROM records_fts").fetchone()[0]
-            if fts_count >= records_count:
+            missing_tenant_count = connection.execute(
+                """
+                SELECT COUNT(*) FROM records_fts
+                WHERE collection = 'chat_messages' AND workspace_id = ''
+                """
+            ).fetchone()[0]
+            if fts_count >= records_count and missing_tenant_count == 0:
                 return
             connection.execute("DELETE FROM records_fts")
             rows = connection.execute(
@@ -324,34 +391,44 @@ class SQLiteStore:
                 self._sync_fts(connection, collection, item)
 
     def _backfill_vec(self) -> None:
-        """Backfill missing vector embeddings. Skips records that already have embeddings."""
+        """Register existing vectors and prepare missing work without provider calls in a transaction."""
         from agentmesh.embedding import EMBEDDING_ENABLED
 
-        if not EMBEDDING_ENABLED:
-            return
+        pending: list[VectorWork] = []
         with self._connect() as connection:
             placeholders = ",".join(f"'{c}'" for c in _FTS_COLLECTIONS)
-            missing = connection.execute(
+            rows = connection.execute(
                 f"""
-                SELECT r.collection, r.id, r.payload FROM records r
-                WHERE r.collection IN ({placeholders})
-                  AND NOT EXISTS (
-                    SELECT 1 FROM records_vec rv
-                    WHERE rv.collection = r.collection AND rv.record_id = r.id
-                  )
+                SELECT r.collection, r.id, r.payload,
+                       CASE WHEN rv.record_id IS NULL THEN 0 ELSE 1 END AS has_vector
+                FROM records r
+                LEFT JOIN records_vec rv
+                  ON rv.collection = r.collection AND rv.record_id = r.id
+                LEFT JOIN vector_states vs
+                  ON vs.collection = r.collection AND vs.record_id = r.id
+                WHERE r.collection IN ({placeholders}) AND vs.record_id IS NULL
                 ORDER BY r.created_order
-                LIMIT 100
                 """
             ).fetchall()
-            if not missing:
-                return
-            for row in missing:
-                collection = row["collection"]
-                model_cls = _FTS_COLLECTION_MODELS.get(collection)
+            for row in rows:
+                model_cls = _FTS_COLLECTION_MODELS.get(row["collection"])
                 if model_cls is None:
                     continue
                 item = model_cls.model_validate_json(row["payload"])
-                self._sync_vec(connection, collection, item)
+                doc = _extract_fts_doc(row["collection"], item)
+                if doc is None:
+                    continue
+                text = f"{doc.title} {doc.body}".strip()
+                if row["has_vector"]:
+                    self.vector_index.adopt_ready(connection, row["collection"], row["id"], text)
+                    continue
+                work = self.vector_index.prepare(connection, row["collection"], row["id"], text)
+                if work is not None:
+                    pending.append(work)
+
+        if EMBEDDING_ENABLED:
+            for work in pending[:100]:
+                self.vector_index.process(work)
 
     def _get(self, collection: str, item_id: str, model: type[ModelT]) -> ModelT | None:
         with self._connect() as connection:
@@ -386,6 +463,11 @@ class SQLiteStore:
     @property
     def chat_threads(self) -> list[ChatThread]:
         return self._list("chat_threads", ChatThread)
+
+    @property
+    def chat_turn_traces(self) -> list[ChatTurnTrace]:
+        return self._list("chat_turn_traces", ChatTurnTrace)
+
 
     @property
     def tasks(self) -> list[Task]:
@@ -583,8 +665,67 @@ class SQLiteStore:
         self._upsert("market_participation", record)
         return record
 
+    @staticmethod
+    def chat_turn_receipt_id(user_id: str, client_turn_id: str) -> str:
+        digest = hashlib.sha256(f"{user_id}\0{client_turn_id}".encode()).hexdigest()
+        return f"chat_turn_{digest}"
+
+    def get_chat_turn_receipt(self, user_id: str, client_turn_id: str) -> ChatTurnReceipt | None:
+        receipt_id = self.chat_turn_receipt_id(user_id, client_turn_id)
+        return self._get("chat_turn_receipts", receipt_id, ChatTurnReceipt)
+
+    def claim_chat_turn_receipt(self, receipt: ChatTurnReceipt) -> tuple[ChatTurnReceipt, bool]:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("chat_turn_receipts", receipt.id),
+            ).fetchone()
+            if row is not None:
+                return ChatTurnReceipt.model_validate_json(row["payload"]), False
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                ("chat_turn_receipts", receipt.id, receipt.model_dump_json()),
+            )
+        return receipt, True
+
+    def finish_chat_turn_receipt(
+        self,
+        receipt: ChatTurnReceipt,
+        *,
+        status: ChatTurnReceiptStatus,
+        response: ChatResponse | None = None,
+        error_code: str | None = None,
+    ) -> ChatTurnReceipt:
+        if status == ChatTurnReceiptStatus.PROCESSING:
+            raise ValueError("A chat turn receipt cannot finish in processing state")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("chat_turn_receipts", receipt.id),
+            ).fetchone()
+            if row is None:
+                raise ValueError("Chat turn receipt not found")
+            current = ChatTurnReceipt.model_validate_json(row["payload"])
+            if current.status != ChatTurnReceiptStatus.PROCESSING:
+                return current
+            current.status = status
+            current.response = response
+            current.error_code = error_code
+            current.updated_at = now_utc()
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = ? AND id = ?",
+                (current.model_dump_json(), "chat_turn_receipts", current.id),
+            )
+        return current
+
     def add_chat_message(self, message: ChatMessage) -> ChatMessage:
         self._upsert("chat_messages", message)
+        thread = self.get_chat_thread(message.thread_id)
+        if thread is not None:
+            thread.updated_at = now_utc()
+            self._upsert("chat_threads", thread)
         return message
 
     def save_workspace(self, workspace: Workspace) -> Workspace:
@@ -598,6 +739,11 @@ class SQLiteStore:
     def add_chat_thread(self, thread: ChatThread) -> ChatThread:
         self._upsert("chat_threads", thread)
         return thread
+
+    def add_chat_turn_trace(self, trace: ChatTurnTrace) -> ChatTurnTrace:
+        self._upsert("chat_turn_traces", trace)
+        return trace
+
 
     def save_chat_thread(self, thread: ChatThread) -> ChatThread:
         self._upsert("chat_threads", thread)
@@ -717,9 +863,192 @@ class SQLiteStore:
         self._upsert("documents", document)
         return document
 
+    def confirm_brief(
+        self,
+        item_id: str,
+        owner_user_id: str,
+        text: str,
+        expected_document_version: int,
+    ) -> BriefConfirmationResult:
+        """Atomically edit and confirm one owned Brief draft."""
+        vector_work: list[VectorWork] = []
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            inbox_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("inbox_items", item_id),
+            ).fetchone()
+            if inbox_row is None:
+                raise BriefConfirmationError("not_found", "Inbox item not found")
+            item = InboxItem.model_validate_json(inbox_row["payload"])
+            if item.user_id != owner_user_id:
+                raise BriefConfirmationError("forbidden", "Only the Inbox owner can confirm this Brief")
+
+            document_id = item.metadata.get("document_id")
+            if (
+                item.item_type != "decision_review"
+                or item.metadata.get("artifact_type") != "brief_draft"
+                or not document_id
+            ):
+                raise BriefConfirmationError("invalid", "Inbox item is not a Brief draft")
+            if item.status != "open" or item.metadata.get("confirmed_memory_id"):
+                raise BriefConfirmationError("conflict", "Brief draft is no longer open")
+
+            document_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("documents", document_id),
+            ).fetchone()
+            if document_row is None:
+                raise BriefConfirmationError("not_found", "Brief draft document not found")
+            document = DocumentRecord.model_validate_json(document_row["payload"])
+            if (
+                document.uploaded_by != owner_user_id
+                or document.workspace_id != item.workspace_id
+                or document.project_id != item.project_id
+            ):
+                raise BriefConfirmationError("forbidden", "Brief draft document is not owned by the Inbox owner")
+            if document.version != expected_document_version:
+                raise BriefConfirmationError("conflict", "Brief draft document version is stale")
+
+            now = now_utc()
+            document.text = text
+            document.version += 1
+            document.expected_chunks = 0
+            document.completed_chunks = 0
+            document.updated_at = now
+            document.metadata["edited_by"] = owner_user_id
+            document.metadata["edited_at"] = now.isoformat()
+            memory = MemoryItem(
+                title=f"候选团队记忆：{document.title}",
+                summary=" ".join(text.split())[:800] or "用户已确认 Brief 草稿，可进入团队候选记忆审核。",
+                memory_type="brief_decision",
+                scope=Scope.TEAM_CANDIDATE,
+                owner_user_id=owner_user_id,
+                workspace_id=item.workspace_id,
+                project_id=item.project_id,
+                sources=[document.source],
+                metadata={
+                    "document_id": document.id,
+                    "document_version": str(document.version),
+                    "artifact_type": "brief_draft",
+                    "inbox_item_id": item.id,
+                },
+            )
+            item.status = "resolved"
+            item.acknowledged_at = item.acknowledged_at or now
+            item.resolved_at = now
+            item.updated_at = now
+            item.snooze_until = None
+            item.metadata["confirmed_memory_id"] = memory.id
+            item.metadata["confirmed_document_id"] = document.id
+            audit = AuditEvent(
+                actor=owner_user_id,
+                action="confirm_brief_draft",
+                target_type="inbox_item",
+                target_id=item.id,
+                metadata={
+                    "document_id": document.id,
+                    "document_version": document.version,
+                    "memory_id": memory.id,
+                },
+            )
+
+            for collection, record in (
+                ("documents", document),
+                ("memory_items", memory),
+                ("inbox_items", item),
+                ("audit_events", audit),
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO records(collection, id, payload)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                    """,
+                    (collection, record.id, record.model_dump_json()),
+                )
+                self._sync_fts(connection, collection, record)
+                searchable = _extract_fts_doc(collection, record)
+                if searchable is not None:
+                    work = self.vector_index.prepare(
+                        connection,
+                        collection,
+                        record.id,
+                        f"{searchable.title} {searchable.body}".strip(),
+                    )
+                    if work is not None:
+                        vector_work.append(work)
+
+        if vector_work:
+            from agentmesh.embedding import EMBEDDING_ENABLED
+
+            if EMBEDDING_ENABLED:
+                for work in vector_work:
+                    self.vector_index.process(work)
+        return BriefConfirmationResult(inbox_item=item, document=document, memory_item=memory)
+
+    def save_document_if_version(self, document: DocumentRecord, expected_version: int) -> bool:
+        """Atomically save a document only while its persisted version matches."""
+        work: VectorWork | None = None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("documents", document.id),
+            ).fetchone()
+            if row is None or DocumentRecord.model_validate_json(row["payload"]).version != expected_version:
+                connection.rollback()
+                return False
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = ? AND id = ?",
+                (document.model_dump_json(), "documents", document.id),
+            )
+            self._sync_fts(connection, "documents", document)
+            searchable = _extract_fts_doc("documents", document)
+            if searchable is not None:
+                work = self.vector_index.prepare(
+                    connection,
+                    "documents",
+                    document.id,
+                    f"{searchable.title} {searchable.body}".strip(),
+                )
+
+        if work is not None:
+            from agentmesh.embedding import EMBEDDING_ENABLED
+
+            if EMBEDDING_ENABLED:
+                self.vector_index.process(work)
+        return True
+
     def save_document_parse_job(self, job: DocumentParseJob) -> DocumentParseJob:
         self._upsert("document_parse_jobs", job)
         return job
+
+    def save_document_parse_job_if_document_version(
+        self,
+        job: DocumentParseJob,
+        document_id: str,
+        version: int,
+    ) -> bool:
+        """Finalize a parse job only while its document version is still current."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("documents", document_id),
+            ).fetchone()
+            if row is None or DocumentRecord.model_validate_json(row["payload"]).version != version:
+                connection.rollback()
+                return False
+            connection.execute(
+                """
+                INSERT INTO records(collection, id, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                """,
+                ("document_parse_jobs", job.id, job.model_dump_json()),
+            )
+        return True
 
     def add_audit_event(self, event: AuditEvent) -> AuditEvent:
         self._upsert("audit_events", event)
@@ -771,6 +1100,20 @@ class SQLiteStore:
     def get_chat_thread(self, thread_id: str) -> ChatThread | None:
         return self._get("chat_threads", thread_id, ChatThread)
 
+    def list_user_chat_threads(
+        self,
+        user_id: str,
+        *,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[ChatThread]:
+        items = [thread for thread in self.chat_threads if thread.user_id == user_id]
+        if workspace_id is not None:
+            items = [thread for thread in items if thread.workspace_id == workspace_id]
+        if project_id is not None:
+            items = [thread for thread in items if thread.project_id == project_id]
+        return sorted(items, key=lambda thread: (thread.updated_at, thread.id), reverse=True)
+
     def get_task(self, task_id: str) -> Task | None:
         return self._get("tasks", task_id, Task)
 
@@ -786,6 +1129,12 @@ class SQLiteStore:
     def get_document(self, document_id: str) -> DocumentRecord | None:
         return self._get("documents", document_id, DocumentRecord)
 
+
+    def get_vector_state(self, collection: str, record_id: str) -> VectorStatus | None:
+        return self.vector_index.status(collection, record_id)
+
+    def count_ready_vectors(self, collection: str, record_id: str) -> int:
+        return self.vector_index.count_ready(collection, record_id)
     def get_document_parse_job(self, job_id: str) -> DocumentParseJob | None:
         return self._get("document_parse_jobs", job_id, DocumentParseJob)
 
@@ -855,7 +1204,14 @@ class SQLiteStore:
         return [grant for grant in self.agent_tool_grants if grant.agent_id == agent_id]
 
     def list_thread_messages(self, thread_id: str) -> list[ChatMessage]:
-        return [message for message in self.chat_messages if message.thread_id == thread_id]
+        items = [message for message in self.chat_messages if message.thread_id == thread_id]
+        return sorted(items, key=lambda message: (message.created_at, message.id))
+
+    def list_thread_turn_traces(self, thread_id: str) -> list[ChatTurnTrace]:
+        traces = [trace for trace in self.chat_turn_traces if trace.thread_id == thread_id]
+        return sorted(traces, key=lambda trace: (trace.created_at, trace.id))
+
+
 
     def list_user_memory_items(
         self,
@@ -891,6 +1247,8 @@ class SQLiteStore:
         user_id: str | None = None,
         max_results: int = 20,
         max_chars: int = 8000,
+        result_types: set[str] | None = None,
+        allowed_record_ids: set[str] | None = None,
     ) -> list[SearchResult]:
         needle = query.strip()
         if not needle:
@@ -898,12 +1256,55 @@ class SQLiteStore:
 
         scope_values = [s.value for s in allowed_scopes]
         placeholders = ",".join("?" for _ in scope_values)
+        allowed_collections: set[str] | None = None
+        if result_types is not None:
+            allowed_collections = {
+                collection
+                for result_type, collection in _RESULT_TYPE_COLLECTIONS.items()
+                if result_type in result_types
+            }
+            if not allowed_collections:
+                return []
+        if allowed_record_ids is not None and not allowed_record_ids:
+            return []
+
 
         with self._connect() as connection:
-            fts_rows = self._fts_match(connection, needle, scope_values, placeholders)
+            fts_rows = self._fts_match(
+                connection,
+                needle,
+                scope_values,
+                placeholders,
+                allowed_collections,
+                allowed_record_ids,
+            )
             if not fts_rows:
-                fts_rows = self._fts_like_fallback(connection, needle, scope_values, placeholders)
-            vec_rows = self._vec_search(connection, needle, scope_values, placeholders)
+                fts_rows = self._fts_like_fallback(
+                    connection,
+                    needle,
+                    scope_values,
+                    placeholders,
+                    allowed_collections,
+                    allowed_record_ids,
+                )
+            vec_rows = self._vec_search(
+                connection,
+                needle,
+                scope_values,
+                placeholders,
+                allowed_collections,
+                allowed_record_ids,
+                workspace_id,
+                project_id,
+                user_id,
+            )
+
+        if allowed_collections is not None:
+            fts_rows = [row for row in fts_rows if row["collection"] in allowed_collections]
+            vec_rows = [row for row in vec_rows if row["collection"] in allowed_collections]
+        if allowed_record_ids is not None:
+            fts_rows = [row for row in fts_rows if row["record_id"] in allowed_record_ids]
+            vec_rows = [row for row in vec_rows if row["record_id"] in allowed_record_ids]
 
         rows = self._rrf_merge(fts_rows, vec_rows)
 
@@ -930,6 +1331,10 @@ class SQLiteStore:
                 thread = threads_by_id.get(msg.thread_id)
                 if not self._thread_matches(thread, workspace_id, project_id):
                     continue
+                if msg.scope == Scope.PRIVATE and (
+                    user_id is None or thread is None or thread.user_id != user_id
+                ):
+                    continue
                 results.append(
                     SearchResult(
                         id=msg.id,
@@ -947,6 +1352,8 @@ class SQLiteStore:
                     continue
                 log = self._get("activity_logs", record_id, ActivityLog)
                 if log is None:
+                    continue
+                if not self.activity_log_visible_to_user(log, user_id):
                     continue
                 results.append(
                     SearchResult(
@@ -979,6 +1386,7 @@ class SQLiteStore:
                         summary=post.content,
                         scope=post.scope,
                         sources=post.sources,
+                        project_id=thread.project_id if thread else None,
                         created_at=post.created_at,
                     )
                 )
@@ -989,12 +1397,22 @@ class SQLiteStore:
                 item = self._get("memory_items", record_id, MemoryItem)
                 if item is None:
                     continue
-                if item.scope == Scope.PROJECT and user_id and item.project_id:
-                    if not self._user_can_access_project(user_id, item.project_id):
-                        continue
-                if item.team_id and user_id and item.scope in (Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE):
-                    if not self._user_in_team(user_id, item.team_id):
-                        continue
+                if not self.memory_item_visible_to_user(item, user_id):
+                    continue
+                if (
+                    item.scope == Scope.PROJECT
+                    and user_id
+                    and item.project_id
+                    and not self.user_can_access_project(user_id, item.project_id)
+                ):
+                    continue
+                if (
+                    item.team_id
+                    and user_id
+                    and item.scope in (Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE)
+                    and not self._user_in_team(user_id, item.team_id)
+                ):
+                    continue
                 results.append(
                     SearchResult(
                         id=item.id,
@@ -1003,6 +1421,8 @@ class SQLiteStore:
                         summary=item.summary,
                         scope=item.scope,
                         sources=item.sources,
+                        project_id=item.project_id,
+                        team_id=item.team_id,
                         created_at=item.created_at,
                     )
                 )
@@ -1015,7 +1435,7 @@ class SQLiteStore:
                 if not self._project_fields_match(row_workspace_id, row_project_id, workspace_id, project_id):
                     continue
                 item = self._get("user_memory_items", record_id, UserMemoryItem)
-                if item is None:
+                if item is None or item.status != "active":
                     continue
                 results.append(
                     SearchResult(
@@ -1025,6 +1445,7 @@ class SQLiteStore:
                         summary=item.summary,
                         scope=item.scope,
                         sources=item.sources,
+                        project_id=item.project_id,
                         created_at=item.created_at,
                     )
                 )
@@ -1047,11 +1468,17 @@ class SQLiteStore:
                         summary=document.text[:500],
                         scope=Scope.PRIVATE,
                         sources=[document.source],
+                        project_id=document.project_id,
                         created_at=document.created_at,
                     )
                 )
 
-        # Results already in RRF relevance order from _rrf_merge; preserve that order.
+        # Filter record kinds before applying the result/character budget so
+        # unrelated same-scope records cannot crowd out strict memory results.
+        if result_types is not None:
+            results = [result for result in results if result.result_type in result_types]
+        if allowed_record_ids is not None:
+            results = [result for result in results if result.id in allowed_record_ids]
         return self._apply_budget(results, max_results, max_chars)
 
     @staticmethod
@@ -1070,11 +1497,26 @@ class SQLiteStore:
 
     @staticmethod
     def _fts_match(
-        connection: sqlite3.Connection, needle: str, scope_values: list[str], placeholders: str
+        connection: sqlite3.Connection,
+        needle: str,
+        scope_values: list[str],
+        placeholders: str,
+        allowed_collections: set[str] | None = None,
+        allowed_record_ids: set[str] | None = None,
     ) -> list[sqlite3.Row]:
         if not _can_use_fts_match(needle):
             return []
         fts_query = _build_fts_query(needle)
+        collection_values = sorted(allowed_collections) if allowed_collections is not None else []
+        collection_clause = ""
+        if collection_values:
+            collection_placeholders = ",".join("?" for _ in collection_values)
+            collection_clause = f" AND collection IN ({collection_placeholders})"
+        record_id_values = sorted(allowed_record_ids) if allowed_record_ids is not None else []
+        record_id_clause = ""
+        if record_id_values:
+            record_id_placeholders = ",".join("?" for _ in record_id_values)
+            record_id_clause = f" AND record_id IN ({record_id_placeholders})"
         try:
             return connection.execute(
                 f"""
@@ -1083,19 +1525,36 @@ class SQLiteStore:
                 FROM records_fts
                 WHERE records_fts MATCH ?
                   AND scope IN ({placeholders})
+                  {collection_clause}
+                  {record_id_clause}
                 ORDER BY score
                 LIMIT 200
                 """,
-                [fts_query, *scope_values],
+                [fts_query, *scope_values, *collection_values, *record_id_values],
             ).fetchall()
         except sqlite3.OperationalError:
             return []
 
     @staticmethod
     def _fts_like_fallback(
-        connection: sqlite3.Connection, needle: str, scope_values: list[str], placeholders: str
+        connection: sqlite3.Connection,
+        needle: str,
+        scope_values: list[str],
+        placeholders: str,
+        allowed_collections: set[str] | None = None,
+        allowed_record_ids: set[str] | None = None,
     ) -> list[sqlite3.Row]:
         like_pattern = f"%{needle}%"
+        collection_values = sorted(allowed_collections) if allowed_collections is not None else []
+        collection_clause = ""
+        if collection_values:
+            collection_placeholders = ",".join("?" for _ in collection_values)
+            collection_clause = f" AND collection IN ({collection_placeholders})"
+        record_id_values = sorted(allowed_record_ids) if allowed_record_ids is not None else []
+        record_id_clause = ""
+        if record_id_values:
+            record_id_placeholders = ",".join("?" for _ in record_id_values)
+            record_id_clause = f" AND record_id IN ({record_id_placeholders})"
         return connection.execute(
             f"""
             SELECT collection, record_id, scope, workspace_id, project_id,
@@ -1103,14 +1562,24 @@ class SQLiteStore:
             FROM records_fts
             WHERE (title LIKE ? OR body LIKE ?)
               AND scope IN ({placeholders})
+              {collection_clause}
+              {record_id_clause}
             LIMIT 200
             """,
-            [like_pattern, like_pattern, *scope_values],
+            [like_pattern, like_pattern, *scope_values, *collection_values, *record_id_values],
         ).fetchall()
 
     @staticmethod
     def _vec_search(
-        connection: sqlite3.Connection, needle: str, scope_values: list[str], placeholders: str
+        connection: sqlite3.Connection,
+        needle: str,
+        scope_values: list[str],
+        placeholders: str,
+        allowed_collections: set[str] | None = None,
+        allowed_record_ids: set[str] | None = None,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[dict]:
         from agentmesh.embedding import EMBEDDING_ENABLED, cosine_similarity, deserialize_embedding, embed_text
 
@@ -1119,15 +1588,50 @@ class SQLiteStore:
         query_embedding = embed_text(needle)
         if query_embedding is None:
             return []
+        collection_values = sorted(allowed_collections) if allowed_collections is not None else []
+        collection_clause = ""
+        if collection_values:
+            collection_placeholders = ",".join("?" for _ in collection_values)
+            collection_clause = f" AND rf.collection IN ({collection_placeholders})"
+        record_id_values = sorted(allowed_record_ids) if allowed_record_ids is not None else []
+        record_id_clause = ""
+        if record_id_values:
+            record_id_placeholders = ",".join("?" for _ in record_id_values)
+            record_id_clause = f" AND rf.record_id IN ({record_id_placeholders})"
+        tenant_clauses: list[str] = []
+        tenant_values: list[str] = []
+        if workspace_id is not None:
+            tenant_clauses.append("AND rf.workspace_id = ?")
+            tenant_values.append(workspace_id)
+        if project_id is not None:
+            tenant_clauses.append("AND rf.project_id = ?")
+            tenant_values.append(project_id)
+        if user_id is not None:
+            tenant_clauses.append("AND (rf.scope != ? OR rf.user_id = ?)")
+            tenant_values.extend([Scope.PRIVATE.value, user_id])
+        tenant_clause = " ".join(tenant_clauses)
         rows = connection.execute(
             f"""
             SELECT rv.collection, rv.record_id, rv.embedding,
                    rf.scope, rf.workspace_id, rf.project_id, rf.user_id, rf.created_at
             FROM records_vec rv
-            JOIN records_fts rf ON rv.collection = rf.collection AND rv.record_id = rf.record_id
+            JOIN vector_states vs
+              ON vs.collection = rv.collection AND vs.record_id = rv.record_id
+            JOIN records_fts rf
+              ON rv.collection = rf.collection AND rv.record_id = rf.record_id
             WHERE rf.scope IN ({placeholders})
+              AND vs.state = ?
+              {tenant_clause}
+              {collection_clause}
+              {record_id_clause}
             """,
-            scope_values,
+            [
+                *scope_values,
+                VectorState.READY.value,
+                *tenant_values,
+                *collection_values,
+                *record_id_values,
+            ],
         ).fetchall()
         scored: list[tuple[float, dict]] = []
         for row in rows:
@@ -1183,16 +1687,46 @@ class SQLiteStore:
             return False
         return not (project_id is not None and item_project_id != project_id)
 
-    def _user_can_access_project(self, user_id: str, project_id: str) -> bool:
+    def user_can_access_project(self, user_id: str, project_id: str) -> bool:
         project = self.get_project(project_id)
         if project is None:
             return False
         if not project.member_ids:
             return True
-        user = self.get_user(user_id)
-        if user and user.role in (UserRole.ADMIN, UserRole.TEAM_LEAD):
-            return True
         return user_id in project.member_ids
+
+    def memory_item_visible_to_user(self, item: MemoryItem, user_id: str | None) -> bool:
+        if user_id is None:
+            return item.scope != Scope.PRIVATE
+        user = self.get_user(user_id)
+        if user is None:
+            return False
+        if item.workspace_id is not None and item.workspace_id != user.workspace_id:
+            return False
+        if item.scope == Scope.PRIVATE:
+            return item.owner_user_id == user.id
+        if item.scope == Scope.PROJECT:
+            return item.project_id is not None and self.user_can_access_project(user.id, item.project_id)
+        if item.scope == Scope.TEAM_CANDIDATE:
+            if item.owner_user_id == user.id:
+                return True
+            if user.role not in (UserRole.TEAM_LEAD, UserRole.ADMIN):
+                return False
+        return item.team_id is None or self._user_in_team(user.id, item.team_id)
+
+    def activity_log_visible_to_user(self, log: ActivityLog, user_id: str | None) -> bool:
+        if user_id is None:
+            return log.scope != Scope.PRIVATE
+        user = self.get_user(user_id)
+        if user is None:
+            return False
+        if log.workspace_id is not None and log.workspace_id != user.workspace_id:
+            return False
+        if log.scope == Scope.PRIVATE:
+            return log.user_id == user.id
+        if log.project_id is not None:
+            return self.user_can_access_project(user.id, log.project_id)
+        return True
 
     def _user_in_team(self, user_id: str, team_id: str) -> bool:
         user = self.get_user(user_id)

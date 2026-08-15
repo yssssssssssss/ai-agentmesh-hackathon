@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from datetime import date as dt_date
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from agentmesh.provider_status import ProviderStatus
 
 
 def now_utc() -> datetime:
@@ -37,6 +39,18 @@ class MemoryLayer(StrEnum):
     SHORT_TERM = "short_term"
     MID_TERM = "mid_term"
     LONG_TERM = "long_term"
+
+class MemorySearchScope(StrEnum):
+    AUTO = "auto"
+    PERSONAL = "personal"
+    PROJECT = "project"
+    TEAM = "team"
+
+
+class MemoryKind(StrEnum):
+    PERSONAL = "personal"
+    PROJECT = "project"
+    TEAM = "team"
 
 
 class TaskStatus(StrEnum):
@@ -125,6 +139,8 @@ class User(BaseModel):
     role: str
     status: str = "active"
     personal_agent_id: str
+    oauth_provider: str | None = None
+    oauth_subject: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
 
@@ -283,12 +299,36 @@ class ChatThread(BaseModel):
     updated_at: datetime = Field(default_factory=now_utc)
 
 
+class ChatWorkflowTrace(BaseModel):
+    intent: Intent
+    confidence: float
+    source: str
+    selected_workflow: str
+    persisted: bool
+    llm_used: bool
+    requested_provider: str | None = None
+    actual_provider: str | None = None
+    requested_model: str | None = None
+    actual_model: str | None = None
+    provider_mode: str | None = Field(default=None, pattern="^(real|fallback)$")
+    latency_ms: float | None = Field(default=None, ge=0)
+    fallback_reason: str | None = None
+    model_fallback_reason: str | None = None
+
+
 class Source(BaseModel):
     id: str = Field(default_factory=lambda: new_id("src"))
     title: str
     source_type: str
     reference: str
     created_at: datetime = Field(default_factory=now_utc)
+
+
+class DocumentJobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class DocumentRecord(BaseModel):
@@ -302,10 +342,15 @@ class DocumentRecord(BaseModel):
     project_id: str
     uploaded_by: str
     metadata: dict[str, str] = Field(default_factory=dict)
+    version: int = Field(default=1, ge=1)
+    expected_chunks: int = Field(default=0, ge=0)
+    completed_chunks: int = Field(default=0, ge=0)
     created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
 
 
 class DocumentUpdateRequest(BaseModel):
+    expected_version: int = Field(ge=1)
     text: str = Field(min_length=1, max_length=100_000)
 
 
@@ -316,9 +361,13 @@ class DocumentParseJob(BaseModel):
     workspace_id: str
     project_id: str
     uploaded_by: str
-    status: str = "queued"
+    status: DocumentJobStatus = DocumentJobStatus.QUEUED
     document_id: str | None = None
+    version: int = Field(default=1, ge=1)
+    expected_chunks: int = Field(default=0, ge=0)
+    completed_chunks: int = Field(default=0, ge=0)
     error: str | None = None
+    error_type: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
 
@@ -351,7 +400,18 @@ class ChatMessage(BaseModel):
     content: str
     scope: Scope = Scope.PRIVATE
     sources: list[Source] = Field(default_factory=list)
+    workflow_trace: ChatWorkflowTrace | None = None
     created_at: datetime = Field(default_factory=now_utc)
+
+
+class ChatThreadListResponse(BaseModel):
+    items: list[ChatThread]
+
+
+class ChatThreadDetailResponse(BaseModel):
+    thread: ChatThread
+    messages: list[ChatMessage]
+    turn_traces: list[ChatTurnTrace]
 
 
 class Task(BaseModel):
@@ -381,6 +441,7 @@ class BlackboardPost(BaseModel):
     permission: str
     status: str = "published"
     sources: list[Source] = Field(default_factory=list)
+    metadata: dict[str, str] = Field(default_factory=dict)
     read_by_agents: list[str] = Field(default_factory=list)
     related_post_id: str | None = None
     collaboration_stage: CollaborationStage = CollaborationStage.DISCUSSION
@@ -395,6 +456,7 @@ class BlackboardPost(BaseModel):
 class AutoBlackboardPostRequest(BaseModel):
     id: str = Field(default_factory=lambda: new_id("auto_bb"))
     task_id: str
+    submitted_by_user_id: str | None = None
     post_type: BlackboardPostType
     actor: str
     title: str
@@ -410,9 +472,22 @@ class AutoBlackboardPostRequest(BaseModel):
     blackboard_post_id: str | None = None
 
 
+class AutoBlackboardPostCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str = Field(min_length=1, max_length=120)
+    post_type: BlackboardPostType
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=4000)
+    scope: Scope = Scope.PROJECT
+    permission: str = Field(default="project_visible", min_length=1, max_length=80)
+    related_post_id: str | None = None
+
+
 class ActivityLog(BaseModel):
     id: str = Field(default_factory=lambda: new_id("act"))
     actor: str
+    user_id: str | None = None
     title: str
     summary: str
     category: str
@@ -447,6 +522,7 @@ class MemoryItem(BaseModel):
     memory_type: str
     scope: Scope
     status: MemoryStatus = MemoryStatus.PROPOSED
+    owner_user_id: str | None = None
     workspace_id: str | None = None
     project_id: str | None = None
     team_id: str | None = None
@@ -482,6 +558,8 @@ class AuditEvent(BaseModel):
     action: str
     target_type: str
     target_id: str
+    workspace_id: str | None = None
+    project_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=now_utc)
 
@@ -544,6 +622,84 @@ class MarketParticipationRequest(BaseModel):
     enabled: bool
 
 
+class MarketMePresence(BaseModel):
+    """Header presence tiles for the current user's market page."""
+
+    memory_count: int
+    signal_on: bool
+    signal_refreshed_at: datetime | None = None
+    received_count: int
+    given_count: int
+
+
+class MarketMeGraphNode(BaseModel):
+    """A node in the personal market knowledge graph."""
+
+    id: str
+    name: str
+    group: str = ""
+    size: int = 20
+    tie_role: Literal["me", "incoming", "outgoing", "peer"] = "peer"
+    offer: str = ""
+    need: str = ""
+    ties: int = 0
+
+
+class MarketMeGraphEdge(BaseModel):
+    """A directed relation between two graph nodes.
+
+    Uses ``from_`` with a ``from`` alias because ``from`` is a Python keyword.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_: str = Field(alias="from")
+    to: str
+    direction: Literal["incoming", "outgoing", "peer"] = "peer"
+
+
+class MarketMeTimelineItem(BaseModel):
+    """One entry in the personal market timeline (my request / received / given)."""
+
+    id: str
+    at: datetime
+    category: Literal["request", "incoming", "outgoing"]
+    title: str
+    counterpart: dict[str, str] | None = None
+    topic: str = ""
+    status: Literal["answered", "awaiting_confirm", "denied", "open"] = "open"
+    sensitivity: Literal["low", "medium", "high"] = "low"
+    meta: str = ""
+
+
+class MarketMeWorkerState(BaseModel):
+    running: bool
+    interval_seconds: int
+    last_run_at: str | None = None
+
+
+class MarketMeGraph(BaseModel):
+    nodes: list[MarketMeGraphNode]
+    edges: list[MarketMeGraphEdge]
+
+
+class MarketMeUser(BaseModel):
+    id: str
+    name: str
+    group: str = ""
+
+
+class MarketMeView(BaseModel):
+    """Aggregated response for GET /api/market/me."""
+
+    user: MarketMeUser
+    presence: MarketMePresence
+    workers: dict[str, MarketMeWorkerState]
+    graph: MarketMeGraph
+    timeline: list[MarketMeTimelineItem]
+    enabled: bool
+
+
 class DelegatedAnswerStatus(StrEnum):
     ANSWERED = "answered"
     AWAITING_CONFIRM = "awaiting_confirm"
@@ -574,6 +730,7 @@ class DelegatedAnswer(BaseModel):
 class ChatRequest(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     thread_id: str | None = None
+    client_turn_id: str = Field(default_factory=lambda: new_id("turn"), min_length=1, max_length=120)
 
 
 class LoginRequest(BaseModel):
@@ -625,6 +782,12 @@ class InboxUpdateRequest(BaseModel):
     status: str | None = Field(default=None, min_length=1, max_length=40)
     ttl_minutes: int | None = Field(default=None, ge=1, le=7 * 24 * 60)
     snooze_until: datetime | None = None
+
+class BriefConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=100_000)
+    expected_document_version: int = Field(ge=1)
 
 
 class MemoryCreateRequest(BaseModel):
@@ -680,16 +843,13 @@ class DataSourceQueryRequest(BaseModel):
 
 
 class BlackboardPostCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     post_type: BlackboardPostType
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1, max_length=4000)
-    actor: str = Field(default="personal_agent", min_length=1, max_length=120)
     scope: Scope = Scope.PROJECT
     permission: str = Field(default="project_visible", min_length=1, max_length=80)
-    related_post_id: str | None = None
-    collaboration_stage: CollaborationStage = CollaborationStage.DISCUSSION
-    done_when: str | None = Field(default=None, max_length=240)
-    handoff: StructuredHandoffPacket | None = None
 
 
 class ExecutionLockAcquireRequest(BaseModel):
@@ -788,6 +948,29 @@ class SearchResult(BaseModel):
     scope: Scope
     sources: list[Source] = Field(default_factory=list)
     created_at: datetime
+    project_id: str | None = None
+    team_id: str | None = None
+
+class RetrievedMemoryEvidence(BaseModel):
+    result_id: str
+    result_type: str
+    memory_kind: MemoryKind
+    citation_label: str
+    title: str
+    summary: str
+    rank: int
+    scope: Scope
+    project_id: str | None = None
+    team_id: str | None = None
+    sources: list[Source] = Field(default_factory=list)
+
+
+class MemorySearchTrace(BaseModel):
+    requested_scope: MemorySearchScope = MemorySearchScope.AUTO
+    personal_count: int = 0
+    project_count: int = 0
+    team_count: int = 0
+    results: list[RetrievedMemoryEvidence] = Field(default_factory=list)
 
 
 class BootstrapMetrics(BaseModel):
@@ -807,6 +990,7 @@ class BootstrapState(BaseModel):
     team_memberships: list[TeamMembership] = Field(default_factory=list)
     agents: list[Agent]
     metrics: BootstrapMetrics
+    capabilities: list[str] = Field(default_factory=list)
 
 
 class RetrievalMetrics(BaseModel):
@@ -821,6 +1005,10 @@ class RetrievalMetrics(BaseModel):
     source_ids_cited: list[str] = Field(default_factory=list)
     latency_ms: int = 0
     llm_used: bool = False
+    requested_scope: MemorySearchScope = MemorySearchScope.AUTO
+    task_id: str | None = None
+    thread_id: str | None = None
+    assistant_message_id: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
 
 
@@ -851,14 +1039,32 @@ class LearnedSkill(BaseModel):
     updated_at: datetime = Field(default_factory=now_utc)
 
 
-class ChatWorkflowTrace(BaseModel):
+
+
+class ChatTurnTrace(BaseModel):
+    id: str = Field(default_factory=lambda: new_id("trace"))
+    thread_id: str
+    user_message_id: str
+    assistant_message_id: str
+    task_id: str | None = None
     intent: Intent
-    confidence: float
     source: str
     selected_workflow: str
     persisted: bool
     llm_used: bool
+    confidence: float = 0.0
+    requested_provider: str | None = None
+    actual_provider: str | None = None
+    requested_model: str | None = None
+    actual_model: str | None = None
+    provider_mode: str | None = Field(default=None, pattern="^(real|fallback)$")
+    latency_ms: float | None = Field(default=None, ge=0)
     fallback_reason: str | None = None
+    model_fallback_reason: str | None = None
+    steps: list[str] = Field(default_factory=list)
+    sources: list[Source] = Field(default_factory=list)
+    memory_search: MemorySearchTrace | None = None
+    created_at: datetime = Field(default_factory=now_utc)
 
 
 class ChatResponse(BaseModel):
@@ -874,6 +1080,70 @@ class ChatResponse(BaseModel):
     memory_items: list[MemoryItem]
     user_memory_items: list[UserMemoryItem] = Field(default_factory=list)
     workflow_trace: ChatWorkflowTrace | None = None
+    turn_trace: ChatTurnTrace | None = None
+
+
+class ChatTurnReceiptStatus(StrEnum):
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ChatTurnReceipt(BaseModel):
+    id: str
+    client_turn_id: str = Field(min_length=1, max_length=120)
+    user_id: str
+    workspace_id: str
+    project_id: str
+    requested_thread_id: str | None = None
+    thread_id: str
+    content: str = Field(min_length=1, max_length=4000)
+    status: ChatTurnReceiptStatus = ChatTurnReceiptStatus.PROCESSING
+    response: ChatResponse | None = None
+    error_code: str | None = None
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
+class ChatTurnReceiptView(BaseModel):
+    client_turn_id: str
+    status: ChatTurnReceiptStatus
+    thread_id: str
+    response: ChatResponse | None = None
+
+
+class InboxItemView(InboxItem):
+    """Visible Inbox item with server-derived commands."""
+
+    allowed_actions: list[str] = Field(default_factory=list)
+
+
+class MemoryItemView(MemoryItem):
+    """Visible governed memory with server-derived commands."""
+
+    allowed_actions: list[str] = Field(default_factory=list)
+
+
+class BlackboardPostView(BlackboardPost):
+    """Visible Blackboard post with server-derived commands."""
+
+    allowed_actions: list[str] = Field(default_factory=list)
+
+
+class InboxItemsResponse(BaseModel):
+    items: list[InboxItemView]
+
+
+class MemoryItemsResponse(BaseModel):
+    items: list[MemoryItemView]
+
+
+class BlackboardPostsResponse(BaseModel):
+    items: list[BlackboardPostView]
+    total: int
+    page: int
+    page_size: int
+    has_next: bool
 
 
 # --- API Response Wrappers ---
@@ -925,7 +1195,7 @@ class ActivityTodayResponse(BaseModel):
 class BlackboardTaskCard(BaseModel):
     """黑板任务卡片。"""
     task: Task
-    latest_post: BlackboardPost | None = None
+    latest_post: BlackboardPostView | None = None
     stage: CollaborationStage | None = None
     owner: str | None = None
     done_when: str | None = None
@@ -936,11 +1206,21 @@ class BlackboardTaskCard(BaseModel):
     claimed_by_personal_agent: bool = False
     upstream_agents: list[str] = Field(default_factory=list)
     downstream_agents: list[str] = Field(default_factory=list)
+    target_post_id: str | None = None
+    allowed_actions: list[str] = Field(default_factory=list)
 
 
 class BlackboardTaskCardsResponse(BaseModel):
     """黑板任务卡片列表响应。"""
     items: list[BlackboardTaskCard]
+
+
+class BlackboardTaskDetail(BaseModel):
+    """One visible task card and its filtered Blackboard timeline."""
+
+    task_card: BlackboardTaskCard
+    posts: list[BlackboardPostView]
+
 
 
 class DataAgentQueryResponse(BaseModel):
@@ -961,7 +1241,76 @@ class DrainAutoPostsResponse(BaseModel):
     items: list[AutoBlackboardPostRequest]
 
 
+class ProviderDiagnostic(ProviderStatus):
+    """Canonical secret-safe provider status with optional non-sensitive diagnostics."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ProviderHealthCheckResponse(BaseModel):
     """Provider 健康检查响应。"""
+
     overall: str
-    providers: list[dict[str, Any]]
+    providers: list[ProviderDiagnostic]
+
+
+class MemoryOverviewSections(BaseModel):
+    short: list[UserMemoryItem]
+    project: list[UserMemoryItem]
+    archive: list[UserMemoryItem]
+    team: list[MemoryItemView]
+
+
+class MemoryOverviewCounts(BaseModel):
+    short: int
+    project: int
+    archive: int
+    team: int
+
+
+class MemoryOverviewResponse(BaseModel):
+    project_id: str
+    sections: MemoryOverviewSections
+    counts: MemoryOverviewCounts
+    daily_summary_worker: dict[str, Any] = Field(default_factory=dict)
+
+
+class UsersResponse(BaseModel):
+    items: list[User]
+
+
+class UserItemResponse(BaseModel):
+    item: User
+
+
+class AgentsResponse(BaseModel):
+    items: list[Agent]
+
+
+class ModelsResponse(BaseModel):
+    items: list[ModelDefinition]
+
+
+class ToolsResponse(BaseModel):
+    items: list[ToolDefinition]
+
+
+class PermissionPoliciesResponse(BaseModel):
+    items: list[PermissionPolicyRule]
+
+
+class RiskPoliciesResponse(BaseModel):
+    items: list[RiskPolicyRule]
+
+
+class O2LoginStatus(BaseModel):
+    available: bool
+    logged_in: bool
+
+
+class O2StatusResponse(BaseModel):
+    installed: bool
+    binary: str
+    version: str | None = None
+    login: O2LoginStatus
+    setup_checks: list[dict[str, Any]] = Field(default_factory=list)

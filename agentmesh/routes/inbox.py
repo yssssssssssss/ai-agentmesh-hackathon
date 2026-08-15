@@ -7,18 +7,19 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
 
 from agentmesh.models import (
+    BriefConfirmRequest,
     InboxItem,
+    InboxItemsResponse,
+    InboxItemView,
     InboxUpdateRequest,
     ItemResponse,
-    ItemsResponse,
-    MemoryItem,
     Scope,
     User,
     UserRole,
     now_utc,
 )
 from agentmesh.routes.deps import create_audit_event, current_user
-from agentmesh.store import store
+from agentmesh.store import BriefConfirmationError, store
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"])
 
@@ -31,16 +32,32 @@ def is_active_inbox_item(item: InboxItem, now) -> bool:
     return True
 
 
-@router.get("", response_model=ItemsResponse)
+def inbox_item_view(item: InboxItem) -> InboxItemView:
+    actions: list[str] = []
+    if item.status != "resolved":
+        if item.status != "snoozed":
+            actions.append("snooze")
+        if item.item_type == "prompt_injection_review":
+            if item.status == "open":
+                actions.extend(("release", "discard"))
+        elif is_brief_confirmation(item):
+            if item.status == "open":
+                actions.append("confirm_brief")
+        else:
+            actions.append("resolve")
+    return InboxItemView(**item.model_dump(), allowed_actions=actions)
+
+
+@router.get("", response_model=InboxItemsResponse)
 def inbox_items(
     include_snoozed: bool = False,
     user: User = Depends(current_user),
-) -> ItemsResponse:
+) -> InboxItemsResponse:
     now = now_utc()
     items = [item for item in reversed(store.inbox_items) if inbox_visible_to_user(item, user)]
     if not include_snoozed:
         items = [item for item in items if is_active_inbox_item(item, now)]
-    return ItemsResponse(items=items)
+    return InboxItemsResponse(items=[inbox_item_view(item) for item in items])
 
 
 @router.patch("/{item_id}", response_model=ItemResponse)
@@ -54,6 +71,8 @@ def update_inbox_item(
         raise HTTPException(status_code=404, detail="Inbox item not found")
     if not inbox_visible_to_user(item, user):
         raise HTTPException(status_code=403, detail="Not allowed to update this inbox item")
+    if requires_dedicated_transition(item) and (request.status == "resolved" or item.status == "resolved"):
+        raise HTTPException(status_code=409, detail="Inbox item requires its dedicated governance transition")
     if request.ttl_minutes is not None and request.snooze_until is not None:
         raise HTTPException(status_code=400, detail="Use ttl_minutes or snooze_until, not both")
     next_status = request.status or item.status
@@ -89,50 +108,29 @@ def update_inbox_item(
 @router.post("/{item_id}/confirm-brief")
 def confirm_brief_item(
     item_id: str,
+    request: BriefConfirmRequest,
     user: User = Depends(current_user),
 ) -> dict[str, object]:
-    item = store.get_inbox_item(item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Inbox item not found")
-    if not inbox_visible_to_user(item, user):
-        raise HTTPException(status_code=403, detail="Not allowed to update this inbox item")
-    document_id = item.metadata.get("document_id")
-    if item.item_type != "decision_review" or item.metadata.get("artifact_type") != "brief_draft" or not document_id:
-        raise HTTPException(status_code=400, detail="Inbox item is not a brief draft")
-    document = store.get_document(document_id)
-    if document is None:
-        raise HTTPException(status_code=404, detail="Brief draft document not found")
-
-    memory = store.add_memory_item(
-        MemoryItem(
-            title=f"候选团队记忆：{document.title}",
-            summary=_brief_memory_summary(document.text),
-            memory_type="brief_decision",
-            scope=Scope.TEAM_CANDIDATE,
-            workspace_id=item.workspace_id or user.workspace_id,
-            project_id=item.project_id or user.default_project_id,
-            sources=[document.source],
-            metadata={"document_id": document.id, "artifact_type": "brief_draft", "inbox_item_id": item.id},
+    try:
+        result = store.confirm_brief(
+            item_id=item_id,
+            owner_user_id=user.id,
+            text=request.text,
+            expected_document_version=request.expected_document_version,
         )
-    )
-    now = now_utc()
-    item.status = "resolved"
-    item.acknowledged_at = item.acknowledged_at or now
-    item.resolved_at = now
-    item.updated_at = now
-    item.metadata["confirmed_memory_id"] = memory.id
-    item.metadata["confirmed_document_id"] = document.id
-    store.save_inbox_item(item)
-    store.add_audit_event(
-        create_audit_event(
-            user.id,
-            "confirm_brief_draft",
-            "inbox_item",
-            item.id,
-            {"document_id": document.id, "memory_id": memory.id},
-        )
-    )
-    return {"item": item, "memory_item": memory}
+    except BriefConfirmationError as error:
+        status_code = {
+            "not_found": 404,
+            "forbidden": 403,
+            "invalid": 400,
+            "conflict": 409,
+        }.get(error.code, 409)
+        raise HTTPException(status_code=status_code, detail=error.detail) from error
+    return {
+        "item": result.inbox_item,
+        "document": result.document,
+        "memory_item": result.memory_item,
+    }
 
 
 @router.post("/{item_id}/resolve-injection-review")
@@ -153,6 +151,8 @@ def resolve_injection_review_item(
         raise HTTPException(status_code=400, detail="Inbox item is not a prompt-injection review")
     if action not in {"release", "discard"}:
         raise HTTPException(status_code=400, detail="action must be 'release' or 'discard'")
+    if item.status != "open":
+        raise HTTPException(status_code=409, detail="Prompt-injection review is no longer open")
     request_post_id = item.metadata.get("request_post_id")
     evidence_post_id = item.metadata.get("evidence_post_id")
     if not request_post_id or not evidence_post_id:
@@ -164,8 +164,8 @@ def resolve_injection_review_item(
 
     try:
         fulfillment = agent.resolve_quarantined_research(request_post, evidence_post, user, action)
-    except RequestAlreadyFulfilledError:
-        raise HTTPException(status_code=409, detail="Quarantined evidence has already been resolved")
+    except RequestAlreadyFulfilledError as error:
+        raise HTTPException(status_code=409, detail="Quarantined evidence has already been resolved") from error
 
     now = now_utc()
     item.status = "resolved"
@@ -198,12 +198,18 @@ def resolve_injection_review_item(
         "quarantined": fulfillment.quarantined,
     }
 
+def is_brief_confirmation(item: InboxItem) -> bool:
+    return (
+        item.item_type == "decision_review"
+        and item.metadata.get("artifact_type") == "brief_draft"
+        and bool(item.metadata.get("document_id"))
+    )
 
-def _brief_memory_summary(text: str) -> str:
-    normalized = " ".join(text.split())
-    if not normalized:
-        return "用户已确认 Brief 草稿，可进入团队候选记忆审核。"
-    return normalized[:800]
+
+def requires_dedicated_transition(item: InboxItem) -> bool:
+    return item.item_type == "prompt_injection_review" or is_brief_confirmation(item)
+
+
 
 
 def inbox_visible_to_user(item: InboxItem, user: User) -> bool:

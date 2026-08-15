@@ -70,7 +70,7 @@ async def publish_worker_loop() -> None:
         await asyncio.sleep(MARKET_PUBLISH_INTERVAL_SECONDS)
         publish_worker_state["last_run_at"] = now_utc().isoformat()
         try:
-            published = publish_all_signals(store)
+            published = await asyncio.to_thread(publish_all_signals, store)
             publish_worker_state["last_published"] = published
             publish_worker_state["last_error"] = None
         except Exception as error:  # pragma: no cover - defensive worker boundary
@@ -139,7 +139,7 @@ async def scout_worker_loop() -> None:
         await asyncio.sleep(MARKET_SCOUT_INTERVAL_SECONDS)
         scout_worker_state["last_run_at"] = now_utc().isoformat()
         try:
-            triggered = scout_all(store)
+            triggered = await asyncio.to_thread(scout_all, store)
             scout_worker_state["last_triggered"] = triggered
             scout_worker_state["last_error"] = None
         except Exception as error:  # pragma: no cover - defensive worker boundary

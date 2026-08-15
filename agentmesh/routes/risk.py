@@ -4,25 +4,31 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from agentmesh.models import RiskPolicyRule, RiskPolicyRuleCreateRequest, RiskPolicyRuleUpdateRequest, User, now_utc
-from agentmesh.permissions import ensure_admin
-from agentmesh.routes.deps import create_audit_event, current_user, validate_risk_decision
+from agentmesh.models import (
+    RiskPoliciesResponse,
+    RiskPolicyRule,
+    RiskPolicyRuleCreateRequest,
+    RiskPolicyRuleUpdateRequest,
+    User,
+    now_utc,
+)
+from agentmesh.permissions import ACTION_MANAGE_RISK_POLICIES
+from agentmesh.routes.deps import create_audit_event, require_permission, validate_risk_decision
 from agentmesh.store import store
 
 router = APIRouter(prefix="/api/risk", tags=["risk"])
 
 
-@router.get("/policies")
-def risk_policies(_: User = Depends(current_user)) -> dict[str, object]:
-    return {"items": store.risk_policy_rules}
+@router.get("/policies", response_model=RiskPoliciesResponse)
+def risk_policies(_: User = Depends(require_permission(ACTION_MANAGE_RISK_POLICIES))) -> RiskPoliciesResponse:
+    return RiskPoliciesResponse(items=store.risk_policy_rules)
 
 
 @router.post("/policies")
 def create_risk_policy(
     request: RiskPolicyRuleCreateRequest,
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission(ACTION_MANAGE_RISK_POLICIES)),
 ) -> dict[str, object]:
-    ensure_admin(user)
     rule = RiskPolicyRule(
         rule_id=request.rule_id,
         category=request.category,
@@ -40,9 +46,8 @@ def create_risk_policy(
 def update_risk_policy(
     rule_id: str,
     request: RiskPolicyRuleUpdateRequest,
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission(ACTION_MANAGE_RISK_POLICIES)),
 ) -> dict[str, object]:
-    ensure_admin(user)
     rule = store.get_risk_policy_rule(rule_id)
     if rule is None:
         raise HTTPException(status_code=404, detail="Risk policy rule not found")

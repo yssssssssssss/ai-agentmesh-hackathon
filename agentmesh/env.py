@@ -5,6 +5,8 @@ from pathlib import Path
 
 
 def load_dotenv(path: str | Path | None = None) -> None:
+    if os.getenv("AGENTMESH_SKIP_DOTENV", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return
     env_path = Path(path) if path else Path(__file__).resolve().parent.parent / ".env"
     if not env_path.exists():
         return

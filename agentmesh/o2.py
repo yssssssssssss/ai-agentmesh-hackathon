@@ -8,15 +8,24 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from agentmesh.acquisition import AcquisitionAgent, AcquisitionRequest, AcquisitionResult, MockAcquisitionAgent
-from agentmesh.datasources import DataSourceConnector, DataSourceQuery, DataSourceResult
+from agentmesh.datasources import DataSourceConnector, DataSourceQuery, DataSourceResult, is_read_only_data_operation
 from agentmesh.models import Source, ToolDefinition, now_utc
+from agentmesh.provider_status import (
+    ProviderStatus,
+    ProviderTelemetry,
+    build_provider_status,
+    provider_error_code,
+    provider_metadata,
+)
 from agentmesh.store import SQLiteStore
 from agentmesh.web_research import WebSearchProvider, WebSearchResult
 
 READ_ONLY_O2_OPERATIONS = {"search", "query", "list", "find-tables", "schema", "describe"}
+_o2_research_telemetry = ProviderTelemetry()
 
 # Verified against the working DesignOS Oxygen connector
 # (designOS/backend/src/services/oxygenConnector.ts). The metasearch sub-CLI
@@ -64,7 +73,9 @@ def normalize_tool_id(value: str) -> str:
 
 
 class O2CommandError(RuntimeError):
-    pass
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass(slots=True)
@@ -90,14 +101,17 @@ class O2CommandRunner:
     def run(self, *args: str) -> O2CommandResult:
         executable = self._executable()
         if executable is None:
-            raise O2CommandError(f"Oxygen-CLI command not found: {self.binary}")
-        completed = subprocess.run(
-            [executable, *args],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=self.timeout_seconds,
-        )
+            raise O2CommandError("unavailable", f"Oxygen-CLI command not found: {self.binary}")
+        try:
+            completed = subprocess.run(
+                [executable, *args],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=self.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise O2CommandError("timeout", "Oxygen-CLI command timed out") from error
         result = O2CommandResult(
             argv=[executable, *args],
             returncode=completed.returncode,
@@ -105,7 +119,7 @@ class O2CommandRunner:
             stderr=completed.stderr or "",
         )
         if result.returncode != 0:
-            raise O2CommandError(result.stderr.strip() or f"o2 command failed with exit code {result.returncode}")
+            raise O2CommandError("provider_error", f"Oxygen-CLI command failed with exit code {result.returncode}")
         return result
 
     def run_json(self, *args: str) -> Any:
@@ -206,9 +220,16 @@ class O2ResearchProvider(WebSearchProvider):
         self.runner = runner or _runner_for_cli(self.cli_name)
 
     def search(self, query: str, limit: int = 3) -> list[WebSearchResult]:
-        argv = self._argv(query, limit)
-        payload = self.runner.run_json(*argv)
-        return [_web_result_from_item(item) for item in _extract_items(payload)[:limit]]
+        started = monotonic()
+        try:
+            argv = self._argv(query, limit)
+            payload = self.runner.run_json(*argv)
+            results = [_web_result_from_item(item) for item in _extract_items(payload)[:limit]]
+        except Exception as error:
+            _o2_research_telemetry.failure(error, (monotonic() - started) * 1000)
+            raise
+        _o2_research_telemetry.success((monotonic() - started) * 1000)
+        return results
 
     def _argv(self, query: str, limit: int) -> list[str]:
         if self.command_template:
@@ -255,8 +276,9 @@ class O2DataSourceConnector(DataSourceConnector):
         self.runner = runner or _runner_for_cli(self.cli_name)
 
     def query(self, query: DataSourceQuery) -> DataSourceResult:
-        if query.operation.lower() not in READ_ONLY_O2_OPERATIONS:
+        if not is_read_only_data_operation(query.operation):
             raise ValueError("Only read-only operations are supported by the Oxygen data connector")
+        started = monotonic()
         argv = self._argv(query)
         payload = self.runner.run_json(*argv)
         items = _extract_items(payload)
@@ -270,9 +292,17 @@ class O2DataSourceConnector(DataSourceConnector):
         return DataSourceResult(
             connector_name=self.connector_name,
             title=f"{title} 查询结果",
-            records=records or [{"raw": payload}],
+            records=records,
             source=source,
-            metadata={"provider": "o2", "cli": self.cli_name},
+            metadata={
+                **provider_metadata(
+                    requested_provider=query.connector_name,
+                    actual_provider=f"o2:{self.cli_name}",
+                    mode="real",
+                    latency_ms=(monotonic() - started) * 1000,
+                ),
+                "cli": self.cli_name,
+            },
         )
 
     def _argv(self, query: DataSourceQuery) -> list[str]:
@@ -328,21 +358,28 @@ class O2AcquisitionAgent(AcquisitionAgent):
         self.provider = provider
 
     def acquire(self, request: AcquisitionRequest) -> AcquisitionResult:
+        started = monotonic()
         results = self.provider.search(request.query)
+        metadata = provider_metadata(
+            requested_provider="o2_research",
+            actual_provider="o2_research",
+            mode="real",
+            latency_ms=(monotonic() - started) * 1000,
+        )
         if not results:
             return AcquisitionResult(
                 actor=self.actor,
                 title="未找到 Oxygen-CLI 资料",
                 content="Oxygen-CLI 没有返回可用结果。",
                 sources=[],
-                metadata={"provider": "o2"},
+                metadata=metadata,
             )
         return AcquisitionResult(
             actor=self.actor,
             title="Oxygen-CLI 检索结果",
             content="\n".join(f"{item.title}: {item.snippet}" for item in results),
             sources=[Source(title=item.title, source_type="cli_page", reference=item.url) for item in results],
-            metadata={"provider": "o2"},
+            metadata=metadata,
         )
 
 
@@ -353,36 +390,56 @@ class CompositeAcquisitionAgent(AcquisitionAgent):
     def acquire(self, request: AcquisitionRequest) -> AcquisitionResult:
         results: list[AcquisitionResult] = []
         diagnostics: list[str] = []
+        legacy_diagnostics: list[str] = []
+        provider_errors: list[Exception] = []
+        requested_provider = _provider_name_for_agent(self.agents[0]) if self.agents else "research"
         for agent in self.agents:
+            provider_name = _provider_name_for_agent(agent)
+            actor_name = getattr(agent, "actor", provider_name)
             try:
                 result = agent.acquire(request)
             except Exception as error:  # pragma: no cover - provider boundary
-                diagnostics.append(
-                    f"{getattr(agent, 'actor', 'acquisition_agent')}: {str(error) or error.__class__.__name__}"
-                )
+                error_code = provider_error_code(error)
+                diagnostics.append(f"{provider_name}:{error_code}")
+                legacy_diagnostics.append(f"{actor_name}:{error_code}")
+                provider_errors.append(error)
                 continue
             if result.sources:
                 results.append(result)
             else:
-                diagnostics.append(f"{result.actor}: {result.title}")
+                diagnostics.append(f"{provider_name}:empty_result")
+                legacy_diagnostics.append(f"{actor_name}:empty_result")
         if not results:
-            fallback = MockAcquisitionAgent().acquire(request)
-            fallback.metadata = {
-                **fallback.metadata,
-                "fallback_reason": "no_real_provider_sources",
-                "provider_diagnostics": " | ".join(diagnostics)[:500],
-            }
-            return fallback
+            if provider_errors:
+                raise provider_errors[-1]
+            raise O2CommandError("empty_result", "Configured acquisition providers returned no sources")
         if len(results) == 1:
-            return results[0]
+            result = results[0]
+            if diagnostics:
+                result.metadata["requested_provider"] = requested_provider
+                result.metadata["fallback_reason"] = " | ".join(diagnostics)[:500]
+            return result
         actor = "+".join(sorted({item.actor for item in results}))
         title = " / ".join(item.title for item in results[:2])
         content = "\n\n".join(f"[{item.actor}] {item.content}" for item in results if item.content)
         sources: list[Source] = []
         for item in results:
             sources.extend(item.sources)
-        metadata = {"provider": ",".join(sorted({item.metadata.get("provider", "unknown") for item in results}))}
+        actual_provider = ",".join(sorted({item.metadata.get("actual_provider", "unknown") for item in results}))
+        latency_ms = sum(float(item.metadata.get("latency_ms", "0")) for item in results)
+        metadata = provider_metadata(
+            requested_provider=requested_provider,
+            actual_provider=actual_provider,
+            mode="real",
+            latency_ms=latency_ms,
+            fallback_reason=" | ".join(diagnostics) or None,
+        )
         return AcquisitionResult(actor=actor, title=title, content=content, sources=sources, metadata=metadata)
+
+
+def _provider_name_for_agent(agent: AcquisitionAgent) -> str:
+    actor = getattr(agent, "actor", "research")
+    return actor.removesuffix("_agent")
 
 
 def build_acquisition_agent() -> AcquisitionAgent:
@@ -406,6 +463,19 @@ def maybe_register_o2_data_connector(registry: object) -> None:
         return
     if hasattr(registry, "register"):
         registry.register(O2DataSourceConnector.connector_name, O2DataSourceConnector())
+
+
+def o2_research_provider_status(runner: O2CommandRunner | None = None) -> ProviderStatus:
+    configured = env_flag("AGENTMESH_O2_RESEARCH_ENABLED")
+    command_runner = runner or O2CommandRunner()
+    ready = configured and command_runner.available()
+    return build_provider_status(
+        name="o2_research",
+        configured=configured,
+        ready=ready,
+        telemetry=_o2_research_telemetry,
+        error=None if ready else ("not_configured" if not configured else "unavailable"),
+    )
 
 
 def o2_setup_checks(runner: O2CommandRunner | None = None) -> list[dict[str, Any]]:

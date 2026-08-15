@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
 from urllib.parse import urlencode
@@ -21,7 +22,7 @@ from agentmesh.auth import (
 )
 from agentmesh.models import Agent, LoginRequest, PasswordChangeRequest, StatusResponse, User, UserResponse, now_utc
 from agentmesh.routes.deps import create_audit_event, current_user
-from agentmesh.seed import PROJECT, WORKSPACE, ensure_seed_data
+from agentmesh.seed import PROJECT, WORKSPACE, ensure_demo_seed_data, ensure_user_default_membership
 from agentmesh.store import store
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -41,7 +42,7 @@ def revoke_user_sessions(user_id: str) -> int:
 
 @router.post("/login", response_model=UserResponse)
 def login(request: LoginRequest, response: Response) -> UserResponse:
-    ensure_seed_data(store)
+    ensure_demo_seed_data(store)
     user = store.get_user(request.user_id)
     credential = store.get_auth_credential(request.user_id)
     if (
@@ -126,7 +127,7 @@ def logout(request: Request, response: Response) -> StatusResponse:
 
 @router.get("/me", response_model=UserResponse)
 def auth_me(request: Request) -> UserResponse:
-    ensure_seed_data(store)
+    ensure_demo_seed_data(store)
     user = current_user_from_request(store, request)
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -207,25 +208,34 @@ def fetch_oauth_userinfo(config: dict[str, str | bool], access_token: str) -> di
 
 
 def upsert_oauth_user(profile: dict[str, object], config: dict[str, str | bool]) -> User:
-    ensure_seed_data(store)
-    external_id = str(profile.get("sub") or profile.get("id") or profile.get("erp") or profile.get("email") or "").strip()
+    ensure_demo_seed_data(store)
+    external_id = str(profile.get("sub") or profile.get("id") or profile.get("erp") or "").strip()
     if not external_id:
         raise HTTPException(status_code=502, detail="OAuth userinfo missing stable identity")
+    provider = str(config["provider"])
     email = str(profile.get("email") or "")
     name = str(profile.get("name") or profile.get("displayName") or profile.get("erp") or email or external_id)
-    user_id = f"usr_oauth_{safe_identity_id(email or external_id)}"
-    existing = store.get_user(user_id)
-    role = str(profile.get("role") or config["default_role"] or "user")
-    if role not in {"user", "team_lead", "admin"}:
-        role = "user"
+    existing = next(
+        (
+            user
+            for user in store.users
+            if user.oauth_provider == provider and user.oauth_subject == external_id
+        ),
+        None,
+    )
+    role = oauth_default_role(config)
     if existing is not None:
+        if existing.status != "active":
+            raise HTTPException(status_code=403, detail="OAuth account is disabled")
         updated = existing.model_copy(deep=True)
         updated.name = name
-        updated.role = role
-        updated.status = "active"
         updated.updated_at = now_utc()
+        ensure_user_default_membership(store, updated)
         return store.save_user(updated)
 
+    user_id = oauth_user_id(provider, external_id)
+    if store.get_user(user_id) is not None:
+        raise HTTPException(status_code=409, detail="OAuth identity is already bound")
     user = User(
         id=user_id,
         workspace_id=WORKSPACE.id,
@@ -233,6 +243,8 @@ def upsert_oauth_user(profile: dict[str, object], config: dict[str, str | bool])
         name=name,
         role=role,
         personal_agent_id=f"agent_personal_{user_id.removeprefix('usr_')}",
+        oauth_provider=provider,
+        oauth_subject=external_id,
     )
     agent = Agent(
         id=user.personal_agent_id,
@@ -245,7 +257,18 @@ def upsert_oauth_user(profile: dict[str, object], config: dict[str, str | bool])
     )
     store.save_user(user)
     store.save_agent(agent)
+    ensure_user_default_membership(store, user)
     return user
+
+
+def oauth_user_id(provider: str, external_id: str) -> str:
+    digest = hashlib.sha256(f"{provider}:{external_id}".encode()).hexdigest()[:20]
+    return f"usr_oauth_{digest}"
+
+
+def oauth_default_role(config: dict[str, str | bool]) -> str:
+    role = str(config.get("default_role") or "user")
+    return role if role in {"user", "team_lead", "admin"} else "user"
 
 
 def safe_identity_id(value: str) -> str:

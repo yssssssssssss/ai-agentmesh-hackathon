@@ -33,12 +33,19 @@ SYSTEM_TOOLS = [
         category="risk",
         risk_level="high",
     ),
+    ToolDefinition(
+        id="tool_data_query",
+        name="data_query",
+        description="通过获准的数据连接器执行只读查询。",
+        category="data",
+        risk_level="medium",
+    ),
 ]
 
 DEFAULT_TOOL_GRANTS = {
-    "agent_personal_current": ["tool_memory_search"],
-    "agent_personal_lead": ["tool_memory_search", "tool_risk_review"],
-    "agent_personal_admin": ["tool_memory_search", "tool_risk_review"],
+    "agent_personal_current": ["tool_memory_search", "tool_data_query"],
+    "agent_personal_lead": ["tool_memory_search", "tool_risk_review", "tool_data_query"],
+    "agent_personal_admin": ["tool_memory_search", "tool_risk_review", "tool_data_query"],
     "agent_research": ["tool_memory_search", "tool_web_research"],
     "agent_data": ["tool_memory_search"],
     "agent_risk": ["tool_risk_review"],
@@ -60,10 +67,12 @@ def ensure_tool_seed_data(repository: SQLiteStore, granted_by: str) -> None:
 
 
 def list_enabled_tools(repository: SQLiteStore) -> list[ToolDefinition]:
+    ensure_tool_seed_data(repository, granted_by="system")
     return [tool for tool in repository.tool_definitions if tool.enabled]
 
 
 def list_agent_tools(repository: SQLiteStore, agent_id: str) -> list[ToolDefinition]:
+    ensure_tool_seed_data(repository, granted_by="system")
     tools_by_id = {tool.id: tool for tool in repository.tool_definitions}
     result = []
     for grant in repository.list_agent_tool_grants(agent_id):
@@ -74,6 +83,7 @@ def list_agent_tools(repository: SQLiteStore, agent_id: str) -> list[ToolDefinit
 
 
 def set_agent_tools(repository: SQLiteStore, agent_id: str, tool_ids: list[str], user: User) -> list[ToolDefinition]:
+    ensure_tool_seed_data(repository, granted_by="system")
     requested = {tool_id for tool_id in tool_ids if tool_id}
     existing_tools = {tool.id for tool in repository.tool_definitions if tool.enabled}
     unknown = sorted(requested - existing_tools)

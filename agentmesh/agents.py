@@ -26,6 +26,7 @@ from agentmesh.models import (
     ChatResponse,
     ChatRole,
     ChatThread,
+    ChatTurnTrace,
     ChatWorkflowTrace,
     CollaborationStage,
     ConsentGrant,
@@ -36,9 +37,13 @@ from agentmesh.models import (
     InboxItem,
     Intent,
     MemoryItem,
+    MemoryKind,
     MemoryLayer,
     MemoryRelation,
+    MemorySearchScope,
+    MemorySearchTrace,
     RetrievalMetrics,
+    RetrievedMemoryEvidence,
     Scope,
     SearchResult,
     Source,
@@ -49,6 +54,7 @@ from agentmesh.models import (
     new_id,
     now_utc,
 )
+from agentmesh.provider_status import provider_metadata
 from agentmesh.risk import RiskDecision, assess_external_content, assess_tool_request
 from agentmesh.seed import PROJECT, USER, WORKSPACE
 from agentmesh.service_agents import MockDataAgent, RiskAgent
@@ -60,6 +66,7 @@ from agentmesh.synthesis import (
     build_llm_prompt,
     chat_llm_client,
     evidence_answer,
+    llm_model_provenance,
     source_titles,
     synthesize_with_llm_result,
 )
@@ -79,10 +86,21 @@ class _ChatTurnState:
     user_memory_items: list[UserMemoryItem] = field(default_factory=list)
     pending_tool_approval: bool = False
     retrieval_metrics: RetrievalMetrics | None = None
+    memory_search: MemorySearchTrace | None = None
+    requested_provider: str | None = None
+    actual_provider: str | None = None
+    provider_mode: str | None = None
+    provider_latency_ms: float | None = None
+    provider_fallback_reason: str | None = None
 
 
 class RequestAlreadyFulfilledError(RuntimeError):
     """Raised when a blackboard request post has already produced evidence."""
+
+
+
+class ChatThreadNotFoundError(LookupError):
+    """Raised when a chat thread is missing or not visible to the current user."""
 
 
 @dataclass
@@ -112,14 +130,17 @@ class PersonalAgent:
     ):
         self.repository = repository
         self.acquisition_agent = acquisition_agent or MockAcquisitionAgent()
-        self.data_agent = data_agent or MockDataAgent()
+        self.data_agent = data_agent or MockDataAgent(repository=repository)
+        if self.data_agent.repository is None:
+            self.data_agent.repository = repository
         self.risk_agent = RiskAgent(repository)
         self.llm_client = llm_client
 
     def handle_chat(self, content: str, thread_id: str | None = None, user: User = USER) -> ChatResponse:
         actual_thread_id = thread_id or new_id("thread")
+        self._ensure_thread(actual_thread_id, content, user, allow_create=thread_id is None)
 
-        # 读取对话历史用于上下文
+        # Ownership is checked before any conversation context is loaded.
         history = self._get_thread_history(actual_thread_id)
 
         llm_client = chat_llm_client(self.repository, user, self.llm_client)
@@ -137,7 +158,9 @@ class PersonalAgent:
                     invocation, content, actual_thread_id, user, history,
                     intent_source="llm", confidence=confidence,
                 )
+            started = time.perf_counter()
             chat_result = self._general_chat_answer(content, user, history, llm_client)
+            latency_ms = (time.perf_counter() - started) * 1000 if llm_client is not None else None
             return self._persist_private_chat_turn(
                 content=content,
                 assistant_content=chat_result.content,
@@ -146,7 +169,14 @@ class PersonalAgent:
                 selected_workflow="chat",
                 source="chat",
                 llm_used=chat_result.llm_used,
-                fallback_reason=chat_result.fallback_reason,
+                requested_provider="llm" if llm_client is not None else "agentmesh",
+                actual_provider="llm" if chat_result.llm_used else "local_fallback",
+                provider_mode="real" if chat_result.llm_used else "fallback",
+                latency_ms=latency_ms,
+                fallback_reason=None,
+                requested_model=chat_result.requested_model,
+                actual_model=chat_result.actual_model,
+                model_fallback_reason=chat_result.fallback_reason,
             )
 
         if invocation.spec is None:
@@ -248,7 +278,7 @@ class PersonalAgent:
             intent, invocation.spec.command, persisted=True, source=intent_source, confidence=confidence,
         )
 
-        self._ensure_thread(thread_id, content, user)
+        thread = self._ensure_thread(thread_id, content, user)
 
         user_message = self.repository.add_chat_message(
             ChatMessage(
@@ -279,7 +309,15 @@ class PersonalAgent:
 
         try:
             if intent == Intent.ASK_MEMORY:
-                self._handle_memory_search(task, skill_content, user, state)
+                self._handle_memory_search(
+                    task,
+                    skill_content,
+                    user,
+                    state,
+                    search_scope=invocation.spec.memory_search_scope or MemorySearchScope.AUTO,
+                    workspace_id=thread.workspace_id,
+                    project_id=thread.project_id,
+                )
 
             if intent == Intent.REQUEST_DATA_QUERY:
                 self._handle_data_query(task, skill_content, user, state)
@@ -292,14 +330,25 @@ class PersonalAgent:
                 self._handle_acquisition_intent(task, skill_content, intent, user, state)
 
             if intent == Intent.REQUEST_RISK_REVIEW:
-                self._handle_risk_review(task, skill_content, state)
+                self._handle_risk_review(task, skill_content, state, user)
         except Exception as error:
             self._mark_task_failed(task, error)
             raise
 
         assistant_content = self._assistant_content_for_turn(intent, skill_content, state, user)
+        strict_memory_scope = bool(
+            state.memory_search
+            and state.memory_search.requested_scope != MemorySearchScope.AUTO
+        )
+        strict_memory_miss = bool(strict_memory_scope and not state.memory_search.results)
+        synthesis_latency_ms: float | None = None
 
-        if not state.pending_tool_approval and intent not in {Intent.ASK_SYSTEM_INFO, Intent.GENERATE_BRIEF}:
+        if (
+            not strict_memory_miss
+            and not state.pending_tool_approval
+            and intent not in {Intent.ASK_SYSTEM_INFO, Intent.GENERATE_BRIEF}
+        ):
+            synthesis_started = time.perf_counter()
             synthesis = self._synthesize_with_llm(
                 fallback_content=assistant_content,
                 user_content=skill_content,
@@ -309,29 +358,32 @@ class PersonalAgent:
                 inbox_items=state.inbox_items,
                 memory_items=state.memory_items,
                 user=user,
-                history=history,
+                history=None if strict_memory_scope else history,
             )
+            synthesis_latency_ms = (time.perf_counter() - synthesis_started) * 1000
             assistant_content = synthesis.content
             workflow_trace.llm_used = synthesis.llm_used
-            workflow_trace.fallback_reason = synthesis.fallback_reason
+            workflow_trace.requested_model = synthesis.requested_model
+            workflow_trace.actual_model = synthesis.actual_model
+            workflow_trace.model_fallback_reason = synthesis.fallback_reason
+            workflow_trace.fallback_reason = state.provider_fallback_reason
 
+        self._apply_trace_provenance(workflow_trace, state, user, synthesis_latency_ms)
         if state.retrieval_metrics is not None:
             state.retrieval_metrics.llm_used = workflow_trace.llm_used if workflow_trace else False
-            state.retrieval_metrics.results_cited = self._count_cited_sources(
-                assistant_content, state.retrieval_metrics.source_ids_returned
-            )
+            citation_labels = {
+                result.citation_label: result.result_id
+                for result in state.memory_search.results
+            } if state.memory_search else None
             state.retrieval_metrics.source_ids_cited = self._find_cited_source_ids(
-                assistant_content, state.retrieval_metrics.source_ids_returned
+                assistant_content,
+                state.retrieval_metrics.source_ids_returned,
+                citation_labels,
             )
-            self.repository.add_retrieval_metrics(state.retrieval_metrics)
+            state.retrieval_metrics.results_cited = len(state.retrieval_metrics.source_ids_cited)
 
         state.activity_logs.append(
-            self._activity(
-                title="处理了一条用户请求",
-                summary=f"通过 {invocation.spec.command} 调用 {intent.value}，默认保留在个人上下文。",
-                category="personal",
-                scope=Scope.PRIVATE,
-            )
+            self._activity(title="处理了一条用户请求", summary=f"通过 {invocation.spec.command} 调用 {intent.value}，默认保留在个人上下文。", category="personal", scope=Scope.PRIVATE, user_id=user.id)
         )
 
         if task.status != TaskStatus.WAITING_EXTERNAL_AGENT:
@@ -350,9 +402,21 @@ class PersonalAgent:
                 content=assistant_content,
                 scope=Scope.PRIVATE,
                 sources=self._assistant_sources(state.evidence_post, state.risk_post),
+                workflow_trace=workflow_trace,
             )
         )
         self._audit("return_chat_response", "chat_message", assistant_message.id, {"task_id": task.id})
+        if state.retrieval_metrics is not None:
+            state.retrieval_metrics.assistant_message_id = assistant_message.id
+            self.repository.add_retrieval_metrics(state.retrieval_metrics)
+        turn_trace = self._persist_turn_trace(
+            workflow_trace,
+            thread_id=thread_id,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            task=task,
+            memory_search=state.memory_search,
+        )
         memory_item = self._record_short_term_memory(task, intent, skill_content, assistant_content, state, user)
         if memory_item is not None:
             state.user_memory_items.append(memory_item)
@@ -371,6 +435,7 @@ class PersonalAgent:
             memory_items=state.memory_items,
             user_memory_items=state.user_memory_items,
             workflow_trace=workflow_trace,
+            turn_trace=turn_trace,
         )
 
     def _persist_private_chat_turn(
@@ -382,14 +447,51 @@ class PersonalAgent:
         selected_workflow: str,
         source: str,
         llm_used: bool,
+        requested_provider: str | None = None,
+        actual_provider: str | None = None,
+        requested_model: str | None = None,
+        actual_model: str | None = None,
+        provider_mode: str | None = None,
+        latency_ms: float | None = None,
         fallback_reason: str | None = None,
+        model_fallback_reason: str | None = None,
     ) -> ChatResponse:
         self._ensure_thread(thread_id, content, user)
+        trace = ChatWorkflowTrace(
+            intent=Intent.GENERAL_CHAT,
+            confidence=1.0,
+            source=source,
+            selected_workflow=selected_workflow,
+            persisted=True,
+            llm_used=llm_used,
+            requested_provider=requested_provider or "agentmesh",
+            actual_provider=actual_provider or requested_provider or "agentmesh",
+            requested_model=requested_model,
+            actual_model=actual_model,
+            provider_mode=provider_mode or (
+                "fallback" if fallback_reason or (model_fallback_reason and not llm_used) else "real"
+            ),
+            latency_ms=latency_ms,
+            fallback_reason=fallback_reason,
+            model_fallback_reason=model_fallback_reason,
+        )
         user_message = self.repository.add_chat_message(
             ChatMessage(thread_id=thread_id, role=ChatRole.USER, content=content, scope=Scope.PRIVATE)
         )
         assistant_message = self.repository.add_chat_message(
-            ChatMessage(thread_id=thread_id, role=ChatRole.ASSISTANT, content=assistant_content, scope=Scope.PRIVATE)
+            ChatMessage(
+                thread_id=thread_id,
+                role=ChatRole.ASSISTANT,
+                content=assistant_content,
+                scope=Scope.PRIVATE,
+                workflow_trace=trace,
+            )
+        )
+        turn_trace = self._persist_turn_trace(
+            trace,
+            thread_id=thread_id,
+            user_message=user_message,
+            assistant_message=assistant_message,
         )
         return ChatResponse(
             thread_id=thread_id,
@@ -400,16 +502,58 @@ class PersonalAgent:
             inbox_items=[],
             memory_items=[],
             user_memory_items=[],
-            workflow_trace=ChatWorkflowTrace(
-                intent=Intent.GENERAL_CHAT,
-                confidence=1.0,
-                source=source,
-                selected_workflow=selected_workflow,
-                persisted=True,
-                llm_used=llm_used,
-                fallback_reason=fallback_reason,
-            ),
+            workflow_trace=trace,
+            turn_trace=turn_trace,
         )
+
+    def _persist_turn_trace(
+        self,
+        workflow_trace: ChatWorkflowTrace,
+        *,
+        thread_id: str,
+        user_message: ChatMessage,
+        assistant_message: ChatMessage,
+        task: Task | None = None,
+        memory_search: MemorySearchTrace | None = None,
+    ) -> ChatTurnTrace:
+        sources: list[Source] = []
+        seen_source_ids: set[str] = set()
+        for source in assistant_message.sources:
+            if source.id in seen_source_ids:
+                continue
+            seen_source_ids.add(source.id)
+            sources.append(source)
+
+        trace = self.repository.add_chat_turn_trace(
+            ChatTurnTrace(
+                thread_id=thread_id,
+                user_message_id=user_message.id,
+                assistant_message_id=assistant_message.id,
+                task_id=task.id if task is not None else None,
+                intent=workflow_trace.intent,
+                source=workflow_trace.source,
+                selected_workflow=workflow_trace.selected_workflow,
+                persisted=workflow_trace.persisted,
+                llm_used=workflow_trace.llm_used,
+                confidence=workflow_trace.confidence,
+                requested_provider=workflow_trace.requested_provider,
+                actual_provider=workflow_trace.actual_provider,
+                requested_model=workflow_trace.requested_model,
+                actual_model=workflow_trace.actual_model,
+                provider_mode=workflow_trace.provider_mode,
+                latency_ms=workflow_trace.latency_ms,
+                fallback_reason=workflow_trace.fallback_reason,
+                model_fallback_reason=workflow_trace.model_fallback_reason,
+                steps=list(task.steps) if task is not None else [],
+                sources=sources,
+                memory_search=memory_search,
+            )
+        )
+        thread = self.repository.get_chat_thread(thread_id)
+        if thread is not None:
+            thread.updated_at = now_utc()
+            self.repository.save_chat_thread(thread)
+        return trace
 
     @staticmethod
     def _unknown_skill_answer(invocation: ChatSkillInvocation) -> str:
@@ -439,43 +583,72 @@ class PersonalAgent:
         )
         task.steps.append("created_blackboard_request")
         state.evidence_post = self.data_agent.query(task, state.request_post, content, user)
+        self._capture_provider_metadata(state, state.evidence_post.metadata)
         state.synthesis_evidence_post = state.evidence_post
         self._persist_sources(state.evidence_post.sources)
         self.repository.add_blackboard_post(state.evidence_post)
         task.steps.append("received_data_agent_evidence")
         state.activity_logs.append(
-            self._activity(
-                title="请求 data_agent 查询指标",
-                summary="data_agent 已返回本地指标数据并写入 BBS。",
-                category="external_agent",
-                scope=Scope.PROJECT,
-            )
+            self._activity(title="请求 data_agent 查询指标", summary="data_agent 已返回本地指标数据并写入 BBS。", category="external_agent", scope=Scope.PROJECT, user_id=user.id)
         )
 
-    def _handle_memory_search(self, task: Task, content: str, user: User, state: _ChatTurnState) -> None:
+    def _handle_memory_search(
+        self,
+        task: Task,
+        content: str,
+        user: User,
+        state: _ChatTurnState,
+        *,
+        search_scope: MemorySearchScope = MemorySearchScope.AUTO,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> None:
+        resolved_workspace_id = workspace_id or user.workspace_id
+        resolved_project_id = project_id or user.default_project_id
         t0 = time.perf_counter()
-        results = self._search_team_brain(content, user)
+        results = self._search_team_brain(
+            content,
+            user,
+            search_scope=search_scope,
+            workspace_id=resolved_workspace_id,
+            project_id=resolved_project_id,
+        )
         latency_ms = int((time.perf_counter() - t0) * 1000)
+        state.requested_provider = "memory_index"
+        state.actual_provider = "memory_index"
+        state.provider_mode = "real"
+        state.provider_latency_ms = float(latency_ms)
 
-        source_ids = [r.id for r in results]
+        source_ids = [result.id for result in results]
         state.retrieval_metrics = RetrievalMetrics(
             query_text=content[:200],
             user_id=user.id,
             results_returned=len(results),
             source_ids_returned=source_ids,
             latency_ms=latency_ms,
+            requested_scope=search_scope,
+            task_id=task.id,
+            thread_id=task.thread_id,
         )
+        state.memory_search = self._build_memory_search_trace(search_scope, results)
 
         if results:
-            state.evidence_post = self._create_memory_search_evidence(task, results)
+            state.evidence_post = self._create_memory_search_evidence(task, state.memory_search.results)
             state.synthesis_evidence_post = state.evidence_post
             task.steps.append("searched_memory")
             state.activity_logs.append(
+                self._activity(title="检索个人与团队记忆", summary=f"命中 {len(results)} 条个人、项目或团队记忆，未发起新的 BBS 求助。", category="personal", scope=Scope.PRIVATE, user_id=user.id)
+            )
+            return
+        if search_scope != MemorySearchScope.AUTO:
+            task.steps.append("searched_memory")
+            state.activity_logs.append(
                 self._activity(
-                    title="检索个人与团队记忆",
-                    summary=f"命中 {len(results)} 条个人、项目或团队记忆，未发起新的 BBS 求助。",
+                    title="检索指定范围记忆",
+                    summary="指定记忆范围未命中，未跨范围检索或发起 BBS 求助。",
                     category="personal",
                     scope=Scope.PRIVATE,
+                    user_id=user.id,
                 )
             )
             return
@@ -492,22 +665,109 @@ class PersonalAgent:
         task.status = TaskStatus.WAITING_EXTERNAL_AGENT
         task.steps.extend(["searched_memory", "created_blackboard_request"])
         state.activity_logs.append(
-            self._activity(
-                title="记忆未命中，转入 BBS 求助",
-                summary="个人、项目和团队记忆中没有足够结果，已在项目 BBS 发帖等待补充。",
-                category="external_agent",
-                scope=Scope.PROJECT,
-            )
+            self._activity(title="记忆未命中，转入 BBS 求助", summary="个人、项目和团队记忆中没有足够结果，已在项目 BBS 发帖等待补充。", category="external_agent", scope=Scope.PROJECT, user_id=user.id)
         )
 
-    def _search_team_brain(self, query: str, user: User) -> list[SearchResult]:
-        """Layered retrieval: high-tier memory first, drill down only if needed."""
-        # Layer 1: long_term + TEAM_ACCEPTED (high-value condensed memory)
+    def _search_team_brain(
+        self,
+        query: str,
+        user: User,
+        *,
+        search_scope: MemorySearchScope = MemorySearchScope.AUTO,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[SearchResult]:
+        """Search only memory visible in the requested thread context."""
+        effective_workspace_id = workspace_id or user.workspace_id
+        effective_project_id = project_id or user.default_project_id
+
+        if search_scope == MemorySearchScope.PERSONAL:
+            allowed_record_ids = {
+                item.id
+                for item in self.repository.user_memory_items
+                if item.user_id == user.id and item.workspace_id == effective_workspace_id
+            }
+            results = self.repository.search(
+                query,
+                {Scope.PRIVATE},
+                workspace_id=effective_workspace_id,
+                user_id=user.id,
+                max_results=10,
+                result_types={"user_memory_item"},
+                allowed_record_ids=allowed_record_ids,
+            )
+            return [result for result in results if result.result_type == "user_memory_item"][:5]
+
+        if search_scope == MemorySearchScope.PROJECT:
+            if not effective_project_id:
+                return []
+            project = self.repository.get_project(effective_project_id)
+            can_access_project = bool(
+                project
+                and project.workspace_id == effective_workspace_id
+                and self.repository.user_can_access_project(user.id, effective_project_id)
+            )
+            allowed_record_ids = {
+                item.id
+                for item in self.repository.memory_items
+                if can_access_project
+                and item.workspace_id == effective_workspace_id
+                and item.project_id == effective_project_id
+                and item.scope == Scope.PROJECT
+            }
+            results = self.repository.search(
+                query,
+                {Scope.PROJECT},
+                workspace_id=effective_workspace_id,
+                project_id=effective_project_id,
+                user_id=None,  # allowed_record_ids already enforces project access
+                max_results=10,
+                result_types={"memory_item"},
+                allowed_record_ids=allowed_record_ids,
+            )
+            return [
+                result
+                for result in results
+                if result.result_type == "memory_item" and result.scope == Scope.PROJECT
+            ][:5]
+
+        if search_scope == MemorySearchScope.TEAM:
+            accessible_team_ids = {
+                membership.team_id
+                for membership in self.repository.list_team_memberships(user_id=user.id)
+            }
+            can_access_all_teams = user.role in {"admin", "team_lead"}
+            allowed_record_ids = {
+                item.id
+                for item in self.repository.memory_items
+                if item.workspace_id == effective_workspace_id
+                and item.scope == Scope.TEAM_ACCEPTED
+                and (
+                    item.team_id is None
+                    or can_access_all_teams
+                    or item.team_id in accessible_team_ids
+                )
+            }
+            results = self.repository.search(
+                query,
+                {Scope.TEAM_ACCEPTED},
+                workspace_id=effective_workspace_id,
+                user_id=None,  # allowed_record_ids already enforces team access
+                max_results=10,
+                result_types={"memory_item"},
+                allowed_record_ids=allowed_record_ids,
+            )
+            return [
+                result
+                for result in results
+                if result.result_type == "memory_item" and result.scope == Scope.TEAM_ACCEPTED
+            ][:5]
+
         tier1_results = self.repository.search(
             query,
             {Scope.TEAM_ACCEPTED},
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=effective_workspace_id,
+            project_id=effective_project_id,
             user_id=user.id,
             max_results=5,
         )
@@ -515,12 +775,11 @@ class PersonalAgent:
         if len(tier1_results) >= 3:
             return tier1_results[:5]
 
-        # Layer 2: mid_term + PROJECT (project-level shared memory)
         tier2_results = self.repository.search(
             query,
             {Scope.PROJECT, Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE},
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=effective_workspace_id,
+            project_id=effective_project_id,
             user_id=user.id,
             max_results=10,
         )
@@ -528,12 +787,11 @@ class PersonalAgent:
         if len(tier2_results) >= 3:
             return tier2_results[:5]
 
-        # Layer 3: short_term + PRIVATE (personal fine-grained facts)
         tier3_results = self.repository.search(
             query,
             {Scope.PRIVATE, Scope.PROJECT, Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED},
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=effective_workspace_id,
+            project_id=effective_project_id,
             user_id=user.id,
             max_results=10,
         )
@@ -541,10 +799,9 @@ class PersonalAgent:
         if tier3_results:
             return tier3_results[:5]
 
-        # Fallback: broad term matching over full memory pool
         terms = self._search_terms(query)
         scored_results: list[tuple[int, SearchResult]] = []
-        for result in self._memory_search_pool(user):
+        for result in self._memory_search_pool(user, effective_workspace_id, effective_project_id):
             text = f"{result.title} {result.summary}".lower()
             score = sum(1 for term in terms if term in text)
             if score >= 2:
@@ -560,29 +817,49 @@ class PersonalAgent:
         ]
 
     @staticmethod
-    def _count_cited_sources(llm_output: str, source_ids: list[str]) -> int:
-        """Count how many returned sources were referenced in the LLM output."""
+    def _count_cited_sources(
+        llm_output: str,
+        source_ids: list[str],
+        citation_labels: dict[str, str] | None = None,
+    ) -> int:
+        """Count returned result IDs referenced directly or through stable labels."""
         if not llm_output or not source_ids:
             return 0
-        return len(PersonalAgent._find_cited_source_ids(llm_output, source_ids))
+        return len(PersonalAgent._find_cited_source_ids(llm_output, source_ids, citation_labels))
 
     @staticmethod
-    def _find_cited_source_ids(llm_output: str, source_ids: list[str]) -> list[str]:
-        """Find source IDs whose content appears referenced in LLM output."""
+    def _find_cited_source_ids(
+        llm_output: str,
+        source_ids: list[str],
+        citation_labels: dict[str, str] | None = None,
+    ) -> list[str]:
+        """Map direct IDs and stable citation labels back to returned result IDs."""
         if not llm_output:
             return []
-        cited: list[str] = []
-        for source_id in source_ids:
-            if source_id in llm_output:
-                cited.append(source_id)
-        return cited
+        cited_by_label = {
+            result_id
+            for label, result_id in (citation_labels or {}).items()
+            if f"[{label}]" in llm_output
+        }
+        return [
+            source_id
+            for source_id in source_ids
+            if source_id in llm_output or source_id in cited_by_label
+        ]
 
-    def _memory_search_pool(self, user: User) -> list[SearchResult]:
+    def _memory_search_pool(
+        self,
+        user: User,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[SearchResult]:
+        effective_workspace_id = workspace_id or user.workspace_id
+        effective_project_id = project_id or user.default_project_id
         results: list[SearchResult] = []
         for item in self.repository.user_memory_items:
-            if item.user_id != user.id:
+            if item.user_id != user.id or item.workspace_id != effective_workspace_id:
                 continue
-            if item.workspace_id != WORKSPACE.id or item.project_id != PROJECT.id:
+            if item.project_id != effective_project_id:
                 continue
             results.append(
                 SearchResult(
@@ -592,13 +869,28 @@ class PersonalAgent:
                     summary=item.summary,
                     scope=item.scope,
                     sources=item.sources,
+                    project_id=item.project_id,
                     created_at=item.created_at,
                 )
             )
 
+        team_ids = {
+            membership.team_id
+            for membership in self.repository.list_team_memberships(user_id=user.id)
+        }
+        can_access_all_teams = user.role in {"admin", "team_lead"}
         for item in self.repository.memory_items:
-            if item.workspace_id != WORKSPACE.id or item.project_id != PROJECT.id:
+            if not self.repository.memory_item_visible_to_user(item, user.id):
                 continue
+            if item.workspace_id != effective_workspace_id or item.project_id != effective_project_id:
+                continue
+            if item.scope == Scope.PROJECT and item.project_id != effective_project_id:
+                continue
+            if item.scope in {Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE}:
+                if item.project_id != effective_project_id:
+                    continue
+                if item.team_id and not can_access_all_teams and item.team_id not in team_ids:
+                    continue
             results.append(
                 SearchResult(
                     id=item.id,
@@ -607,6 +899,8 @@ class PersonalAgent:
                     summary=item.summary,
                     scope=item.scope,
                     sources=item.sources,
+                    project_id=item.project_id,
+                    team_id=item.team_id,
                     created_at=item.created_at,
                 )
             )
@@ -614,7 +908,7 @@ class PersonalAgent:
         for document in self.repository.documents:
             if document.uploaded_by != user.id:
                 continue
-            if document.workspace_id != WORKSPACE.id or document.project_id != PROJECT.id:
+            if document.workspace_id != effective_workspace_id or document.project_id != effective_project_id:
                 continue
             results.append(
                 SearchResult(
@@ -624,10 +918,13 @@ class PersonalAgent:
                     summary=document.text[:500],
                     scope=Scope.PRIVATE,
                     sources=[document.source],
+                    project_id=document.project_id,
                     created_at=document.created_at,
                 )
             )
 
+        tasks_by_id = {task.id: task for task in self.repository.tasks}
+        threads_by_id = {thread.id: thread for thread in self.repository.chat_threads}
         for post in self.repository.blackboard_posts:
             if post.scope not in {Scope.PROJECT, Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED}:
                 continue
@@ -638,6 +935,14 @@ class PersonalAgent:
                 BlackboardPostType.ARCHIVE,
             }:
                 continue
+            task = tasks_by_id.get(post.task_id)
+            thread = threads_by_id.get(task.thread_id) if task else None
+            if (
+                thread is None
+                or thread.workspace_id != effective_workspace_id
+                or thread.project_id != effective_project_id
+            ):
+                continue
             results.append(
                 SearchResult(
                     id=post.id,
@@ -646,17 +951,74 @@ class PersonalAgent:
                     summary=post.content,
                     scope=post.scope,
                     sources=post.sources,
+                    project_id=thread.project_id,
                     created_at=post.created_at,
                 )
             )
         return results
 
     @staticmethod
-    def _create_memory_search_evidence(task: Task, results: list[SearchResult]) -> BlackboardPost:
-        sources: list[Source] = []
-        for result in results:
-            sources.extend(result.sources)
-        lines = [f"{index}. {result.title}：{result.summary}" for index, result in enumerate(results[:3], start=1)]
+    def _memory_kind(result: SearchResult) -> MemoryKind:
+        if result.result_type == "user_memory_item" or result.scope == Scope.PRIVATE:
+            return MemoryKind.PERSONAL
+        if result.scope == Scope.PROJECT:
+            return MemoryKind.PROJECT
+        return MemoryKind.TEAM
+
+    @classmethod
+    def _build_memory_search_trace(
+        cls,
+        requested_scope: MemorySearchScope,
+        results: list[SearchResult],
+    ) -> MemorySearchTrace:
+        prefixes = {
+            MemoryKind.PERSONAL: "P",
+            MemoryKind.PROJECT: "J",
+            MemoryKind.TEAM: "T",
+        }
+        kind_ranks = {kind: 0 for kind in MemoryKind}
+        evidence: list[RetrievedMemoryEvidence] = []
+        for rank, result in enumerate(results, start=1):
+            memory_kind = cls._memory_kind(result)
+            kind_ranks[memory_kind] += 1
+            evidence.append(
+                RetrievedMemoryEvidence(
+                    result_id=result.id,
+                    result_type=result.result_type,
+                    memory_kind=memory_kind,
+                    citation_label=f"{prefixes[memory_kind]}{kind_ranks[memory_kind]}",
+                    title=result.title,
+                    summary=result.summary,
+                    rank=rank,
+                    scope=result.scope,
+                    project_id=result.project_id,
+                    team_id=result.team_id,
+                    sources=result.sources,
+                )
+            )
+        return MemorySearchTrace(
+            requested_scope=requested_scope,
+            personal_count=kind_ranks[MemoryKind.PERSONAL],
+            project_count=kind_ranks[MemoryKind.PROJECT],
+            team_count=kind_ranks[MemoryKind.TEAM],
+            results=evidence,
+        )
+
+    @staticmethod
+    def _create_memory_search_evidence(
+        task: Task,
+        results: list[RetrievedMemoryEvidence],
+    ) -> BlackboardPost:
+        kind_labels = {
+            MemoryKind.PERSONAL: "个人记忆",
+            MemoryKind.PROJECT: "项目记忆",
+            MemoryKind.TEAM: "团队记忆",
+        }
+        sources = [source for result in results for source in result.sources]
+        lines = [
+            f"[{result.citation_label}][{kind_labels[result.memory_kind]}] {result.title}：{result.summary}"
+            for result in results
+        ]
         return BlackboardPost(
             task_id=task.id,
             post_type=BlackboardPostType.EVIDENCE,
@@ -710,8 +1072,8 @@ class PersonalAgent:
         acquisition_request = AcquisitionRequest(
             query=content,
             intent=intent,
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=user.workspace_id,
+            project_id=user.default_project_id,
             user_id=user.id,
             task_id=task.id,
             request_post_id=state.request_post.id,
@@ -719,6 +1081,7 @@ class PersonalAgent:
         acquisition_result = self._document_acquisition_result(acquisition_request)
         if acquisition_result is None:
             acquisition_result = self.acquisition_agent.acquire(acquisition_request)
+        self._capture_provider_metadata(state, acquisition_result.metadata)
         state.evidence_post = self._create_evidence_post(task, state.request_post, acquisition_result)
         content_risk = assess_external_content(acquisition_result.content)
         if content_risk.decision == RiskDecision.NEEDS_REVIEW:
@@ -739,12 +1102,7 @@ class PersonalAgent:
         self._persist_sources(state.evidence_post.sources)
         self.repository.add_blackboard_post(state.evidence_post)
         state.activity_logs.append(
-            self._activity(
-                title="请求外接 Agent 补充资料",
-                summary=f"{state.evidence_post.actor} 已返回资料证据和来源。",
-                category="external_agent",
-                scope=Scope.PROJECT,
-            )
+            self._activity(title="请求外接 Agent 补充资料", summary=f"{state.evidence_post.actor} 已返回资料证据和来源。", category="external_agent", scope=Scope.PROJECT, user_id=user.id)
         )
 
     def _document_acquisition_result(self, request: AcquisitionRequest) -> AcquisitionResult | None:
@@ -761,7 +1119,15 @@ class PersonalAgent:
             title="已检索上传文档",
             content=content,
             sources=sources,
-            metadata={"provider": "documents", "request_post_id": request.request_post_id},
+            metadata={
+                **provider_metadata(
+                    requested_provider="documents",
+                    actual_provider="documents",
+                    mode="real",
+                    latency_ms=0.0,
+                ),
+                "request_post_id": request.request_post_id,
+            },
         )
 
     def _document_search_results(self, request: AcquisitionRequest):
@@ -801,7 +1167,7 @@ class PersonalAgent:
                 )
         return fallback_results
 
-    def _handle_risk_review(self, task: Task, content: str, state: _ChatTurnState) -> None:
+    def _handle_risk_review(self, task: Task, content: str, state: _ChatTurnState, user: User) -> None:
         state.request_post = self._create_request_post(
             task,
             content,
@@ -816,12 +1182,7 @@ class PersonalAgent:
         self.repository.add_blackboard_post(state.risk_post)
         task.steps.extend(["created_blackboard_request", "received_policy_risk_review"])
         state.activity_logs.append(
-            self._activity(
-                title="请求 risk_agent 检查风险",
-                summary="risk_agent 已返回策略规则评审结论，并放入收件箱。",
-                category="external_agent",
-                scope=Scope.PROJECT,
-            )
+            self._activity(title="请求 risk_agent 检查风险", summary="risk_agent 已返回策略规则评审结论，并放入收件箱。", category="external_agent", scope=Scope.PROJECT, user_id=user.id)
         )
 
     def fulfill_research_request(self, request_post: BlackboardPost, user: User) -> ResearchFulfillment:
@@ -848,6 +1209,9 @@ class PersonalAgent:
         task = self.repository.get_task(request_post.task_id)
         if task is None:
             raise ValueError("Request post has no backing task")
+        thread = self.repository.get_chat_thread(task.thread_id)
+        if thread is None or thread.user_id != user.id:
+            raise ChatThreadNotFoundError(task.thread_id)
 
         activity_logs: list[ActivityLog] = []
         inbox_items: list[InboxItem] = []
@@ -856,8 +1220,8 @@ class PersonalAgent:
             AcquisitionRequest(
                 query=request_post.content,
                 intent=task.intent,
-                workspace_id=WORKSPACE.id,
-                project_id=PROJECT.id,
+                workspace_id=thread.workspace_id,
+                project_id=thread.project_id,
                 user_id=user.id,
                 task_id=task.id,
                 request_post_id=request_post.id,
@@ -886,12 +1250,7 @@ class PersonalAgent:
             task.updated_at = now_utc()
             self.repository.save_task(task)
             activity_logs.append(
-                self._activity(
-                    title="BBS 求助资料被隔离",
-                    summary=f"{evidence_post.actor} 返回的资料疑似含提示词注入，已隔离并转人工审核。",
-                    category="external_agent",
-                    scope=Scope.PROJECT,
-                )
+                self._activity(title="BBS 求助资料被隔离", summary=f"{evidence_post.actor} 返回的资料疑似含提示词注入，已隔离并转人工审核。", category="external_agent", scope=Scope.PROJECT, user_id=user.id)
             )
             self._audit(
                 "fulfill_blackboard_request",
@@ -912,12 +1271,7 @@ class PersonalAgent:
         self.repository.add_blackboard_post(evidence_post)
         task.steps.append("received_blackboard_evidence")
         activity_logs.append(
-            self._activity(
-                title="BBS 求助得到补充",
-                summary=f"{evidence_post.actor} 在项目 BBS 回帖补充了可引用证据。",
-                category="external_agent",
-                scope=Scope.PROJECT,
-            )
+            self._activity(title="BBS 求助得到补充", summary=f"{evidence_post.actor} 在项目 BBS 回帖补充了可引用证据。", category="external_agent", scope=Scope.PROJECT, user_id=user.id)
         )
         assistant_message, llm_used = self._finalize_research_evidence(task, request_post, evidence_post, user)
         self._audit(
@@ -1005,12 +1359,7 @@ class PersonalAgent:
         if action == "release":
             task.steps.append("released_quarantined_research_evidence")
             activity_logs = [
-                self._activity(
-                    title="人工放行隔离资料",
-                    summary="审核确认外部资料安全，已放行用于回答合成并完成 BBS 求助。",
-                    category="external_agent",
-                    scope=Scope.PROJECT,
-                )
+                self._activity(title="人工放行隔离资料", summary="审核确认外部资料安全，已放行用于回答合成并完成 BBS 求助。", category="external_agent", scope=Scope.PROJECT, user_id=user.id)
             ]
             assistant_message, llm_used = self._finalize_research_evidence(task, request_post, evidence_post, user)
             self._audit(
@@ -1039,12 +1388,7 @@ class PersonalAgent:
         task.updated_at = now_utc()
         self.repository.save_task(task)
         activity_logs = [
-            self._activity(
-                title="人工丢弃隔离资料",
-                summary="审核确认外部资料存在风险，已丢弃证据并终止该 BBS 求助任务。",
-                category="external_agent",
-                scope=Scope.PROJECT,
-            )
+            self._activity(title="人工丢弃隔离资料", summary="审核确认外部资料存在风险，已丢弃证据并终止该 BBS 求助任务。", category="external_agent", scope=Scope.PROJECT, user_id=user.id)
         ]
         self._audit(
             "resolve_quarantined_research",
@@ -1164,7 +1508,7 @@ class PersonalAgent:
                 source_kind="delegated_answer",
                 memory_type="note",
                 workspace_id=asker.workspace_id,
-                project_id=PROJECT.id,
+                project_id=asker.default_project_id,
                 sources=list(answer.citations),
             )
         )
@@ -1517,6 +1861,7 @@ class PersonalAgent:
                     summary="转化目标优先时，首屏应优先保证核心入口密度。",
                     memory_type="method",
                     sources=state.synthesis_evidence_post.sources if state.synthesis_evidence_post else [],
+                    owner_user_id=user.id,
                 )
             )
             return "我已提取一条候选团队记忆，并放入记忆库审核，不会自动写入团队记忆。"
@@ -1524,6 +1869,19 @@ class PersonalAgent:
             return "这个请求涉及高风险工具调用，需要你先在收件箱审批，我不会在审批前执行。"
         if state.evidence_post and state.evidence_post.status == "needs_review":
             return "外部资料存在安全风险，已放入收件箱等待审核。"
+        if (
+            intent == Intent.ASK_MEMORY
+            and state.memory_search
+            and state.memory_search.requested_scope != MemorySearchScope.AUTO
+            and not state.memory_search.results
+        ):
+            scope_labels = {
+                MemorySearchScope.PERSONAL: "个人记忆",
+                MemorySearchScope.PROJECT: "当前项目记忆",
+                MemorySearchScope.TEAM: "可访问的已采纳团队记忆",
+            }
+            scope_label = scope_labels[state.memory_search.requested_scope]
+            return f"没有在{scope_label}中找到相关结果；未跨范围检索或发起团队求助。"
         if intent == Intent.ASK_MEMORY and state.request_post and state.evidence_post is None:
             return "我没有在个人、项目或团队记忆中找到足够结果，已在项目 BBS 发帖等待团队或服务 Agent 补充。"
         return self._evidence_answer(state.synthesis_evidence_post, intent, content)
@@ -1552,6 +1910,7 @@ class PersonalAgent:
             f"{'用户' if message.role == ChatRole.USER else '助理'}：{message.content}" for message in history[-6:]
         )
         prompt = f"历史上下文：\n{history_text or '无'}\n\n用户输入：{content}\n请直接自然回复，不要创建任务或编造数据。"
+        requested_model, _, _ = llm_model_provenance(llm_client)
         try:
             generated = llm_client.complete(
                 system_prompt=(
@@ -1567,11 +1926,24 @@ class PersonalAgent:
                 content="我可以继续和你澄清需求；当问题明确需要查资料、查数据、生成 Brief 或沉淀记忆时，我会进入对应 Agent 工作流。",
                 llm_used=False,
                 fallback_reason=reason,
+                requested_model=requested_model,
             )
         content_text = generated.strip()
         if not content_text:
-            return SynthesisResult(content="我在，可以继续说。", llm_used=False, fallback_reason="empty_response")
-        return SynthesisResult(content=content_text, llm_used=True)
+            return SynthesisResult(
+                content="我在，可以继续说。",
+                llm_used=False,
+                fallback_reason="empty_response",
+                requested_model=requested_model,
+            )
+        requested_model, actual_model, model_fallback_reason = llm_model_provenance(llm_client)
+        return SynthesisResult(
+            content=content_text,
+            llm_used=True,
+            fallback_reason=model_fallback_reason,
+            requested_model=requested_model,
+            actual_model=actual_model,
+        )
 
     def _create_request_post(
         self,
@@ -1616,6 +1988,7 @@ class PersonalAgent:
             scope=Scope.PROJECT,
             permission=result.permission,
             sources=result.sources,
+            metadata=result.metadata,
             read_by_agents=[request_post.actor],
             related_post_id=request_post.id,
             collaboration_stage=CollaborationStage.REVIEW,
@@ -1624,16 +1997,31 @@ class PersonalAgent:
             done_when="个人 Agent 完成证据合成并返回用户",
         )
 
-    def _ensure_thread(self, thread_id: str, content: str, user: User) -> ChatThread:
+    def _ensure_thread(
+        self,
+        thread_id: str,
+        content: str,
+        user: User,
+        *,
+        allow_create: bool = False,
+    ) -> ChatThread:
         existing_thread = self.repository.get_chat_thread(thread_id)
         if existing_thread is not None:
+            if (
+                existing_thread.user_id != user.id
+                or existing_thread.workspace_id != user.workspace_id
+                or existing_thread.project_id != user.default_project_id
+            ):
+                raise ChatThreadNotFoundError(thread_id)
             return existing_thread
+        if not allow_create:
+            raise ChatThreadNotFoundError(thread_id)
         title = content.strip()[:60] or "新的团队大脑对话"
         return self.repository.add_chat_thread(
             ChatThread(
                 id=thread_id,
-                workspace_id=WORKSPACE.id,
-                project_id=PROJECT.id,
+                workspace_id=user.workspace_id,
+                project_id=user.default_project_id,
                 user_id=user.id,
                 title=title,
             )
@@ -1659,15 +2047,24 @@ class PersonalAgent:
         result.reverse()
         return result
 
-    def _activity(self, title: str, summary: str, category: str, scope: Scope) -> ActivityLog:
+    def _activity(
+        self,
+        title: str,
+        summary: str,
+        category: str,
+        scope: Scope,
+        user_id: str,
+    ) -> ActivityLog:
+        owner = self.repository.get_user(user_id)
         log = ActivityLog(
             actor=self.actor,
+            user_id=user_id,
             title=title,
             summary=summary,
             category=category,
             scope=scope,
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=owner.workspace_id if owner is not None else WORKSPACE.id,
+            project_id=owner.default_project_id if owner is not None else PROJECT.id,
         )
         self.repository.add_activity_log(log)
         return log
@@ -1692,8 +2089,8 @@ class PersonalAgent:
                 content_type="text/markdown",
                 text=draft,
                 source=document_source,
-                workspace_id=WORKSPACE.id,
-                project_id=PROJECT.id,
+                workspace_id=user.workspace_id,
+                project_id=user.default_project_id,
                 uploaded_by=user.id,
                 metadata={
                     "generated_by": self.actor,
@@ -1769,14 +2166,15 @@ class PersonalAgent:
         user_id: str,
         metadata: dict[str, str] | None = None,
     ) -> InboxItem:
+        owner = self.repository.get_user(user_id)
         item = InboxItem(
             title=title,
             summary=summary,
             item_type=item_type,
             scope=scope,
             user_id=user_id,
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=owner.workspace_id if owner is not None else WORKSPACE.id,
+            project_id=owner.default_project_id if owner is not None else PROJECT.id,
             metadata=metadata or {},
         )
         self.repository.add_inbox_item(item)
@@ -1788,14 +2186,17 @@ class PersonalAgent:
         summary: str,
         memory_type: str,
         sources: list[Source],
+        owner_user_id: str,
     ) -> MemoryItem:
+        owner = self.repository.get_user(owner_user_id)
         item = MemoryItem(
             title=title,
             summary=summary,
             memory_type=memory_type,
             scope=Scope.TEAM_CANDIDATE,
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            owner_user_id=owner_user_id,
+            workspace_id=owner.workspace_id if owner is not None else WORKSPACE.id,
+            project_id=owner.default_project_id if owner is not None else PROJECT.id,
             sources=sources,
         )
         self.repository.add_memory_item(item)
@@ -1824,8 +2225,8 @@ class PersonalAgent:
             source_kind=f"chat_workflow:{intent.value}",
             memory_type=self._short_term_memory_type(intent),
             memory_date=now_utc().date(),
-            workspace_id=WORKSPACE.id,
-            project_id=PROJECT.id,
+            workspace_id=user.workspace_id,
+            project_id=user.default_project_id,
             source_thread_id=task.thread_id,
             source_task_id=task.id,
             sources=sources,
@@ -1833,9 +2234,78 @@ class PersonalAgent:
         return self.repository.add_user_memory_item(item)
 
     def _audit(self, action: str, target_type: str, target_id: str, metadata: dict[str, object]) -> None:
+        workspace_id, project_id = self._audit_scope(target_type, target_id, metadata)
         self.repository.add_audit_event(
-            AuditEvent(actor=self.actor, action=action, target_type=target_type, target_id=target_id, metadata=metadata)
+            AuditEvent(
+                actor=self.actor,
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                workspace_id=workspace_id,
+                project_id=project_id,
+                metadata=metadata,
+            )
         )
+
+    def _audit_scope(
+        self,
+        target_type: str,
+        target_id: str,
+        metadata: dict[str, object],
+    ) -> tuple[str | None, str | None]:
+        target = None
+        task = None
+        if target_type == "task":
+            task = self.repository.get_task(target_id)
+        elif target_type == "blackboard_post":
+            post = self.repository.get_blackboard_post(target_id)
+            task = self.repository.get_task(post.task_id) if post is not None else None
+        elif target_type == "chat_message":
+            message = next((item for item in self.repository.chat_messages if item.id == target_id), None)
+            target = self.repository.get_chat_thread(message.thread_id) if message is not None else None
+        elif target_type == "inbox_item":
+            target = self.repository.get_inbox_item(target_id)
+        elif target_type == "document":
+            target = self.repository.get_document(target_id)
+        elif target_type == "memory_item":
+            target = self.repository.get_memory_item(target_id)
+        elif target_type == "user_memory_item":
+            target = self.repository.get_user_memory_item(target_id)
+        elif target_type == "user":
+            target = self.repository.get_user(target_id)
+        elif target_type == "consent_grant":
+            target = next((item for item in self.repository.consent_grants if item.id == target_id), None)
+        elif target_type == "contribution_point":
+            target = next((item for item in self.repository.contribution_points if item.id == target_id), None)
+
+        if task is None and isinstance(metadata.get("task_id"), str):
+            task = self.repository.get_task(metadata["task_id"])
+        if task is not None:
+            target = self.repository.get_chat_thread(task.thread_id)
+
+        workspace_id = getattr(target, "workspace_id", None)
+        project_id = getattr(target, "project_id", None)
+        if workspace_id is None and isinstance(metadata.get("workspace_id"), str):
+            workspace_id = metadata["workspace_id"]
+        if project_id is None and isinstance(metadata.get("project_id"), str):
+            project_id = metadata["project_id"]
+
+        candidate_user_ids = [
+            getattr(target, "user_id", None),
+            getattr(target, "owner_user_id", None),
+            target_id if target_type == "user" else None,
+            *(metadata.get(key) for key in ("user", "target", "grantor", "by", "awarded_to", "helper", "asker")),
+        ]
+        for candidate_user_id in candidate_user_ids:
+            if not isinstance(candidate_user_id, str):
+                continue
+            user = self.repository.get_user(candidate_user_id)
+            if user is None:
+                continue
+            workspace_id = workspace_id or user.workspace_id
+            project_id = project_id or user.default_project_id
+            break
+        return workspace_id, project_id
 
     def _persist_sources(self, sources: list[Source]) -> None:
         for source in sources:
@@ -1850,8 +2320,8 @@ class PersonalAgent:
                 user_memory_items=self.repository.user_memory_items,
                 existing_skills=self.repository.learned_skills,
                 user_id=user.id,
-                workspace_id=WORKSPACE.id,
-                project_id=PROJECT.id,
+                workspace_id=user.workspace_id,
+                project_id=user.default_project_id,
             )
             for skill in new_skills:
                 self.repository.add_learned_skill(skill)
@@ -1958,6 +2428,54 @@ class PersonalAgent:
             Intent.GENERAL_CHAT: "note",
         }
         return labels[intent]
+
+    def _llm_provider_label(self, user: User, llm_client: ChatLLM | None) -> str:
+        model_name = getattr(llm_client, "model", None)
+        if isinstance(model_name, str) and model_name:
+            return model_name
+        model_id = resolve_agent_model_id(self.repository, user)
+        model = self.repository.get_model_definition(model_id)
+        return model.model_name if model is not None else model_id
+
+    @staticmethod
+    def _capture_provider_metadata(state: _ChatTurnState, metadata: dict[str, str]) -> None:
+        state.requested_provider = metadata.get("requested_provider") or state.requested_provider
+        state.actual_provider = metadata.get("actual_provider") or state.actual_provider
+        mode = metadata.get("mode")
+        if mode in {"real", "fallback"}:
+            state.provider_mode = mode
+        latency = metadata.get("latency_ms")
+        if latency:
+            try:
+                state.provider_latency_ms = max(0.0, float(latency))
+            except ValueError:
+                state.provider_latency_ms = None
+        state.provider_fallback_reason = metadata.get("fallback_reason") or state.provider_fallback_reason
+
+    def _apply_trace_provenance(
+        self,
+        trace: ChatWorkflowTrace,
+        state: _ChatTurnState,
+        user: User,
+        synthesis_latency_ms: float | None,
+    ) -> None:
+        if state.requested_provider is not None or state.actual_provider is not None:
+            trace.requested_provider = state.requested_provider or state.actual_provider
+            trace.actual_provider = state.actual_provider or state.requested_provider
+            trace.provider_mode = state.provider_mode or "real"
+            trace.latency_ms = state.provider_latency_ms
+            trace.fallback_reason = trace.fallback_reason or state.provider_fallback_reason
+            return
+        if trace.llm_used:
+            trace.requested_provider = "llm"
+            trace.actual_provider = "llm"
+            trace.provider_mode = "real"
+            trace.latency_ms = synthesis_latency_ms
+            return
+        trace.requested_provider = "llm" if trace.model_fallback_reason else "agentmesh"
+        trace.actual_provider = "local_fallback" if trace.model_fallback_reason else "agentmesh"
+        trace.provider_mode = "fallback" if trace.model_fallback_reason else "real"
+        trace.latency_ms = synthesis_latency_ms
 
     @staticmethod
     def _command_workflow_trace(

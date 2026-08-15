@@ -11,22 +11,32 @@ from agentmesh.models import (
     AgentCreateRequest,
     AgentMemoryBinding,
     AgentModelUpdateRequest,
+    AgentsResponse,
     AgentToolsUpdateRequest,
     AgentUpdateRequest,
     BlackboardPost,
+    BootstrapState,
     CollaborationStage,
     ItemsResponse,
+    ModelsResponse,
+    O2StatusResponse,
     O2SyncResponse,
     ScheduledAgentTaskCreateRequest,
     ScheduledAgentTaskDefinition,
     ScheduledAgentTaskUpdateRequest,
+    ToolsResponse,
     User,
     new_id,
     now_utc,
 )
 from agentmesh.o2 import O2RegistryAdapter
-from agentmesh.permissions import ensure_admin, ensure_can_manage_agent, ensure_can_manage_agent_tools
-from agentmesh.routes.deps import create_audit_event, current_user
+from agentmesh.permissions import (
+    ACTION_MANAGE_PUBLIC_AGENT,
+    ACTION_SYNC_O2,
+    ensure_can_manage_agent,
+    ensure_can_manage_agent_tools,
+)
+from agentmesh.routes.deps import create_audit_event, current_user, require_permission
 from agentmesh.seed import AGENTS, bootstrap_state, list_agents
 from agentmesh.store import store
 from agentmesh.tools import list_agent_tools, list_enabled_tools, set_agent_tools, sync_o2_tools
@@ -93,15 +103,15 @@ def agents_with_runtime_state() -> list[Agent]:
     return hydrated
 
 
-@router.get("/bootstrap")
-def bootstrap(user: User = Depends(current_user)):
+@router.get("/bootstrap", response_model=BootstrapState)
+def bootstrap(user: User = Depends(current_user)) -> BootstrapState:
     state = bootstrap_state(store, user)
     return state.model_copy(update={"agents": agents_with_runtime_state()})
 
 
-@router.get("/agents", response_model=ItemsResponse)
-def agents(_: User = Depends(current_user)) -> ItemsResponse:
-    return ItemsResponse(items=agents_with_runtime_state())
+@router.get("/agents", response_model=AgentsResponse)
+def agents(_: User = Depends(require_permission(ACTION_MANAGE_PUBLIC_AGENT))) -> AgentsResponse:
+    return AgentsResponse(items=agents_with_runtime_state())
 
 
 @router.get("/agents/public", response_model=ItemsResponse)
@@ -111,8 +121,8 @@ def public_agents(_: User = Depends(current_user)) -> ItemsResponse:
 
 @router.get("/agents/me", response_model=Agent)
 def my_agent(user: User = Depends(current_user)) -> Agent:
-    found = store.get_agent(user.personal_agent_id) or next(
-        (item for item in AGENTS if item.id == user.personal_agent_id),
+    found = next(
+        (item for item in agents_with_runtime_state() if item.id == user.personal_agent_id),
         None,
     )
     if found is None:
@@ -154,14 +164,14 @@ def update_agent(agent_id: str, request: AgentUpdateRequest, user: User = Depend
     return store.save_agent(updated)
 
 
-@router.get("/tools", response_model=ItemsResponse)
-def tools(_: User = Depends(current_user)) -> ItemsResponse:
-    return ItemsResponse(items=list_enabled_tools(store))
+@router.get("/tools", response_model=ToolsResponse)
+def tools(_: User = Depends(current_user)) -> ToolsResponse:
+    return ToolsResponse(items=list_enabled_tools(store))
 
 
-@router.get("/models", response_model=ItemsResponse)
-def models(_: User = Depends(current_user)) -> ItemsResponse:
-    return ItemsResponse(items=list_enabled_models(store))
+@router.get("/models", response_model=ModelsResponse)
+def models(_: User = Depends(current_user)) -> ModelsResponse:
+    return ModelsResponse(items=list_enabled_models(store))
 
 
 @router.patch("/agents/{agent_id}/model", response_model=Agent)
@@ -180,20 +190,21 @@ def update_agent_model(
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@router.get("/agents/{agent_id}/tools", response_model=ItemsResponse)
-def agent_tools_list(agent_id: str, _: User = Depends(current_user)) -> ItemsResponse:
+@router.get("/agents/{agent_id}/tools", response_model=ToolsResponse)
+def agent_tools_list(agent_id: str, user: User = Depends(current_user)) -> ToolsResponse:
     found = store.get_agent(agent_id) or next((item for item in AGENTS if item.id == agent_id), None)
     if found is None:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return ItemsResponse(items=list_agent_tools(store, agent_id))
+    ensure_can_manage_agent_tools(user, found, store.permission_policy_rules)
+    return ToolsResponse(items=list_agent_tools(store, agent_id))
 
 
-@router.patch("/agents/{agent_id}/tools", response_model=ItemsResponse)
+@router.patch("/agents/{agent_id}/tools", response_model=ToolsResponse)
 def update_agent_tools(
     agent_id: str,
     request: AgentToolsUpdateRequest,
     user: User = Depends(current_user),
-) -> ItemsResponse:
+) -> ToolsResponse:
     found = store.get_agent(agent_id) or next((item for item in AGENTS if item.id == agent_id), None)
     if found is None:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -202,20 +213,21 @@ def update_agent_tools(
         result = set_agent_tools(store, agent_id, request.tool_ids, user)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    return ItemsResponse(items=result)
+    return ToolsResponse(items=result)
 
 
 @router.get("/agents/scheduled-tasks", response_model=ItemsResponse)
-def scheduled_agent_tasks(_: User = Depends(current_user)) -> ItemsResponse:
+def scheduled_agent_tasks(
+    _: User = Depends(require_permission(ACTION_MANAGE_PUBLIC_AGENT)),
+) -> ItemsResponse:
     return ItemsResponse(items=list(reversed(store.scheduled_agent_task_definitions)))
 
 
 @router.post("/agents/scheduled-tasks", response_model=ScheduledAgentTaskDefinition)
 def create_scheduled_agent_task(
     request: ScheduledAgentTaskCreateRequest,
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission(ACTION_MANAGE_PUBLIC_AGENT)),
 ) -> ScheduledAgentTaskDefinition:
-    ensure_admin(user)
     found = store.get_agent(request.agent_id) or next((item for item in AGENTS if item.id == request.agent_id), None)
     if found is None:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -238,9 +250,8 @@ def create_scheduled_agent_task(
 def update_scheduled_agent_task(
     definition_id: str,
     request: ScheduledAgentTaskUpdateRequest,
-    user: User = Depends(current_user),
+    user: User = Depends(require_permission(ACTION_MANAGE_PUBLIC_AGENT)),
 ) -> ScheduledAgentTaskDefinition:
-    ensure_admin(user)
     definition = store.get_scheduled_agent_task_definition(definition_id)
     if definition is None:
         raise HTTPException(status_code=404, detail="Scheduled agent task not found")
@@ -260,14 +271,15 @@ def update_scheduled_agent_task(
     return definition
 
 
-@router.get("/integrations/o2/status")
-def o2_status(_: User = Depends(current_user)) -> dict[str, object]:
-    return o2_registry.status()
+@router.get("/integrations/o2/status", response_model=O2StatusResponse)
+def o2_status(_: User = Depends(require_permission(ACTION_SYNC_O2))) -> O2StatusResponse:
+    return O2StatusResponse.model_validate(o2_registry.status())
 
 
 @router.post("/integrations/o2/sync", response_model=O2SyncResponse)
-def sync_o2_tool_registry(user: User = Depends(current_user)) -> O2SyncResponse:
-    ensure_admin(user)
+def sync_o2_tool_registry(
+    user: User = Depends(require_permission(ACTION_SYNC_O2)),
+) -> O2SyncResponse:
     try:
         synced_tools = sync_o2_tools(store, user)
     except Exception as error:
