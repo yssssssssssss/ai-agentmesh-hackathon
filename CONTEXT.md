@@ -17,6 +17,8 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
 `/legacy/app.html` 和 `/app.html` 保留为回滚入口。它不再是默认入口，也不再承载新功能。
 完整替换设计见 `docs/superpowers/specs/2026-08-11-react-frontend-complete-replacement-design.md`。
 
+参考 UI 混合展示分支 `feature/reference-ui-mt-data` 以下载目录 Mock 前端作为视觉基线，并使用 Presenter 组合真实查询与参考展示数据。页面中的 `T数据` 表示当前登录用户可访问的服务端数据，`M数据` 表示参考 Mock、固定页面常量或明确的演示 seed。Mock 只补展示，不得模拟权限、状态或 mutation 成功。DigitalSelf、Knowledge、Collaboration、Insights 已完成页面代码改造，等待真人验收后合并；AI 工作台业务逻辑是冻结边界。
+
 运行边界：当前 MVP 仅支持单 Workspace、单应用进程和单 SQLite 数据库，并且只部署在可信内网。多 Workspace 租户、SQLite 多进程协调、水平扩容、高可用和公网加固均为 Post-MVP。发布前必须在具备授权凭证/CLI 的内网宿主机运行五类真实 Provider smoke；fallback 通过单元测试不等于真实 Provider 发布验收通过。
 
 ## Terms

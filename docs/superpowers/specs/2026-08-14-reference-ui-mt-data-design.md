@@ -14,6 +14,12 @@
 
 任何会改变服务端状态的操作都必须调用真实后端并服从 `allowed_actions`、版本、权限和状态机。没有后端能力时，操作应显示“能力暂未接入”，不得用本地状态或 Toast 伪造成功。
 
+## 执行顺序覆盖
+
+用户在 Wave 2 reviewer 修复阶段确认：先完成所有页面代码修改，后续验证由真人执行。自该确认起，不再运行自动测试、构建、Playwright 或视觉自动化。页面代码交付后使用 `docs/superpowers/plans/2026-08-14-reference-ui-mt-data-human-acceptance.md` 进行人工验收。此前已经产生的自动验证结果只作为阶段记录，不代表 reviewer 修复后的最终验收。
+
+用户后续显式覆盖 AI 工作台冻结边界，仅允许两项页面级修改：`thread_graph_demo` 恢复参考 618 演示会话，以及移除无条件显示的“搜索可见资料”区块。消息发送、历史、上传、来源详情、`$` Skill、ChatTurnTrace 和记忆检索协议继续冻结。
+
 ## 当前事实
 
 两套前端的 `src/index.css` 和 `tailwind.config.js` 完全一致。背景、字体、卡片、圆角、阴影和颜色 token 没有丢失。当前页面差异主要来自以下改造：

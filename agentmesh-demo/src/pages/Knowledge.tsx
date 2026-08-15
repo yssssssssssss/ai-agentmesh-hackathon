@@ -1,46 +1,61 @@
-import { useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { BookMarked, CheckCircle2, FileText, RefreshCw } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useLocation, useSearchParams } from 'react-router-dom'
+import { CheckCircle2, RefreshCw } from 'lucide-react'
 
+import { ApiError } from '../api/client'
+import { AssetsPanel } from '../components/knowledge/AssetsPanel'
 import { ConfirmKnowledgeModal } from '../components/knowledge/ConfirmKnowledgeModal'
-import { KnowledgeCard } from '../components/knowledge/KnowledgeCard'
-import { PendingKnowledgeCard } from '../components/knowledge/PendingKnowledgeCard'
-import { ReuseSection } from '../components/knowledge/ReuseSection'
+import {
+  KnowledgeDetailDrawer,
+  type DrawerTarget,
+} from '../components/knowledge/KnowledgeDetailDrawer'
+import { PendingCandidatePanel } from '../components/knowledge/PendingCandidatePanel'
+import { ShareTimeline } from '../components/knowledge/ShareTimeline'
 import { Button } from '../components/ui/Button'
+import { DataSourceBadge } from '../components/ui/DataSourceBadge'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Tabs, type TabItem } from '../components/ui/Tabs'
-import type { InboxItem, UserMemoryItem } from '../features/knowledge/api'
+import { useAuth } from '../features/auth/AuthProvider'
+import {
+  buildKnowledgeViewModel,
+  type KnowledgeResource,
+  type PendingKnowledgeView,
+} from '../features/knowledge/presenter'
 import {
   governanceErrorMessage,
   useDocumentQuery,
   useKnowledgeMutations,
   useKnowledgeQueries,
 } from '../features/knowledge/queries'
-import { useAuth } from '../features/auth/AuthProvider'
 
-function userMemoryCard(item: UserMemoryItem, projectName: string, currentProjectId: string) {
-  return {
-    id: item.id ?? item.title,
-    title: item.title,
-    summary: item.summary,
-    memoryType: item.memory_type,
-    scope: '仅自己',
-    project: item.project_id === currentProjectId ? projectName : item.project_id ?? '未关联项目',
-    updated: item.updated_at,
-    sources: item.sources,
-  }
+const KNOWLEDGE_TABS = ['assets', 'pending', 'shared'] as const
+type KnowledgeTab = (typeof KNOWLEDGE_TABS)[number]
+type PendingAction = 'confirm' | 'snooze' | 'resolve' | 'release' | 'discard' | 'accept'
+
+function normalizeTab(value: string | null | undefined): KnowledgeTab {
+  return KNOWLEDGE_TABS.includes(value as KnowledgeTab) ? value as KnowledgeTab : 'assets'
 }
 
-const KNOWLEDGE_TABS = ['pending', 'personal', 'candidates', 'shared', 'documents'] as const
-type KnowledgeTab = (typeof KNOWLEDGE_TABS)[number]
+interface QuerySnapshot<T> {
+  data?: T
+  isLoading: boolean
+  error: unknown
+}
 
-function normalizeTab(value: string | null): KnowledgeTab {
-  return KNOWLEDGE_TABS.includes(value as KnowledgeTab) ? (value as KnowledgeTab) : 'pending'
+export function queryResource<T>(query: QuerySnapshot<T>): KnowledgeResource<T> {
+  if (query.error instanceof ApiError && query.error.status === 403) {
+    return { state: 'forbidden', error: governanceErrorMessage(query.error) }
+  }
+  if (query.error) return { state: 'error', error: governanceErrorMessage(query.error) }
+  if (query.isLoading) return { state: 'loading' }
+  if (query.data !== undefined) return { state: 'available', data: query.data }
+  return { state: 'empty' }
 }
 
 export function Knowledge() {
   const { user, bootstrap } = useAuth()
-  const [params, setParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation() as { state?: { tab?: string } | null }
   const context = {
     userId: user?.id ?? '',
     workspaceId: user?.workspace_id ?? '',
@@ -49,37 +64,59 @@ export function Knowledge() {
   const projectName = bootstrap?.project.name ?? context.projectId
   const queries = useKnowledgeQueries(context)
   const mutations = useKnowledgeMutations()
-  const tab = normalizeTab(params.get('tab'))
+  const [tab, setTabState] = useState<KnowledgeTab>(() => normalizeTab(searchParams.get('tab') ?? location.state?.tab))
   const setTab = (nextTab: string) => {
-    const next = new URLSearchParams(params)
-    if (nextTab === 'pending') next.delete('tab')
-    else next.set('tab', nextTab)
-    setParams(next, { replace: true })
+    const normalized = normalizeTab(nextTab)
+    setTabState(normalized)
+    const next = new URLSearchParams(searchParams)
+    if (normalized === 'assets') next.delete('tab')
+    else next.set('tab', normalized)
+    setSearchParams(next, { replace: true })
   }
-  const [selectedBrief, setSelectedBrief] = useState<InboxItem | null>(null)
+
+  const viewModel = useMemo(
+    () => buildKnowledgeViewModel({
+      projectId: context.projectId,
+      projectName,
+      inbox: queryResource(queries.inbox),
+      memory: queryResource(queries.memory),
+      overview: queryResource(queries.overview),
+      documents: queryResource(queries.documents),
+      usage: { state: 'unsupported' },
+    }),
+    [
+      context.projectId,
+      projectName,
+      queries.documents.data,
+      queries.documents.error,
+      queries.documents.isLoading,
+      queries.inbox.data,
+      queries.inbox.error,
+      queries.inbox.isLoading,
+      queries.memory.data,
+      queries.memory.error,
+      queries.memory.isLoading,
+      queries.overview.data,
+      queries.overview.error,
+      queries.overview.isLoading,
+    ],
+  )
+  const tabs: TabItem[] = viewModel.tabs.map((item) => ({
+    key: item.key,
+    label: item.label,
+    count: item.count.value,
+  }))
+
+  const [selectedBriefId, setSelectedBriefId] = useState<string | null>(null)
+  const [drawerTarget, setDrawerTarget] = useState<DrawerTarget | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const selectedBrief = queries.inbox.data?.items.find((item) => item.id === selectedBriefId) ?? null
   const documentId = selectedBrief?.metadata?.document_id ?? null
   const documentQuery = useDocumentQuery(context, documentId)
-
-  const inboxItems = queries.inbox.data?.items ?? []
-  const openInbox = inboxItems.filter((item) => item.status !== 'resolved')
-  const memories = (queries.memory.data?.items ?? []).filter((item) => item.project_id === context.projectId)
-  const candidates = memories.filter((item) => item.scope === 'team_candidate' && item.status === 'proposed')
-  const shared = memories.filter((item) => item.scope === 'team_accepted')
-  const personal = queries.overview.data?.sections.short ?? []
-  const project = queries.overview.data?.sections.project ?? []
-  const archive = queries.overview.data?.sections.archive ?? []
-  const documents = queries.documents.data?.items ?? []
-
-  const tabs: TabItem[] = [
-    { key: 'pending', label: '待我确认', count: openInbox.length },
-    { key: 'personal', label: '个人知识', count: personal.length + project.length + archive.length },
-    { key: 'candidates', label: '团队候选', count: candidates.length },
-    { key: 'shared', label: '已共享', count: shared.length },
-    { key: 'documents', label: '文档', count: documents.length },
-  ]
   const busy = Object.values(mutations).some((mutation) => mutation.isPending)
+  const pendingReadOnly = viewModel.pending.loading || viewModel.pending.error !== null
+  const documentReadOnly = documentQuery.isLoading || documentQuery.error !== null
   const queryError = queries.inbox.error ?? queries.memory.error ?? queries.overview.error ?? queries.documents.error
 
   const run = async (action: () => Promise<unknown>, success: string) => {
@@ -93,8 +130,14 @@ export function Knowledge() {
     }
   }
 
+  const openBrief = (item: PendingKnowledgeView) => {
+    if (pendingReadOnly || !item.allowedActions.value.includes('confirm_brief')) return
+    setDrawerTarget(null)
+    setSelectedBriefId(item.id.value)
+  }
+
   const confirmBrief = async (text: string, expectedDocumentVersion: number) => {
-    if (!selectedBrief) return
+    if (!selectedBrief || pendingReadOnly || documentReadOnly) return
     setError(null)
     setMessage(null)
     try {
@@ -110,113 +153,115 @@ export function Knowledge() {
     }
   }
 
+  const handlePendingAction = (item: PendingKnowledgeView, action: PendingAction) => {
+    if (pendingReadOnly) return
+    if (action === 'confirm') {
+      openBrief(item)
+      return
+    }
+    setDrawerTarget(null)
+    if (action === 'accept') {
+      void run(() => mutations.acceptMemory.mutateAsync(item.id.value), '团队候选已接受并进入共享知识。')
+      return
+    }
+    if (action === 'snooze' || action === 'resolve') {
+      const status = action === 'snooze' ? 'snoozed' : 'resolved'
+      const success = action === 'snooze' ? '已稍后处理，服务端会保留该状态。' : 'Inbox 项已解决。'
+      void run(() => mutations.updateInbox.mutateAsync({ itemId: item.id.value, status }), success)
+      return
+    }
+    void run(
+      () => mutations.resolveInjection.mutateAsync({ itemId: item.id.value, action }),
+      action === 'release' ? '隔离内容已释放并继续处理。' : '隔离内容已丢弃。',
+    )
+  }
+
+  const openUsage = (event: (typeof viewModel.usage.data.items)[number]) => {
+    const asset = viewModel.assets.data.items.find((item) => item.id.value === event.knowledgeId.value)
+    setDrawerTarget({ kind: 'event', event, asset })
+  }
+
   return (
     <div className="space-y-6">
-      <PageHeader title="我的知识" subtitle="Inbox、个人记忆、团队候选和文档均来自服务端 canonical state。" />
-      <Tabs items={tabs} value={tab} onChange={setTab} />
+      <PageHeader
+        title="我的知识"
+        subtitle="经过确认并从真实工作中沉淀的经验，可被数字员工在后续项目中检索、引用和复用。"
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <Tabs items={tabs} value={tab} onChange={setTab} />
+        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+          当前计数来源 <DataSourceBadge source={viewModel.tabs.find((item) => item.key === tab)?.count.source ?? 'T'} />
+        </div>
+      </div>
 
       {queryError ? (
         <div role="alert" className="flex items-center justify-between gap-3 rounded-[12px] border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
           <span>{governanceErrorMessage(queryError)}</span>
-          <Button variant="subtle" size="sm" icon={<RefreshCw className="h-4 w-4" />} onClick={() => void Promise.all(Object.values(queries).map((query) => query.refetch()))}>
-            重试
-          </Button>
+          <Button variant="subtle" size="sm" icon={<RefreshCw className="h-4 w-4" />} onClick={() => void Promise.all(Object.values(queries).map((query) => query.refetch()))}>重试</Button>
         </div>
       ) : null}
       {error ? <p role="alert" className="rounded-[10px] border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">{error}</p> : null}
       {message ? <p role="status" className="rounded-[10px] border border-mint-400/20 bg-mint-400/[0.06] px-4 py-3 text-sm text-mint-300">{message}</p> : null}
 
+      {tab === 'assets' ? (
+        <ModuleState loading={viewModel.assets.loading} error={viewModel.assets.error} empty={viewModel.assets.data.items.length === 0} emptyText="暂无已沉淀知识。">
+          <AssetsPanel assets={viewModel.assets.data.items} totalCount={viewModel.tabs[0].count} onOpenAsset={(asset) => setDrawerTarget({ kind: 'asset', asset })} />
+        </ModuleState>
+      ) : null}
+
       {tab === 'pending' ? (
-        <section className="space-y-4" aria-label="待处理 Inbox">
-          {openInbox.map((item) => (
-            <PendingKnowledgeCard
-              key={item.id}
-              item={item}
-              busy={busy}
-              onConfirm={() => setSelectedBrief(item)}
-              onSnooze={() => void run(() => mutations.updateInbox.mutateAsync({ itemId: item.id ?? '', status: 'snoozed' }), '已稍后处理，刷新后状态仍会保留。')}
-              onResolve={() => void run(() => mutations.updateInbox.mutateAsync({ itemId: item.id ?? '', status: 'resolved' }), 'Inbox 项已解决。')}
-              onInjection={(action) => void run(() => mutations.resolveInjection.mutateAsync({ itemId: item.id ?? '', action }), action === 'release' ? '隔离内容已释放并继续处理。' : '隔离内容已丢弃。')}
-            />
-          ))}
-          {queries.inbox.isLoading ? <p className="text-sm text-slate-400">正在读取 Inbox…</p> : null}
-          {!queries.inbox.isLoading && openInbox.length === 0 ? (
-            <div className="card-base flex flex-col items-center py-12 text-center">
-              <CheckCircle2 className="h-7 w-7 text-mint-300" />
-              <h2 className="mt-3 text-base font-semibold text-white">暂无待处理事项</h2>
-            </div>
-          ) : null}
-        </section>
+        <ModuleState loading={viewModel.pending.loading} error={viewModel.pending.error} empty={viewModel.pending.data.items.length === 0} emptyText="待确认知识已全部处理。">
+          <PendingCandidatePanel
+            items={viewModel.pending.data.items}
+            busy={busy}
+            readOnly={pendingReadOnly}
+            onConfirm={openBrief}
+            onSnooze={(item) => handlePendingAction(item, 'snooze')}
+            onResolve={(item) => handlePendingAction(item, 'resolve')}
+            onInjection={handlePendingAction}
+            onAccept={(item) => handlePendingAction(item, 'accept')}
+            onOpenDetail={(item) => setDrawerTarget({ kind: 'pending', item })}
+          />
+        </ModuleState>
       ) : null}
 
-      {tab === 'personal' ? (
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="个人知识">
-          {[...personal, ...project, ...archive].map((item) => (
-            <KnowledgeCard key={item.id} data={userMemoryCard(item, projectName, context.projectId)} />
-          ))}
-          {personal.length + project.length + archive.length === 0 ? <EmptyState text="暂无个人记忆。" /> : null}
-        </section>
+      {tab === 'shared' ? (
+        <ModuleState loading={viewModel.usage.loading} error={viewModel.usage.error} empty={viewModel.usage.data.items.length === 0} emptyText="暂无使用与反馈动态。">
+          <ShareTimeline events={viewModel.usage.data.items} totalCount={viewModel.tabs[2].count} sources={viewModel.usage.sources} onOpenEvent={openUsage} />
+        </ModuleState>
       ) : null}
-
-      {tab === 'candidates' ? (
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="团队候选">
-          {candidates.map((item) => (
-            <KnowledgeCard
-              key={item.id}
-              accent="knowledge"
-              data={{
-                id: item.id ?? item.title,
-                title: item.title,
-                summary: item.summary,
-                memoryType: item.memory_type,
-                scope: '待审核',
-                project: item.project_id === context.projectId ? projectName : item.project_id ?? '未关联项目',
-                updated: item.created_at,
-                sources: item.sources,
-              }}
-              actions={item.allowed_actions.includes('accept') ? (
-                <Button size="sm" loading={mutations.acceptMemory.isPending} onClick={() => void run(() => mutations.acceptMemory.mutateAsync(item.id ?? ''), '团队候选已接受并进入共享知识。')}>
-                  接受候选
-                </Button>
-              ) : undefined}
-            />
-          ))}
-          {candidates.length === 0 ? <EmptyState text="当前账号没有待审核的团队候选。" /> : null}
-        </section>
-      ) : null}
-
-      {tab === 'shared' ? <ReuseSection items={shared} projectName={projectName} /> : null}
-
-      {tab === 'documents' ? (
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2" aria-label="文档">
-          {documents.map((document) => (
-            <article key={document.id} className="card-base p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-100"><FileText className="h-4 w-4 text-knowledge" />{document.title}</div>
-              <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-slate-400">{document.text}</p>
-              <p className="mt-3 text-xs text-slate-600">{document.file_name} · v{document.version}</p>
-            </article>
-          ))}
-          {documents.length === 0 ? <EmptyState text="暂无可见文档。" /> : null}
-        </section>
-      ) : null}
-
-      <div className="flex items-center gap-2 text-xs text-slate-600">
-        <BookMarked className="h-3.5 w-3.5" />
-        共享列表只展示当前项目中服务端返回的 team_accepted 记录，来源保留在卡片内。
-      </div>
 
       <ConfirmKnowledgeModal
         open={selectedBrief !== null}
         item={selectedBrief}
         document={documentQuery.data?.item ?? null}
         loading={documentQuery.isLoading}
-        onClose={() => setSelectedBrief(null)}
+        disabled={pendingReadOnly || documentReadOnly}
+        onClose={() => setSelectedBriefId(null)}
         onConfirm={confirmBrief}
       />
+      <KnowledgeDetailDrawer open={drawerTarget !== null} target={drawerTarget} busy={busy} readOnly={pendingReadOnly} onClose={() => setDrawerTarget(null)} onPendingAction={handlePendingAction} />
     </div>
   )
 }
 
-function EmptyState({ text }: { text: string }) {
-  return <div className="card-base col-span-full py-12 text-center text-sm text-slate-400">{text}</div>
+function ModuleState({ loading, error, empty, emptyText, children }: {
+  loading: boolean
+  error: string | null
+  empty: boolean
+  emptyText: string
+  children: React.ReactNode
+}) {
+  if (loading && empty) return <div className="card-base py-12 text-center text-sm text-slate-400">正在读取知识数据…</div>
+  if (error && empty) return <div role="alert" className="card-base py-12 text-center text-sm text-rose">{error}</div>
+  if (empty) {
+    return (
+      <div className="card-base flex flex-col items-center py-14 text-center">
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-mint-400/10 text-mint-300"><CheckCircle2 className="h-6 w-6" /></span>
+        <h2 className="mt-3 text-sm font-semibold text-slate-100">{emptyText}</h2>
+        <p className="mt-1 text-xs text-slate-500">新的服务端记录会在查询刷新后显示。</p>
+      </div>
+    )
+  }
+  return <>{children}</>
 }

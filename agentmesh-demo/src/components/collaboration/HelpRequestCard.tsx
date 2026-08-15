@@ -1,129 +1,96 @@
-import {
-  BookMarked,
-  Target,
-  ShieldCheck,
-  ShieldAlert,
-  Check,
-  FileSearch,
-  CheckCircle2,
-  BadgeCheck,
-} from 'lucide-react'
+import { BookMarked, Check, FileSearch, ShieldAlert, X } from 'lucide-react'
+
+import type { CollaborationAuthorizationView } from '../../features/collaboration/presenter'
 import { Avatar } from '../ui/Avatar'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
-import type { HelpRequest } from '../../data/mockData'
+import { DataSourceBadge } from '../ui/DataSourceBadge'
 
 interface HelpRequestCardProps {
-  request: HelpRequest
-  authorized: boolean
-  onAllow: () => void
-  onDetail: () => void
-  onDecline: () => void
-  featured?: boolean
+  authorization: CollaborationAuthorizationView
+  onDetail?: () => void
 }
 
-function Row({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex gap-2.5">
-      <span className="mt-0.5 shrink-0 text-slate-500">{icon}</span>
-      <div className="text-sm leading-relaxed">
-        <span className="text-slate-500">{label}：</span>
-        <span className="text-slate-300">{children}</span>
-      </div>
-    </div>
-  )
-}
+export function HelpRequestCard({ authorization, onDetail }: HelpRequestCardProps) {
+  const actions = authorization.actions.value
+  const metadata = authorization.metadata.value
+  const requestedKnowledge = metadata.knowledge ?? metadata.question ?? authorization.title.value
 
-export function HelpRequestCard({
-  request,
-  authorized,
-  onAllow,
-  onDetail,
-  onDecline,
-  featured,
-}: HelpRequestCardProps) {
-  const { applicant, knowledgeMeta } = request
   return (
-    <div className={`card-base p-5 transition-colors ${featured ? 'border-collab/25 bg-collab/[0.04]' : ''}`}>
-      {/* 谁想使用 · 用于什么项目 */}
+    <article className="card-base flex min-h-[280px] flex-col p-5">
       <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <Avatar name={applicant} tone="collab" size="lg" />
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold text-white">{request.from}申请引用你的知识</h3>
-              {featured && <Badge tone="collab">重点协作</Badge>}
+        <div className="flex min-w-0 items-start gap-3">
+          <Avatar name={authorization.applicant.value} tone="collab" size="lg" />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold text-white">{authorization.title.value}</h3>
+              <DataSourceBadge source={authorization.title.source} />
             </div>
-            <p className="mt-0.5 text-sm text-slate-400">用于「{request.project}」</p>
+            <p className="mt-1 text-sm text-slate-400">申请人：{authorization.applicant.value}</p>
           </div>
         </div>
-        {authorized ? (
-          <Badge tone="mint" icon={<CheckCircle2 className="h-3.5 w-3.5" />}>
-            已授权
-          </Badge>
-        ) : (
-          <Badge tone="remind" dot>
-            等待确认
-          </Badge>
-        )}
+        <Badge tone="remind" dot>等待授权</Badge>
       </div>
 
-      {/* 哪条知识（含溯源）· 使用目的 · 本次授权 */}
       <div className="mt-4 space-y-3 rounded-[12px] bg-surface-2 p-4">
         <div className="flex gap-2.5">
           <BookMarked className="mt-0.5 h-4 w-4 shrink-0 text-knowledge" />
-          <div className="min-w-0">
-            <div className="text-sm">
-              <span className="text-slate-500">申请引用：</span>
-              <span className="font-medium text-slate-100">{request.knowledge}</span>
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
-              <span className="inline-flex items-center gap-1 text-mint-300">
-                <BadgeCheck className="h-3 w-3" />
-                {knowledgeMeta.verified}
-              </span>
-              <span className="text-slate-700">·</span>
-              <span>当前权限：{knowledgeMeta.permission}</span>
-              <span className="text-slate-700">·</span>
-              <span>原始贡献者：{knowledgeMeta.contributor}</span>
-              <span className="text-slate-700">·</span>
-              <span>最近验证：{knowledgeMeta.lastVerified}</span>
-            </div>
+          <div className="min-w-0 text-sm">
+            <div className="text-slate-500">申请引用</div>
+            <div className="mt-1 font-medium text-slate-100">{requestedKnowledge}</div>
           </div>
         </div>
-
-        <Row icon={<Target className="h-4 w-4" />} label="使用目的">
-          {request.purpose}
-        </Row>
-        <Row icon={<ShieldCheck className="h-4 w-4" />} label="本次授权">
-          {request.authorization}
-        </Row>
+        <div className="text-sm leading-relaxed">
+          <span className="text-slate-500">使用场景：</span>
+          <span className="text-slate-300">{authorization.summary.value}</span>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+          <span>范围：{authorization.scope.value}</span>
+          <span>项目：{authorization.projectId.value ?? '未绑定项目'}</span>
+        </div>
       </div>
 
-      {/* 数字人提醒 */}
       <div className="mt-3 flex items-start gap-2.5 rounded-[10px] border border-remind/20 bg-remind/[0.05] px-3.5 py-2.5">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-remind" />
-        <p className="text-xs leading-relaxed text-remind">数字人提醒：{request.risk}</p>
+        <p className="text-xs leading-relaxed text-remind">
+          服务端返回了授权意图，但当前前端没有对应的专用 approve / deny 命令，操作不会在本地模拟成功。
+        </p>
       </div>
 
-      {authorized ? (
-        <div className="mt-4 flex items-start gap-2 rounded-[10px] bg-mint-400/[0.06] px-4 py-3 text-sm text-mint-300">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-          你的数字人已在「{request.project}」中把「{request.knowledge}」提供给{applicant}，并保留来源和适用范围。
+      <div className="mt-auto pt-4">
+        <div className="flex flex-wrap items-center gap-2.5 border-t border-white/[0.06] pt-4">
+          {actions.includes('approve') ? (
+            <Button disabled icon={<Check className="h-4 w-4" />} title="当前没有专用授权接口">
+              允许暂不可用
+            </Button>
+          ) : null}
+          {actions.includes('deny') ? (
+            <Button disabled variant="secondary" icon={<X className="h-4 w-4" />} title="当前没有专用驳回接口">
+              驳回暂不可用
+            </Button>
+          ) : null}
+          {actions.length === 0 ? <Badge tone="neutral">服务端未提供授权命令</Badge> : null}
+          {authorization.taskId.value && onDetail ? (
+            <Button variant="ghost" icon={<FileSearch className="h-4 w-4" />} onClick={onDetail}>
+              查看关联协作
+            </Button>
+          ) : null}
         </div>
-      ) : (
-        <div className="mt-4 flex flex-wrap items-center gap-2.5">
-          <Button variant="primary" icon={<Check className="h-4 w-4" />} onClick={onAllow}>
-            允许本次引用
-          </Button>
-          <Button variant="subtle" icon={<FileSearch className="h-4 w-4" />} onClick={onDetail}>
-            查看知识与项目
-          </Button>
-          <Button variant="ghost" onClick={onDecline}>
-            拒绝本次引用
-          </Button>
-        </div>
-      )}
-    </div>
+
+        <details className="mt-3 rounded-[10px] border border-white/[0.06] bg-surface-2/70 px-3 py-2 text-xs">
+          <summary className="min-h-8 cursor-pointer py-1.5 text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">技术详情</summary>
+          <div className="mt-2 border-t border-white/[0.06] pt-3">
+            <DataSourceBadge source={authorization.metadata.source} />
+            <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-slate-400">{JSON.stringify({
+              id: authorization.id.value,
+              status: authorization.status.value,
+              taskId: authorization.taskId.value,
+              allowedActions: authorization.actions.value,
+              metadata,
+            }, null, 2)}</pre>
+          </div>
+        </details>
+      </div>
+    </article>
   )
 }

@@ -10,6 +10,10 @@
 
 **Tech Stack:** React 18、TypeScript 5.6、TanStack Query 5、Vitest 2、Playwright 1.48、Vite 5、Tailwind 3。
 
+## Execution Order Override
+
+用户已要求先完成全部页面修改，最终验证改由真人执行。Wave 2 reviewer 修复完成后，停止自动测试、build、Playwright 和截图对比。原 Wave 3 自动门禁保留为历史计划，不再由 Agent 执行。人工验收入口：`docs/superpowers/plans/2026-08-14-reference-ui-mt-data-human-acceptance.md`。
+
 ## Global Constraints
 
 - `/Users/heyunshen/Downloads/agentmesh-demo/` 是视觉和产品内容基线。

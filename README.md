@@ -103,6 +103,19 @@ The app UI shows a local login panel when no session exists. In explicit demo mo
 
 For frontend development, keep FastAPI on port `8010` and run `npm run dev` in `agentmesh-demo/`; Vite serves `http://127.0.0.1:5178/` and proxies `/api` to FastAPI. The retired single-file UI remains temporarily available at `/legacy/app.html` and `/app.html` for one release cycle.
 
+### Reference UI and data provenance
+
+The `feature/reference-ui-mt-data` branch restores the visual hierarchy of the reference Mock frontend for DigitalSelf, Knowledge, Collaboration, and Insights while keeping FastAPI and SQLite as the authority for identity, permissions, state, versions, and mutations.
+
+User-facing provenance labels are intentionally short:
+
+- `T数据`: data returned by the current backend for the signed-in user's visible scope.
+- `M数据`: reference Mock data, fixed display constants, or explicit demo seed data.
+
+Mixed modules label Mock-derived fields separately. Mock-only sections never expose a successful local mutation; unavailable actions are disabled or described as not connected. The AI Workspace message, history, upload, search, `$` Skill, trace, and memory-search paths are outside this page-alignment scope.
+
+Manual acceptance for this branch is documented in `docs/superpowers/plans/2026-08-14-reference-ui-mt-data-human-acceptance.md`.
+
 ### Deployment boundaries
 
 This internal-pilot MVP supports one Workspace, one application process, and one SQLite database. Run it only on a trusted internal network. Multi-workspace tenancy, multi-process SQLite coordination, horizontal scaling, high availability, and public-internet hardening are Post-MVP work.
