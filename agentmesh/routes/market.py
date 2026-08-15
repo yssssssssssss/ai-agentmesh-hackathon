@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -276,6 +275,12 @@ def _timeline_status(raw: str | None) -> str:
     return "answered"
 
 
+def _match_detail(repository: SQLiteStore, helper_id: str, needer_id: str) -> str:
+    """The abstracted answer body for a match, read from its MARKETPLACE_MATCH post."""
+    post = repository.get_blackboard_post(f"bb_match_{helper_id}_{needer_id}")
+    return post.content if post else ""
+
+
 def _build_timeline(
     me: User,
     repository: SQLiteStore,
@@ -300,6 +305,7 @@ def _build_timeline(
                 status="open",
                 sensitivity="low",
                 meta="agent-1 · publisher · marketplace_signal",
+                detail=signal_owned.content,
             )
         )
 
@@ -320,6 +326,7 @@ def _build_timeline(
                 status=status,  # type: ignore[arg-type]
                 sensitivity=event.metadata.get("sensitivity", "low"),  # type: ignore[arg-type]
                 meta="agent-2 · scout · marketplace_match",
+                detail=_match_detail(repository, helper_id, me.id),
             )
         )
 
@@ -340,6 +347,7 @@ def _build_timeline(
                 status=status,  # type: ignore[arg-type]
                 sensitivity=event.metadata.get("sensitivity", "low"),  # type: ignore[arg-type]
                 meta="agent-2 · scout · marketplace_match",
+                detail=_match_detail(repository, me.id, needer_id),
             )
         )
 

@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
+import { MessageSquareText, ShieldCheck } from 'lucide-react'
 import type { MarketMeTimelineItem, TimelineCategory, TimelineStatus } from '../types'
+import { Drawer } from '../../../components/ui/Drawer'
 
 interface ExchangeTabsProps {
   timeline: MarketMeTimelineItem[]
@@ -103,6 +105,7 @@ function actionLabel(status: TimelineStatus, category: TimelineCategory): string
 
 export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
   const [filter, setFilter] = useState<Filter>('all')
+  const [selected, setSelected] = useState<MarketMeTimelineItem | null>(null)
 
   const groups = useMemo(() => {
     return {
@@ -135,6 +138,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
   const list = groups[filter]
 
   return (
+    <>
     <section aria-label="市场交流记录" className="rounded-[14px] border border-white/[0.06] bg-surface-1">
       <div role="tablist" aria-label="市场往来分类" className="grid grid-cols-4">
         {columns.map((col) => {
@@ -219,7 +223,8 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
                     </span>
                     <button
                       type="button"
-                      className="rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-1 text-xs text-slate-300 transition-colors hover:border-white/[0.16] hover:bg-white/[0.05] hover:text-white"
+                      onClick={() => setSelected(item)}
+                      className="rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-1 text-xs text-slate-300 transition-colors hover:border-white/[0.16] hover:bg-white/[0.05] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
                     >
                       {actionLabel(item.status, item.category)}
                     </button>
@@ -231,5 +236,56 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
         )}
       </div>
     </section>
+
+    <Drawer
+      open={selected !== null}
+      onClose={() => setSelected(null)}
+      icon={<MessageSquareText className="h-5 w-5" />}
+      title={selected?.title ?? '协作往来详情'}
+      subtitle={selected ? CATEGORY_TAG[selected.category].zh : undefined}
+      width={560}
+    >
+      {selected ? (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className={`inline-flex items-center gap-1.5 rounded-full bg-white/[0.03] px-2.5 py-1 ring-1 ${CATEGORY_TAG[selected.category].ring}`}>
+              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${CATEGORY_TAG[selected.category].dot}`} />
+              <span className={`font-medium ${CATEGORY_TAG[selected.category].text}`}>{CATEGORY_TAG[selected.category].en}</span>
+              <span className="text-slate-500">·</span>
+              <span className="text-slate-300">{CATEGORY_TAG[selected.category].zh}</span>
+            </span>
+            <span className={`rounded-md px-2 py-1 font-semibold uppercase tracking-wider ring-1 ${STATUS_STYLE[selected.status].text} ${STATUS_STYLE[selected.status].ring} ${STATUS_STYLE[selected.status].bg}`}>
+              {STATUS_STYLE[selected.status].en}
+            </span>
+          </div>
+
+          <dl className="grid gap-4 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-slate-500">话题</dt>
+              <dd className="mt-1 text-slate-200">{selected.topic || '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">对方</dt>
+              <dd className="mt-1 text-slate-200">{selected.counterpart?.name ?? '我的分身'}</dd>
+            </div>
+          </dl>
+
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-slate-200">
+              {selected.category === 'request' ? '我的分身发出的信号' : '分身给出的答案'}
+            </h3>
+            <div className="whitespace-pre-wrap rounded-[12px] border border-white/[0.06] bg-surface-1 p-4 text-[13.5px] leading-relaxed text-slate-200">
+              {selected.detail || '暂无可展示的内容。'}
+            </div>
+          </section>
+
+          <div className="flex items-start gap-2 border-t border-white/[0.06] pt-4 text-[11.5px] leading-relaxed text-slate-500">
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            答案由对方分身依据其私有记忆生成，只回传结论，原始记忆不离境。
+          </div>
+        </div>
+      ) : null}
+    </Drawer>
+    </>
   )
 }

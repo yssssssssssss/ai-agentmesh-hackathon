@@ -202,7 +202,7 @@ def _ensure_user(person: DemoPerson) -> User:
 
 
 def _ensure_memory(person: DemoPerson) -> None:
-    for index, (title, summary) in enumerate(zip(person.memory_titles, person.memory_summaries)):
+    for index, (title, summary) in enumerate(zip(person.memory_titles, person.memory_summaries, strict=False)):
         item_id = f"umem_demo_{person.user_id}_{index}"
         if store.get_user_memory_item(item_id) is not None:
             continue
@@ -244,22 +244,75 @@ def _publish_signal_deterministic(person: DemoPerson) -> None:
     )
 
 
-# Scripted matches: (helper, needer, need_topic, status, minutes_ago)
+# Scripted matches: (helper, needer, need_topic, status, minutes_ago, answer)
 # The current-designer user is deliberately both a helper and a needer so the
-# personal graph shows incoming + outgoing edges around "me".
-SCRIPTED_MATCHES: tuple[tuple[str, str, str, str, int], ...] = (
-    ("usr_demo_li", "usr_current_designer", "大促核心指标口径与解读", "answered", 8),
-    ("usr_demo_zhao", "usr_current_designer", "A/B 实验设计与显著性判断", "answered", 22),
-    ("usr_demo_sun", "usr_current_designer", "会场分层用户画像", "awaiting_confirm", 45),
-    ("usr_current_designer", "usr_demo_wang", "首屏改版 A/B 实验设计", "answered", 12),
-    ("usr_current_designer", "usr_demo_ma", "首屏爆品卡片改版洞察", "answered", 30),
-    ("usr_demo_lin", "usr_demo_zhou", "促销素材授权与风险要点", "answered", 18),
-    ("usr_demo_wang", "usr_demo_chen", "小家电类目 Brief 复盘", "answered", 55),
-    ("usr_demo_zhou", "usr_demo_lin", "跨部门审批流程指引", "denied", 70),
+# personal graph shows incoming + outgoing edges around "me". `answer` is the
+# abstracted reply the helper's twin produced from its own private memory — it is
+# what a viewer sees when opening the record. awaiting_confirm / denied carry no
+# answer body on purpose: the gateway hasn't released one yet.
+SCRIPTED_MATCHES: tuple[tuple[str, str, str, str, int, str], ...] = (
+    (
+        "usr_demo_li", "usr_current_designer", "大促核心指标口径与解读", "answered", 8,
+        "关于大促核心指标口径，给你一份可直接对齐的结论：\n"
+        "· GMV：以「下单成交额」口径统计，含未支付但已锁库存的预售定金期订单，退款在 T+1 冲减；不要用「支付成交额」跨会场对比。\n"
+        "· CTR：分母是会场楼层的曝光 PV（卡片进入视口即计），分子是卡片点击 UV，按人去重；首屏和非首屏要分开看，混算会稀释首屏表现。\n"
+        "· 客单价：GMV / 成交用户数，注意剔除套装拆单，否则大促期会被虚高。\n"
+        "口径打架时以数据平台「大促指标字典 v3」为准，我把常用的几个已经核对过。",
+    ),
+    (
+        "usr_demo_zhao", "usr_current_designer", "A/B 实验设计与显著性判断", "answered", 22,
+        "首屏改版的 A/B 实验，建议按这个框架落地：\n"
+        "1) 目标与指标：主指标锁定首屏点击转化率（CTR→加购），护栏指标放页面稳定性与跳出率，避免只看单点提升。\n"
+        "2) 分流与样本量：按设备 ID 哈希分流保证均衡；以基线 CTR 4%、最小可检测提升 5%、双尾 α=0.05、power=0.8 估算，单组约需 3.2 万曝光 UV，大促首日即可跑满。\n"
+        "3) 显著性判断：跑满预估样本再看，不要中途反复瞄结果（会抬高假阳性）；用双样本比例检验，p<0.05 且置信区间不跨 0 才算显著。\n"
+        "4) 上线策略：显著为正则全量，持平或负向则回滚并记录到实验档案。",
+    ),
+    (
+        "usr_demo_sun", "usr_current_designer", "会场分层用户画像", "awaiting_confirm", 45,
+        "",
+    ),
+    (
+        "usr_current_designer", "usr_demo_wang", "首屏改版 A/B 实验设计", "answered", 12,
+        "给你我这边首屏改版沉淀的实验设计要点：\n"
+        "· 改版假设写清楚——我们这次验证的是「爆品卡片前置是否提升加购」，不要一次动太多变量。\n"
+        "· 对照组保持旧版首屏，实验组只换卡片排序与信息密度，其余不动，方便归因。\n"
+        "· 主指标用首屏加购率，观察窗口至少覆盖一个完整大促日（含晚高峰），别只看白天。\n"
+        "· 我上次踩的坑：素材加载慢会拖累实验组 CTR，记得先压素材体积再上实验，否则结论失真。",
+    ),
+    (
+        "usr_current_designer", "usr_demo_ma", "首屏爆品卡片改版洞察", "answered", 30,
+        "首屏爆品卡片改版，我这边的复盘洞察给你参考：\n"
+        "· 爆品卡片「大图 + 到手价 + 利益点标签」三段式转化最好，比纯商品图高约 12% 点击。\n"
+        "· 到手价一定要直接算好展示，让用户在首屏做「叠加计算」会明显掉转化。\n"
+        "· 卡片数量控制在首屏 4-6 张，再多会挤压核心入口、拉低整体效率。\n"
+        "· 沉浸式头图慎用：视觉记忆点强，但会把首屏核心入口往下压，效率型会场得不偿失。",
+    ),
+    (
+        "usr_demo_lin", "usr_demo_zhou", "促销素材授权与风险要点", "answered", 18,
+        "促销素材的授权与风险，按这份清单自查基本能覆盖：\n"
+        "· 外部 IP / 明星肖像：必须有书面授权且在授权期内，注意授权渠道是否含「电商大促」场景。\n"
+        "· 字体与配乐：确认商用授权，免费字体也要看是否允许商用，这块最容易被投诉。\n"
+        "· 比价与「全网最低」话术：涉及《广告法》绝对化用语风险，一律替换为「活动价」「限时价」。\n"
+        "· 素材留档：授权文件和素材版本一一对应存档，出问题能快速举证。",
+    ),
+    (
+        "usr_demo_wang", "usr_demo_chen", "小家电类目 Brief 复盘", "answered", 55,
+        "小家电类目 Brief 的复盘，我提炼了几条可复用的经验：\n"
+        "· Brief 开头先写清「这次要打的核心人群 + 主推卖点」，别一上来堆功能参数。\n"
+        "· 竞品对标只选 2-3 个真正同价位段的，对标太多会失焦。\n"
+        "· 视觉调性用 3 个关键词框定（如「轻量 / 高级 / 亲和」），比长段描述更好落地。\n"
+        "· 我踩过的坑：Brief 里不写清尺寸与安全区，交付时反复返工，记得附版式规范。",
+    ),
+    (
+        "usr_demo_zhou", "usr_demo_lin", "跨部门审批流程指引", "denied", 70,
+        "",
+    ),
 )
 
 
-def _write_match(helper: str, needer: str, topic: str, status: str, minutes_ago: int, index: int) -> None:
+def _write_match(
+    helper: str, needer: str, topic: str, status: str, minutes_ago: int, answer: str, index: int
+) -> None:
     now = datetime.now(UTC)
     at = now - timedelta(minutes=minutes_ago)
     event_id = f"audit_demo_match_{index:02d}"
@@ -279,10 +332,9 @@ def _write_match(helper: str, needer: str, topic: str, status: str, minutes_ago:
     helper_name = helper_user.name if helper_user else helper
     needer_name = needer_user.name if needer_user else needer
     body = {
-        "answered": f"{helper_name} 的分身给出了完整解答。",
-        "awaiting_confirm": f"{helper_name} 的分身准备回答，需要 {needer_name} 确认后发送。",
-        "denied": f"{helper_name} 的分身认为该请求敏感度过高，已拒绝。",
-    }.get(status, "已发起代答。")
+        "awaiting_confirm": f"{helper_name} 的分身已准备好答案，涉及较敏感的记忆，需要 {needer_name} 确认后才会发送。",
+        "denied": f"{helper_name} 的分身判断该请求敏感度过高，已拒绝代答，未透露任何内容。",
+    }.get(status, answer or f"{helper_name} 的分身给出了完整解答。")
     store.add_blackboard_post(
         BlackboardPost(
             id=f"bb_match_{helper}_{needer}",
@@ -295,6 +347,37 @@ def _write_match(helper: str, needer: str, topic: str, status: str, minutes_ago:
             permission="project_visible",
             read_by_agents=[_agent_id(helper)],
             created_at=at,
+        )
+    )
+
+
+def _publish_current_designer_signal() -> None:
+    """Publish a deterministic signal for the logged-in demo designer (usr_current_designer).
+
+    The built-in seed user isn't a DemoPerson, and the publish worker runs on a long
+    interval during a frozen demo — so seed the signal directly. The need mirrors the
+    scripted outgoing match topic so the request/help story stays self-consistent.
+    """
+    uid = "usr_current_designer"
+    user = store.get_user(uid)
+    if user is None:
+        return
+    content = (
+        "能力：大促首页效率型结构、618 家电会场复盘、首屏入口密度\n"
+        "可提供：可就大促首屏改版与入口结构为同事提供建议。\n"
+        "需要：首屏改版 A/B 实验设计"
+    )
+    store.add_blackboard_post(
+        BlackboardPost(
+            id=f"bb_signal_{uid}",
+            task_id=f"signal_{uid}",
+            post_type=BlackboardPostType.MARKETPLACE_SIGNAL,
+            actor=user.personal_agent_id,
+            title=f"{user.name} 的协作信号",
+            content=content,
+            scope=Scope.PROJECT,
+            permission="project_visible",
+            read_by_agents=[user.personal_agent_id],
         )
     )
 
@@ -330,8 +413,10 @@ def main() -> None:
         if store.get_user(uid) is not None:
             store.set_market_participation(uid, True)
 
-    for index, (helper, needer, topic, status, minutes_ago) in enumerate(SCRIPTED_MATCHES):
-        _write_match(helper, needer, topic, status, minutes_ago, index)
+    _publish_current_designer_signal()
+
+    for index, (helper, needer, topic, status, minutes_ago, answer) in enumerate(SCRIPTED_MATCHES):
+        _write_match(helper, needer, topic, status, minutes_ago, answer, index)
 
     print(f"seeded {len(DEMO_PEOPLE)} demo users")
     print(f"scripted matches: {len(SCRIPTED_MATCHES)}")

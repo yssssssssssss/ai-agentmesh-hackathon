@@ -72,13 +72,11 @@ function Tile({ tone, label, value, hint, icon }: TileProps) {
 }
 
 export function PresenceTiles({ presence, enabled, workers }: PresenceTilesProps) {
-  const publish = workers?.publish
-  const scout = workers?.scout
-  const workersRunning = Boolean(publish?.running && scout?.running)
+  void workers
 
   return (
     <div className="space-y-3">
-      {!enabled || !workersRunning ? (
+      {!enabled ? (
         <div
           role="status"
           className="flex items-center gap-2 rounded-[10px] border border-remind/25 bg-remind/10 px-3 py-2 text-xs text-remind"

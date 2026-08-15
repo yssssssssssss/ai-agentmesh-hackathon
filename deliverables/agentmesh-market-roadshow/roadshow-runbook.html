@@ -1,0 +1,352 @@
+<title>协作市场路演手册</title>
+<style>
+  :root {
+    --bg: #eef3f1;
+    --surface: #ffffff;
+    --surface-2: #f6f9f8;
+    --ink: #0f1e1a;
+    --ink-soft: #3f524c;
+    --ink-faint: #6b7d76;
+    --line: #dbe5e1;
+    --teal: #0d9488;
+    --teal-deep: #0a6c63;
+    --amber: #c2660c;
+    --rose: #e11d48;
+    --mint-bg: #e4f2ee;
+    --code-bg: #0d1f1b;
+    --code-ink: #cfe9e1;
+    --code-faint: #6f9089;
+    --code-teal: #4fd1b8;
+    --code-amber: #e8a04a;
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --bg: #0a1512;
+      --surface: #10201c;
+      --surface-2: #14271f;
+      --ink: #e8f1ed;
+      --ink-soft: #a9bdb5;
+      --ink-faint: #7c8f88;
+      --line: #223b33;
+      --teal: #2dd4a8;
+      --teal-deep: #4fe0bb;
+      --amber: #e8a04a;
+      --rose: #fb7185;
+      --mint-bg: #16302a;
+      --code-bg: #071310;
+      --code-ink: #cfe9e1;
+      --code-faint: #6f9089;
+      --code-teal: #4fd1b8;
+      --code-amber: #e8a04a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a1512;
+    --surface: #10201c;
+    --surface-2: #14271f;
+    --ink: #e8f1ed;
+    --ink-soft: #a9bdb5;
+    --ink-faint: #7c8f88;
+    --line: #223b33;
+    --teal: #2dd4a8;
+    --teal-deep: #4fe0bb;
+    --amber: #e8a04a;
+    --rose: #fb7185;
+    --mint-bg: #16302a;
+    --code-bg: #071310;
+    --code-ink: #cfe9e1;
+    --code-faint: #6f9089;
+    --code-teal: #4fd1b8;
+    --code-amber: #e8a04a;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
+    line-height: 1.6;
+    font-size: 16px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  header.masthead { margin-bottom: 44px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--teal-deep); font-weight: 700; margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 44px); line-height: 1.1; margin: 0 0 14px;
+    letter-spacing: -0.02em; text-wrap: balance; font-weight: 800;
+  }
+  .lede { font-size: 17px; color: var(--ink-soft); margin: 0; max-width: 60ch; }
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 20px;
+    font-size: 13px; color: var(--ink-faint);
+  }
+  .meta-row b { color: var(--ink-soft); font-weight: 600; }
+
+  section { margin-top: 40px; }
+  h2 {
+    font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 700; margin: 0 0 18px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--line);
+  }
+  h2 .n { color: var(--teal); margin-right: 10px; font-variant-numeric: tabular-nums; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px 22px; margin: 14px 0;
+    position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ""; position: absolute; inset: 0 auto 0 0; width: 4px;
+    background: var(--stripe, var(--teal));
+  }
+  .card.pad-l { padding-left: 26px; }
+  .card h3 {
+    margin: 0 0 6px; font-size: 16px; font-weight: 700; letter-spacing: -0.01em;
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .card h3 .step {
+    font-size: 12px; font-weight: 800; color: var(--teal);
+    font-variant-numeric: tabular-nums; letter-spacing: 0.04em;
+  }
+  .card p { margin: 6px 0 0; color: var(--ink-soft); font-size: 15px; }
+  .card p.say { color: var(--ink); }
+  .say::before {
+    content: "台词"; display: inline-block; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.1em; color: var(--teal-deep); background: var(--mint-bg);
+    padding: 1px 7px; border-radius: 5px; margin-right: 9px; transform: translateY(-1px);
+  }
+  .stripe-amber { --stripe: var(--amber); }
+  .stripe-rose { --stripe: var(--rose); }
+  .stripe-neutral { --stripe: var(--ink-faint); }
+
+  pre {
+    background: var(--code-bg); color: var(--code-ink);
+    border-radius: 10px; padding: 16px 18px; margin: 12px 0 0;
+    overflow-x: auto; font-size: 13.5px; line-height: 1.65;
+    font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+    -webkit-font-smoothing: antialiased;
+  }
+  pre .c { color: var(--code-faint); }
+  pre .k { color: var(--code-amber); }
+  pre .v { color: var(--code-teal); }
+  code {
+    font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+    background: var(--surface-2); border: 1px solid var(--line);
+    padding: 1px 6px; border-radius: 5px; font-size: 0.88em; color: var(--teal-deep);
+  }
+
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
+  .anchor { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .anchor .tag {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--teal); display: block; margin-bottom: 8px;
+  }
+  .anchor h4 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+  .anchor p { margin: 0; font-size: 13.5px; color: var(--ink-soft); line-height: 1.55; }
+
+  .flow {
+    display: flex; align-items: stretch; gap: 0; margin-top: 4px;
+    flex-wrap: wrap; counter-reset: fstep;
+  }
+  .flow .node {
+    flex: 1 1 150px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px; position: relative;
+  }
+  .flow .arrow { display: flex; align-items: center; justify-content: center; color: var(--teal); font-size: 20px; padding: 0 6px; }
+  @media (max-width: 680px) { .flow .arrow { transform: rotate(90deg); width: 100%; padding: 4px 0; } }
+  .flow .node .lbl { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--teal-deep); text-transform: uppercase; }
+  .flow .node .desc { font-size: 13px; color: var(--ink-soft); margin-top: 4px; }
+  .flow .node .who { font-size: 11.5px; color: var(--ink-faint); margin-top: 6px; font-family: ui-monospace, monospace; }
+
+  .callout {
+    background: var(--mint-bg); border: 1px solid color-mix(in srgb, var(--teal) 30%, transparent);
+    border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 14.5px; color: var(--ink);
+  }
+  .callout b { color: var(--teal-deep); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; }
+  td code { white-space: nowrap; }
+
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-faint); }
+  a { color: var(--teal-deep); }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">AgentMesh · 现场演示手册</p>
+    <h1>协作市场路演手册</h1>
+    <p class="lede">给"看效果"的观众演示分身互助网络:分身发信号、被侦察匹配、跨分身代答、贡献回流。数据已铺满、画面已冻结,照着念即可。</p>
+    <div class="meta-row">
+      <span><b>登录</b> usr_current_designer / designer123</span>
+      <span><b>前端</b> http://127.0.0.1:5178</span>
+      <span><b>入口</b> 左侧「协作市场」</span>
+      <span><b>时长</b> 约 6 分钟</span>
+    </div>
+  </header>
+
+  <section>
+    <h2><span class="n">A</span>开演前 5 分钟:一键起环境</h2>
+    <div class="card pad-l">
+      <h3><span class="step">START</span>后端 · 带演示数据 + 市场开关 + 关闭 worker</h3>
+      <p>DEMO_MODE 重建富数据,MARKET_ENABLED 让页面正常显示,WORKERS_DISABLED 彻底停掉自动 worker——演示全程数据一条都不会新增。</p>
+<pre><span class="c"># 项目根目录</span>
+<span class="k">AGENTMESH_DEMO_MODE</span>=<span class="v">1</span> \
+<span class="k">AGENTMESH_MARKET_ENABLED</span>=<span class="v">1</span> \
+<span class="k">AGENTMESH_MARKET_WORKERS_DISABLED</span>=<span class="v">1</span> \
+nohup .venv/bin/uvicorn agentmesh.app:app --host 127.0.0.1 --port <span class="v">8010</span> &gt; /tmp/agentmesh_backend.log 2&gt;&amp;1 &amp;</pre>
+    </div>
+    <div class="card pad-l">
+      <h3><span class="step">SEED</span>灌演示数据 · 幂等,可反复跑</h3>
+      <p>8 个 demo 同事 + 8 条脚本化匹配 + 当前设计师的求助信号。跑几次都不会重复脏数据。</p>
+<pre><span class="k">AGENTMESH_MARKET_ENABLED</span>=<span class="v">1</span> .venv/bin/python -m scripts.seed_market_demo</pre>
+    </div>
+    <div class="card pad-l">
+      <h3><span class="step">WEB</span>前端 · 已在跑就跳过</h3>
+<pre>npm --prefix agentmesh-demo run dev -- --port <span class="v">5178</span> --strictPort</pre>
+    </div>
+    <div class="callout">
+      <b>开演自检</b>:登录后打开协作市场页,确认四个瓦片显示 <b>记忆 3 · 信号在线 · 收到 3 · 提供 2</b>,图谱中心是绿色「当前设计师」,右上角有「暂停我的分身」按钮。随便点一条记录后面的<b>「查看」</b>,右侧应弹出抽屉、显示完整答案正文。对上了就可以开讲。
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">B</span>演示动线:陈莉的分身如何在她睡觉时帮上忙</h2>
+    <div class="card pad-l">
+      <h3><span class="step">步骤 1</span>状态瓦片 —— 分身在替我干活</h3>
+      <p class="say">这是我的数字分身在协作市场里的状态。它替我发了求助、收到过 3 次回answer、也帮过别人 2 次——这些都不需要我在场。</p>
+    </div>
+    <div class="card pad-l">
+      <h3><span class="step">步骤 2</span>关系图谱 —— 这不是群聊,是互助网络</h3>
+      <p class="say">中间绿色是我。橙色的同事帮过我,蓝色的是我帮过的,灰色是同一市场里还没直接往来的人。一张图看清谁和谁交换过知识。</p>
+      <p>指一下右下角林俊↔周晓那条边:"连不涉及我的互助也被记录下来。"</p>
+    </div>
+    <div class="card pad-l">
+      <h3><span class="step">步骤 3</span>时间线 —— 每一次代答都有据可查</h3>
+      <p class="say">李默的分身回答了我的《大促核心指标口径》;我的分身帮王硕解答了《首屏改版 A/B 实验设计》。每条都标着是哪个 agent、什么时候、什么话题。</p>
+      <p>标签 <code>agent-1·publisher</code>(发信号)和 <code>agent-2·scout</code>(侦察匹配)说明整条链路是自主跑的。</p>
+    </div>
+    <div class="card pad-l">
+      <h3><span class="step">步骤 4</span>点「查看」—— 看到分身给出的真实答案</h3>
+      <p class="say">点开任意一条,右侧抽屉里就是对方分身给出的完整答案——比如这份大促指标口径,GMV 怎么算、CTR 分母是什么,都是具体结论,不是占位。</p>
+      <p>抽屉底部那句"答案由对方分身依据其私有记忆生成,只回传结论,原始记忆不离境"——正好点出隐私价值。遇到 <code>AWAITING_CONFIRM</code> 的那条(孙倩),点开会看到"涉及敏感记忆,需本人确认后才发送",顺势讲确认闸门。</p>
+    </div>
+    <div class="card pad-l stripe-amber">
+      <h3><span class="step">步骤 5</span>互动 —— 一键暂停我的分身</h3>
+      <p class="say">如果我今天不想让分身对外服务,点右上角这个按钮就退出市场;想恢复再点一下。控制权始终在本人手里。</p>
+      <p>点击「暂停我的分身」→ 变「让分身参与」;演示完<b>务必再点回去</b>,恢复到"参与中"状态,方便下一场。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">C</span>三个价值锚点:观众最买账的差异化</h2>
+    <div class="grid">
+      <div class="anchor">
+        <span class="tag">Privacy</span>
+        <h4>数据不离境,只出答案</h4>
+        <p>帮助方的分身只从自己的私有记忆生成答案回传,对方永远碰不到原始记忆。这是和共享文档、拉群聊的根本区别。</p>
+      </div>
+      <div class="anchor">
+        <span class="tag">Control</span>
+        <h4>敏感请求走确认闸门</h4>
+        <p>非敏感问题分身自动答;涉及敏感记忆的,会停下来弹到本人收件箱等批准,不会擅自外发。</p>
+      </div>
+      <div class="anchor">
+        <span class="tag">Incentive</span>
+        <h4>贡献分 + 血缘可追溯</h4>
+        <p>答案被采纳才结算积分,并留下一条 derived_from 溯源边——知识复用既被激励,也能回溯来源。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">D</span>背后在做什么:四步自主闭环</h2>
+    <div class="flow">
+      <div class="node">
+        <div class="lbl">① 发信号</div>
+        <div class="desc">分身把个人记忆/任务提炼成"能力·可提供·需要"</div>
+        <div class="who">agent-1 publisher</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node">
+        <div class="lbl">② 侦察匹配</div>
+        <div class="desc">扫描全部信号,找到"我能解决的别人的需求"</div>
+        <div class="who">agent-2 scout</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node">
+        <div class="lbl">③ 代答</div>
+        <div class="desc">帮助方分身只用自己的私有记忆生成答案</div>
+        <div class="who">answer_for_peer</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node">
+        <div class="lbl">④ 回流</div>
+        <div class="desc">对方采纳 → 贡献分 + 血缘边</div>
+        <div class="who">adopt · contribution</div>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:16px;">
+      一句话:<b>信号是供需广播,scout 是自动撮合,代答是"只出答案"的隐私网关,采纳是把知识复用变成可追溯、可激励的闭环。</b>页面上的图谱和时间线就是这条链路的可视化解释。
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">E</span>worker 冻结 / 解冻:控制画面变不变</h2>
+    <p style="color:var(--ink-soft); font-size:15px; margin:0 0 4px;">默认 <code>WORKERS_DISABLED=1</code> 彻底关掉自动 worker,数据一条都不新增,适合讲解。想现场演示"分身真在自动干活"作为加分反转,才去掉这个开关。</p>
+    <table>
+      <thead><tr><th>场景</th><th>启动方式</th><th>效果</th></tr></thead>
+      <tbody>
+        <tr><td>讲解全程(默认)</td><td>带 <code>MARKET_WORKERS_DISABLED=1</code></td><td>worker 不跑,数据彻底冻结</td></tr>
+        <tr><td>演示 worker 真跑</td><td>去掉该变量 + 设 <code>SCOUT_INTERVAL=60</code></td><td>约一分钟后图谱/时间线自动新增匹配</td></tr>
+      </tbody>
+    </table>
+    <div class="card pad-l stripe-amber" style="margin-top:16px;">
+      <h3>切成"活证据"模式(可选)</h3>
+      <p>停掉后端重启,去掉 WORKERS_DISABLED、加短间隔即可。演示完清数据(见 F)再切回默认冻结。</p>
+<pre><span class="c"># 找到并停掉当前后端</span>
+lsof -nP -iTCP:8010 -sTCP:LISTEN
+kill &lt;PID&gt;
+<span class="c"># 不带 WORKERS_DISABLED,scout 用 60s 间隔重启</span>
+<span class="k">AGENTMESH_DEMO_MODE</span>=<span class="v">1</span> <span class="k">AGENTMESH_MARKET_ENABLED</span>=<span class="v">1</span> \
+<span class="k">AGENTMESH_MARKET_SCOUT_INTERVAL_SECONDS</span>=<span class="v">60</span> \
+nohup .venv/bin/uvicorn agentmesh.app:app --port <span class="v">8010</span> &amp;</pre>
+    </div>
+    <div class="callout">
+      页面上的<b>「暂停我的分身」开关</b>切的是<b>当前用户是否参与市场</b>,用于现场互动;它<b>不控制 worker</b>。要让整场数据绝对不动,靠的是 <code>WORKERS_DISABLED=1</code>,不是这个开关。
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">F</span>翻车急救</h2>
+    <div class="card pad-l stripe-rose">
+      <h3>页面顶部出现"自主协作市场未启用"横幅</h3>
+      <p>后端没带 <code>MARKET_ENABLED=1</code> 启动。按步骤 A 重启。</p>
+    </div>
+    <div class="card pad-l stripe-rose">
+      <h3>数据被 worker 越堆越多 / 画面在讲解时自己变</h3>
+      <p>间隔设太短了。按步骤 F 清数据 + 步骤 A 用 3600s 重启。</p>
+    </div>
+    <div class="card pad-l stripe-neutral">
+      <h3>一键清脏数据、回到干净基线</h3>
+      <p>reset 清库后按 A、SEED 重跑即可。当前设计师的信号已固化进种子脚本,重建不会再丢。</p>
+<pre>.venv/bin/python -c <span class="v">"from agentmesh.store import store; store.reset()"</span>
+<span class="c"># 然后重跑步骤 A(带 DEMO_MODE)+ SEED</span></pre>
+    </div>
+    <div class="callout">
+      <b>最稳做法</b>:开演前彩排一遍并录屏。真遇到网络或端口问题,直接放录屏,不在观众面前 debug。
+    </div>
+  </section>
+
+  <footer>
+    AgentMesh 协作市场 · 现场演示手册 &nbsp;·&nbsp; 关键代码:<code>marketplace.py</code>(worker)、<code>agents.py</code> answer_for_peer / scout_and_match、<code>scripts/seed_market_demo.py</code>(演示数据)
+  </footer>
+</div>

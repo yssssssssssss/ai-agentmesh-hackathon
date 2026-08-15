@@ -670,6 +670,7 @@ class MarketMeTimelineItem(BaseModel):
     status: Literal["answered", "awaiting_confirm", "denied", "open"] = "open"
     sensitivity: Literal["low", "medium", "high"] = "low"
     meta: str = ""
+    detail: str = ""
 
 
 class MarketMeWorkerState(BaseModel):

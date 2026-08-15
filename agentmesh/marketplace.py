@@ -34,13 +34,17 @@ def _positive_int_env(name: str, default: int) -> int:
 
 # Master switch for the whole autonomous market (off by default).
 MARKET_ENABLED = _bool_env("AGENTMESH_MARKET_ENABLED")
+# Independent brake: keep the market "enabled" for the UI (no "未启用" banner) while
+# holding the background workers still — used for a frozen demo where the graph and
+# timeline must not drift. Defaults to running when the market is enabled.
+MARKET_WORKERS_ENABLED = MARKET_ENABLED and not _bool_env("AGENTMESH_MARKET_WORKERS_DISABLED")
 MARKET_PUBLISH_INTERVAL_SECONDS = _positive_int_env("AGENTMESH_MARKET_PUBLISH_INTERVAL_SECONDS", 300)
 MARKET_SCOUT_INTERVAL_SECONDS = _positive_int_env("AGENTMESH_MARKET_SCOUT_INTERVAL_SECONDS", 300)
 MARKET_SCOUT_MAX_PER_RUN = _positive_int_env("AGENTMESH_MARKET_SCOUT_MAX_PER_RUN", 20)
 
 publish_worker_task: asyncio.Task | None = None
 publish_worker_state: dict[str, object] = {
-    "enabled": MARKET_ENABLED,
+    "enabled": MARKET_WORKERS_ENABLED,
     "interval_seconds": MARKET_PUBLISH_INTERVAL_SECONDS,
     "running": False,
     "last_run_at": None,
@@ -79,7 +83,7 @@ async def publish_worker_loop() -> None:
 
 async def start_market_publish_worker() -> None:
     global publish_worker_task
-    if MARKET_ENABLED and (publish_worker_task is None or publish_worker_task.done()):
+    if MARKET_WORKERS_ENABLED and (publish_worker_task is None or publish_worker_task.done()):
         publish_worker_task = asyncio.create_task(publish_worker_loop())
         publish_worker_state["running"] = True
 
@@ -98,7 +102,7 @@ async def stop_market_publish_worker() -> None:
 
 scout_worker_task: asyncio.Task | None = None
 scout_worker_state: dict[str, object] = {
-    "enabled": MARKET_ENABLED,
+    "enabled": MARKET_WORKERS_ENABLED,
     "interval_seconds": MARKET_SCOUT_INTERVAL_SECONDS,
     "running": False,
     "last_run_at": None,
@@ -148,7 +152,7 @@ async def scout_worker_loop() -> None:
 
 async def start_market_scout_worker() -> None:
     global scout_worker_task
-    if MARKET_ENABLED and (scout_worker_task is None or scout_worker_task.done()):
+    if MARKET_WORKERS_ENABLED and (scout_worker_task is None or scout_worker_task.done()):
         scout_worker_task = asyncio.create_task(scout_worker_loop())
         scout_worker_state["running"] = True
 

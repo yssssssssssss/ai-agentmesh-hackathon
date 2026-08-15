@@ -2750,6 +2750,11 @@ export interface components {
              * @default
              */
             meta: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
         };
         /** MarketMeUser */
         MarketMeUser: {
