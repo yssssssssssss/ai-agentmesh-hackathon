@@ -3858,6 +3858,7 @@
       let activeHandoffPostId = null;
       let bbsTaskStatusById = {};
       let activeDocumentDraftId = "";
+      let activeDocumentDraftVersion = 0;
       const expandedTaskCardIds = new Set();
       const bbsPageSize = 5;
       let touchStartY = 0;
@@ -4529,7 +4530,7 @@
 
       async function loadActivity() {
         try {
-          const response = await fetch("/api/activity/today");
+          const response = await fetch(`/api/activity/today?project_id=${encodeURIComponent(currentProjectId || "")}`);
           if (!response.ok) throw new Error("activity request failed");
           const data = await response.json();
           renderActivityPanel(data.personal || [], personalActivityList);
@@ -4980,6 +4981,7 @@
         documentModalTitle.textContent = "正在打开草稿";
         documentModalBody.value = "加载中...";
         activeDocumentDraftId = documentId;
+        activeDocumentDraftVersion = 0;
         if (documentConfirmButton) {
           documentConfirmButton.classList.toggle("view-hidden", !confirmable);
           documentConfirmButton.dataset.inboxConfirmBrief = inboxId || "";
@@ -4992,6 +4994,7 @@
           const document = data.item || {};
           documentModalTitle.textContent = document.title || "文档草稿";
           documentModalBody.value = document.text || "这个草稿没有正文。";
+          activeDocumentDraftVersion = Number(document.version || 0);
         } catch (error) {
           documentModalTitle.textContent = "草稿暂不可用";
           documentModalBody.value = "无法打开该草稿，请稍后重试。";
@@ -5001,6 +5004,7 @@
       function closeDocumentDraft() {
         documentModal?.classList.add("view-hidden");
         activeDocumentDraftId = "";
+        activeDocumentDraftVersion = 0;
         if (documentConfirmButton) {
           documentConfirmButton.classList.add("view-hidden");
           documentConfirmButton.dataset.inboxConfirmBrief = "";
@@ -5840,7 +5844,7 @@
       }
 
       async function loadTasks() {
-        const response = await fetch("/api/blackboard/task-cards");
+        const response = await fetch(`/api/blackboard/task-cards?project_id=${encodeURIComponent(currentProjectId || "")}`);
         if (!response.ok) {
           if (taskList) taskList.innerHTML = `<div class="review-item"><strong>任务暂不可用</strong><p>请稍后重试。</p></div>`;
           return;
@@ -5854,7 +5858,7 @@
         if (selectedBbsTaskId) params.set("task_id", selectedBbsTaskId);
         const [response, cardsResponse] = await Promise.all([
           fetch(`/api/blackboard?${params.toString()}`),
-          fetch("/api/blackboard/task-cards"),
+          fetch(`/api/blackboard/task-cards?project_id=${encodeURIComponent(currentProjectId || "")}`),
         ]);
         const data = await response.json();
         const cardsData = await cardsResponse.json();
@@ -5889,7 +5893,7 @@
           hasNext = data.has_next;
           page++;
         }
-        const cardsRes = await fetch("/api/blackboard/task-cards");
+        const cardsRes = await fetch(`/api/blackboard/task-cards?project_id=${encodeURIComponent(currentProjectId || "")}`);
         const cards = (await cardsRes.json()).items || [];
         renderGraphFlow(allPosts, cards);
         renderGraphTimeline(allPosts);
@@ -6258,18 +6262,18 @@
       }
 
       async function confirmBriefInboxItem(id) {
-        if (activeDocumentDraftId && documentModalBody) {
-          const saveResponse = await fetch(`/api/documents/${encodeURIComponent(activeDocumentDraftId)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: documentModalBody.value }),
-          });
-          if (!saveResponse.ok) {
-            showToast("草稿保存失败，请检查正文后重试");
-            return;
-          }
+        if (!activeDocumentDraftId || !activeDocumentDraftVersion || !documentModalBody) {
+          showToast("草稿尚未加载完成，请稍后重试");
+          return;
         }
-        const response = await fetch(`/api/inbox/${id}/confirm-brief`, { method: "POST" });
+        const response = await fetch(`/api/inbox/${id}/confirm-brief`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: documentModalBody.value,
+            expected_document_version: activeDocumentDraftVersion,
+          }),
+        });
         if (!response.ok) {
           showToast("确认失败，请稍后重试");
           return;
