@@ -64,6 +64,8 @@ class TestRetrievalMetricsModel:
 class TestRetrievalMetricsCollection:
     def setup_method(self) -> None:
         store.reset()
+        store.save_project(PROJECT)
+        store.save_user(USER)
 
     def test_metrics_collected_during_memory_search(self) -> None:
         store.add_memory_item(

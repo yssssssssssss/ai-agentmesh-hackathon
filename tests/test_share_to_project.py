@@ -11,17 +11,17 @@ from agentmesh.models import (
     Scope,
     UserMemoryItem,
 )
-from agentmesh.seed import PROJECT, USER, WORKSPACE
+from agentmesh.seed import PROJECT, TEAM_LEAD, USER, WORKSPACE
 from agentmesh.store import store
 
 
-def _password() -> str:
-    return "designer123"
+def _password(user_id: str) -> str:
+    return {USER.id: "designer123", TEAM_LEAD.id: "lead123"}[user_id]
 
 
-def _authenticated_client() -> TestClient:
+def _authenticated_client(user_id: str = USER.id) -> TestClient:
     client = TestClient(app)
-    resp = client.post("/api/auth/login", json={"user_id": USER.id, "password": _password()})
+    resp = client.post("/api/auth/login", json={"user_id": user_id, "password": _password(user_id)})
     assert resp.status_code == 200
     return client
 
@@ -44,23 +44,23 @@ class TestShareToProject:
     def setup_method(self) -> None:
         store.reset()
 
-    def test_share_creates_project_scoped_memory(self) -> None:
+    def test_share_creates_team_candidate_for_project_review(self) -> None:
         item = _create_user_memory()
         client = _authenticated_client()
         resp = client.post(f"/api/memory/user/{item.id}/share-to-project")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["item"]["scope"] == Scope.PROJECT.value
+        assert data["item"]["scope"] == Scope.TEAM_CANDIDATE.value
         assert data["item"]["title"] == item.title
         assert data["item"]["summary"] == item.summary
         assert data["item"]["project_id"] == PROJECT.id
 
-    def test_shared_memory_status_is_accepted(self) -> None:
+    def test_shared_memory_status_is_proposed(self) -> None:
         item = _create_user_memory()
         client = _authenticated_client()
         resp = client.post(f"/api/memory/user/{item.id}/share-to-project")
         data = resp.json()
-        assert data["item"]["status"] == MemoryStatus.ACCEPTED.value
+        assert data["item"]["status"] == MemoryStatus.PROPOSED.value
 
     def test_share_creates_lineage_relation(self) -> None:
         item = _create_user_memory()
@@ -101,16 +101,21 @@ class TestShareToProject:
         resp = client.post(f"/api/memory/user/{item.id}/share-to-project")
         assert resp.status_code == 400
 
-    def test_shared_memory_searchable_at_project_scope(self) -> None:
+    def test_accepted_candidate_is_searchable_as_team_memory(self) -> None:
         item = _create_user_memory()
         client = _authenticated_client()
-        client.post(f"/api/memory/user/{item.id}/share-to-project")
+        share_response = client.post(f"/api/memory/user/{item.id}/share-to-project")
+        candidate_id = share_response.json()["item"]["id"]
+        lead_client = _authenticated_client(TEAM_LEAD.id)
+        accepted = lead_client.patch(f"/api/memory/{candidate_id}", json={"status": "accepted"})
+        assert accepted.status_code == 200
         results = store.search(
             "首屏性能",
-            {Scope.PROJECT},
+            {Scope.TEAM_ACCEPTED},
             workspace_id=WORKSPACE.id,
             project_id=PROJECT.id,
+            user_id=TEAM_LEAD.id,
         )
-        project_results = [r for r in results if r.result_type == "memory_item" and r.scope == Scope.PROJECT]
-        assert len(project_results) >= 1
-        assert any("首屏" in r.title for r in project_results)
+        team_results = [r for r in results if r.result_type == "memory_item" and r.scope == Scope.TEAM_ACCEPTED]
+        assert len(team_results) >= 1
+        assert any("首屏" in r.title for r in team_results)

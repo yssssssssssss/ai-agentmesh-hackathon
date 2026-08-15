@@ -94,7 +94,7 @@ class TestProjectMemberValidation:
         project_results = [r for r in results if r.scope == Scope.PROJECT]
         assert len(project_results) == 0
 
-    def test_admin_bypasses_member_check(self) -> None:
+    def test_admin_requires_project_membership(self) -> None:
         s = _fresh_store()
         project_id, _, _ = _setup_project_with_members(s)
         admin = User(
@@ -120,9 +120,9 @@ class TestProjectMemberValidation:
         results = s.search(
             "部署规范", {Scope.PROJECT}, workspace_id="ws1", project_id=project_id, user_id=admin.id
         )
-        assert len(results) == 1
+        assert results == []
 
-    def test_team_lead_bypasses_member_check(self) -> None:
+    def test_team_lead_requires_project_membership(self) -> None:
         s = _fresh_store()
         project_id, _, _ = _setup_project_with_members(s)
         lead = User(
@@ -148,7 +148,8 @@ class TestProjectMemberValidation:
         results = s.search(
             "部署规范", {Scope.PROJECT}, workspace_id="ws1", project_id=project_id, user_id=lead.id
         )
-        assert len(results) == 1
+        assert results == []
+
 
     def test_empty_member_ids_allows_all(self) -> None:
         """Projects without member_ids (legacy) allow all users."""

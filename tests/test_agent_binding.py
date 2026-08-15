@@ -14,10 +14,8 @@ from agentmesh.models import (
     MemoryItem,
     MemoryStatus,
     Scope,
-    UserMemoryItem,
-    MemoryLayer,
 )
-from agentmesh.seed import ADMIN, PROJECT, USER, WORKSPACE
+from agentmesh.seed import PROJECT, USER, WORKSPACE
 from agentmesh.store import SQLiteStore, store
 
 

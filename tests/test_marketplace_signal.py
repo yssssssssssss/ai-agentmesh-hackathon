@@ -174,3 +174,4 @@ def test_publish_resolves_llm_with_the_market_timeout(monkeypatch) -> None:
 
     assert captured["timeout"] == market_llm_timeout_seconds()
 
+

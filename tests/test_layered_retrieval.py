@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 from agentmesh.agents import PersonalAgent
 from agentmesh.models import (
     MemoryItem,
@@ -18,6 +16,8 @@ from agentmesh.store import store
 
 def _reset_and_seed() -> None:
     store.reset()
+    store.save_project(PROJECT)
+    store.save_user(USER)
 
 
 class TestLayeredRetrieval:

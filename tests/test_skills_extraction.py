@@ -14,7 +14,6 @@ from agentmesh.models import (
 )
 from agentmesh.seed import PROJECT, USER, WORKSPACE
 from agentmesh.skill_extractor import (
-    compute_pattern_key,
     detect_recurring_patterns,
     extract_workflow_pattern,
     match_skill,

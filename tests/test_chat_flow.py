@@ -1,3 +1,4 @@
+import time
 from datetime import timedelta
 from unittest.mock import MagicMock
 
@@ -5,12 +6,18 @@ import httpx
 from fastapi.testclient import TestClient
 
 import agentmesh.routes.agents as agents_module
+import agentmesh.routes.chat as chat_routes
+import agentmesh.routes.data_sources as data_source_routes
+import agentmesh.routes.documents as documents_module
 from agentmesh.acquisition import AcquisitionRequest, AcquisitionResult, MockAcquisitionAgent
 from agentmesh.agents import PersonalAgent
 from agentmesh.app import app
+from agentmesh.auth import SESSION_COOKIE_NAME, issue_session
 from agentmesh.brief_templates import select_brief_template
 from agentmesh.llm import LLMClient, LLMRequestError
 from agentmesh.models import (
+    Agent,
+    AgentToolGrant,
     AutoBlackboardPostRequest,
     ChatMessage,
     ChatRole,
@@ -19,10 +26,13 @@ from agentmesh.models import (
     MemoryItem,
     MemoryLayer,
     MemoryStatus,
+    Project,
     Scope,
     Source,
     ToolDefinition,
+    User,
     UserMemoryItem,
+    Workspace,
     now_utc,
 )
 from agentmesh.seed import (
@@ -68,6 +78,54 @@ def login_as(client: TestClient, user_id: str) -> None:
     assert response.status_code == 200
 
 
+def custom_tenant_client(*, grant_enabled: bool = True) -> tuple[TestClient, User, Workspace, Project]:
+    user_id = "usr_non_seed_data"
+    workspace = store.save_workspace(
+        Workspace(id="ws_non_seed_data", name="Non-seed data workspace", description="Tenant scope regression")
+    )
+    project = store.save_project(
+        Project(
+            id="prj_non_seed_data",
+            workspace_id=workspace.id,
+            name="Non-seed data project",
+            goal="Keep connector calls tenant scoped",
+            member_ids=[user_id],
+        )
+    )
+    user = store.save_user(
+        User(
+            id=user_id,
+            workspace_id=workspace.id,
+            default_project_id=project.id,
+            name="Non-seed data user",
+            role="user",
+            personal_agent_id="agent_non_seed_data",
+        )
+    )
+    store.save_agent(
+        Agent(
+            id=user.personal_agent_id,
+            workspace_id=workspace.id,
+            name="Non-seed Personal Agent",
+            agent_type="personal",
+            description="Tenant-scoped data query agent",
+            owner_user_id=user.id,
+        )
+    )
+    store.save_agent_tool_grant(
+        AgentToolGrant(
+            agent_id=user.personal_agent_id,
+            tool_id="tool_data_query",
+            enabled=grant_enabled,
+            granted_by=user.id,
+        )
+    )
+    _, token = issue_session(store, user)
+    client = TestClient(app)
+    client.cookies.set(SESSION_COOKIE_NAME, token)
+    return client, user, workspace, project
+
+
 def test_auth_login_me_logout_and_unauthorized_write() -> None:
     clear_store()
     client = TestClient(app)
@@ -89,10 +147,23 @@ def test_auth_login_me_logout_and_unauthorized_write() -> None:
     assert client.get("/api/auth/me").status_code == 401
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 def test_app_page_route_serves_workspace_shell() -> None:
     client = TestClient(app)
 
-    response = client.get("/app.html")
+    response = client.get("/legacy/app.html")
 
     assert response.status_code == 200
     assert "AgentMesh Chat Workspace" in response.text
@@ -132,10 +203,19 @@ def test_chat_creates_task_blackboard_evidence_and_activity() -> None:
     assert len(store.audit_events) >= 2
 
 
-def test_chat_data_query_uses_data_agent_and_writes_metrics_evidence() -> None:
+def test_chat_data_query_uses_data_agent_and_writes_metrics_evidence(monkeypatch) -> None:
     clear_store()
     client = authenticated_client()
+    registry = chat_routes.agent.data_agent.registry
+    original_query = registry.query_first_available
+    connector_calls = 0
 
+    def counted_query(*args, **kwargs):
+        nonlocal connector_calls
+        connector_calls += 1
+        return original_query(*args, **kwargs)
+
+    monkeypatch.setattr(registry, "query_first_available", counted_query)
     response = client.post(
         "/api/chat/messages",
         json={"content": "$data.query 618 会场入口点击率数据"},
@@ -144,28 +224,138 @@ def test_chat_data_query_uses_data_agent_and_writes_metrics_evidence() -> None:
     assert response.status_code == 200
     payload = response.json()
 
+    assert connector_calls == 1
     assert payload["task"]["intent"] == "request_data_query"
     assert payload["request_post"]["current_owner_agent_id"] == "data_agent"
     assert payload["request_post"]["read_by_agents"] == ["data_agent"]
     assert payload["evidence_post"]["actor"] == "data_agent"
     assert payload["evidence_post"]["sources"][0]["source_type"] == "data_source"
     assert "local_metrics" in payload["evidence_post"]["content"]
+    assert payload["evidence_post"]["metadata"]["requested_provider"] == "http_data_api"
+    assert payload["evidence_post"]["metadata"]["actual_provider"] == "local_metrics"
+    assert payload["workflow_trace"]["requested_provider"] == "http_data_api"
+    assert payload["workflow_trace"]["actual_provider"] == "local_metrics"
+    assert payload["workflow_trace"]["provider_mode"] == "fallback"
+    assert payload["workflow_trace"]["fallback_reason"] == "explicit_local_metrics"
+    assert payload["workflow_trace"]["latency_ms"] >= 0
+    assert "provider" not in payload["workflow_trace"]
     assert "received_data_agent_evidence" in payload["task"]["steps"]
     assert any(
         log["category"] == "external_agent" and "data_agent" in log["summary"] for log in payload["activity_logs"]
     )
 
 
-def test_audit_api_lists_recent_events_with_filters_and_counts() -> None:
+def test_chat_data_query_denies_disabled_grant_before_connector(monkeypatch) -> None:
     clear_store()
     client = authenticated_client()
-    client.post(
+    grant = next(
+        item
+        for item in store.list_agent_tool_grants(USER.personal_agent_id)
+        if item.tool_id == "tool_data_query"
+    )
+    grant.enabled = False
+    store.save_agent_tool_grant(grant)
+    connector_calls = 0
+
+    def forbidden_connector(*args, **kwargs):
+        nonlocal connector_calls
+        connector_calls += 1
+        raise AssertionError("connector executed before authorization")
+
+    monkeypatch.setattr(
+        chat_routes.agent.data_agent.registry,
+        "query_first_available",
+        forbidden_connector,
+    )
+    response = client.post(
+        "/api/chat/messages",
+        json={"content": "$data.query 618 会场入口点击率数据"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Data query tool grant is required"
+    assert connector_calls == 0
+
+
+def test_chat_data_query_uses_non_seed_thread_scope_exactly_once(monkeypatch) -> None:
+    clear_store()
+    client, user, workspace, project = custom_tenant_client()
+    registry = chat_routes.agent.data_agent.registry
+    original_query = registry.query_first_available
+    connector_calls = []
+
+    def capture_query(*args, **kwargs):
+        connector_calls.append(kwargs)
+        return original_query(*args, **kwargs)
+
+    monkeypatch.setattr(registry, "query_first_available", capture_query)
+    response = client.post("/api/chat/messages", json={"content": "$data.query non-seed ctr"})
+
+    assert response.status_code == 200
+    assert len(connector_calls) == 1
+    assert connector_calls[0]["workspace_id"] == workspace.id
+    assert connector_calls[0]["project_id"] == project.id
+    assert connector_calls[0]["requested_by"] == user.id
+    scoped_actions = {"create_task", "create_blackboard_request", "return_chat_response"}
+    scoped_events = [event for event in store.audit_events if event.action in scoped_actions]
+    assert {event.action for event in scoped_events} == scoped_actions
+    assert all(event.workspace_id == workspace.id and event.project_id == project.id for event in scoped_events)
+
+
+def test_direct_data_query_uses_non_seed_authenticated_scope_exactly_once(monkeypatch) -> None:
+    clear_store()
+    client, user, workspace, project = custom_tenant_client()
+    original_query = data_source_routes.data_source_registry.query
+    connector_calls = []
+
+    def capture_query(query):
+        connector_calls.append(query)
+        return original_query(query)
+
+    monkeypatch.setattr(data_source_routes.data_source_registry, "query", capture_query)
+    response = client.post(
+        "/api/data-agent/query",
+        json={"connector_name": "local_metrics", "operation": "query", "parameters": {"metric": "ctr"}},
+    )
+
+    assert response.status_code == 200
+    assert len(connector_calls) == 1
+    assert connector_calls[0].workspace_id == workspace.id
+    assert connector_calls[0].project_id == project.id
+    assert connector_calls[0].requested_by == user.id
+
+
+def test_direct_data_query_disabled_grant_makes_zero_connector_calls(monkeypatch) -> None:
+    clear_store()
+    client, _, _, _ = custom_tenant_client(grant_enabled=False)
+    connector_calls = 0
+
+    def forbidden_connector(*args, **kwargs):
+        nonlocal connector_calls
+        connector_calls += 1
+        raise AssertionError("connector executed before authorization")
+
+    monkeypatch.setattr(data_source_routes.data_source_registry, "query", forbidden_connector)
+    response = client.post(
+        "/api/data-agent/query",
+        json={"connector_name": "local_metrics", "operation": "query", "parameters": {"metric": "ctr"}},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Data query tool grant is required"
+    assert connector_calls == 0
+
+def test_audit_api_lists_recent_events_with_filters_and_counts() -> None:
+    clear_store()
+    user_client = authenticated_client()
+    user_client.post(
         "/api/chat/messages",
         json={"content": "$research.request 618 家电会场过去有没有相似项目经验"},
     )
+    admin_client = authenticated_client(ADMIN.id)
 
-    response = client.get("/api/audit?limit=2")
-    filtered_response = client.get("/api/audit?action=create_task&target_type=task")
+    response = admin_client.get("/api/audit?limit=2")
+    filtered_response = admin_client.get("/api/audit?action=create_task&target_type=task")
 
     assert response.status_code == 200
     payload = response.json()
@@ -237,7 +427,8 @@ def test_general_chat_trace_records_llm_timeout_fallback() -> None:
     assert response.workflow_trace is not None
     assert response.workflow_trace.source == "chat"
     assert response.workflow_trace.llm_used is False
-    assert response.workflow_trace.fallback_reason == "timeout"
+    assert response.workflow_trace.fallback_reason is None
+    assert response.workflow_trace.model_fallback_reason == "timeout"
     assert len(store.tasks) == 0
 
 
@@ -453,7 +644,6 @@ def test_blackboard_evidence_can_be_promoted_to_memory_candidate() -> None:
             "post_type": "evidence",
             "title": "声音设计规范证据",
             "content": "北极星玩具频道声音设计应避免自动播放，优先使用可关闭的反馈音。",
-            "actor": "research_agent",
         },
     )
     evidence_post = evidence_response.json()["item"]
@@ -551,7 +741,6 @@ def test_non_request_post_cannot_be_dispatched() -> None:
             "post_type": "evidence",
             "title": "人工补充证据",
             "content": "北极星玩具频道声音设计应避免自动播放。",
-            "actor": "research_agent",
         },
     )
     evidence_post = evidence_response.json()["item"]
@@ -578,7 +767,12 @@ def test_blackboard_request_dispatch_quarantines_injected_content() -> None:
                         reference="https://example.invalid/suspicious",
                     )
                 ],
-                metadata={"provider": "fake_external"},
+                metadata={
+                    "requested_provider": "external_research",
+                    "actual_provider": "fake_external",
+                    "mode": "real",
+                    "latency_ms": "1.000",
+                },
             )
 
     agent = PersonalAgent(store, llm_client=None, acquisition_agent=FakeAcquisitionAgent())
@@ -613,7 +807,12 @@ def _seed_quarantined_research():
                         reference="https://example.invalid/suspicious",
                     )
                 ],
-                metadata={"provider": "fake_external"},
+                metadata={
+                    "requested_provider": "external_research",
+                    "actual_provider": "fake_external",
+                    "mode": "real",
+                    "latency_ms": "1.000",
+                },
             )
 
     agent = PersonalAgent(store, llm_client=None, acquisition_agent=FakeAcquisitionAgent())
@@ -630,6 +829,12 @@ def test_resolve_injection_review_release_completes_task() -> None:
     thread_id = miss.task.thread_id
 
     client = authenticated_client()
+    bypass = client.patch(f"/api/inbox/{inbox_item.id}", json={"status": "resolved"})
+    assert bypass.status_code == 409
+    assert store.get_inbox_item(inbox_item.id).status == "open"
+    assert store.get_task(miss.task.id).status == "waiting_external_agent"
+    assert store.get_blackboard_post(fulfillment.evidence_post.id).status == "needs_review"
+
     response = client.post(
         f"/api/inbox/{inbox_item.id}/resolve-injection-review",
         params={"action": "release"},
@@ -660,6 +865,9 @@ def test_resolve_injection_review_discard_fails_task() -> None:
         f"/api/inbox/{inbox_item.id}/resolve-injection-review",
         params={"action": "discard"},
     )
+    assert store.get_inbox_item(inbox_item.id).metadata["injection_review_action"] == "discard"
+    assert store.get_task(miss.task.id).status == "failed"
+    assert store.get_blackboard_post(fulfillment.evidence_post.id).status == "discarded"
 
     assert response.status_code == 200
     payload = response.json()
@@ -712,6 +920,7 @@ def test_resolve_injection_review_rejects_non_injection_item() -> None:
 def test_research_dispatch_drain_completes_waiting_task() -> None:
     clear_store()
     client = authenticated_client()
+    admin_client = authenticated_client(ADMIN.id)
     search_response = client.post(
         "/api/chat/messages",
         json={"content": "$memory.search 北极星玩具频道声音设计规范"},
@@ -720,7 +929,7 @@ def test_research_dispatch_drain_completes_waiting_task() -> None:
     assert payload["task"]["status"] == "waiting_external_agent"
     thread_id = payload["thread_id"]
 
-    drain_response = client.post("/api/blackboard/research-dispatch/drain")
+    drain_response = admin_client.post("/api/blackboard/research-dispatch/drain")
 
     assert drain_response.status_code == 200
     result = drain_response.json()
@@ -734,21 +943,23 @@ def test_research_dispatch_drain_completes_waiting_task() -> None:
 def test_research_dispatch_drain_is_idempotent() -> None:
     clear_store()
     client = authenticated_client()
+    admin_client = authenticated_client(ADMIN.id)
     client.post(
         "/api/chat/messages",
         json={"content": "$memory.search 北极星玩具频道声音设计规范"},
     )
 
-    first = client.post("/api/blackboard/research-dispatch/drain")
+    first = admin_client.post("/api/blackboard/research-dispatch/drain")
     assert first.json()["dispatched"] == 1
 
-    second = client.post("/api/blackboard/research-dispatch/drain")
+    second = admin_client.post("/api/blackboard/research-dispatch/drain")
     assert second.json()["dispatched"] == 0
 
 
 def test_research_dispatch_drain_skips_tool_approval_gated() -> None:
     clear_store()
     client = authenticated_client()
+    admin_client = authenticated_client(ADMIN.id)
     response = client.post(
         "/api/chat/messages",
         json={"content": "$research.request 批量抓取竞品全站页面"},
@@ -757,7 +968,7 @@ def test_research_dispatch_drain_skips_tool_approval_gated() -> None:
     task = store.get_task(payload["task"]["id"])
     assert "requested_tool_call_approval" in task.steps
 
-    drain = client.post("/api/blackboard/research-dispatch/drain")
+    drain = admin_client.post("/api/blackboard/research-dispatch/drain")
     assert drain.json()["dispatched"] == 0
 
 
@@ -774,7 +985,12 @@ def test_research_dispatch_drain_quarantines_injected_content() -> None:
                 sources=[
                     Source(title="可疑网页", source_type="web_page", reference="https://example.invalid/x")
                 ],
-                metadata={"provider": "fake_external"},
+                metadata={
+                    "requested_provider": "external_research",
+                    "actual_provider": "fake_external",
+                    "mode": "real",
+                    "latency_ms": "1.000",
+                },
             )
 
     from agentmesh.routes import chat as chat_module
@@ -782,12 +998,13 @@ def test_research_dispatch_drain_quarantines_injected_content() -> None:
     chat_module.agent = PersonalAgent(store, llm_client=None, acquisition_agent=FakeAcquisitionAgent())
     try:
         client = authenticated_client()
+        admin_client = authenticated_client(ADMIN.id)
         client.post(
             "/api/chat/messages",
             json={"content": "$memory.search 北极星玩具频道声音设计规范"},
         )
 
-        drain = client.post("/api/blackboard/research-dispatch/drain")
+        drain = admin_client.post("/api/blackboard/research-dispatch/drain")
         assert drain.json()["dispatched"] == 1
 
         task = store.tasks[-1]
@@ -1101,7 +1318,7 @@ def test_personal_agent_uses_llm_when_available() -> None:
     assert response.assistant_message.content == "这是来自真实大模型的合成回答。"
 
 
-def test_personal_agent_falls_back_when_chat_llm_times_out() -> None:
+def test_provider_trace_prioritizes_acquisition_fallback_over_llm_timeout() -> None:
     clear_store()
 
     class SlowLLMClient:
@@ -1115,7 +1332,11 @@ def test_personal_agent_falls_back_when_chat_llm_times_out() -> None:
     assert "相似历史项目经验" in response.assistant_message.content
     assert response.workflow_trace is not None
     assert response.workflow_trace.llm_used is False
-    assert response.workflow_trace.fallback_reason == "timeout"
+    assert response.workflow_trace.requested_provider == "research"
+    assert response.workflow_trace.actual_provider == "mock"
+    assert response.workflow_trace.provider_mode == "fallback"
+    assert response.workflow_trace.fallback_reason == "no_real_provider_configured"
+    assert response.workflow_trace.model_fallback_reason == "timeout"
 
 
 def test_mock_acquisition_agent_returns_evidence_contract() -> None:
@@ -1135,7 +1356,9 @@ def test_mock_acquisition_agent_returns_evidence_contract() -> None:
     assert result.title == "找到相似项目经验"
     assert "首屏核心入口点击下降" in result.content
     assert result.sources[0].title == "2025 618 家电会场复盘"
-    assert result.metadata["provider"] == "mock"
+    assert result.metadata["requested_provider"] == "research"
+    assert result.metadata["actual_provider"] == "mock"
+    assert "provider" not in result.metadata
 
 
 def test_personal_agent_uses_acquisition_agent_interface() -> None:
@@ -1156,7 +1379,12 @@ def test_personal_agent_uses_acquisition_agent_interface() -> None:
                         reference="external://evidence/1",
                     )
                 ],
-                metadata={"provider": "fake_external"},
+                metadata={
+                    "requested_provider": "external_research",
+                    "actual_provider": "fake_external",
+                    "mode": "real",
+                    "latency_ms": "1.000",
+                },
             )
 
     agent = PersonalAgent(store, llm_client=None, acquisition_agent=FakeAcquisitionAgent())
@@ -1172,6 +1400,10 @@ def test_personal_agent_uses_acquisition_agent_interface() -> None:
     assert captured_requests[0].request_post_id == response.request_post.id
     assert response.evidence_post.actor == "external_acquisition_agent"
     assert response.evidence_post.sources[0].reference == "external://evidence/1"
+    assert response.evidence_post.metadata["requested_provider"] == "external_research"
+    assert response.evidence_post.metadata["actual_provider"] == "fake_external"
+    assert response.workflow_trace.requested_provider == "external_research"
+    assert response.workflow_trace.actual_provider == "fake_external"
     assert "received_acquisition_evidence" in response.task.steps
 
 
@@ -1221,7 +1453,12 @@ def test_prompt_injection_acquisition_result_is_quarantined_before_synthesis() -
                         reference="https://example.invalid/suspicious",
                     )
                 ],
-                metadata={"provider": "fake_external"},
+                metadata={
+                    "requested_provider": "external_research",
+                    "actual_provider": "fake_external",
+                    "mode": "real",
+                    "latency_ms": "1.000",
+                },
             )
 
     class CapturingLLMClient:
@@ -1269,25 +1506,26 @@ def test_high_risk_tool_call_requires_approval_before_acquisition() -> None:
 def test_blackboard_execution_lock_rejects_silent_takeover_and_release_moves_to_review() -> None:
     clear_store()
     client = authenticated_client()
+    admin_client = authenticated_client(ADMIN.id)
     chat_response = client.post("/api/chat/messages", json={"content": "$research.request 查一下 618 家电会场相似经验"})
     post_id = chat_response.json()["request_post"]["id"]
 
-    acquire_response = client.post(
+    acquire_response = admin_client.post(
         f"/api/blackboard/posts/{post_id}/lock",
-        json={"owner_agent_id": "research_agent", "owner_label": "research_agent"},
+        json={"owner_agent_id": "agent_research"},
     )
-    conflict_response = client.post(
+    conflict_response = admin_client.post(
         f"/api/blackboard/posts/{post_id}/lock",
-        json={"owner_agent_id": "risk_agent", "owner_label": "risk_agent"},
+        json={"owner_agent_id": "agent_risk"},
     )
-    release_response = client.post(
+    release_response = admin_client.post(
         f"/api/blackboard/posts/{post_id}/unlock",
         json={"reason": "ready_for_review"},
     )
 
     assert acquire_response.status_code == 200
     assert acquire_response.json()["item"]["collaboration_stage"] == "execution"
-    assert acquire_response.json()["item"]["execution_lock"]["owner_agent_id"] == "research_agent"
+    assert acquire_response.json()["item"]["execution_lock"]["owner_agent_id"] == "agent_research"
     assert conflict_response.status_code == 409
     assert release_response.status_code == 200
     assert release_response.json()["item"]["collaboration_stage"] == "review"
@@ -1297,29 +1535,25 @@ def test_blackboard_execution_lock_rejects_silent_takeover_and_release_moves_to_
 def test_agent_runtime_state_reflects_blackboard_execution_lock() -> None:
     clear_store()
     client = authenticated_client()
+    admin_client = authenticated_client(ADMIN.id)
     chat_response = client.post("/api/chat/messages", json={"content": "$research.request 查一下 618 家电会场相似经验"})
     post_id = chat_response.json()["request_post"]["id"]
-    client.post(
+    admin_client.post(
         f"/api/blackboard/posts/{post_id}/lock",
-        json={"owner_agent_id": "research_agent", "owner_label": "research_agent"},
+        json={"owner_agent_id": "agent_research"},
     )
-
-    agents_response = client.get("/api/agents")
-    task_cards_response = client.get("/api/blackboard/task-cards")
-
+    agents_response = admin_client.get("/api/agents")
+    task_cards_response = client.get("/api/blackboard/task-cards", params={"project_id": PROJECT.id})
     assert agents_response.status_code == 200
     research_agent = next(item for item in agents_response.json()["items"] if item["name"] == "research_agent")
     assert research_agent["runtime_status"] == "running"
     assert research_agent["current_task_id"] == chat_response.json()["task"]["id"]
     assert research_agent["current_task_title"]
-
     assert task_cards_response.status_code == 200
-    card = next(
-        item for item in task_cards_response.json()["items"] if item["task"]["id"] == chat_response.json()["task"]["id"]
-    )
+    card = next(item for item in task_cards_response.json()["items"] if item["task"]["id"] == chat_response.json()["task"]["id"])
     assert card["stage"] == "execution"
     assert card["owner"] == "research_agent"
-    assert card["active_lock"]["owner_agent_id"] == "research_agent"
+    assert card["active_lock"]["owner_agent_id"] == "agent_research"
     assert card["post_count"] == 2
     assert card["initiator_user_id"] == USER.id
     assert card["initiated_by_current_user"] is True
@@ -1330,22 +1564,13 @@ def test_agent_runtime_state_reflects_blackboard_execution_lock() -> None:
 def test_task_cards_are_scoped_by_current_user_role() -> None:
     clear_store()
     designer_client = authenticated_client()
-    designer_task = designer_client.post(
-        "/api/chat/messages",
-        json={"content": "$research.request 查一下 618 家电会场相似经验"},
-    ).json()["task"]["id"]
-
+    designer_task = designer_client.post("/api/chat/messages", json={"content": "$research.request 查一下 618 家电会场相似经验"}).json()["task"]["id"]
     lead_client = authenticated_client(TEAM_LEAD.id)
-    lead_task = lead_client.post(
-        "/api/chat/messages",
-        json={"content": "$brief.create 帮我生成项目 Brief"},
-    ).json()["task"]["id"]
-
-    designer_cards = designer_client.get("/api/blackboard/task-cards").json()["items"]
-    lead_cards = lead_client.get("/api/blackboard/task-cards").json()["items"]
+    lead_task = lead_client.post("/api/chat/messages", json={"content": "$brief.create 帮我生成项目 Brief"}).json()["task"]["id"]
+    designer_cards = designer_client.get("/api/blackboard/task-cards", params={"project_id": PROJECT.id}).json()["items"]
+    lead_cards = lead_client.get("/api/blackboard/task-cards", params={"project_id": PROJECT.id}).json()["items"]
     designer_ids = {item["task"]["id"] for item in designer_cards}
     lead_ids = {item["task"]["id"] for item in lead_cards}
-
     assert designer_task in designer_ids
     assert lead_task not in designer_ids
     assert designer_task in lead_ids
@@ -1357,17 +1582,12 @@ def test_task_cards_mark_personal_agent_claims() -> None:
     client = authenticated_client()
     chat_response = client.post("/api/chat/messages", json={"content": "$research.request 查一下 618 家电会场相似经验"})
     post_id = chat_response.json()["request_post"]["id"]
-
-    client.post(
-        f"/api/blackboard/posts/{post_id}/lock",
-        json={"owner_agent_id": USER.personal_agent_id},
-    )
+    client.post(f"/api/blackboard/posts/{post_id}/lock", json={"owner_agent_id": USER.personal_agent_id})
     card = next(
         item
-        for item in client.get("/api/blackboard/task-cards").json()["items"]
+        for item in client.get("/api/blackboard/task-cards", params={"project_id": PROJECT.id}).json()["items"]
         if item["task"]["id"] == chat_response.json()["task"]["id"]
     )
-
     assert card["claimed_by_personal_agent"] is True
     assert card["owner"] == "我的个人 Agent"
     assert "我的个人 Agent" in card["downstream_agents"]
@@ -1376,21 +1596,22 @@ def test_task_cards_mark_personal_agent_claims() -> None:
 def test_blackboard_handoff_creates_structured_decision_post_and_updates_task_owner() -> None:
     clear_store()
     client = authenticated_client()
+    admin_client = authenticated_client(ADMIN.id)
     chat_response = client.post("/api/chat/messages", json={"content": "$research.request 查一下 618 家电会场相似经验"})
     post_id = chat_response.json()["request_post"]["id"]
     task_id = chat_response.json()["task"]["id"]
-    client.post(
+    admin_client.post(
         f"/api/blackboard/posts/{post_id}/lock",
-        json={"owner_agent_id": "research_agent", "owner_label": "research_agent"},
+        json={"owner_agent_id": "agent_research"},
     )
 
-    handoff_response = client.post(
+    handoff_response = admin_client.post(
         f"/api/blackboard/posts/{post_id}/handoff",
         json={
             "goal": "补齐风险判断",
             "current_result": "已找到相似项目证据。",
             "done_when": "输出素材授权风险结论",
-            "next_owner_agent_id": "risk_agent",
+            "next_owner_agent_id": "agent_risk",
             "blockers": ["缺少素材授权原文"],
             "requires_input_from": ["designer"],
         },
@@ -1399,16 +1620,18 @@ def test_blackboard_handoff_creates_structured_decision_post_and_updates_task_ow
     assert handoff_response.status_code == 200
     payload = handoff_response.json()["item"]
     assert payload["post_type"] == "handoff"
-    assert payload["handoff"]["next_owner_agent_id"] == "risk_agent"
-    assert payload["current_owner_agent_id"] == "risk_agent"
+    assert payload["handoff"]["next_owner_agent_id"] == "agent_risk"
+    assert payload["current_owner_agent_id"] == "agent_risk"
     task_card = next(
         item
-        for item in client.get("/api/blackboard/task-cards").json()["items"]
+        for item in client.get(
+            "/api/blackboard/task-cards", params={"project_id": PROJECT.id}
+        ).json()["items"]
         if item["task"]["id"] == task_id
     )
     task = store.get_task(task_id)
     assert task is not None
-    assert task.current_owner_agent_id == "risk_agent"
+    assert task.current_owner_agent_id == "agent_risk"
     assert task.done_when == "输出素材授权风险结论"
     assert "created_structured_handoff" in task.steps
     assert "research_agent" in task_card["upstream_agents"]
@@ -1443,8 +1666,8 @@ def test_memory_candidate_flow_and_inbox_update_api() -> None:
         json={"status": "resolved"},
     )
 
-    assert update_response.status_code == 200
-    assert update_response.json()["item"]["status"] == "resolved"
+    assert update_response.status_code == 409
+    assert store.get_inbox_item(inbox_item["id"]).status == "open"
 
 
 def test_confirm_brief_inbox_item_creates_team_candidate_memory() -> None:
@@ -1457,7 +1680,11 @@ def test_confirm_brief_inbox_item_creates_team_candidate_memory() -> None:
     inbox_item = inbox_response.json()["inbox_items"][0]
     document_id = inbox_item["metadata"]["document_id"]
 
-    confirm_response = client.post(f"/api/inbox/{inbox_item['id']}/confirm-brief")
+    document = store.get_document(document_id)
+    confirm_response = client.post(
+        f"/api/inbox/{inbox_item['id']}/confirm-brief",
+        json={"text": document.text, "expected_document_version": document.version},
+    )
 
     assert confirm_response.status_code == 200
     payload = confirm_response.json()
@@ -1473,7 +1700,7 @@ def test_confirm_brief_inbox_item_creates_team_candidate_memory() -> None:
     assert any(event.action == "confirm_brief_draft" for event in store.audit_events)
 
 
-def test_edit_brief_document_before_confirming_memory() -> None:
+def test_edit_brief_document_atomically_while_confirming_memory() -> None:
     clear_store()
     client = authenticated_client()
     inbox_response = client.post(
@@ -1482,16 +1709,18 @@ def test_edit_brief_document_before_confirming_memory() -> None:
     )
     inbox_item = inbox_response.json()["inbox_items"][0]
     document_id = inbox_item["metadata"]["document_id"]
+    document = store.get_document(document_id)
 
-    update_response = client.patch(
-        f"/api/documents/{document_id}",
-        json={"text": "# 编辑后的 Brief\n\n确认采用新版设计原则。"},
+    confirm_response = client.post(
+        f"/api/inbox/{inbox_item['id']}/confirm-brief",
+        json={
+            "text": "# 编辑后的 Brief\n\n确认采用新版设计原则。",
+            "expected_document_version": document.version,
+        },
     )
-    confirm_response = client.post(f"/api/inbox/{inbox_item['id']}/confirm-brief")
 
-    assert update_response.status_code == 200
-    assert update_response.json()["item"]["metadata"]["edited_by"] == USER.id
     assert confirm_response.status_code == 200
+    assert store.get_document(document_id).metadata["edited_by"] == USER.id
     memory = confirm_response.json()["memory_item"]
     assert "编辑后的 Brief" in memory["summary"]
     assert "新版设计原则" in memory["summary"]
@@ -1502,7 +1731,10 @@ def test_confirm_brief_rejects_non_brief_inbox_item() -> None:
     ensure_demo_data(store)
     client = authenticated_client()
 
-    response = client.post("/api/inbox/inbox_demo_risk_review/confirm-brief")
+    response = client.post(
+        "/api/inbox/inbox_demo_risk_review/confirm-brief",
+        json={"text": "Not a Brief", "expected_document_version": 1},
+    )
 
     assert response.status_code == 400
 
@@ -2173,17 +2405,24 @@ def test_uploaded_document_is_searchable_and_becomes_memory_candidate() -> None:
     assert any(source["source_type"] == "document" for source in chat_response.json()["evidence_post"]["sources"])
 
 
-def test_large_document_upload_uses_async_parse_job() -> None:
+def test_large_document_upload_uses_async_parse_job(monkeypatch) -> None:
     clear_store()
+    monkeypatch.setattr(documents_module, "MAX_SYNC_UPLOAD_BYTES", 32)
     client = authenticated_client()
-    content = ("# 大文件 Brief\n\n首屏入口效率优先。\n" + "补充内容。\n" * 120000).encode()
+    content = ("# 异步 Brief\n\n首屏入口效率优先。\n" + "补充内容。\n" * 20).encode()
 
     upload_response = client.post(
         "/api/documents/upload",
         files={"file": ("large.md", content, "text/markdown")},
     )
     job_id = upload_response.json()["job"]["id"]
-    job_response = client.get(f"/api/documents/jobs/{job_id}")
+    deadline = time.monotonic() + 10
+    while True:
+        job_response = client.get(f"/api/documents/jobs/{job_id}")
+        if job_response.json()["item"]["status"] in {"completed", "failed"}:
+            break
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
     memory_response = client.get(
         "/api/memory/user",
         params={"layer": "short_term", "memory_type": "document_summary"},
@@ -2228,6 +2467,9 @@ def test_data_agent_query_writes_blackboard_evidence() -> None:
     assert payload["result"]["records"][0]["metric"] == "ctr"
     assert payload["post"]["actor"] == "data_agent"
     assert payload["post"]["post_type"] == "evidence"
+    assert payload["post"]["metadata"] == payload["result"]["metadata"]
+    assert payload["post"]["metadata"]["mode"] == "fallback"
+    assert payload["post"]["metadata"]["fallback_reason"] == "explicit_local_metrics"
     assert len(store.blackboard_posts) == 1
 
 
@@ -2262,11 +2504,20 @@ def test_search_filters_results_by_project_id() -> None:
     )
     current_thread_id = current_response.json()["thread_id"]
 
+    other_project = store.save_project(
+        Project(
+            id="prj_other_project",
+            workspace_id=WORKSPACE.id,
+            name="另一个项目",
+            goal="验证项目检索隔离",
+            member_ids=[USER.id],
+        )
+    )
     other_thread = store.add_chat_thread(
         ChatThread(
             id="thread_other_project",
             workspace_id=WORKSPACE.id,
-            project_id="prj_other_project",
+            project_id=other_project.id,
             user_id=USER.id,
             title="另一个项目",
         )
@@ -2285,6 +2536,7 @@ def test_search_filters_results_by_project_id() -> None:
             summary="这条首屏经验不应该混入当前项目搜索。",
             memory_type="method",
             scope=Scope.TEAM_CANDIDATE,
+            owner_user_id=USER.id,
             project_id=other_thread.project_id,
             workspace_id=WORKSPACE.id,
         )
@@ -2437,9 +2689,10 @@ def test_regular_user_cannot_create_workspace_or_project() -> None:
 def test_user_and_agent_management_api() -> None:
     clear_store()
     client = authenticated_client()
+    admin_client = authenticated_client(ADMIN.id)
 
-    users_response = client.get("/api/users")
-    agents_response = client.get("/api/agents")
+    users_response = admin_client.get("/api/users")
+    agents_response = admin_client.get("/api/agents")
     mine_response = client.get("/api/agents/me")
 
     assert users_response.status_code == 200
@@ -2659,7 +2912,10 @@ def test_tool_registry_and_personal_agent_tool_grants() -> None:
     tools = tools_response.json()["items"]
     assert {tool["id"] for tool in tools} >= {"tool_memory_search", "tool_web_research", "tool_risk_review"}
     assert my_tools_response.status_code == 200
-    assert [tool["id"] for tool in my_tools_response.json()["items"]] == ["tool_memory_search"]
+    assert {tool["id"] for tool in my_tools_response.json()["items"]} == {
+        "tool_memory_search",
+        "tool_data_query",
+    }
     assert update_response.status_code == 200
     assert {tool["id"] for tool in update_response.json()["items"]} == {"tool_memory_search", "tool_document_upload"}
 
@@ -2683,7 +2939,7 @@ def test_tool_grants_reject_unknown_tools_and_cross_agent_changes() -> None:
 
 def test_o2_status_endpoint_uses_internal_integration_adapter(monkeypatch) -> None:
     clear_store()
-    client = authenticated_client()
+    client = authenticated_client(ADMIN.id)
 
     class FakeO2Registry:
         def status(self):
@@ -2763,7 +3019,7 @@ def test_admin_can_manage_scheduled_agent_task_definitions() -> None:
         f"/api/agents/scheduled-tasks/{definition_id}",
         json={"enabled": False, "schedule": "daily@10:00"},
     )
-    list_response = user_client.get("/api/agents/scheduled-tasks")
+    list_response = admin_client.get("/api/agents/scheduled-tasks")
     reopened_store = SQLiteStore(store.db_path)
 
     assert forbidden.status_code == 403
@@ -2930,11 +3186,12 @@ def test_auto_blackboard_queue_drains_into_bbs_posts() -> None:
         )
     )
     client = authenticated_client()
+    admin_client = authenticated_client(ADMIN.id)
 
-    queued_response = client.get("/api/blackboard/auto-posts")
-    first_drain_response = client.post("/api/blackboard/auto-posts/drain")
-    review_response = client.post(f"/api/blackboard/auto-posts/{store.auto_blackboard_post_requests[0].id}/review")
-    drain_response = client.post("/api/blackboard/auto-posts/drain")
+    queued_response = admin_client.get("/api/blackboard/auto-posts")
+    first_drain_response = admin_client.post("/api/blackboard/auto-posts/drain")
+    review_response = admin_client.post(f"/api/blackboard/auto-posts/{store.auto_blackboard_post_requests[0].id}/review")
+    drain_response = admin_client.post("/api/blackboard/auto-posts/drain")
     board_response = client.get("/api/blackboard")
 
     assert queued_response.status_code == 200
@@ -2974,7 +3231,6 @@ def test_blackboard_post_create_read_and_reply_api() -> None:
             "post_type": "digest",
             "title": "今日进展",
             "content": "Agent 自动整理了今日资料。",
-            "actor": "personal_agent",
         },
     )
     post = create_response.json()["item"]
@@ -2985,14 +3241,14 @@ def test_blackboard_post_create_read_and_reply_api() -> None:
             "post_type": "decision",
             "title": "收到",
             "content": "继续跟进。",
-            "actor": "personal_agent",
         },
     )
 
     assert create_response.status_code == 200
     assert post["post_type"] == "digest"
+    assert post["actor"] == USER.personal_agent_id
     assert read_response.status_code == 200
-    assert "我的个人 Agent" in read_response.json()["item"]["read_by_agents"]
+    assert USER.personal_agent_id in read_response.json()["item"]["read_by_agents"]
     assert reply_response.status_code == 200
     assert reply_response.json()["item"]["related_post_id"] == post["id"]
     assert len(store.blackboard_posts) == 2

@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agentmesh.app import app
+from agentmesh.provider_status import ProviderTelemetry
 from agentmesh.seed import ADMIN
 
 
@@ -35,12 +36,15 @@ class TestProviderHealthCheck:
         data = response.json()
         assert "overall" in data
         assert "providers" in data
-        provider_names = [p["provider"] for p in data["providers"]]
+        provider_names = [p["name"] for p in data["providers"]]
         assert "llm" in provider_names
         assert "web_research" in provider_names
         assert "o2" in provider_names
         assert "data_connectors" in provider_names
         assert "document_parser" in provider_names
+        canonical_fields = {"name", "configured", "ready", "mode", "last_error", "latency_ms"}
+        assert all(canonical_fields <= set(item) for item in data["providers"])
+        assert all("provider" not in item for item in data["providers"])
 
     def test_llm_not_configured(self, auth_client: TestClient):
         """LLM 未配置时返回 not_configured 状态。"""
@@ -55,7 +59,7 @@ class TestProviderHealthCheck:
         with patch.dict("os.environ", env_overrides):
             response = auth_client.get("/api/health/providers")
         data = response.json()
-        llm = next(p for p in data["providers"] if p["provider"] == "llm")
+        llm = next(p for p in data["providers"] if p["name"] == "llm")
         assert llm["status"] == "not_configured"
 
     def test_llm_configured(self, auth_client: TestClient):
@@ -73,9 +77,10 @@ class TestProviderHealthCheck:
         with patch.dict("os.environ", env):
             response = auth_client.get("/api/health/providers")
         data = response.json()
-        llm = next(p for p in data["providers"] if p["provider"] == "llm")
+        llm = next(p for p in data["providers"] if p["name"] == "llm")
         assert llm["status"] == "configured"
-        assert llm["base_url"] == "https://api.example.com/v1"
+        assert "base_url" not in llm
+        assert "sk-test-key" not in response.text
         assert llm["model"] == "gpt-4"
         assert llm["timeouts"]["chat_timeout_seconds"] == 2.5
         assert llm["timeouts"]["connect_timeout_seconds"] == 1.5
@@ -90,9 +95,10 @@ class TestProviderHealthCheck:
         with patch.dict("os.environ", env, clear=False):
             response = auth_client.get("/api/health/providers")
         data = response.json()
-        llm = next(p for p in data["providers"] if p["provider"] == "llm")
+        llm = next(p for p in data["providers"] if p["name"] == "llm")
         assert llm["status"] == "configured"
-        assert llm["base_url"] == "https://modelservice.jdcloud.com/v1/responses"
+        assert "base_url" not in llm
+        assert "pk-test-key" not in response.text
         assert llm["model"] == "Gemini-3-Flash-Preview"
         assert llm["api_style"] == "gemini_contents"
 
@@ -101,7 +107,7 @@ class TestProviderHealthCheck:
         with patch.dict("os.environ", {"AGENTMESH_WEB_PROVIDER": ""}):
             response = auth_client.get("/api/health/providers")
         data = response.json()
-        web = next(p for p in data["providers"] if p["provider"] == "web_research")
+        web = next(p for p in data["providers"] if p["name"] == "web_research")
         assert web["status"] == "not_configured"
 
     def test_web_provider_command_not_found(self, auth_client: TestClient):
@@ -112,9 +118,28 @@ class TestProviderHealthCheck:
         ):
             response = auth_client.get("/api/health/providers")
         data = response.json()
-        web = next(p for p in data["providers"] if p["provider"] == "web_research")
+        web = next(p for p in data["providers"] if p["name"] == "web_research")
         assert web["status"] == "command_not_found"
         assert web["provider_type"] == "opencli"
+
+    def test_tavily_provider_is_ready_and_secret_safe(self, auth_client: TestClient):
+        env = {
+            "AGENTMESH_WEB_PROVIDER": "tavily",
+            "AGENTMESH_TAVILY_API_URL": "https://api.tavily.com/search",
+            "AGENTMESH_TAVILY_API_KEY": "secret-tavily-key",
+        }
+        with (
+            patch.dict("os.environ", env),
+            patch("agentmesh.web_research._tavily_telemetry", ProviderTelemetry()),
+        ):
+            response = auth_client.get("/api/health/providers")
+
+        web = next(item for item in response.json()["providers"] if item["name"] == "web_research")
+        assert web["configured"] is True
+        assert web["ready"] is True
+        assert web["provider_type"] == "tavily"
+        assert "secret-tavily-key" not in response.text
+        assert "api.tavily.com" not in response.text
 
     def test_o2_not_installed(self, auth_client: TestClient):
         """O2 CLI 未安装时返回 not_installed。"""
@@ -124,7 +149,7 @@ class TestProviderHealthCheck:
             mock_runner.binary = "o2"
             response = auth_client.get("/api/health/providers")
         data = response.json()
-        o2 = next(p for p in data["providers"] if p["provider"] == "o2")
+        o2 = next(p for p in data["providers"] if p["name"] == "o2")
         assert o2["status"] == "not_installed"
 
     def test_o2_installed(self, auth_client: TestClient):
@@ -141,7 +166,7 @@ class TestProviderHealthCheck:
             with patch.dict("os.environ", env):
                 response = auth_client.get("/api/health/providers")
         data = response.json()
-        o2 = next(p for p in data["providers"] if p["provider"] == "o2")
+        o2 = next(p for p in data["providers"] if p["name"] == "o2")
         assert o2["status"] == "installed"
         assert o2["research_enabled"] is True
         assert o2["data_enabled"] is False
@@ -151,7 +176,7 @@ class TestProviderHealthCheck:
         """数据连接器默认包含 local_metrics。"""
         response = auth_client.get("/api/health/providers")
         data = response.json()
-        dc = next(p for p in data["providers"] if p["provider"] == "data_connectors")
+        dc = next(p for p in data["providers"] if p["name"] == "data_connectors")
         assert dc["status"] == "ready"
         assert dc["count"] >= 1
         assert "local_metrics" in dc["connectors"]
@@ -161,7 +186,7 @@ class TestProviderHealthCheck:
         with patch.dict("os.environ", {"AGENTMESH_DATA_API_URL": "https://bi.example/api/data"}):
             response = auth_client.get("/api/health/providers")
         data = response.json()
-        dc = next(p for p in data["providers"] if p["provider"] == "data_connectors")
+        dc = next(p for p in data["providers"] if p["name"] == "data_connectors")
         assert "http_data_api" in dc["connectors"]
         assert "local_metrics" in dc["connectors"]
 
@@ -169,7 +194,12 @@ class TestProviderHealthCheck:
         """文档解析器始终返回 ready 状态。"""
         response = auth_client.get("/api/health/providers")
         data = response.json()
-        dp = next(p for p in data["providers"] if p["provider"] == "document_parser")
+        dp = next(p for p in data["providers"] if p["name"] == "document_parser")
+        assert dp["configured"] is True
+        assert dp["ready"] is True
+        assert dp["mode"] == "real"
+        assert dp["last_error"] is None
+        assert dp["latency_ms"] is None
         assert dp["status"] == "ready"
         assert ".txt" in dp["supported_extensions"]
         assert ".md" in dp["supported_extensions"]

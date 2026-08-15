@@ -238,7 +238,8 @@ class TestRolePermissions:
             f"/api/users/permission-policies/{create_response.json()['item']['id']}",
             json={"enabled": False},
         )
-        list_response = user_client.get("/api/users/permission-policies")
+        list_response = admin_client.get("/api/users/permission-policies")
+        denied_list_response = user_client.get("/api/users/permission-policies")
 
         assert create_response.status_code == 200
         assert create_response.json()["item"]["effect"] == "deny"
@@ -246,6 +247,7 @@ class TestRolePermissions:
         assert update_response.json()["item"]["enabled"] is False
         assert list_response.status_code == 200
         assert any(item["action"] == "accept_team_memory" for item in list_response.json()["items"])
+        assert denied_list_response.status_code == 403
 
     def test_regular_user_cannot_create_permission_policy(self):
         clear_store()

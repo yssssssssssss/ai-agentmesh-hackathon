@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from agentmesh.models import MemoryItem, MemoryStatus, Scope
+from agentmesh.models import MemoryItem, Scope
 from agentmesh.store import SQLiteStore
 
 
@@ -43,7 +43,7 @@ class TestVectorSearchIntegration:
         import sqlite3
 
         with patch("agentmesh.embedding.EMBEDDING_ENABLED", False):
-            s = SQLiteStore(db_path=db_path)
+            SQLiteStore(db_path=db_path)
         conn = sqlite3.connect(db_path)
         tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         table_names = [t[0] for t in tables]
@@ -98,6 +98,51 @@ class TestVectorSearchIntegration:
         assert count == 0
         conn.close()
 
+
+
+    def test_cross_tenant_vectors_cannot_crowd_out_authorized_candidate(self, tmp_path, monkeypatch) -> None:
+        repository = SQLiteStore(tmp_path / "tenant-vector-crowdout.sqlite3")
+
+        def fake_embedding(text: str) -> list[float]:
+            if "authorized semantic target" in text:
+                return [0.8, 0.2]
+            return [1.0, 0.0]
+
+        monkeypatch.setattr("agentmesh.embedding.EMBEDDING_ENABLED", True)
+        monkeypatch.setattr("agentmesh.embedding.embed_text", fake_embedding)
+        target = repository.add_memory_item(
+            MemoryItem(
+                id="mem_authorized_vector",
+                title="authorized semantic target",
+                summary="visible only in the requested tenant",
+                memory_type="note",
+                scope=Scope.TEAM_ACCEPTED,
+                workspace_id="ws_authorized",
+                project_id="prj_authorized",
+            )
+        )
+        for index in range(50):
+            repository.add_memory_item(
+                MemoryItem(
+                    id=f"mem_foreign_vector_{index:02d}",
+                    title=f"foreign semantic candidate {index}",
+                    summary="higher cosine score but a different tenant",
+                    memory_type="note",
+                    scope=Scope.TEAM_ACCEPTED,
+                    workspace_id="ws_foreign",
+                    project_id="prj_foreign",
+                )
+            )
+
+        results = repository.search(
+            "tenant isolated semantic query",
+            {Scope.TEAM_ACCEPTED},
+            workspace_id="ws_authorized",
+            project_id="prj_authorized",
+            result_types={"memory_item"},
+        )
+
+        assert [result.id for result in results] == [target.id]
 
 class TestRRFMerge:
     def test_rrf_merges_unique_results(self) -> None:

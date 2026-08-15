@@ -168,3 +168,4 @@ def test_scout_cap_limits_matches_per_run() -> None:
 
     results = agent.scout_and_match(HELPER, max_matches=1)
     assert len(results) == 1
+

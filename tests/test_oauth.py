@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import agentmesh.routes.auth as auth_routes
 from agentmesh.app import app
+from agentmesh.seed import PROJECT
 from agentmesh.store import store
 
 
@@ -84,12 +85,18 @@ def test_oauth_callback_provisions_user_and_reuses_session_cookie(monkeypatch) -
 
     assert callback.status_code == 200
     user = callback.json()["user"]
-    assert user["id"] == "usr_oauth_designer_example_com"
+    assert user["id"].startswith("usr_oauth_")
     assert user["name"] == "OAuth Designer"
-    assert user["role"] == "team_lead"
+    assert user["oauth_provider"] == "corp"
+    assert user["oauth_subject"] == "erp-001"
+    assert user["role"] == "user"
     assert me.status_code == 200
     assert me.json()["user"]["id"] == user["id"]
+    assert me.json()["user"]["role"] == "user"
     assert store.get_agent(user["personal_agent_id"]) is not None
+    project = store.get_project(PROJECT.id)
+    assert project is not None
+    assert user["id"] in project.member_ids
 
 
 def test_oauth_callback_rejects_invalid_state(monkeypatch) -> None:

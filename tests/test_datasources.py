@@ -39,12 +39,19 @@ def test_data_source_result_carries_records_and_source() -> None:
             source_type="data_source",
             reference="datasource://future_bi/query",
         ),
-        metadata={"provider": "external_project"},
+        metadata={
+            "requested_provider": "future_bi",
+            "actual_provider": "external_project",
+            "mode": "real",
+            "latency_ms": "4.000",
+        },
     )
 
     assert result.records[0]["conversion_rate"] == 0.123
     assert result.source.source_type == "data_source"
-    assert result.metadata["provider"] == "external_project"
+    assert result.metadata["requested_provider"] == "future_bi"
+    assert result.metadata["actual_provider"] == "external_project"
+    assert "provider" not in result.metadata
 
 
 def test_external_data_source_connector_is_explicit_placeholder() -> None:
@@ -101,6 +108,11 @@ def test_data_source_registry_falls_back_to_next_connector() -> None:
 
     assert result.connector_name == "local_metrics"
     assert result.metadata["fallback_diagnostics"] == "o2_cli: auth_required"
+    assert result.metadata["requested_provider"] == "o2_cli"
+    assert result.metadata["actual_provider"] == "local_metrics"
+    assert result.metadata["mode"] == "fallback"
+    assert result.metadata["fallback_reason"] == "explicit_local_metrics"
+    assert float(result.metadata["latency_ms"]) >= 0
 
 
 def test_http_data_api_connector_posts_query_and_normalizes_records() -> None:

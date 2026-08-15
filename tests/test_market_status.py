@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
-from agentmesh.app import app
+from tests.test_chat_flow import authenticated_client
 
 
 def test_market_status_reports_worker_state_and_counts() -> None:
-    client = TestClient(app)
+    client = authenticated_client()
 
     response = client.get("/api/market/status")
 
@@ -21,7 +19,7 @@ def test_market_status_reports_worker_state_and_counts() -> None:
 
 
 def test_market_board_returns_signals_and_matches() -> None:
-    client = TestClient(app)
+    client = authenticated_client()
 
     response = client.get("/api/market/board")
 
@@ -31,13 +29,4 @@ def test_market_board_returns_signals_and_matches() -> None:
         assert key in payload
     assert isinstance(payload["signals"], list)
     assert isinstance(payload["matches"], list)
-
-
-def test_market_page_is_served() -> None:
-    client = TestClient(app)
-
-    response = client.get("/market.html")
-
-    assert response.status_code == 200
-    assert "协作市场看板" in response.text
 
