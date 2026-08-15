@@ -4,18 +4,20 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '../components/ui/Button'
 import { PageHeader } from '../components/ui/PageHeader'
 import { useAuth } from '../features/auth/AuthProvider'
-import { useMarketMe, marketKeys } from '../features/market/api/useMarketMe'
+import { useMarketMe, useMarketActivity, marketKeys } from '../features/market/api/useMarketMe'
 import { collaborationApi } from '../features/collaboration/api'
 import { collaborationErrorMessage } from '../features/collaboration/queries'
 import { PresenceTiles } from '../features/market/components/PresenceTiles'
 import { GraphCanvas } from '../features/market/components/graph/GraphCanvas'
 import { ExchangeTabs } from '../features/market/components/ExchangeTabs'
+import { ActivityFeed } from '../features/market/components/ActivityFeed'
 
 export function Market() {
   const { user } = useAuth()
   const context = { userId: user?.id ?? '', workspaceId: user?.workspace_id ?? '' }
   const query = useMarketMe(context)
   const data = query.data
+  const activityQuery = useMarketActivity(context)
 
   const queryClient = useQueryClient()
   const participationKey = ['market', 'participation', context.userId, context.workspaceId]
@@ -89,7 +91,10 @@ export function Market() {
       ) : data ? (
         <>
           <PresenceTiles presence={data.presence} enabled={data.enabled} workers={data.workers} />
-          <GraphCanvas graph={data.graph} meId={data.user.id} />
+          <div className="grid gap-6 lg:grid-cols-[1.7fr_1fr]">
+            <GraphCanvas graph={data.graph} meId={data.user.id} />
+            <ActivityFeed items={activityQuery.data?.items ?? []} live={data.enabled} />
+          </div>
           <ExchangeTabs timeline={data.timeline} />
         </>
       ) : null}

@@ -671,6 +671,8 @@ class MarketMeTimelineItem(BaseModel):
     sensitivity: Literal["low", "medium", "high"] = "low"
     meta: str = ""
     detail: str = ""
+    # For awaiting_confirm incoming/outgoing rows: the inbox item id the target resolves.
+    action_ref: str = ""
 
 
 class MarketMeWorkerState(BaseModel):
@@ -698,6 +700,32 @@ class MarketMeView(BaseModel):
     workers: dict[str, MarketMeWorkerState]
     graph: MarketMeGraph
     timeline: list[MarketMeTimelineItem]
+    enabled: bool
+
+
+class MarketActivityItem(BaseModel):
+    """One entry in the global market activity feed (all agents' collaboration).
+
+    Unlike the personal timeline, this spans every participant so the demo shows
+    a live "trading floor" of agents helping each other. ``text`` is the fully
+    composed one-liner the frontend renders as-is.
+    """
+
+    id: str
+    at: datetime
+    kind: Literal["signal", "match"]
+    status: Literal["answered", "awaiting_confirm", "denied", "open"] = "open"
+    actor_name: str = ""
+    counterpart_name: str = ""
+    topic: str = ""
+    text: str = ""
+    involves_me: bool = False
+
+
+class MarketActivityFeed(BaseModel):
+    """Aggregated response for GET /api/market/activity."""
+
+    items: list[MarketActivityItem]
     enabled: bool
 
 

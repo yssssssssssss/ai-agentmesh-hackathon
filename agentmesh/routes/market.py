@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from agentmesh.marketplace import MARKET_ENABLED, publish_worker_state, scout_worker_state
 from agentmesh.models import (
     BlackboardPostType,
+    DelegatedAnswerStatus,
+    MarketActivityFeed,
+    MarketActivityItem,
     MarketMeGraph,
     MarketMeGraphEdge,
     MarketMeGraphNode,
@@ -128,6 +131,91 @@ def get_participation(user: User = Depends(current_user)) -> MarketParticipation
 def market_me(user: User = Depends(current_user)) -> MarketMeView:
     """Personal view over the autonomous market: presence tiles, graph, timeline."""
     return build_me_view(user, store)
+
+
+@router.get("/activity", response_model=MarketActivityFeed)
+def market_activity(user: User = Depends(current_user)) -> MarketActivityFeed:
+    """Global activity feed: every agent's signals and matches, newest first.
+
+    Where /me is the current user's personal view, this is the whole trading
+    floor — so the demo can show many agents helping each other in real time.
+    Each item's ``text`` is fully composed server-side; the frontend renders it.
+    """
+    return build_activity_feed(user, store)
+
+
+@router.post("/delegated-answers/{inbox_item_id}/resolve")
+def resolve_delegated_answer_route(
+    inbox_item_id: str,
+    action: str,
+    user: User = Depends(current_user),
+) -> dict[str, object]:
+    """The confirmation gate: the target approves or denies a pending delegated answer."""
+    from agentmesh.agents import PersonalAgent
+
+    if action not in {"approve", "deny"}:
+        raise HTTPException(status_code=400, detail="action must be 'approve' or 'deny'")
+    item = store.get_inbox_item(inbox_item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Inbox item not found")
+    if item.item_type != PersonalAgent.DELEGATED_CONFIRM_ITEM_TYPE:
+        raise HTTPException(status_code=400, detail="Inbox item is not a delegated-answer confirmation")
+    if item.metadata.get("target_id") != user.id:
+        raise HTTPException(status_code=403, detail="Only the answering user can resolve this request")
+    if item.status == "resolved":
+        raise HTTPException(status_code=409, detail="This request has already been resolved")
+
+    result = PersonalAgent(store).resolve_delegated_answer(item, action)
+    return {
+        "status": result.status.value,
+        "answer": result.answer,
+        "citations": [source.title for source in result.citations],
+    }
+
+
+@router.post("/delegated-answers/adopt")
+def adopt_delegated_answer_route(
+    helper_id: str,
+    question: str,
+    user: User = Depends(current_user),
+) -> dict[str, object]:
+    """The asker adopts a helper's answer: records a contribution point + lineage edge.
+
+    Builds the adopted answer from the match post already on the board (the answer the
+    helper's twin produced), rather than re-synthesizing — so adoption doesn't depend on
+    a live LLM or standing consent at demo time.
+    """
+    from agentmesh.agents import PersonalAgent
+    from agentmesh.models import AnswerConfidence, DelegatedAnswer, Source
+
+    helper = store.get_user(helper_id)
+    if helper is None:
+        raise HTTPException(status_code=404, detail="Helper user not found")
+    if helper.id == user.id:
+        raise HTTPException(status_code=400, detail="Cannot adopt your own answer")
+
+    post = store.get_blackboard_post(f"bb_match_{helper_id}_{user.id}")
+    if post is None or not post.content.strip():
+        raise HTTPException(status_code=404, detail="No answer from this helper to adopt")
+
+    citation = Source(
+        title=f"{helper.name} 的代答：{question}"[:80],
+        source_type="delegated_answer",
+        reference=f"market://match/{helper_id}",
+    )
+    store.add_source(citation)
+    answer = DelegatedAnswer(
+        status=DelegatedAnswerStatus.ANSWERED,
+        answer=post.content,
+        citations=[citation],
+        confidence=AnswerConfidence.HIGH,
+    )
+    point, relation = PersonalAgent(store).adopt_delegated_answer(asker=user, target=helper, answer=answer)
+    return {
+        "point_id": point.id,
+        "awarded_to": point.awarded_to_id,
+        "relation_id": relation.id,
+    }
 
 
 # --- Personal view --------------------------------------------------------
@@ -255,10 +343,8 @@ def _build_graph(
             continue
         if helper not in included or needer not in included:
             continue
-        if helper == me.id or needer == me.id:
-            direction = "incoming" if needer == me.id else "outgoing"
-        else:
-            direction = "peer"
+        touches_me = helper == me.id or needer == me.id
+        direction = ("incoming" if needer == me.id else "outgoing") if touches_me else "peer"
         key = (helper, needer, direction)
         if key in seen_edges:
             continue
@@ -279,6 +365,18 @@ def _match_detail(repository: SQLiteStore, helper_id: str, needer_id: str) -> st
     """The abstracted answer body for a match, read from its MARKETPLACE_MATCH post."""
     post = repository.get_blackboard_post(f"bb_match_{helper_id}_{needer_id}")
     return post.content if post else ""
+
+
+def _open_confirm_ref(repository: SQLiteStore, target_id: str) -> str:
+    """The open delegated-answer confirmation inbox item id for this target, if any."""
+    for item in repository.inbox_items:
+        if (
+            item.item_type == "delegated_answer_confirmation"
+            and item.status == "open"
+            and item.metadata.get("target_id") == target_id
+        ):
+            return item.id
+    return ""
 
 
 def _build_timeline(
@@ -348,6 +446,7 @@ def _build_timeline(
                 sensitivity=event.metadata.get("sensitivity", "low"),  # type: ignore[arg-type]
                 meta="agent-2 · scout · marketplace_match",
                 detail=_match_detail(repository, me.id, needer_id),
+                action_ref=_open_confirm_ref(repository, me.id) if status == "awaiting_confirm" else "",
             )
         )
 
@@ -386,5 +485,70 @@ def build_me_view(user: User, repository: SQLiteStore) -> MarketMeView:
         timeline=timeline,
         enabled=MARKET_ENABLED,
     )
+
+
+# --- Global activity feed -------------------------------------------------
+
+
+def build_activity_feed(me: User, repository: SQLiteStore) -> MarketActivityFeed:
+    """Merge every participant's signals and matches into one newest-first feed."""
+    users_by_id = {u.id: u for u in list_users(repository)}
+
+    def _name(user_id: str | None) -> str:
+        user = users_by_id.get(user_id) if user_id else None
+        return user.name if user else (user_id or "某位同事")
+
+    items: list[MarketActivityItem] = []
+
+    for post in repository.blackboard_posts:
+        if post.post_type != BlackboardPostType.MARKETPLACE_SIGNAL:
+            continue
+        owner_id = post.task_id.removeprefix("signal_")
+        fields = _parse_signal_fields(post.content)
+        topic = fields.get("need") or fields.get("offer") or post.title
+        actor = _name(owner_id)
+        items.append(
+            MarketActivityItem(
+                id=f"act_signal_{owner_id}",
+                at=post.created_at,
+                kind="signal",
+                status="open",
+                actor_name=actor,
+                topic=topic,
+                text=f"{actor} 的分身发出协作信号，想找人聊聊《{topic}》",
+                involves_me=owner_id == me.id,
+            )
+        )
+
+    for event in repository.audit_events:
+        if event.action != "marketplace_match":
+            continue
+        helper_id = event.metadata.get("helper")
+        needer_id = event.target_id
+        status = _timeline_status(event.metadata.get("status"))
+        topic = event.metadata.get("need") or event.metadata.get("topic") or "一个问题"
+        helper = _name(helper_id)
+        needer = _name(needer_id)
+        verb = {
+            "answered": f"{helper} 的分身解答了 {needer} 的《{topic}》",
+            "awaiting_confirm": f"{helper} 的分身准备代答 {needer} 的《{topic}》，等待确认放行",
+            "denied": f"{helper} 的分身判断《{topic}》过于敏感，婉拒了 {needer}",
+        }.get(status, f"{helper} 的分身回应了 {needer} 的《{topic}》")
+        items.append(
+            MarketActivityItem(
+                id=f"act_match_{helper_id}_{needer_id}",
+                at=event.created_at,
+                kind="match",
+                status=status,  # type: ignore[arg-type]
+                actor_name=helper,
+                counterpart_name=needer,
+                topic=topic,
+                text=verb,
+                involves_me=me.id in (helper_id, needer_id),
+            )
+        )
+
+    items.sort(key=lambda item: item.at, reverse=True)
+    return MarketActivityFeed(items=items[:40], enabled=MARKET_ENABLED)
 
 

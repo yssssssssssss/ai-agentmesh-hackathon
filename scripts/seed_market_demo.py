@@ -26,13 +26,14 @@ from agentmesh.models import (
     AuthCredential,
     BlackboardPost,
     BlackboardPostType,
+    InboxItem,
     MemoryLayer,
     Scope,
     User,
     UserMemoryItem,
     UserRole,
 )
-from agentmesh.seed import PROJECT, WORKSPACE, ensure_seed_data
+from agentmesh.seed import PROJECT, WORKSPACE, ensure_demo_data, ensure_seed_data
 from agentmesh.store import store
 
 
@@ -220,11 +221,14 @@ def _ensure_memory(person: DemoPerson) -> None:
         )
 
 
-def _publish_signal_deterministic(person: DemoPerson) -> None:
+def _publish_signal_deterministic(person: DemoPerson, minutes_ago: int = 0) -> None:
     """Bypass the LLM path: write a signal whose need is the LAST memory title.
 
     That guarantees keyword_overlap will match against peers whose earlier
     memory titles share the same tokens — no LLM required for the demo.
+
+    ``minutes_ago`` back-dates the signal so the global activity feed interleaves
+    signals with matches instead of stacking all "刚刚发布" signals on top.
     """
     need = person.memory_titles[-1]
     offer = "、".join(person.memory_titles[:-1]) or person.memory_titles[0]
@@ -240,6 +244,7 @@ def _publish_signal_deterministic(person: DemoPerson) -> None:
             scope=Scope.PROJECT,
             permission="project_visible",
             read_by_agents=[_agent_id(person.user_id)],
+            created_at=datetime.now(UTC) - timedelta(minutes=minutes_ago),
         )
     )
 
@@ -268,7 +273,7 @@ SCRIPTED_MATCHES: tuple[tuple[str, str, str, str, int, str], ...] = (
         "4) 上线策略：显著为正则全量，持平或负向则回滚并记录到实验档案。",
     ),
     (
-        "usr_demo_sun", "usr_current_designer", "会场分层用户画像", "awaiting_confirm", 45,
+        "usr_current_designer", "usr_demo_sun", "首屏改版 A/B 实验设计", "awaiting_confirm", 45,
         "",
     ),
     (
@@ -351,7 +356,7 @@ def _write_match(
     )
 
 
-def _publish_current_designer_signal() -> None:
+def _publish_current_designer_signal(minutes_ago: int = 5) -> None:
     """Publish a deterministic signal for the logged-in demo designer (usr_current_designer).
 
     The built-in seed user isn't a DemoPerson, and the publish worker runs on a long
@@ -378,12 +383,49 @@ def _publish_current_designer_signal() -> None:
             scope=Scope.PROJECT,
             permission="project_visible",
             read_by_agents=[user.personal_agent_id],
+            created_at=datetime.now(UTC) - timedelta(minutes=minutes_ago),
+        )
+    )
+
+
+def _seed_confirmation_gate_inbox() -> None:
+    """Back the awaiting_confirm timeline row with a real confirmation inbox item.
+
+    Scenario: 孙倩's twin asked 当前设计师's twin to answer「首屏改版 A/B 实验设计」;
+    the request tripped the confirmation gate, so it waits in 当前设计师's inbox. This
+    makes the gate operable in the demo — the logged-in designer can approve/deny it
+    and watch the answer get released. The question matches 当前设计师's own memory so
+    approving synthesizes a real answer.
+    """
+    designer = store.get_user("usr_current_designer")
+    if designer is None:
+        return
+    store.add_inbox_item(
+        InboxItem(
+            id="inbox_demo_delegated_confirm",
+            title="确认代答请求",
+            summary="孙倩 的分身请求由你的分身代答：「首屏改版 A/B 实验设计」。",
+            item_type="delegated_answer_confirmation",
+            scope=Scope.PRIVATE,
+            user_id=designer.id,
+            workspace_id=designer.workspace_id,
+            metadata={
+                "asker_id": "usr_demo_sun",
+                "target_id": designer.id,
+                "question": "首屏改版 A/B 实验设计",
+                "reason": "no_standing_consent",
+            },
         )
     )
 
 
 def main() -> None:
     ensure_seed_data(store)
+    # Also seed the built-in designer's private memory + inbox baseline (normally
+    # injected at app startup under DEMO_MODE). Running this seed after a store.reset()
+    # would otherwise leave usr_current_designer with 0 memories, breaking the
+    # presence tile and the confirmation-gate answer synthesis.
+    ensure_demo_data(store)
 
     # Ensure built-in seed users always have credentials — ensure_seed_data
     # short-circuits unless AGENTMESH_DEMO_MODE=1 is set, but for a self-contained
@@ -402,11 +444,14 @@ def main() -> None:
                 )
             )
 
-    for person in DEMO_PEOPLE:
+    for index, person in enumerate(DEMO_PEOPLE):
         _ensure_user(person)
         _ensure_memory(person)
         store.set_market_participation(person.user_id, True)
-        _publish_signal_deterministic(person)
+        # Stagger signal timestamps (3, 15, 27, … min ago) so the global activity
+        # feed interleaves signals with the scripted matches rather than stacking
+        # all signals on top as "刚刚".
+        _publish_signal_deterministic(person, minutes_ago=3 + index * 12)
 
     # Opt the built-in seed users into the market too so they appear in the graph.
     for uid in ("usr_current_designer", "usr_team_lead", "usr_admin"):
@@ -414,6 +459,7 @@ def main() -> None:
             store.set_market_participation(uid, True)
 
     _publish_current_designer_signal()
+    _seed_confirmation_gate_inbox()
 
     for index, (helper, needer, topic, status, minutes_ago, answer) in enumerate(SCRIPTED_MATCHES):
         _write_match(helper, needer, topic, status, minutes_ago, answer, index)

@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react'
-import { MessageSquareText, ShieldCheck } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Check, MessageSquareText, ShieldCheck, ThumbsUp, X } from 'lucide-react'
 import type { MarketMeTimelineItem, TimelineCategory, TimelineStatus } from '../types'
 import { Drawer } from '../../../components/ui/Drawer'
+import { Button } from '../../../components/ui/Button'
+import { marketApi } from '../api/marketApi'
 
 interface ExchangeTabsProps {
   timeline: MarketMeTimelineItem[]
@@ -106,6 +109,37 @@ function actionLabel(status: TimelineStatus, category: TimelineCategory): string
 export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<MarketMeTimelineItem | null>(null)
+  const [actionResult, setActionResult] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+
+  const closeDrawer = () => {
+    setSelected(null)
+    setActionResult(null)
+  }
+
+  const invalidateMarket = () => queryClient.invalidateQueries({ queryKey: ['market'] })
+
+  const resolveMutation = useMutation({
+    mutationFn: ({ inboxItemId, action }: { inboxItemId: string; action: 'approve' | 'deny' }) =>
+      marketApi.resolveDelegated(inboxItemId, action),
+    onSuccess: (_data, variables) => {
+      setActionResult(variables.action === 'approve' ? '已批准，答案已发送给对方。' : '已拒绝，未透露任何内容。')
+      void invalidateMarket()
+    },
+    onError: () => setActionResult('操作失败，请稍后重试。'),
+  })
+
+  const adoptMutation = useMutation({
+    mutationFn: ({ helperId, question }: { helperId: string; question: string }) =>
+      marketApi.adopt(helperId, question),
+    onSuccess: () => {
+      setActionResult('已采纳，对方获得一条贡献记录，并建立了来源血缘。')
+      void invalidateMarket()
+    },
+    onError: () => setActionResult('采纳失败，请稍后重试。'),
+  })
+
+  const actionBusy = resolveMutation.isPending || adoptMutation.isPending
 
   const groups = useMemo(() => {
     return {
@@ -239,7 +273,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
 
     <Drawer
       open={selected !== null}
-      onClose={() => setSelected(null)}
+      onClose={closeDrawer}
       icon={<MessageSquareText className="h-5 w-5" />}
       title={selected?.title ?? '协作往来详情'}
       subtitle={selected ? CATEGORY_TAG[selected.category].zh : undefined}
@@ -283,6 +317,51 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             答案由对方分身依据其私有记忆生成，只回传结论，原始记忆不离境。
           </div>
+
+          {actionResult ? (
+            <p role="status" className="rounded-[10px] border border-mint-400/20 bg-mint-400/[0.06] px-3 py-2 text-xs text-mint-300">
+              {actionResult}
+            </p>
+          ) : null}
+
+          {selected.status === 'awaiting_confirm' && selected.action_ref ? (
+            <div className="rounded-[12px] border border-remind/25 bg-remind/[0.06] p-4">
+              <p className="text-sm text-slate-200">这条代答涉及较敏感的记忆，需要你确认后才会发送给对方。</p>
+              <div className="mt-3 flex gap-2">
+                <Button
+                  size="sm"
+                  icon={<Check className="h-4 w-4" />}
+                  loading={resolveMutation.isPending}
+                  disabled={actionBusy}
+                  onClick={() => resolveMutation.mutate({ inboxItemId: selected.action_ref, action: 'approve' })}
+                >
+                  批准发送
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<X className="h-4 w-4" />}
+                  disabled={actionBusy}
+                  onClick={() => resolveMutation.mutate({ inboxItemId: selected.action_ref, action: 'deny' })}
+                >
+                  拒绝
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {selected.category === 'incoming' && selected.status === 'answered' && selected.counterpart ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<ThumbsUp className="h-4 w-4" />}
+              loading={adoptMutation.isPending}
+              disabled={actionBusy}
+              onClick={() => adoptMutation.mutate({ helperId: selected.counterpart!.id, question: selected.topic })}
+            >
+              采纳此答案（给对方记一次贡献）
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </Drawer>

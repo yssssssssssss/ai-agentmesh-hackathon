@@ -1345,6 +1345,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/market/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Market Activity
+         * @description Global activity feed: every agent's signals and matches, newest first.
+         *
+         *     Where /me is the current user's personal view, this is the whole trading
+         *     floor — so the demo can show many agents helping each other in real time.
+         *     Each item's ``text`` is fully composed server-side; the frontend renders it.
+         */
+        get: operations["market_activity_api_market_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/delegated-answers/{inbox_item_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Delegated Answer Route
+         * @description The confirmation gate: the target approves or denies a pending delegated answer.
+         */
+        post: operations["resolve_delegated_answer_route_api_market_delegated_answers__inbox_item_id__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/delegated-answers/adopt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Adopt Delegated Answer Route
+         * @description The asker adopts a helper's answer: records a contribution point + lineage edge.
+         *
+         *     Builds the adopted answer from the match post already on the board (the answer the
+         *     helper's twin produced), rather than re-synthesizing — so adoption doesn't depend on
+         *     a live LLM or standing consent at demo time.
+         */
+        post: operations["adopt_delegated_answer_route_api_market_delegated_answers_adopt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/upload": {
         parameters: {
             query?: never;
@@ -2623,6 +2691,69 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * MarketActivityFeed
+         * @description Aggregated response for GET /api/market/activity.
+         */
+        MarketActivityFeed: {
+            /** Items */
+            items: components["schemas"]["MarketActivityItem"][];
+            /** Enabled */
+            enabled: boolean;
+        };
+        /**
+         * MarketActivityItem
+         * @description One entry in the global market activity feed (all agents' collaboration).
+         *
+         *     Unlike the personal timeline, this spans every participant so the demo shows
+         *     a live "trading floor" of agents helping each other. ``text`` is the fully
+         *     composed one-liner the frontend renders as-is.
+         */
+        MarketActivityItem: {
+            /** Id */
+            id: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "signal" | "match";
+            /**
+             * Status
+             * @default open
+             * @enum {string}
+             */
+            status: "answered" | "awaiting_confirm" | "denied" | "open";
+            /**
+             * Actor Name
+             * @default
+             */
+            actor_name: string;
+            /**
+             * Counterpart Name
+             * @default
+             */
+            counterpart_name: string;
+            /**
+             * Topic
+             * @default
+             */
+            topic: string;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /**
+             * Involves Me
+             * @default false
+             */
+            involves_me: boolean;
+        };
         /** MarketMeGraph */
         MarketMeGraph: {
             /** Nodes */
@@ -2755,6 +2886,11 @@ export interface components {
              * @default
              */
             detail: string;
+            /**
+             * Action Ref
+             * @default
+             */
+            action_ref: string;
         };
         /** MarketMeUser */
         MarketMeUser: {
@@ -6380,6 +6516,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MarketMeView"];
+                };
+            };
+        };
+    };
+    market_activity_api_market_activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketActivityFeed"];
+                };
+            };
+        };
+    };
+    resolve_delegated_answer_route_api_market_delegated_answers__inbox_item_id__resolve_post: {
+        parameters: {
+            query: {
+                action: string;
+            };
+            header?: never;
+            path: {
+                inbox_item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    adopt_delegated_answer_route_api_market_delegated_answers_adopt_post: {
+        parameters: {
+            query: {
+                helper_id: string;
+                question: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
