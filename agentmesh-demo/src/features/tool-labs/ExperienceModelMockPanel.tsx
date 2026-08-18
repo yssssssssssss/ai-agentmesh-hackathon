@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { BookOpen, BrainCircuit, CheckCircle2 } from 'lucide-react'
+import { useState } from 'react'
+import { BookOpen, BrainCircuit } from 'lucide-react'
 
 import { Button } from '../../components/ui/Button'
 import { SectionCard } from '../../components/ui/Card'
+import { CaseStudyFigure } from './CaseStudyFigure'
+import { ExperienceModelResultPage } from './ExperienceModelResultPage'
 import { EXPERIENCE_MOCK_RESULT, EXPERIENCE_MODELS } from './fixtures'
 import type { ExperienceRecommendation } from './types'
 
@@ -24,10 +26,6 @@ export function ExperienceModelMockPanel() {
   const [preferred, setPreferred] = useState<string[]>([])
   const [manualModel, setManualModel] = useState('')
   const [result, setResult] = useState<ExperienceRecommendation[] | null>(null)
-  const resultRef = useRef<HTMLElement>(null)
-  useEffect(() => {
-    if (result) resultRef.current?.scrollIntoView({ block: 'start' })
-  }, [result])
 
   const togglePreferred = (modelId: string) => {
     setPreferred((current) => current.includes(modelId) ? current.filter((id) => id !== modelId) : [...current, modelId])
@@ -44,11 +42,25 @@ export function ExperienceModelMockPanel() {
     : EXPERIENCE_MOCK_RESULT.frameworkSummary
   const questionTemplates = selectedModels.map((model) => `使用 ${model.label} 评估“${model.bestFor}”时，最需要验证的用户信号是什么？`)
 
+  if (result) {
+    return (
+      <ExperienceModelResultPage
+        query={query}
+        result={result}
+        selectedModels={selectedModels}
+        summary={summary}
+        frameworkSummary={frameworkSummary}
+        questionTemplates={questionTemplates}
+        onBack={() => setResult(null)}
+      />
+    )
+  }
+
   return (
     <div data-testid="experience-model-panel" className="grid gap-5 xl:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]">
       <div className="space-y-4">
         <div className="rounded-[12px] border border-amber-300/20 bg-amber-300/[0.07] px-4 py-3 text-xs leading-5 text-amber-100">
-          <strong>Mock 演示：</strong>固定推荐样例，不代表实际研究结论。不会读取资料或发起网络请求。
+          <strong>示例演示：</strong>固定推荐样例，不代表实际研究结论。不会读取资料或发起网络请求。
         </div>
         <SectionCard title="研究问题" desc="描述要评估的体验目标或场景。" icon={<BrainCircuit className="h-4 w-4" />}>
           <label className="text-xs font-medium text-slate-400">
@@ -98,50 +110,18 @@ export function ExperienceModelMockPanel() {
       </div>
 
       <div className="min-w-0 space-y-4" aria-live="polite">
-        {result ? (
-          <>
-            <section ref={resultRef} className="rounded-[14px] border border-mint-400/20 bg-mint-400/[0.06] p-5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mint-300">Mock output</p>
-              <h3 className="mt-1 text-xl font-semibold text-white">推荐结果</h3>
-              <p data-testid="experience-summary" className="mt-3 text-sm leading-6 text-slate-300">{summary}</p>
-            </section>
-
-            <SectionCard title="推荐模型" icon={<CheckCircle2 className="h-4 w-4" />}>
-              <div className="grid gap-3 md:grid-cols-3">
-                {result.map((item) => {
-                  const model = EXPERIENCE_MODELS.find((option) => option.id === item.modelId)
-                  if (!model) return null
-                  return (
-                    <article key={item.modelId} className="rounded-[11px] border border-mint-400/15 bg-base p-4">
-                      <div className="flex items-center justify-between gap-2"><h4 data-testid="recommended-model-name" className="text-sm font-semibold text-slate-100">{model.resultLabel}</h4><span className="text-xs font-semibold text-mint-300">{Math.round(item.score * 100)}%</span></div>
-                      <ul className="mt-3 space-y-2 text-xs leading-5 text-slate-400">{item.reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul>
-                    </article>
-                  )
-                })}
-              </div>
-            </SectionCard>
-            <SectionCard title="框架总结"><p className="text-sm leading-6 text-slate-300">{frameworkSummary}</p></SectionCard>
-            <SectionCard title="研究问题模板">
-              <ol className="space-y-3">
-                {questionTemplates.map((question, index) => (
-                  <li data-testid="question-template" key={question} className="flex gap-3 rounded-[9px] bg-base px-3 py-2.5 text-sm leading-6 text-slate-300"><span className="font-semibold text-mint-300">{index + 1}</span>{question}</li>
-                ))}
-              </ol>
-            </SectionCard>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <SectionCard title="方法资料索引" icon={<BookOpen className="h-4 w-4" />}>
-                <ul className="space-y-2 text-xs text-slate-400">{selectedModels.map((model) => <li key={model.id} className="rounded-[8px] bg-base px-3 py-2">{model.resultLabel}方法资料（Mock）</li>)}</ul>
-              </SectionCard>
-              <SectionCard title="边界说明">
-                <ul className="space-y-2 text-xs leading-5 text-slate-400">{[...EXPERIENCE_MOCK_RESULT.warnings, ...EXPERIENCE_MOCK_RESULT.boundaryNotes].map((note) => <li key={note}>• {note}</li>)}</ul>
-              </SectionCard>
-            </div>
-          </>
-        ) : (
-          <div className="flex min-h-[420px] items-center justify-center rounded-[14px] border border-dashed border-white/[0.1] bg-surface-1/50 px-6 text-center">
-            <div><BrainCircuit className="mx-auto h-7 w-7 text-slate-600" aria-hidden="true" /><p className="mt-3 text-sm text-slate-400">填写研究问题并生成固定推荐样例</p><p className="mt-1 text-xs text-slate-600">不会调用模型、后端或资料检索。</p></div>
-          </div>
-        )}
+        <CaseStudyFigure
+          alt={EXPERIENCE_MOCK_RESULT.caseStudy.imageAlt}
+          regions={[]}
+        />
+        <SectionCard title="将生成的研究框架" desc="结果会围绕当前截图生成研究假设，不代表真实调研结论。">
+          <ul className="space-y-2 text-sm leading-6 text-slate-300">
+            <li>• 推荐 HEART、GSM、认知负荷等模型组合</li>
+            <li>• 回显当前研究问题和案例场景</li>
+            <li>• 输出体验假设、GSM 指标拆解和 HEART 指标建议</li>
+            <li>• 给出可用于访谈、可用性测试或 A/B 实验的问题模板</li>
+          </ul>
+        </SectionCard>
       </div>
     </div>
   )

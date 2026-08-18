@@ -48,19 +48,19 @@ test('Digital Self and Insights use real scoped read-model handlers', async ({ p
   })).status()).toBe(200)
 
   await page.goto('/digital-self')
-  await expect(page.getByRole('heading', { name: /当前设计师的数字人/ })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: /何云深/ })).toBeVisible()
   await expect(page.getByText('我的个人 Agent')).toBeVisible()
-  await expect(page.getByText('running', { exact: true })).toBeVisible()
+  await expect(page.getByText('online', { exact: true })).toBeVisible()
   await expect(page.getByText('E2E active personal task')).toBeVisible()
 
   await page.getByRole('link', { name: '工作洞察' }).click()
   await expect(page.getByRole('heading', { name: '工作洞察' })).toBeVisible()
-  await expect(page.getByText('当前任务卡片', { exact: true })).toBeVisible()
-  await expect(page.getByText('活动记录', { exact: true })).toBeVisible()
-  await expect(page.getByText('项目记忆', { exact: true })).toBeVisible()
-  await expect(page.getByText('最近审计', { exact: true })).toBeVisible()
+  await page.getByRole('heading', { name: '当前项目原始读模型' }).click()
+  await expect(page.getByRole('heading', { name: '当前任务卡片', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '活动记录', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '项目记忆', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '最近审计', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /^(今日|本周|本月)$/ })).toHaveCount(0)
-  await expect(page.getByText(/项目复盘|知识候选/)).toHaveCount(0)
 })
 
 test('regular user is denied Admin UI and direct Admin APIs', async ({ page }) => {

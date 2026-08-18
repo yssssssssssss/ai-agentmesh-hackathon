@@ -190,6 +190,12 @@ class TestSkillsAPI:
         resp = client.post(f"/api/memory/skills/{skill.id}/activate")
         assert resp.status_code == 200
         assert resp.json()["item"]["status"] == "active"
+        definition = resp.json()["skill_definition"]
+        assert definition["metadata"]["learned_skill_id"] == skill.id
+        assert definition["source_path"].startswith("learned://")
+        catalog = client.get("/api/skills")
+        assert catalog.status_code == 200
+        assert any(item["id"] == definition["id"] for item in catalog.json()["items"])
 
     def test_share_skill(self) -> None:
         skill = store.add_learned_skill(

@@ -41,7 +41,7 @@ export function Login() {
     setSubmitting(true)
     setError(null)
     try {
-      // 未配置的 ERP 账号按当前设计师演示登录
+      // 未配置的 ERP 账号按默认设计师演示登录
       const cred = account ?? ERP_ACCOUNTS.linzhixia
       await login(cred.userId, cred.password)
       navigate('/digital-self', { replace: true })

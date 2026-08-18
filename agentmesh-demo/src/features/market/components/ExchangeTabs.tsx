@@ -215,9 +215,9 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
         })}
       </div>
 
-      <div className="border-t border-white/[0.06]">
+      <div className="h-[clamp(480px,62vh,760px)] overflow-y-auto overscroll-contain border-t border-white/[0.06]">
         {list.length === 0 ? (
-          <div className="py-16 text-center text-sm text-slate-500">当前分类没有记录。</div>
+          <div className="flex h-full items-center justify-center text-sm text-slate-500">当前分类没有记录。</div>
         ) : (
           <ol className="divide-y divide-white/[0.04]">
             {list.map((item) => {

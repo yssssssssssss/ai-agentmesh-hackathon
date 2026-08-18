@@ -123,6 +123,7 @@ def test_health_returns_canonical_secret_safe_provider_contracts(monkeypatch: py
         "web_research",
         "data_connectors",
         "llm",
+        "openai_agents_sdk",
         "document_parser",
     }
     assert all(

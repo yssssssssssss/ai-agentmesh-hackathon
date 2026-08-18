@@ -12,6 +12,7 @@ export const workspaceKeys = {
   threads: (scope: WorkspaceScope) => [...scopedRoot(scope), 'threads'] as const,
   thread: (scope: WorkspaceScope, threadId: string) => [...scopedRoot(scope), 'threads', threadId] as const,
   skills: (scope: WorkspaceScope) => [...scopedRoot(scope), 'skills'] as const,
+  skillCatalog: (scope: WorkspaceScope) => [...scopedRoot(scope), 'skill-catalog'] as const,
   documents: (scope: WorkspaceScope) => [...scopedRoot(scope), 'documents'] as const,
   document: (scope: WorkspaceScope, documentId: string) =>
     [...scopedRoot(scope), 'documents', documentId] as const,

@@ -54,9 +54,9 @@ export function ActivityFeed({ items, live = true }: ActivityFeedProps) {
   return (
     <section
       aria-label="市场实时动态"
-      className="rounded-[14px] border border-white/[0.06] bg-surface-1"
+      className="flex h-[clamp(440px,66vh,720px)] flex-col rounded-[14px] border border-white/[0.06] bg-surface-1"
     >
-      <header className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
+      <header className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
         <div className="flex flex-col">
           <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
             LIVE ACTIVITY
@@ -75,9 +75,9 @@ export function ActivityFeed({ items, live = true }: ActivityFeedProps) {
       </header>
 
       {items.length === 0 ? (
-        <div className="py-14 text-center text-sm text-slate-500">市场还没有动态，等分身们开始协作。</div>
+        <div className="flex flex-1 items-center justify-center px-5 text-center text-sm text-slate-500">市场还没有动态，等分身们开始协作。</div>
       ) : (
-        <ol className="relative px-5 py-4">
+        <ol className="relative flex-1 overflow-y-auto overscroll-contain px-5 py-4">
           <span
             aria-hidden
             className="absolute left-[26px] top-6 bottom-6 w-px bg-white/[0.06]"

@@ -8,7 +8,7 @@ import { useAuth } from './AuthProvider'
 const DEMO_ROLES = [
   {
     id: 'designer',
-    label: '当前设计师',
+    label: '何云深',
     detail: '个人工作',
     userId: 'usr_current_designer',
     password: 'designer123',

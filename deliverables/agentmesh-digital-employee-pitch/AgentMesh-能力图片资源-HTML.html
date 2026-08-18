@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AgentMesh 能力图片资源</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #111827;
+      --panel-2: #172033;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --blue: #60a5fa;
+      --purple: #a78bfa;
+      --green: #34d399;
+      --orange: #fb923c;
+      --red: #f87171;
+      --line: rgba(148, 163, 184, 0.55);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #020617;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    main {
+      display: grid;
+      gap: 28px;
+      padding: 28px;
+    }
+
+    .slide {
+      position: relative;
+      width: min(1180px, 100%);
+      aspect-ratio: 16 / 9;
+      margin: 0 auto;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at top left, rgba(96, 165, 250, 0.22), transparent 28%),
+        radial-gradient(circle at right, rgba(167, 139, 250, 0.2), transparent 32%),
+        linear-gradient(135deg, #0b1020 0%, #111827 48%, #0f172a 100%);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+      padding: 46px;
+    }
+
+    .kicker {
+      color: var(--muted);
+      font-size: 15px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 8px 0 6px;
+      font-size: 36px;
+      line-height: 1.15;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.55;
+    }
+
+    .stage {
+      position: absolute;
+      inset: 150px 46px 46px;
+    }
+
+    .relay {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .card {
+      position: relative;
+      min-height: 220px;
+      padding: 22px;
+      border-radius: 24px;
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+
+    .card::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -18px;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 28px;
+    }
+
+    .card:last-child::after {
+      content: "";
+    }
+
+    .icon {
+      width: 54px;
+      height: 54px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+      margin-bottom: 18px;
+      font-size: 26px;
+      background: rgba(96, 165, 250, 0.14);
+      border: 1px solid rgba(96, 165, 250, 0.32);
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 21px;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .compass {
+      position: relative;
+      height: 100%;
+      display: grid;
+      place-items: center;
+    }
+
+    .center {
+      width: 220px;
+      height: 220px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      box-shadow: 0 0 0 12px rgba(96, 165, 250, 0.08), 0 0 70px rgba(124, 58, 237, 0.35);
+      font-size: 25px;
+      font-weight: 800;
+      line-height: 1.3;
+      z-index: 2;
+    }
+
+    .cap {
+      position: absolute;
+      width: 270px;
+      padding: 20px;
+      border-radius: 22px;
+      background: rgba(15, 23, 42, 0.82);
+      border: 1px solid rgba(148, 163, 184, 0.24);
+    }
+
+    .cap h2 {
+      margin: 0 0 8px;
+      font-size: 21px;
+    }
+
+    .cap p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 15px;
+    }
+
+    .cap.top { top: 0; left: 50%; transform: translateX(-50%); border-color: rgba(96, 165, 250, 0.5); }
+    .cap.right { right: 24px; top: 50%; transform: translateY(-50%); border-color: rgba(251, 146, 60, 0.5); }
+    .cap.bottom { bottom: 0; left: 50%; transform: translateX(-50%); border-color: rgba(52, 211, 153, 0.5); }
+    .cap.left { left: 24px; top: 50%; transform: translateY(-50%); border-color: rgba(167, 139, 250, 0.5); }
+
+    .pyramid-wrap {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 34px;
+      height: 100%;
+      align-items: center;
+    }
+
+    .pyramid {
+      display: grid;
+      gap: 10px;
+      justify-items: center;
+    }
+
+    .layer {
+      padding: 22px 26px;
+      border-radius: 22px;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 0 14px 38px rgba(0, 0, 0, 0.2);
+    }
+
+    .layer h2 {
+      margin: 0 0 8px;
+      font-size: 23px;
+    }
+
+    .layer p {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 15px;
+    }
+
+    .l3 { width: 44%; background: rgba(248, 113, 113, 0.24); border-color: rgba(248, 113, 113, 0.6); }
+    .l2 { width: 66%; background: rgba(52, 211, 153, 0.2); border-color: rgba(52, 211, 153, 0.55); }
+    .l1 { width: 88%; background: rgba(96, 165, 250, 0.2); border-color: rgba(96, 165, 250, 0.55); }
+
+    .gate {
+      padding: 28px;
+      border-radius: 26px;
+      background: rgba(251, 146, 60, 0.15);
+      border: 1px solid rgba(251, 146, 60, 0.45);
+    }
+
+    .gate h2 {
+      margin: 0 0 18px;
+      font-size: 26px;
+    }
+
+    .gate ul {
+      margin: 0;
+      padding-left: 20px;
+      color: #fed7aa;
+      line-height: 1.9;
+      font-size: 17px;
+    }
+
+    .network {
+      position: relative;
+      height: 100%;
+    }
+
+    .node {
+      position: absolute;
+      width: 132px;
+      height: 132px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .me {
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 170px;
+      height: 170px;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      border: 0;
+      box-shadow: 0 0 80px rgba(96, 165, 250, 0.35);
+      font-size: 22px;
+      z-index: 2;
+    }
+
+    .n1 { left: 8%; top: 16%; }
+    .n2 { right: 8%; top: 14%; }
+    .n3 { left: 9%; bottom: 12%; }
+    .n4 { right: 10%; bottom: 14%; }
+    .n5 { left: 50%; top: 4%; transform: translateX(-50%); }
+
+    .legend {
+      position: absolute;
+      right: 0;
+      top: 0;
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(15, 23, 42, 0.7);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .legend span::before {
+      content: "";
+      display: inline-block;
+      width: 28px;
+      height: 3px;
+      margin-right: 8px;
+      vertical-align: middle;
+      border-radius: 999px;
+      background: var(--blue);
+    }
+
+    .legend span:nth-child(2)::before { background: var(--green); }
+    .legend span:nth-child(3)::before { background: var(--orange); }
+
+    .flywheel {
+      position: relative;
+      height: 100%;
+      display: grid;
+      place-items: center;
+    }
+
+    .wheel-center {
+      width: 260px;
+      height: 260px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.3;
+      z-index: 2;
+    }
+
+    .wheel-item {
+      position: absolute;
+      width: 190px;
+      padding: 17px;
+      border-radius: 20px;
+      background: rgba(15, 23, 42, 0.82);
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      text-align: center;
+    }
+
+    .wheel-item h2 {
+      margin: 0 0 6px;
+      font-size: 20px;
+    }
+
+    .wheel-item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .w1 { top: 0; left: 50%; transform: translateX(-50%); border-color: rgba(96, 165, 250, 0.55); }
+    .w2 { right: 70px; top: 28%; border-color: rgba(52, 211, 153, 0.55); }
+    .w3 { right: 170px; bottom: 0; border-color: rgba(167, 139, 250, 0.55); }
+    .w4 { left: 170px; bottom: 0; border-color: rgba(251, 146, 60, 0.55); }
+    .w5 { left: 70px; top: 28%; border-color: rgba(248, 113, 113, 0.55); }
+
+    svg.lines {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    @media print {
+      body {
+        background: white;
+      }
+
+      main {
+        padding: 0;
+        gap: 0;
+      }
+
+      .slide {
+        width: 100vw;
+        border-radius: 0;
+        page-break-after: always;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="slide">
+      <div class="kicker">01 · 工作生命周期</div>
+      <h1>一组数字员工，在一次工作中接力上场</h1>
+      <p class="subtitle">用户只面对一个聊天入口，后台按阶段调度资料、数据、风险和记忆能力。</p>
+      <div class="stage relay">
+        <article class="card">
+          <div class="icon">💬</div>
+          <h2>Workspace</h2>
+          <p>用户提出工作问题，显式选择 $ skill 进入可审计工作流。</p>
+        </article>
+        <article class="card">
+          <div class="icon">🔎</div>
+          <h2>Research Agent</h2>
+          <p>查相似项目、外部资料和文档来源，返回可引用证据。</p>
+        </article>
+        <article class="card">
+          <div class="icon">📊</div>
+          <h2>Data Agent</h2>
+          <p>查询业务指标、本地样例或真实只读数据连接器。</p>
+        </article>
+        <article class="card">
+          <div class="icon">🛡️</div>
+          <h2>Risk Agent</h2>
+          <p>检查授权、Prompt 注入和高风险工具，必要时进入人审。</p>
+        </article>
+        <article class="card">
+          <div class="icon">🧠</div>
+          <h2>Memory Agent</h2>
+          <p>把有价值的过程沉淀为个人、项目、团队记忆。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">02 · 个人能力罗盘</div>
+      <h1>$ skill 把个人 AI 能力变成工作流</h1>
+      <p class="subtitle">能力不是散落在工具栏里，而是从 Personal Agent 统一调度，并且带来源、审计和权限。</p>
+      <div class="stage compass">
+        <svg class="lines" viewBox="0 0 1000 520" preserveAspectRatio="none">
+          <line x1="500" y1="260" x2="500" y2="58" stroke="var(--line)" stroke-width="2" />
+          <line x1="500" y1="260" x2="860" y2="260" stroke="var(--line)" stroke-width="2" />
+          <line x1="500" y1="260" x2="500" y2="462" stroke="var(--line)" stroke-width="2" />
+          <line x1="500" y1="260" x2="140" y2="260" stroke="var(--line)" stroke-width="2" />
+        </svg>
+        <div class="center">Personal<br/>Agent</div>
+        <article class="cap top">
+          <h2>资料能力</h2>
+          <p>$research.request，带来源的调研结果。</p>
+        </article>
+        <article class="cap right">
+          <h2>风险能力</h2>
+          <p>$risk.review，高风险项进入 Inbox。</p>
+        </article>
+        <article class="cap bottom">
+          <h2>沉淀能力</h2>
+          <p>$note.save / $memory.propose，写入记忆。</p>
+        </article>
+        <article class="cap left">
+          <h2>数据能力</h2>
+          <p>$data.query，指标查询与证据帖。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">03 · 三级记忆</div>
+      <h1>个人、项目、团队三级记忆，不是一个大杂烩知识库</h1>
+      <p class="subtitle">Layer 管沉淀深度，Scope 管谁能看。跨到团队层必须经过治理闸门。</p>
+      <div class="stage pyramid-wrap">
+        <div class="pyramid">
+          <div class="layer l3">
+            <h2>团队记忆</h2>
+            <p>TEAM_ACCEPTED，可复用、可检索、带来源。</p>
+          </div>
+          <div class="layer l2">
+            <h2>项目记忆</h2>
+            <p>mid_term / long_term，阶段总结、归档和召回索引。</p>
+          </div>
+          <div class="layer l1">
+            <h2>个人记忆</h2>
+            <p>short_term，今天做了什么、个人笔记、工作流结果。</p>
+          </div>
+        </div>
+        <aside class="gate">
+          <h2>审核闸门</h2>
+          <ul>
+            <li>普通成员提交候选记忆</li>
+            <li>lead / admin 接受后进入团队层</li>
+            <li>争议、过期、废弃都有状态</li>
+            <li>检索融合 FTS5 + vector + RRF</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">04 · Agent 互助市场</div>
+      <h1>知识开始主动流动，Agent 自动发现谁能帮谁</h1>
+      <p class="subtitle">用户 opt-in 后，个人 Agent 发布需求信号，其他 Agent 扫描匹配并给出抽象答案。</p>
+      <div class="stage network">
+        <svg class="lines" viewBox="0 0 1000 520" preserveAspectRatio="none">
+          <line x1="500" y1="260" x2="152" y2="120" stroke="var(--blue)" stroke-width="3" />
+          <line x1="500" y1="260" x2="848" y2="120" stroke="var(--green)" stroke-width="3" />
+          <line x1="500" y1="260" x2="155" y2="405" stroke="var(--orange)" stroke-width="3" />
+          <line x1="500" y1="260" x2="840" y2="405" stroke="var(--blue)" stroke-width="3" />
+          <line x1="500" y1="260" x2="500" y2="65" stroke="var(--green)" stroke-width="3" />
+        </svg>
+        <div class="legend">
+          <span>我的求助</span>
+          <span>收到回答</span>
+          <span>给出回应</span>
+        </div>
+        <div class="node me">我<br/>Personal Agent</div>
+        <div class="node n1">同事 A<br/>有相关经验</div>
+        <div class="node n2">同事 B<br/>正在求助</div>
+        <div class="node n3">同事 C<br/>提供数据线索</div>
+        <div class="node n4">同事 D<br/>需要风险建议</div>
+        <div class="node n5">BBS / Market<br/>信号与匹配</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">05 · 项目价值飞轮</div>
+      <h1>工作过程变成可积累、可复用、可激励的团队资产</h1>
+      <p class="subtitle">个人工作产生记忆，团队审核成资产，Agent 互助产生贡献，贡献再反哺下一次工作。</p>
+      <div class="stage flywheel">
+        <svg class="lines" viewBox="0 0 1000 520" preserveAspectRatio="none">
+          <path d="M500 82 C760 98 890 250 770 372" fill="none" stroke="var(--line)" stroke-width="3" />
+          <path d="M760 384 C640 500 360 500 240 384" fill="none" stroke="var(--line)" stroke-width="3" />
+          <path d="M230 372 C110 250 240 98 500 82" fill="none" stroke="var(--line)" stroke-width="3" />
+          <polygon points="770,372 742,362 760,392" fill="var(--line)" />
+          <polygon points="240,384 268,374 250,404" fill="var(--line)" />
+          <polygon points="500,82 470,72 482,104" fill="var(--line)" />
+        </svg>
+        <div class="wheel-center">团队 AI<br/>工作大脑</div>
+        <article class="wheel-item w1">
+          <h2>做事</h2>
+          <p>chat + skill，资料、数据、风险。</p>
+        </article>
+        <article class="wheel-item w2">
+          <h2>沉淀</h2>
+          <p>个人和项目记忆持续积累。</p>
+        </article>
+        <article class="wheel-item w3">
+          <h2>审核</h2>
+          <p>团队资产必须有来源和确认。</p>
+        </article>
+        <article class="wheel-item w4">
+          <h2>互助</h2>
+          <p>Agent 市场自动匹配供需。</p>
+        </article>
+        <article class="wheel-item w5">
+          <h2>激励</h2>
+          <p>采纳后记录 ContributionPoint。</p>
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

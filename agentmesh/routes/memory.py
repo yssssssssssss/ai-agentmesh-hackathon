@@ -37,6 +37,8 @@ from agentmesh.models import (
 )
 from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, ensure_can_update_memory, has_permission
 from agentmesh.routes.deps import current_user
+from agentmesh.skill_runtime.materialize import materialize_learned_skill
+from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
@@ -643,7 +645,9 @@ def activate_skill(skill_id: str, user: User = Depends(current_user)) -> dict[st
     skill.status = SkillStatus.ACTIVE
     skill.updated_at = now_utc()
     store.save_learned_skill(skill)
-    return {"item": skill.model_dump()}
+    definition = materialize_learned_skill(store, skill)
+    catalog_service().reload()
+    return {"item": skill.model_dump(), "skill_definition": definition.model_dump()}
 
 
 @router.post("/skills/{skill_id}/share")

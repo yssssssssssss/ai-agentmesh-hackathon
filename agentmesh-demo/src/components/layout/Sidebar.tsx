@@ -59,8 +59,7 @@ export function Sidebar({ onOpenSettings, onOpenProfile }: SidebarProps) {
 
   return (
     <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-white/[0.06] bg-base">
-      <div className="flex h-[80px] items-center gap-3 px-5">
-        <DigitalHumanMark size={40} />
+      <div className="flex h-[80px] items-center px-5">
         <div className="min-w-0 leading-tight">
           <div className="truncate text-[21px] font-bold tracking-wide text-white">AgentMesh</div>
           <div className="mt-1 truncate text-[11px] tracking-[0.12em] text-slate-500">我的数字员工</div>

@@ -3,7 +3,6 @@ import { ArrowUpDown, BookMarked } from 'lucide-react'
 
 import type { KnowledgeAssetView } from '../../features/knowledge/presenter'
 import type { PresentedValue } from '../../lib/presentation'
-import { cn } from '../../lib/cn'
 import { DataSourceBadge } from '../ui/DataSourceBadge'
 import { AssetCard } from './AssetCard'
 
@@ -63,19 +62,37 @@ export function AssetsPanel({ assets, totalCount, onOpenAsset }: Props) {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <div className="space-y-3" aria-label="知识筛选">
-        <FilterRow label="类型">
-          <ChipGroup options={typeOptions} value={typeFilter} onChange={setTypeFilter} label={(value) => TYPE_LABELS[value] ?? value} />
-        </FilterRow>
-        <FilterRow label="来源项目">
-          <ChipGroup options={sourceOptions} value={sourceFilter} onChange={setSourceFilter} label={(value) => value === 'all' ? '全部来源' : value} />
-        </FilterRow>
-        <FilterRow label="可见范围">
-          <ChipGroup options={visibilityOptions} value={visibilityFilter} onChange={setVisibilityFilter} label={(value) => VISIBILITY_LABELS[value] ?? value} />
-        </FilterRow>
-        <FilterRow label="使用状态">
-          <ChipGroup options={['all', 'unused', 'cited', 'feedback']} value={usageFilter} onChange={(value) => setUsageFilter(value as UsageFilter)} label={(value) => USAGE_LABELS[value] ?? value} />
-        </FilterRow>
+      <div className="rounded-[14px] border border-white/[0.06] bg-surface-1 p-4" aria-label="知识筛选">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <FilterSelect
+            label="类型"
+            value={typeFilter}
+            options={typeOptions}
+            onChange={setTypeFilter}
+            optionLabel={(value) => TYPE_LABELS[value] ?? value}
+          />
+          <FilterSelect
+            label="来源项目"
+            value={sourceFilter}
+            options={sourceOptions}
+            onChange={setSourceFilter}
+            optionLabel={(value) => value === 'all' ? '全部来源' : value}
+          />
+          <FilterSelect
+            label="可见范围"
+            value={visibilityFilter}
+            options={visibilityOptions}
+            onChange={setVisibilityFilter}
+            optionLabel={(value) => VISIBILITY_LABELS[value] ?? value}
+          />
+          <FilterSelect
+            label="使用状态"
+            value={usageFilter}
+            options={['all', 'unused', 'cited', 'feedback']}
+            onChange={(value) => setUsageFilter(value as UsageFilter)}
+            optionLabel={(value) => USAGE_LABELS[value] ?? value}
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4 text-xs text-slate-500">
@@ -116,43 +133,26 @@ export function AssetsPanel({ assets, totalCount, onOpenAsset }: Props) {
   )
 }
 
-function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="min-w-[64px] text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</span>
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  )
-}
-
-function ChipGroup({ options, value, onChange, label }: {
-  options: string[]
+function FilterSelect({ label, value, options, onChange, optionLabel }: {
+  label: string
   value: string
+  options: string[]
   onChange: (value: string) => void
-  label: (value: string) => string
+  optionLabel: (value: string) => string
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((option) => {
-        const active = option === value
-        return (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(option)}
-            className={cn(
-              'min-h-10 rounded-full border px-3 py-1.5 text-xs transition-[transform,background-color,border-color,color] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50',
-              active
-                ? 'border-mint-400/40 bg-mint-400/[0.12] text-mint-200'
-                : 'border-white/[0.06] bg-surface-1 text-slate-400 hover:border-white/[0.12] hover:text-slate-200',
-            )}
-          >
-            {label(option)}
-          </button>
-        )
-      })}
-    </div>
+    <label className="block">
+      <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full rounded-[10px] border border-white/[0.08] bg-surface-2 px-3 text-sm text-slate-200 outline-none transition-[border-color,box-shadow] focus:border-mint-400/60 focus:ring-2 focus:ring-mint-400/15"
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>{optionLabel(option)}</option>
+        ))}
+      </select>
+    </label>
   )
 }
 

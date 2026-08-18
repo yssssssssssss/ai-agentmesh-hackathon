@@ -58,6 +58,32 @@ test('creates, selects, sends natural and explicit skill messages, and reloads p
   await expect(page.getByTestId('user-message').filter({ hasText: naturalMessage })).toBeVisible()
 })
 
+test('persists the seeded 618 demo conversation and replies on the same thread', async ({ page }) => {
+  await page.goto('/workspace/thread/thread_graph_demo')
+  await expect(page.getByRole('heading', { name: '2026 年 618 家电会场首页改版' })).toBeVisible()
+  await expect(page.getByTestId('user-message').filter({ hasText: '我要做今年 618 家电会场首页改版' })).toBeVisible()
+  await expect(page.getByTestId('assistant-message').filter({ hasText: '首屏应优先保证核心入口效率' })).toBeVisible()
+  await expect(page.getByTestId('assistant-message').filter({ hasText: '2026 年 618 家电会场首页设计 Brief' })).toBeVisible()
+  await expect(page.getByTestId('assistant-message').filter({ hasText: '技术执行记录' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '团队经验：首屏核心入口优先' })).toBeVisible()
+
+  const reply = `graph-demo-reply-${Date.now()}`
+  const sendResponse = page.waitForResponse((response) =>
+    response.url().endsWith('/api/chat/messages') && response.request().method() === 'POST',
+  )
+  await page.getByLabel('消息').fill(reply)
+  await page.getByRole('button', { name: '发送' }).click()
+  const sent = await sendResponse
+  const request = sent.request().postDataJSON() as { thread_id: string | null }
+
+  expect(sent.status()).toBe(200)
+  expect(request.thread_id).toBe('thread_graph_demo')
+  await expect(page.getByTestId('user-message').filter({ hasText: reply })).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByTestId('user-message').filter({ hasText: reply })).toBeVisible()
+})
+
 test('shows pending immediately, follows conversation updates, and opens skills from dollar prefix', async ({ page }) => {
   const threadId = 'thread_workspace_regression'
   const marker = `workspace-regression-${Date.now()}`

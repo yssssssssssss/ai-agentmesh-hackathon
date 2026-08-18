@@ -303,13 +303,20 @@ If the chat model times out, AgentMesh returns the deterministic local answer an
 Additional selectable models use `AGENTMESH_MODELS` plus per-model variables:
 
 ```bash
-export AGENTMESH_MODELS=gpt55,fast
-export AGENTMESH_MODEL_DEFAULT=gpt55
-export AGENTMESH_MODEL_GPT55_BASE_URL=https://modelservice.jdcloud.com/v1/
-export AGENTMESH_MODEL_GPT55_MODEL=GPT-5.5
-export AGENTMESH_MODEL_GPT55_LABEL="GPT-5.5 高"
-export AGENTMESH_MODEL_GPT55_API_KEY=your-api-key
+export AGENTMESH_MODEL_DEFAULT=default
+export AGENTMESH_MODELS=gpt52,gpt54,gpt55,kimi_k26
+
+export AGENTMESH_MODEL_GPT52_BASE_URL=http://internal-llm-gateway/v1
+export AGENTMESH_MODEL_GPT52_MODEL=GPT-5.2-joybuilder
+export AGENTMESH_MODEL_GPT52_LABEL="GPT-5.2 JoyBuilder"
+export AGENTMESH_MODEL_GPT52_API_KEY=your-api-key
+export AGENTMESH_MODEL_GPT52_API_STYLE=chat_completions
+
+# Repeat the same five variables for GPT54, GPT55, and KIMI_K26.
+# The complete secret-free template is in .env.example.
 ```
+
+`AGENTMESH_MODEL_DEFAULT=default` keeps the `AI_API_*` model as the default while exposing the four named models in the Agent model selector. Gateways that reject strict function declarations can set `AGENTMESH_SDK_STRICT_TOOLS=false`; AgentMesh still validates arguments locally through Pydantic and tool guardrails.
 
 Configure one optional automatic fallback model with:
 

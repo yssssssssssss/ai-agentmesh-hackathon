@@ -52,6 +52,7 @@ test('React default UI carries the MVP parity journey without local demo state',
   expect(briefResponse.status()).toBe(200)
   const briefItem = (await briefResponse.json()).inbox_items[0]
   await page.goto('/knowledge')
+  await page.getByRole('tab', { name: /待我确认/ }).click()
   await page.locator(`[data-inbox-item-id="${briefItem.id}"]`).getByRole('button', { name: '确认并沉淀' }).click()
   await page.getByLabel('Brief 正文').fill(`${marker} confirmed brief`)
   await page.getByRole('button', { name: '确认 Brief' }).click()
@@ -59,11 +60,11 @@ test('React default UI carries the MVP parity journey without local demo state',
 
   await page.goto('/collaboration')
   await expect(page.getByText('正在读取任务卡…')).toHaveCount(0, { timeout: 15_000 })
-  await page.getByRole('tab', { name: /我发起的/ }).click()
+  await page.getByRole('tab', { name: /我的申请/ }).click()
   const taskCard = page.locator(`[data-task-id="${turn.task.id}"]`)
   await expect(taskCard).toBeVisible({ timeout: 15_000 })
   await taskCard.getByRole('button', { name: '查看协作详情' }).click()
-  await expect(page.getByRole('dialog')).toContainText('任务阶段')
+  await expect(page.getByRole('dialog')).toContainText('这次协作是如何发生的')
   await page.getByRole('dialog').getByRole('button', { name: '关闭' }).click()
 
   await expect(page.getByText(/演示数据|模拟生成|正在补充分析|DemoContext/)).toHaveCount(0)

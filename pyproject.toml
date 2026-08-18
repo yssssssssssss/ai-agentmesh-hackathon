@@ -8,8 +8,11 @@ dependencies = [
   "uvicorn",
   "pydantic",
   "httpx",
+  "jsonschema>=4,<5",
+  "openai-agents==0.21.1",
   "pymupdf",
   "python-multipart",
+  "PyYAML>=6,<7",
 ]
 
 [project.optional-dependencies]
@@ -17,6 +20,9 @@ dev = [
   "httpx",
   "pytest",
   "ruff",
+]
+prd = [
+  "Pillow>=10,<12",
 ]
 
 [tool.pytest.ini_options]
@@ -26,6 +32,7 @@ pythonpath = ["."]
 [tool.ruff]
 target-version = "py312"
 line-length = 120
+extend-exclude = ["2C-DesignWiki", "agentmesh/builtin_skills"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
@@ -36,3 +43,6 @@ known-first-party = ["agentmesh"]
 
 [tool.setuptools.packages.find]
 include = ["agentmesh*"]
+
+[tool.setuptools.package-data]
+agentmesh = ["builtin_skills/**"]

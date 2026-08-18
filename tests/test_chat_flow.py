@@ -46,6 +46,7 @@ from agentmesh.seed import (
     USER,
     WORKSPACE,
     ensure_demo_data,
+    ensure_graph_demo_data,
     ensure_initial_blackboard_data,
 )
 from agentmesh.store import SQLiteStore, store
@@ -1978,7 +1979,7 @@ def test_daily_memory_summary_rolls_up_current_users_short_term_memory() -> None
         json={
             "layer": "short_term",
             "title": "组长侧笔记",
-            "summary": "这条记忆不应进入当前设计师的每日摘要。",
+            "summary": "这条记忆不应进入何云深的每日摘要。",
             "source_kind": "manual",
             "memory_type": "note",
             "memory_date": target_date,
@@ -3172,6 +3173,65 @@ def test_demo_seed_data_populates_inbox_and_memory_examples() -> None:
     }
     assert "mem_demo_team_accepted_entry_density" in {item["id"] for item in team_memory_response.json()["items"]}
     assert {item["id"] for item in lead_memory_response.json()["items"]} >= {item.id for item in INITIAL_MEMORY_ITEMS}
+
+
+def test_graph_demo_seed_persists_workspace_conversation_and_replies_in_same_thread() -> None:
+    clear_store()
+    ensure_graph_demo_data(store)
+    ensure_graph_demo_data(store)
+    client = authenticated_client()
+
+    detail = client.get("/api/chat/threads/thread_graph_demo")
+
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["thread"]["title"] == "2026 年 618 家电会场首页改版"
+    assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
+    assert "今年 618 家电会场首页改版" in payload["messages"][0]["content"]
+    assistant_content = payload["messages"][1]["content"]
+    assert "2026 年 618 家电会场首屏应优先保证核心入口效率" in assistant_content
+    assert "任务分析" in assistant_content
+    assert "技术执行记录" in assistant_content
+    assert "团队经验：首屏核心入口优先" in assistant_content
+    assert "2026 年 618 家电会场首页设计 Brief" in assistant_content
+    assert "首屏采用「精简头图 + 核心入口楼层」组合" in assistant_content
+    assert "李明的数字员工 · 协作贡献" in assistant_content
+    assert [source["title"] for source in payload["messages"][1]["sources"]] == [
+        "2025 年 618 家电会场复盘",
+        "2024 年家电超级品类日",
+        "团队经验：首屏核心入口优先",
+        "首页营销入口点击数据",
+        "李明的数字员工 · 协作贡献",
+    ]
+    assert payload["turn_traces"][0]["persisted"] is True
+    assert [source["title"] for source in payload["turn_traces"][0]["sources"]] == [
+        "2025 年 618 家电会场复盘",
+        "2024 年家电超级品类日",
+        "团队经验：首屏核心入口优先",
+        "首页营销入口点击数据",
+        "李明的数字员工 · 协作贡献",
+    ]
+
+    reply = client.post(
+        "/api/chat/messages",
+        json={
+            "thread_id": "thread_graph_demo",
+            "content": "继续补充重点商品入口方案",
+            "client_turn_id": "turn_graph_demo_reply",
+        },
+    )
+
+    assert reply.status_code == 200
+    assert reply.json()["thread_id"] == "thread_graph_demo"
+    assert len(store.chat_threads) == 1
+    messages = store.list_thread_messages("thread_graph_demo")
+    assert [message.role for message in messages] == [
+        ChatRole.USER,
+        ChatRole.ASSISTANT,
+        ChatRole.USER,
+        ChatRole.ASSISTANT,
+    ]
+    assert messages[-2].content == "继续补充重点商品入口方案"
 
 
 def test_auto_blackboard_queue_drains_into_bbs_posts() -> None:

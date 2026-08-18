@@ -157,7 +157,7 @@ export function GraphCanvas({ graph, meId }: GraphCanvasProps) {
     >
       <div
         ref={containerRef}
-        className="relative h-[clamp(320px,55vh,540px)] w-full cursor-grab active:cursor-grabbing"
+        className="relative h-[clamp(440px,66vh,720px)] w-full cursor-grab active:cursor-grabbing"
         onMouseDown={handleBackgroundDown}
         onMouseMove={handleMove}
         onMouseUp={handleUp}

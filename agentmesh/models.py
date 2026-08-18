@@ -215,6 +215,90 @@ class ModelDefinition(BaseModel):
     updated_at: datetime = Field(default_factory=now_utc)
 
 
+class SkillPackageStatus(StrEnum):
+    QUARANTINED = "quarantined"
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+
+class SkillPackage(BaseModel):
+    id: str = Field(default_factory=lambda: new_id("skill_package"))
+    name: str
+    version: str
+    source_uri: str
+    content_hash: str
+    root_path: str
+    status: SkillPackageStatus = SkillPackageStatus.QUARANTINED
+    resources: list[str] = Field(default_factory=list)
+    diagnostics: list[dict[str, str]] = Field(default_factory=list)
+    license: str | None = None
+    compatibility: str | None = None
+    created_by: str
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
+class SkillSourceScope(StrEnum):
+    BUILTIN = "builtin"
+    WORKSPACE = "workspace"
+    PROJECT = "project"
+
+
+class SkillMemoryWritePolicy(StrEnum):
+    NONE = "none"
+    PRIVATE_SHORT_TERM = "private_short_term"
+    PROJECT_CANDIDATE = "project_candidate"
+
+
+class SkillActivationPolicy(StrEnum):
+    EXPLICIT_ONLY = "explicit_only"
+    MODEL_ALLOWED = "model_allowed"
+
+
+class SkillDefinition(BaseModel):
+    """A parsed, versioned Agent Skills definition available to AgentMesh."""
+
+    id: str
+    name: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(min_length=1, max_length=1024)
+    instructions: str
+    source_path: str
+    source_scope: SkillSourceScope
+    content_hash: str
+    version: str = "1"
+    license: str | None = None
+    compatibility: str | None = Field(default=None, max_length=500)
+    metadata: dict[str, str] = Field(default_factory=dict)
+    host_fields: dict[str, Any] = Field(default_factory=dict)
+    requested_tools: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    argument_hint: str | None = None
+    requires_input: bool = True
+    activation_policy: SkillActivationPolicy = SkillActivationPolicy.EXPLICIT_ONLY
+    memory_write_policy: SkillMemoryWritePolicy = SkillMemoryWritePolicy.NONE
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+    @property
+    def command(self) -> str:
+        return f"${self.name}"
+
+
+class SkillBinding(BaseModel):
+    """Enables a Skill for an Agent without mutating the immutable parsed definition."""
+
+    id: str = Field(default_factory=lambda: new_id("skill_binding"))
+    agent_id: str
+    skill_id: str
+    enabled: bool = True
+    aliases: list[str] = Field(default_factory=list)
+    granted_by: str
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
 class ToolDefinition(BaseModel):
     id: str
     name: str
@@ -225,6 +309,11 @@ class ToolDefinition(BaseModel):
     provider: str = "system"
     external_name: str | None = None
     metadata: dict[str, str] = Field(default_factory=dict)
+    input_schema: dict[str, Any] = Field(default_factory=lambda: {"type": "object", "properties": {}, "additionalProperties": False})
+    output_schema: dict[str, Any] | None = None
+    side_effect: Literal["read", "write", "external"] = "read"
+    timeout_seconds: float = Field(default=45.0, gt=0, le=300)
+    sdk_metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
 
@@ -756,6 +845,13 @@ class DelegatedAnswer(BaseModel):
     inbox_item: InboxItem | None = None
 
 
+class AgentRunCreateRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
+    client_turn_id: str = Field(min_length=1, max_length=120)
+    thread_id: str | None = None
+    skill_name: str | None = Field(default=None, max_length=64)
+
+
 class ChatRequest(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     thread_id: str | None = None
@@ -916,6 +1012,11 @@ class AgentModelUpdateRequest(BaseModel):
     model_id: str | None = Field(default=None, max_length=120)
 
 
+class SkillBindingUpdateRequest(BaseModel):
+    enabled: bool
+    aliases: list[str] | None = None
+
+
 class AgentToolsUpdateRequest(BaseModel):
     tool_ids: list[str] = Field(default_factory=list)
 
@@ -1068,6 +1169,66 @@ class LearnedSkill(BaseModel):
     updated_at: datetime = Field(default_factory=now_utc)
 
 
+
+
+class SDKSessionRecord(BaseModel):
+    id: str
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    synced_chat_message_ids: list[str] = Field(default_factory=list)
+    version: int = Field(default=0, ge=0)
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
+class AgentRunStatus(StrEnum):
+    CREATED = "created"
+    RUNNING = "running"
+    WAITING_APPROVAL = "waiting_approval"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class AgentRun(BaseModel):
+    id: str = Field(default_factory=lambda: new_id("run"))
+    thread_id: str
+    user_id: str
+    workspace_id: str
+    project_id: str
+    input_text: str
+    client_turn_id: str | None = Field(default=None, max_length=120)
+    status: AgentRunStatus = AgentRunStatus.CREATED
+    skill_id: str | None = None
+    skill_name: str | None = None
+    agent_definition_version: str = "1"
+    project_chat: bool = False
+    paused_state: dict[str, Any] | None = None
+    output_text: str | None = None
+    error_code: str | None = None
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
+class AgentRunEvent(BaseModel):
+    id: str = Field(default_factory=lambda: new_id("run_event"))
+    run_id: str
+    sequence: int = Field(ge=1)
+    event_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=now_utc)
+
+
+class Artifact(BaseModel):
+    id: str = Field(default_factory=lambda: new_id("artifact"))
+    run_id: str
+    workspace_id: str
+    project_id: str
+    user_id: str
+    artifact_type: str
+    content_type: str
+    content: str
+    truncated: bool = False
+    created_at: datetime = Field(default_factory=now_utc)
 
 
 class ChatTurnTrace(BaseModel):

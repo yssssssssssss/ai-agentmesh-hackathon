@@ -1,4 +1,4 @@
-import { BrainCircuit, Palette, Sparkles } from 'lucide-react'
+import { BrainCircuit, Palette } from 'lucide-react'
 
 import { cn } from '../../lib/cn'
 import type { WorkspaceToolId } from './types'
@@ -15,11 +15,7 @@ const TOOLS = [
 
 export function ToolLauncherBar({ activeTool, onOpen }: ToolLauncherBarProps) {
   return (
-    <section aria-label="Tool 演示入口" className="flex items-center gap-2 overflow-x-auto pb-0.5">
-      <span className="hidden shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:inline-flex">
-        <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-        Tool 演示
-      </span>
+    <section aria-label="工具入口" className="flex items-center gap-2 overflow-x-auto pb-0.5">
       {TOOLS.map((tool) => {
         const Icon = tool.icon
         const selected = activeTool === tool.id
@@ -27,7 +23,7 @@ export function ToolLauncherBar({ activeTool, onOpen }: ToolLauncherBarProps) {
           <button
             key={tool.id}
             type="button"
-            aria-label={`${tool.label} Mock`}
+            aria-label={tool.label}
             aria-expanded={selected}
             onClick={() => onOpen(tool.id)}
             className={cn(
@@ -41,9 +37,6 @@ export function ToolLauncherBar({ activeTool, onOpen }: ToolLauncherBarProps) {
           >
             <Icon className="h-3.5 w-3.5" aria-hidden="true" />
             {tool.label}
-            <span className="rounded-full bg-white/[0.07] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-400">
-              Mock
-            </span>
           </button>
         )
       })}

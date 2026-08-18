@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agents import ChatThreadNotFoundError, PersonalAgent
 from agentmesh.chat_skills import list_chat_skills
 from agentmesh.data_authorization import DataQueryAuthorizationError
@@ -23,11 +24,18 @@ from agentmesh.models import (
 )
 from agentmesh.o2 import build_acquisition_agent
 from agentmesh.routes.deps import current_user
+from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
-agent = PersonalAgent(store, acquisition_agent=build_acquisition_agent())
+catalog = catalog_service()
+agent = PersonalAgent(
+    store,
+    acquisition_agent=build_acquisition_agent(),
+    agent_runtime=AgentRuntimeService(store, skill_catalog=catalog),
+    skill_catalog=catalog,
+)
 
 
 @router.get("/threads", response_model=ChatThreadListResponse)
@@ -56,8 +64,13 @@ def create_chat_thread(request: ChatThreadCreateRequest, user: User = Depends(cu
 
 
 @router.get("/skills", response_model=ItemsResponse)
-def chat_skills(_: User = Depends(current_user)) -> ItemsResponse:
-    return ItemsResponse(items=list_chat_skills())
+def chat_skills(user: User = Depends(current_user)) -> ItemsResponse:
+    items = list_chat_skills()
+    runtime = agent.agent_runtime
+    if runtime is not None and runtime.enabled:
+        catalog = catalog_service()
+        items.extend(catalog.to_chat_skill(skill) for skill in catalog.list_enabled(user.personal_agent_id))
+    return ItemsResponse(items=items)
 
 
 def _receipt_conflict(receipt: ChatTurnReceipt, reason: str) -> HTTPException:

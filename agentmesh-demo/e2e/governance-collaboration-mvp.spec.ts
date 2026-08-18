@@ -18,6 +18,7 @@ test.describe.serial('MVP governance and collaboration', () => {
     const genericResolve = await page.request.patch(`/api/inbox/${briefItem.id}`, { data: { status: 'resolved' } })
     expect(genericResolve.status()).toBe(409)
     await page.goto('/knowledge')
+    await page.getByRole('tab', { name: /待我确认/ }).click()
     await page.locator(`[data-inbox-item-id="${briefItem.id}"]`).getByRole('button', { name: '确认并沉淀' }).click()
     await page.getByLabel('Brief 正文').fill(briefContent)
     await page.getByRole('button', { name: '确认 Brief' }).click()
@@ -79,12 +80,12 @@ test.describe.serial('MVP governance and collaboration', () => {
       .filter((item: { id: string }) => item.id === confirmedMemoryId)
     expect(candidateById).toHaveLength(1)
     await page.goto('/knowledge')
-    await page.getByRole('tab', { name: /团队候选/ }).click()
+    await page.getByRole('tab', { name: /待我确认/ }).click()
     const candidate = page.locator('article').filter({ hasText: briefContent }).first()
     await candidate.getByRole('button', { name: '接受候选' }).click()
     await expect(page.getByRole('status')).toContainText('团队候选已接受')
     await page.reload()
-    await page.getByRole('tab', { name: /已共享/ }).click()
+    await page.getByRole('tab', { name: /已沉淀知识/ }).click()
     await expect(page.getByText(briefContent).first()).toBeVisible()
   })
 
@@ -100,11 +101,11 @@ test.describe.serial('MVP governance and collaboration', () => {
     const task = taskPayload.task
 
     await page.goto('/collaboration')
-    await page.getByRole('tab', { name: /我发起的/ }).click()
+    await page.getByRole('tab', { name: /我的申请/ }).click()
     const card = page.locator(`[data-task-id="${task.id}"]`)
     await card.getByRole('button', { name: '查看协作详情' }).click()
     const dialog = page.getByRole('dialog')
-    await expect(dialog).toContainText('任务阶段')
+    await expect(dialog).toContainText('这次协作是如何发生的')
 
     const replyText = `M8 协作回复证据 ${Date.now()}`
     const currentResult = '证据已补充'
@@ -128,14 +129,14 @@ test.describe.serial('MVP governance and collaboration', () => {
     await dialog.getByRole('button', { name: '释放执行锁' }).click()
     await expect(dialog.getByRole('status')).toContainText('执行锁已释放')
     await dialog.getByRole('button', { name: '锁定给我的数字分身' }).click()
-    await dialog.getByLabel('下一位 owner').selectOption({ label: nextOwner })
+    await dialog.getByLabel('下一位负责人').selectOption({ label: nextOwner })
     await dialog.getByLabel('当前结果').fill(currentResult)
     await dialog.getByLabel('完成条件').fill(doneWhen)
     await dialog.getByRole('button', { name: '确认交接' }).click()
     await expect(dialog.getByRole('status')).toContainText('任务已交接')
 
     await page.reload()
-    await page.getByRole('tab', { name: /我发起的/ }).click()
+    await page.getByRole('tab', { name: /我的申请/ }).click()
     const persistedCard = page.locator(`[data-task-id="${task.id}"]`)
     await persistedCard.getByRole('button', { name: '查看协作详情' }).click()
     const persistedDialog = page.getByRole('dialog')
@@ -152,14 +153,12 @@ test.describe.serial('MVP governance and collaboration', () => {
     const initialParticipation = await initialParticipationResponse.json()
     const initialParticipationLabel = initialParticipation.enabled ? '退出市场' : '加入市场'
     const persistedParticipationLabel = initialParticipation.enabled ? '加入市场' : '退出市场'
-    await page.getByRole('tab', { name: '协作市场' }).click()
-    await expect(page.getByText(/市场运行中|市场已关闭/)).toBeVisible()
+    await expect(page.getByRole('heading', { name: '组织协作参与者' })).toBeVisible()
     const participation = page.getByRole('button', { name: initialParticipationLabel, exact: true })
     await participation.click()
     await expect(page.getByRole('status')).toContainText(/已加入协作市场|已退出协作市场/)
     await expect(page.getByRole('button', { name: persistedParticipationLabel, exact: true })).toBeVisible()
     await page.reload()
-    await page.getByRole('tab', { name: '协作市场' }).click()
     await expect(page.getByRole('button', { name: persistedParticipationLabel, exact: true })).toBeVisible()
     const persistedParticipationResponse = await page.request.get('/api/market/participation')
     expect(persistedParticipationResponse.ok()).toBeTruthy()

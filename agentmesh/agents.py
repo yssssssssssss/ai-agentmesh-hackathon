@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -12,6 +13,7 @@ from agentmesh.acquisition import (
     AcquisitionResult,
     MockAcquisitionAgent,
 )
+from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.brief_templates import BriefTemplate, select_brief_template
 from agentmesh.chat_skills import ChatSkillInvocation, list_chat_skills, parse_chat_skill_invocation, spec_for_intent
 from agentmesh.llm import LLMRequestError, market_llm_timeout_seconds
@@ -46,6 +48,8 @@ from agentmesh.models import (
     RetrievedMemoryEvidence,
     Scope,
     SearchResult,
+    SkillDefinition,
+    SkillMemoryWritePolicy,
     Source,
     Task,
     TaskStatus,
@@ -58,6 +62,7 @@ from agentmesh.provider_status import provider_metadata
 from agentmesh.risk import RiskDecision, assess_external_content, assess_tool_request
 from agentmesh.seed import PROJECT, USER, WORKSPACE
 from agentmesh.service_agents import MockDataAgent, RiskAgent
+from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
 from agentmesh.synthesis import (
     ChatLLM,
@@ -127,8 +132,12 @@ class PersonalAgent:
         llm_client: ChatLLM | None = None,
         acquisition_agent: AcquisitionAgent | None = None,
         data_agent: MockDataAgent | None = None,
+        agent_runtime: AgentRuntimeService | None = None,
+        skill_catalog: SkillCatalogService | None = None,
     ):
         self.repository = repository
+        self.agent_runtime = agent_runtime
+        self.skill_catalog = skill_catalog or SkillCatalogService(repository)
         self.acquisition_agent = acquisition_agent or MockAcquisitionAgent()
         self.data_agent = data_agent or MockDataAgent(repository=repository)
         if self.data_agent.repository is None:
@@ -142,6 +151,37 @@ class PersonalAgent:
 
         # Ownership is checked before any conversation context is loaded.
         history = self._get_thread_history(actual_thread_id)
+
+        runtime_enabled = bool(self.agent_runtime and self.agent_runtime.enabled)
+        runtime_skill = self.skill_catalog.resolve_command(content, user.personal_agent_id) if runtime_enabled else None
+        if runtime_enabled and not content.strip().startswith("$"):
+            return self._run_sdk_turn(
+                content=content,
+                runtime_content=content,
+                thread_id=actual_thread_id,
+                user=user,
+                history=history,
+            )
+        if runtime_skill is not None:
+            if runtime_skill.definition.requires_input and not runtime_skill.argument:
+                return self._persist_private_chat_turn(
+                    content=content,
+                    assistant_content=f"请补充要处理的内容。用法：{runtime_skill.definition.command} <input>",
+                    thread_id=actual_thread_id,
+                    user=user,
+                    selected_workflow=runtime_skill.command,
+                    source="skill",
+                    llm_used=False,
+                )
+            return self._run_sdk_turn(
+                content=content,
+                runtime_content=runtime_skill.argument or content,
+                thread_id=actual_thread_id,
+                user=user,
+                history=history,
+                skill=runtime_skill.definition,
+                selected_workflow=runtime_skill.command,
+            )
 
         llm_client = chat_llm_client(self.repository, user, self.llm_client)
         invocation = parse_chat_skill_invocation(content)
@@ -437,6 +477,88 @@ class PersonalAgent:
             workflow_trace=workflow_trace,
             turn_trace=turn_trace,
         )
+
+    def _run_sdk_turn(
+        self,
+        *,
+        content: str,
+        runtime_content: str,
+        thread_id: str,
+        user: User,
+        history: list[ChatMessage],
+        skill: SkillDefinition | None = None,
+        selected_workflow: str = "chat",
+    ) -> ChatResponse:
+        if self.agent_runtime is None:
+            raise RuntimeError("Agent runtime is not configured")
+        started = time.perf_counter()
+        answer = self.agent_runtime.run_sync(
+            content=runtime_content,
+            user=user,
+            thread_id=thread_id,
+            history=history,
+            skill=skill,
+        )
+        latency_ms = (time.perf_counter() - started) * 1000
+        response = self._persist_private_chat_turn(
+            content=content,
+            assistant_content=answer.content,
+            thread_id=thread_id,
+            user=user,
+            selected_workflow=selected_workflow,
+            source="skill" if answer.skill_name else "chat",
+            llm_used=answer.llm_used,
+            requested_provider="openai_agents_sdk",
+            actual_provider="openai_agents_sdk" if answer.llm_used else "local_fallback",
+            requested_model=answer.requested_model,
+            actual_model=answer.actual_model,
+            provider_mode="real" if answer.llm_used else "fallback",
+            latency_ms=latency_ms,
+            fallback_reason=None if answer.llm_used else "sdk_model_not_configured",
+        )
+        self.agent_runtime.mark_projected_messages(
+            thread_id,
+            [response.user_message.id, response.assistant_message.id],
+        )
+        if answer.waiting_approval and answer.run_id:
+            inbox_item = self.repository.add_inbox_item(
+                InboxItem(
+                    id=f"inbox_tool_approval_{answer.run_id}",
+                    title="审批 Agent 工具调用",
+                    summary="OpenAI Agents SDK 运行已暂停，等待批准或拒绝工具调用。",
+                    item_type="sdk_tool_approval",
+                    scope=Scope.PRIVATE,
+                    user_id=user.id,
+                    workspace_id=user.workspace_id,
+                    project_id=user.default_project_id,
+                    metadata={
+                        "run_id": answer.run_id,
+                        "interruptions": json.dumps(answer.interruptions, ensure_ascii=False),
+                    },
+                )
+            )
+            response.inbox_items = [inbox_item]
+        if (
+            skill is not None
+            and not answer.waiting_approval
+            and skill.memory_write_policy == SkillMemoryWritePolicy.PRIVATE_SHORT_TERM
+        ):
+            memory_item = self.repository.add_user_memory_item(
+                UserMemoryItem(
+                    user_id=user.id,
+                    layer=MemoryLayer.SHORT_TERM,
+                    title=skill.title,
+                    summary=answer.content[:4000],
+                    source_kind=f"sdk_skill:{skill.name}",
+                    memory_type="skill_output",
+                    scope=Scope.PRIVATE,
+                    workspace_id=user.workspace_id,
+                    project_id=user.default_project_id,
+                    source_thread_id=thread_id,
+                )
+            )
+            response.user_memory_items = [memory_item]
+        return response
 
     def _persist_private_chat_turn(
         self,

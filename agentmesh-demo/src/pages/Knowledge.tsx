@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, RefreshCw } from 'lucide-react'
+import { ArrowRight, ArrowRightLeft, CheckCircle2, FolderKanban, Layers3, RefreshCw, UserRound, UsersRound } from 'lucide-react'
 
 import { ApiError } from '../api/client'
 import { AssetsPanel } from '../components/knowledge/AssetsPanel'
@@ -18,6 +18,7 @@ import { Tabs, type TabItem } from '../components/ui/Tabs'
 import { useAuth } from '../features/auth/AuthProvider'
 import {
   buildKnowledgeViewModel,
+  type KnowledgeAssetView,
   type KnowledgeResource,
   type PendingKnowledgeView,
 } from '../features/knowledge/presenter'
@@ -203,6 +204,8 @@ export function Knowledge() {
       {error ? <p role="alert" className="rounded-[10px] border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">{error}</p> : null}
       {message ? <p role="status" className="rounded-[10px] border border-mint-400/20 bg-mint-400/[0.06] px-4 py-3 text-sm text-mint-300">{message}</p> : null}
 
+      <KnowledgeArchitecturePanel assets={viewModel.assets.data.items} projectName={projectName} />
+
       {tab === 'assets' ? (
         <ModuleState loading={viewModel.assets.loading} error={viewModel.assets.error} empty={viewModel.assets.data.items.length === 0} emptyText="暂无已沉淀知识。">
           <AssetsPanel assets={viewModel.assets.data.items} totalCount={viewModel.tabs[0].count} onOpenAsset={(asset) => setDrawerTarget({ kind: 'asset', asset })} />
@@ -264,4 +267,107 @@ function ModuleState({ loading, error, empty, emptyText, children }: {
     )
   }
   return <>{children}</>
+}
+
+function KnowledgeArchitecturePanel({ assets, projectName }: {
+  assets: KnowledgeAssetView[]
+  projectName: string
+}) {
+  const personalCount = assets.filter((asset) => asset.visibility.value === 'private').length
+  const projectCount = assets.filter((asset) => asset.visibility.value === 'project').length
+  const teamCount = assets.filter((asset) => asset.visibility.value === 'team').length
+
+  return (
+    <section className="rounded-[16px] border border-white/[0.06] bg-surface-1 p-5" aria-labelledby="knowledge-architecture-heading">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-mint-400/[0.12] text-mint-300">
+            <Layers3 className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div>
+            <h2 id="knowledge-architecture-heading" className="text-[15px] font-semibold text-slate-100">知识层级与流转</h2>
+            <p className="mt-1 max-w-3xl text-[12px] leading-5 text-slate-500">
+              个人知识先由自己沉淀，确认后可进入当前项目；项目结论经过团队复核后进入团队知识库。项目知识和团队知识之间保留可回收、可再发布的流转路径。
+            </p>
+          </div>
+        </div>
+        <span className="rounded-full border border-white/[0.08] bg-base px-3 py-1 text-[11px] text-slate-400">
+          当前项目：{projectName}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr] lg:items-stretch">
+        <KnowledgeLevelCard
+          icon={<UserRound className="h-4 w-4" />}
+          title="个人知识"
+          desc="只有本人和个人数字员工默认可用"
+          count={personalCount}
+          actions={['升级为项目知识', '共享给团队']}
+        />
+        <FlowArrow label="确认后进入项目" />
+        <KnowledgeLevelCard
+          icon={<FolderKanban className="h-4 w-4" />}
+          title="项目知识"
+          desc="服务当前项目的复盘、规则和设计结论"
+          count={projectCount}
+          actions={['发布为团队知识', '收回到个人知识']}
+        />
+        <FlowArrow label="复核后团队共享" reversible />
+        <KnowledgeLevelCard
+          icon={<UsersRound className="h-4 w-4" />}
+          title="团队知识"
+          desc="团队成员和协作数字员工可按权限检索"
+          count={teamCount}
+          actions={['转回项目范围', '更新团队版本']}
+        />
+      </div>
+    </section>
+  )
+}
+
+function KnowledgeLevelCard({ icon, title, desc, count, actions }: {
+  icon: React.ReactNode
+  title: string
+  desc: string
+  count: number
+  actions: string[]
+}) {
+  return (
+    <article className="flex min-h-full flex-col rounded-[13px] border border-white/[0.06] bg-base p-4">
+      <div className="flex items-center gap-2 text-mint-300">
+        {icon}
+        <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+      </div>
+      <p className="mt-2 min-h-[40px] text-[12px] leading-5 text-slate-500">{desc}</p>
+      <div className="mt-4 text-[11px] text-slate-500">
+        已归档 <span className="text-xl font-semibold tabular-nums text-slate-100">{count}</span> 条
+      </div>
+      <div className="mt-auto flex flex-wrap gap-2 pt-4">
+        {actions.map((action) => (
+          <button
+            key={action}
+            type="button"
+            disabled
+            className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] text-slate-500"
+            title="待接入服务端知识流转接口"
+          >
+            {action}
+          </button>
+        ))}
+      </div>
+    </article>
+  )
+}
+
+function FlowArrow({ label, reversible = false }: {
+  label: string
+  reversible?: boolean
+}) {
+  const Icon = reversible ? ArrowRightLeft : ArrowRight
+  return (
+    <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 lg:flex-col">
+      <Icon className="h-4 w-4 text-slate-600" aria-hidden="true" />
+      <span className="whitespace-nowrap">{label}</span>
+    </div>
+  )
 }

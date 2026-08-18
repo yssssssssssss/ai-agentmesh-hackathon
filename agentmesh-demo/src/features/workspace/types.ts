@@ -68,6 +68,24 @@ export type ChatResponse = Omit<components['schemas']['ChatResponse'], 'user_mes
   turn_trace?: ChatTurnTrace | null
 }
 
+export type AgentRunStatus = 'created' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled'
+export type AgentRun = {
+  id: string
+  thread_id: string
+  user_id: string
+  workspace_id: string
+  project_id: string
+  input_text: string
+  status: AgentRunStatus
+  skill_id?: string | null
+  skill_name?: string | null
+  output_text?: string | null
+  error_code?: string | null
+  created_at: string
+  updated_at: string
+}
+export type AgentRunResponse = { item: AgentRun }
+
 export type ChatTurnReceipt = {
   client_turn_id: string
   status: 'processing' | 'completed' | 'failed'
@@ -82,6 +100,7 @@ export type ThreadDetailResponse = {
   turn_traces: ChatTurnTrace[]
 }
 export type Skill = {
+  id?: string
   command: string
   title: string
   description: string
@@ -89,6 +108,10 @@ export type Skill = {
   placeholder: string
   aliases: string[]
   requires_input: boolean
+  source?: 'builtin' | 'workspace' | 'project'
+  version?: string
+  activation_policy?: 'explicit_only' | 'model_allowed'
+  enabled?: boolean
 }
 export type SkillsResponse = { items: Skill[] }
 

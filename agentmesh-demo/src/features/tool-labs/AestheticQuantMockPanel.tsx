@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Eye, ImagePlus, Plus, Target, Trash2 } from 'lucide-react'
+import { ImagePlus, Plus, Target, Trash2 } from 'lucide-react'
 
+import jdNewArrivalsCaseImage from '../../assets/jd-new-arrivals-case.jpg'
 import { Button } from '../../components/ui/Button'
 import { SectionCard } from '../../components/ui/Card'
+import { AestheticQuantResultPage } from './AestheticQuantResultPage'
+import { CaseStudyFigure } from './CaseStudyFigure'
 import { AESTHETIC_MOCK_RESULT, DEFAULT_ROIS } from './fixtures'
 import type { AestheticDepth, AestheticProfile, RoiInput } from './types'
 
@@ -121,26 +124,33 @@ export function AestheticQuantMockPanel() {
   const [includeAttention, setIncludeAttention] = useState(false)
   const [rois, setRois] = useState<RoiInput[]>(DEFAULT_ROIS)
   const [showResult, setShowResult] = useState(false)
-  const resultRef = useRef<HTMLElement>(null)
   const previewUrl = useObjectUrl(designImage)
   const result = AESTHETIC_MOCK_RESULT
-  useEffect(() => {
-    if (showResult) resultRef.current?.scrollIntoView({ block: 'start' })
-  }, [showResult])
   const attentionIncluded = enableAttention && includeAttention
-  const displayedScore = result.overallScore + (attentionIncluded ? 2 : 0)
-  const visibleMetrics = enableAttention ? result.metrics : result.metrics.filter((metric) => metric.label !== '注意力聚焦')
-  const visibleFindings = enableAttention ? result.findings : result.findings.filter((finding) => !finding.includes('注意力'))
+
+  if (showResult) {
+    return (
+      <AestheticQuantResultPage
+        result={result}
+        profile={profile}
+        depth={depth}
+        enableAttention={enableAttention}
+        attentionIncluded={attentionIncluded}
+        roiCount={rois.length}
+        onBack={() => setShowResult(false)}
+      />
+    )
+  }
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]">
       <div className="space-y-4">
         <div className="rounded-[12px] border border-amber-300/20 bg-amber-300/[0.07] px-4 py-3 text-xs leading-5 text-amber-100">
-          <strong>Mock 演示：</strong>前端固定样例，不代表真实图片分析。图片仅在当前浏览器中预览，不会上传。
+          <strong>示例演示：</strong>报告基于内置京东新品频道截图生成。上传图片仅替换本地预览，不会上传，也不会改变固定结论。
         </div>
         <SectionCard title="分析输入" desc="配置设计素材和演示参数。" icon={<ImagePlus className="h-4 w-4" />}>
           <div className="grid gap-3 sm:grid-cols-3">
-            <ImageInput label="上传设计图" file={designImage} onChange={setDesignImage} previewUrl={previewUrl} />
+            <ImageInput label="上传设计图" file={designImage} onChange={setDesignImage} previewUrl={previewUrl ?? jdNewArrivalsCaseImage} />
             <ImageInput label="选择前景图" file={foregroundImage} onChange={setForegroundImage} />
             <ImageInput label="选择背景图" file={backgroundImage} onChange={setBackgroundImage} />
           </div>
@@ -174,102 +184,24 @@ export function AestheticQuantMockPanel() {
           </div>
         </SectionCard>
         <RoiEditor rois={rois} onChange={setRois} />
-        <Button type="button" block size="lg" disabled={!designImage} onClick={() => setShowResult(true)}>
-          生成演示结果
+        <Button type="button" block size="lg" onClick={() => setShowResult(true)}>
+          生成案例报告
         </Button>
       </div>
 
       <div className="min-w-0 space-y-4" aria-live="polite">
-        {showResult ? (
-          <>
-            <section ref={resultRef} className="rounded-[14px] border border-mint-400/20 bg-mint-400/[0.06] p-5">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mint-300">Mock output</p>
-                  <h3 className="mt-1 text-xl font-semibold text-white">演示结果</h3>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">{result.summary}</p>
-                </div>
-                <div className="rounded-[12px] border border-mint-400/20 bg-base px-4 py-3 text-right">
-                  <p className="text-xs text-slate-500">综合分 {displayedScore}</p>
-                  <p className="mt-1 text-2xl font-semibold text-mint-300">{displayedScore}</p>
-                  <p className="mt-1 text-[11px] text-slate-500">置信度 {result.confidence.level} · {result.confidence.score}</p>
-                </div>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-400">
-                <span className="rounded-full bg-white/[0.05] px-2.5 py-1">模式 {profile}</span>
-                <span className="rounded-full bg-white/[0.05] px-2.5 py-1">{attentionIncluded ? '注意力已计入演示总分' : '注意力未计入演示总分'}</span>
-                <span className="rounded-full bg-white/[0.05] px-2.5 py-1">深度 {depth}</span>
-                <span className="rounded-full bg-white/[0.05] px-2.5 py-1">ROI {rois.length}</span>
-              </div>
-            </section>
-
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-              {visibleMetrics.map((metric) => (
-                <div key={metric.label} className="rounded-[11px] border border-white/[0.07] bg-surface-1 p-3">
-                  <p className="text-[11px] text-slate-500">{metric.label}</p>
-                  <p className="mt-1 text-lg font-semibold text-slate-100">{metric.value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <SectionCard title="整图指标" bodyClassName="grid grid-cols-2 gap-2">
-                {result.imageStats.map((item) => (
-                  <div key={item.label} className="rounded-[8px] bg-base px-3 py-2 text-xs">
-                    <span className="text-slate-500">{item.label}</span>
-                    <span className="float-right font-semibold text-slate-200">{item.value}</span>
-                  </div>
-                ))}
-              </SectionCard>
-              <SectionCard title="前后景配对" bodyClassName="grid grid-cols-2 gap-2">
-                {result.pairResult.map((item) => (
-                  <div key={item.label} className="rounded-[8px] bg-base px-3 py-2 text-xs">
-                    <span className="text-slate-500">{item.label}</span>
-                    <span className="float-right font-semibold text-slate-200">{item.value}</span>
-                  </div>
-                ))}
-              </SectionCard>
-            </div>
-
-            <SectionCard title="ROI 结果" icon={<Target className="h-4 w-4" />}>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {result.roiResults.map((roi) => (
-                  <div key={roi.label} className="rounded-[10px] border border-white/[0.06] bg-base p-3 text-xs">
-                    <div className="flex items-center justify-between"><strong className="text-slate-200">{roi.label}</strong><span className="text-mint-300">{roi.score} 分</span></div>
-                    <p className="mt-2 text-slate-500">亮度 {roi.brightness} · 饱和度 {roi.saturation}{enableAttention ? ` · 注意力 #${roi.attentionRank}` : ''}</p>
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-
-            {enableAttention ? (
-              <SectionCard title="注意力热点示意" icon={<Eye className="h-4 w-4" />}>
-                <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
-                  <div className="grid aspect-square grid-cols-8 overflow-hidden rounded-[10px] border border-white/[0.08] bg-slate-950" aria-label="注意力热图">
-                    {result.attention.heatmap.map((value, index) => (
-                      <span key={index} style={{ backgroundColor: `rgba(251, 191, 36, ${Math.max(0.08, value)})` }} />
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 self-start">
-                    <div className="rounded-[9px] bg-base p-3"><p className="text-[11px] text-slate-500">峰值注意力</p><p className="mt-1 font-semibold text-slate-200">{result.attention.peak}</p></div>
-                    <div className="rounded-[9px] bg-base p-3"><p className="text-[11px] text-slate-500">焦点平衡</p><p className="mt-1 font-semibold text-slate-200">{result.attention.balance}</p></div>
-                    <div className="rounded-[9px] bg-base p-3"><p className="text-[11px] text-slate-500">分散风险</p><p className="mt-1 font-semibold text-slate-200">{result.attention.distraction}</p></div>
-                  </div>
-                </div>
-              </SectionCard>
-            ) : null}
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <SectionCard title="发现"><ul className="space-y-2 text-sm leading-6 text-slate-300">{visibleFindings.map((item) => <li key={item}>• {item}</li>)}</ul></SectionCard>
-              <SectionCard title="优化建议"><ul className="space-y-2 text-sm leading-6 text-slate-300">{result.recommendations.map((item) => <li key={item}>• {item}</li>)}</ul></SectionCard>
-            </div>
-            <SectionCard title="边界说明"><ul className="space-y-2 text-xs leading-5 text-slate-400">{[result.confidence.note, ...result.boundaryNotes].map((item) => <li key={item}>• {item}</li>)}</ul></SectionCard>
-          </>
-        ) : (
-          <div className="flex min-h-[420px] items-center justify-center rounded-[14px] border border-dashed border-white/[0.1] bg-surface-1/50 px-6 text-center">
-            <div><Eye className="mx-auto h-7 w-7 text-slate-600" aria-hidden="true" /><p className="mt-3 text-sm text-slate-400">上传设计图并生成固定演示结果</p><p className="mt-1 text-xs text-slate-600">不会调用后端，也不会保存图片。</p></div>
-          </div>
-        )}
+        <CaseStudyFigure
+          alt={result.caseStudy.imageAlt}
+          regions={[]}
+        />
+        <SectionCard title="将生成的报告" desc="报告内容会和当前案例图绑定，不写入后端。">
+          <ul className="space-y-2 text-sm leading-6 text-slate-300">
+            <li>• 综合分、置信度和示例边界说明</li>
+            <li>• 案例截图 ROI 标注与热点示意</li>
+            <li>• 频道识别、搜索可见性、信息层级等结构化指标</li>
+            <li>• 针对红包浮层、活动区和商品流的发现与建议</li>
+          </ul>
+        </SectionCard>
       </div>
     </div>
   )

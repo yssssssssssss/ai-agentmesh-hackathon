@@ -23,6 +23,7 @@ agentmesh-demo/openapi.json
 
 # Local-only tooling & throwaway artifacts
 .scratch/
+.dev/
 .claude/
 .worktrees/
 .superpowers/
@@ -32,4 +33,3 @@ agentmesh-demo/node_modules/
 agentmesh-demo/dist/
 agentmesh-demo/.vite/
 agentmesh-demo/*.tsbuildinfo
-

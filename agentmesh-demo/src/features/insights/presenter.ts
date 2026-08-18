@@ -100,14 +100,14 @@ export interface InsightsViewModel {
 }
 
 const REASONS = {
-  overview: '后端暂无阶段性工作概览聚合，当前内容仅用于恢复参考信息结构',
-  currentProject: '后端暂无当前项目洞察聚合，当前内容仅为参考展示，不代表当前项目事实',
-  crossProject: '后端暂无跨项目洞察聚合，当前内容仅为参考展示',
-  review: '后端暂无历史项目复盘机会聚合，当前内容仅为参考展示',
-  kpis: '后端暂无复盘 KPI 聚合，当前指标仅为参考展示',
-  evidence: '后端暂无复盘证据聚合，当前材料清单仅为参考展示',
-  flow: '后端暂无知识形成流程，当前流程仅为参考展示且不可执行',
-  workflow: '后端暂无 Workflow 推荐聚合，当前建议仅为参考展示且不可应用',
+  overview: '阶段性概览聚合能力尚未接入，当前叙事来自页面参考结构。',
+  currentProject: '当前项目洞察聚合能力尚未接入，当前卡片用于展示洞察结构。',
+  crossProject: '跨项目洞察聚合能力尚未接入，当前卡片用于展示复用路径。',
+  review: '历史项目复盘机会聚合能力尚未接入，当前卡片用于展示复盘入口。',
+  kpis: '复盘 KPI 聚合能力尚未接入，当前指标用于展示材料结构。',
+  evidence: '复盘证据聚合能力尚未接入，当前清单用于展示证据结构。',
+  flow: '知识形成流程能力尚未接入，当前流程用于展示候选生成路径。',
+  workflow: 'Workflow 推荐聚合能力尚未接入，当前建议用于展示应用入口。',
 } as const
 export function gateInsightsAggregates(
   dependencies: readonly InsightsAggregateResource[],

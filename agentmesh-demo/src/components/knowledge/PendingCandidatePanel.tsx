@@ -45,7 +45,11 @@ export function PendingCandidatePanel({
         const actions = item.allowedActions.value
         const injectionReview = item.itemType.value === 'prompt_injection_review'
         return (
-          <article key={`${item.kind}-${item.id.value}`} className="card-base overflow-hidden">
+          <article
+            key={`${item.kind}-${item.id.value}`}
+            data-inbox-item-id={item.id.value}
+            className="card-base overflow-hidden"
+          >
             <section className="p-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex min-w-0 items-start gap-3.5">
@@ -87,7 +91,7 @@ export function PendingCandidatePanel({
             <section className="border-t border-white/[0.06] px-6 py-5">
               <div className="flex flex-wrap items-center gap-2.5">
                 {actions.includes('confirm_brief') ? (
-                  <Button loading={busy} disabled={readOnly} icon={<Check className="h-4 w-4" />} onClick={() => onConfirm(item)}>确认 Brief</Button>
+                  <Button loading={busy} disabled={readOnly} icon={<Check className="h-4 w-4" />} onClick={() => onConfirm(item)}>确认并沉淀</Button>
                 ) : null}
                 {actions.includes('accept') ? (
                   <Button loading={busy} disabled={readOnly} icon={<Check className="h-4 w-4" />} onClick={() => onAccept(item)}>接受候选</Button>

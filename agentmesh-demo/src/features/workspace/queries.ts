@@ -8,9 +8,10 @@ import {
 import { ApiError } from '../../api/client'
 import { queryRoots } from '../../app/queryKeys'
 import { useAuth } from '../auth/AuthProvider'
-import { workspaceApi } from './api'
+import { streamAgentRun, workspaceApi } from './api'
 import { workspaceKeys } from './keys'
 import type {
+  AgentRunResponse,
   ChatResponse,
   DocumentJobsResponse,
   ThreadDetailResponse,
@@ -19,7 +20,7 @@ import type {
 } from './types'
 
 const ACTIVE_JOB_STATUS: Record<string, true> = { queued: true, running: true }
-export type ChatSendState = 'retryable' | 'processing' | 'failed' | 'unknown'
+export type ChatSendState = 'retryable' | 'processing' | 'approval' | 'failed' | 'unknown'
 
 export class ChatSendError extends Error {
   readonly name = 'ChatSendError'
@@ -69,6 +70,27 @@ export function useSkillsQuery(scope: WorkspaceScope) {
   return useQuery({
     queryKey: workspaceKeys.skills(scope),
     queryFn: workspaceApi.skills,
+  })
+}
+
+export function useSkillCatalogQuery(scope: WorkspaceScope) {
+  return useQuery({
+    queryKey: workspaceKeys.skillCatalog(scope),
+    queryFn: workspaceApi.skillCatalog,
+  })
+}
+
+export function useUpdateSkillBindingMutation(scope: WorkspaceScope) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ skillId, enabled }: { skillId: string; enabled: boolean }) =>
+      workspaceApi.updateSkillBinding(skillId, enabled),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: workspaceKeys.skillCatalog(scope) }),
+        queryClient.invalidateQueries({ queryKey: workspaceKeys.skills(scope) }),
+      ])
+    },
   })
 }
 
@@ -200,6 +222,54 @@ export function useSendMessageMutation(scope: WorkspaceScope) {
       )
       await Promise.all([
         invalidateCanonicalThread(queryClient, scope, response.thread_id),
+        invalidateChatSideEffects(queryClient, refreshBootstrap),
+      ])
+    },
+  })
+}
+
+export function useSendAgentRunMutation(scope: WorkspaceScope) {
+  const queryClient = useQueryClient()
+  const { refreshBootstrap } = useAuth()
+  return useMutation({
+    mutationFn: async ({
+      threadId,
+      content,
+      clientTurnId,
+      onStarted,
+    }: {
+      threadId: string | null
+      content: string
+      clientTurnId: string
+      onStarted?: (run: AgentRunResponse['item']) => void
+    }) => {
+      const trimmed = content.trim()
+      const [command, ...rest] = trimmed.split(/\s+/)
+      const standardSkill = command.startsWith('$') && !command.includes('.') ? command.slice(1) : undefined
+      const runtimeContent = standardSkill ? rest.join(' ') : trimmed
+      const started = await workspaceApi.startAgentRun(threadId, runtimeContent, clientTurnId, standardSkill)
+      onStarted?.(started.item)
+      await streamAgentRun(started.item.id)
+      const completed = await workspaceApi.agentRun(started.item.id)
+      if (completed.item.status === 'failed' || completed.item.status === 'cancelled') {
+        throw new ChatSendError(
+          completed.item.error_code ? `Agent 运行失败：${completed.item.error_code}` : 'Agent 运行未完成',
+          'failed',
+          completed.item.thread_id,
+        )
+      }
+      if (completed.item.status === 'waiting_approval') {
+        throw new ChatSendError(
+          'Agent 运行已暂停，请在“我的知识 → 待我确认”中逐项审批工具调用。',
+          'approval',
+          completed.item.thread_id,
+        )
+      }
+      return completed.item
+    },
+    onSuccess: async (run) => {
+      await Promise.all([
+        invalidateCanonicalThread(queryClient, scope, run.thread_id),
         invalidateChatSideEffects(queryClient, refreshBootstrap),
       ])
     },

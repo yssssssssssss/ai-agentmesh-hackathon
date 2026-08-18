@@ -1,18 +1,20 @@
+import { Component, lazy, Suspense, type ErrorInfo, type ReactNode } from 'react'
 import { LockKeyhole, RefreshCw } from 'lucide-react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { Button } from './components/ui/Button'
 import { useAuth } from './features/auth/AuthProvider'
 import { DemoProvider } from './store/DemoContext'
 import { LoginPage } from './features/auth/LoginPage'
-import { AdminPage } from './features/admin/AdminPage'
-import { DigitalSelf } from './pages/DigitalSelf'
-import { Workspace } from './pages/Workspace'
-import { Insights } from './pages/Insights'
-import { Knowledge } from './pages/Knowledge'
-import { Collaboration } from './pages/Collaboration'
-import { Market } from './pages/Market'
-import { DigitalHuman } from './pages/DigitalHuman'
+
+const AdminPage = lazy(() => import('./features/admin/AdminPage').then((module) => ({ default: module.AdminPage })))
+const DigitalSelf = lazy(() => import('./pages/DigitalSelf').then((module) => ({ default: module.DigitalSelf })))
+const Workspace = lazy(() => import('./pages/Workspace').then((module) => ({ default: module.Workspace })))
+const Insights = lazy(() => import('./pages/Insights').then((module) => ({ default: module.Insights })))
+const Knowledge = lazy(() => import('./pages/Knowledge').then((module) => ({ default: module.Knowledge })))
+const Collaboration = lazy(() => import('./pages/Collaboration').then((module) => ({ default: module.Collaboration })))
+const Market = lazy(() => import('./pages/Market').then((module) => ({ default: module.Market })))
+const DigitalHuman = lazy(() => import('./pages/DigitalHuman').then((module) => ({ default: module.DigitalHuman })))
 
 function FullPageStatus({
   title,
@@ -21,7 +23,7 @@ function FullPageStatus({
 }: {
   title: string
   message: string
-  children?: React.ReactNode
+  children?: ReactNode
 }) {
   return (
     <main className="flex min-h-full items-center justify-center bg-canvas px-5 py-10">
@@ -38,19 +40,60 @@ function FullPageStatus({
 }
 
 
+function RouteLoading() {
+  return (
+    <div role="status" className="card-base p-5 text-sm text-slate-400">
+      正在加载页面…
+    </div>
+  )
+}
+
+class RouteErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  componentDidCatch(_error: Error, _info: ErrorInfo) {
+    // The user-facing recovery is a hard reload so stale deployment chunks can be replaced.
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children
+    return (
+      <div role="alert" className="card-base p-5 text-sm text-slate-300">
+        <p>页面资源加载失败，可能是版本已更新或网络暂时中断。</p>
+        <Button className="mt-3" size="sm" onClick={() => window.location.reload()}>
+          重新加载
+        </Button>
+      </div>
+    )
+  }
+}
+
+function LazyPage({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  return (
+    <RouteErrorBoundary key={location.pathname}>
+      <Suspense fallback={<RouteLoading />}>{children}</Suspense>
+    </RouteErrorBoundary>
+  )
+}
+
 function AuthenticatedRoutes() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<Navigate to="/digital-self" replace />} />
-        <Route path="/digital-self/*" element={<DigitalSelf />} />
-        <Route path="/workspace/*" element={<Workspace />} />
-        <Route path="/insights/*" element={<Insights />} />
-        <Route path="/knowledge/*" element={<Knowledge />} />
-        <Route path="/collaboration/*" element={<Collaboration />} />
-        <Route path="/market/*" element={<Market />} />
-        <Route path="/digital-human/*" element={<DigitalHuman />} />
-        <Route path="/admin/*" element={<AdminPage />} />
+        <Route path="/digital-self/*" element={<LazyPage><DigitalSelf /></LazyPage>} />
+        <Route path="/workspace/*" element={<LazyPage><Workspace /></LazyPage>} />
+        <Route path="/insights/*" element={<LazyPage><Insights /></LazyPage>} />
+        <Route path="/knowledge/*" element={<LazyPage><Knowledge /></LazyPage>} />
+        <Route path="/collaboration/*" element={<LazyPage><Collaboration /></LazyPage>} />
+        <Route path="/market/*" element={<LazyPage><Market /></LazyPage>} />
+        <Route path="/digital-human/*" element={<LazyPage><DigitalHuman /></LazyPage>} />
+        <Route path="/admin/*" element={<LazyPage><AdminPage /></LazyPage>} />
         <Route path="*" element={<Navigate to="/digital-self" replace />} />
       </Route>
     </Routes>

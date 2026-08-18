@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { E2E_PASSWORD, E2E_USER_ID, loginAs } from './support/auth'
 
 for (const role of [
-  { label: '当前设计师', expectedName: '当前设计师' },
+  { label: '何云深', expectedName: '何云深' },
   { label: '设计组长', expectedName: '设计组长' },
   { label: '平台管理员', expectedName: '平台管理员' },
 ]) {
@@ -30,7 +30,7 @@ test('a pending demo preset locks every sign-in control and marks only the activ
   await page.context().clearCookies()
   await page.goto('/digital-self')
 
-  const activePreset = page.getByRole('button', { name: '以当前设计师身份进入' })
+  const activePreset = page.getByRole('button', { name: '以何云深身份进入' })
   await activePreset.click()
 
   await expect(activePreset).toBeDisabled()
@@ -42,7 +42,7 @@ test('a pending demo preset locks every sign-in control and marks only the activ
     await expect(preset).toHaveAttribute('aria-busy', 'false')
     await expect(preset.locator('svg.animate-spin')).toHaveCount(0)
   }
-  await expect(page.getByLabel('账号')).toBeDisabled()
+  await expect(page.getByLabel('账号', { exact: true })).toBeDisabled()
   await expect(page.getByLabel('密码')).toBeDisabled()
   await expect(page.getByRole('button', { name: '登录', exact: true })).toBeDisabled()
 
@@ -55,7 +55,7 @@ test('demo role presets fit a 375px login viewport without horizontal overflow',
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/digital-self')
 
-  await expect(page.getByRole('button', { name: '以当前设计师身份进入' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '以何云深身份进入' })).toBeVisible()
 
   const metrics = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -78,23 +78,23 @@ test('demo role presets fit a 375px login viewport without horizontal overflow',
 
 test('login survives reload, logout clears the shell, and another user gets a clean session', async ({ page }) => {
   await loginAs(page)
-  await expect(page.getByText('当前设计师', { exact: true })).toBeVisible()
+  await expect(page.getByText('何云深', { exact: true })).toBeVisible()
 
   await page.reload()
   await expect(page.getByTestId('app-shell')).toBeVisible()
-  await expect(page.getByText('当前设计师', { exact: true })).toBeVisible()
+  await expect(page.getByText('何云深', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: '退出登录' }).click()
   await expect(page.getByRole('button', { name: '登录', exact: true })).toBeVisible()
   await expect(page.getByTestId('app-shell')).toHaveCount(0)
-  await expect(page.getByLabel('账号')).toHaveValue('')
+  await expect(page.getByLabel('账号', { exact: true })).toHaveValue('')
   await expect(page.getByLabel('密码')).toHaveValue('')
 
-  await page.getByLabel('账号').fill('usr_admin')
+  await page.getByLabel('账号', { exact: true }).fill('usr_admin')
   await page.getByLabel('密码').fill('admin123')
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByText('平台管理员', { exact: true })).toBeVisible()
-  await expect(page.getByText('当前设计师', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('何云深', { exact: true })).toHaveCount(0)
 })
 
 test('a revoked session becomes signed out on reload', async ({ page }) => {
@@ -134,7 +134,7 @@ test('a late 401 from an old session cannot evict a newer login', async ({ page 
   })
 
   await page.getByRole('button', { name: '退出登录' }).click()
-  await page.getByLabel('账号').fill(E2E_USER_ID)
+  await page.getByLabel('账号', { exact: true }).fill(E2E_USER_ID)
   await page.getByLabel('密码').fill(E2E_PASSWORD)
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByTestId('app-shell')).toBeVisible()
@@ -279,7 +279,7 @@ test('drawer and modal set focus, close with Escape, and restore their triggers'
   await loginAs(page)
   const profileTrigger = page.getByRole('button', { name: '打开个人资料' })
   await profileTrigger.click()
-  const drawer = page.getByRole('dialog', { name: /当前设计师/ })
+  const drawer = page.getByRole('dialog', { name: /何云深/ })
   await expect(drawer).toBeVisible()
   await expect(drawer.getByRole('button', { name: '关闭' })).toBeFocused()
   await page.keyboard.press('Escape')
@@ -291,6 +291,7 @@ test('drawer and modal set focus, close with Escape, and restore their triggers'
   const briefItem = (await briefResponse.json()).inbox_items[0]
 
   await page.getByRole('link', { name: '我的知识' }).click()
+  await page.getByRole('tab', { name: /待我确认/ }).click()
   const modalTrigger = page.locator(`[data-inbox-item-id="${briefItem.id}"]`).getByRole('button', { name: '确认并沉淀' })
   await expect(modalTrigger).toBeVisible()
   await modalTrigger.click()

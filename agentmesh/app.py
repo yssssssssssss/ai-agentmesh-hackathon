@@ -19,7 +19,9 @@ from agentmesh.marketplace import (
 from agentmesh.model_registry import ensure_model_seed_data
 from agentmesh.permissions import ensure_permission_policy_seed_data
 from agentmesh.risk import ensure_risk_policy_seed_data
+from agentmesh.routes.agent_runs import router as agent_runs_router
 from agentmesh.routes.agents import router as agents_router
+from agentmesh.routes.artifacts import router as artifacts_router
 from agentmesh.routes.auth import router as auth_router
 from agentmesh.routes.blackboard import router as blackboard_router
 from agentmesh.routes.blackboard import (
@@ -38,6 +40,7 @@ from agentmesh.routes.market import router as market_router
 from agentmesh.routes.memory import router as memory_router
 from agentmesh.routes.memory import start_daily_memory_worker, stop_daily_memory_worker
 from agentmesh.routes.risk import router as risk_router
+from agentmesh.routes.skills import router as skills_router
 from agentmesh.routes.users import router as users_router
 from agentmesh.routes.workspace import router as workspace_router
 from agentmesh.seed import (
@@ -48,6 +51,7 @@ from agentmesh.seed import (
     ensure_graph_demo_data,
     ensure_initial_blackboard_data,
 )
+from agentmesh.skill_runtime.service import ensure_skill_catalog
 from agentmesh.store import SQLiteStore, store
 from agentmesh.tools import ensure_tool_seed_data
 
@@ -57,11 +61,13 @@ FRONTEND_INDEX = FRONTEND_DIST / "index.html"
 FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 
 def initialize_application_data(repository: SQLiteStore) -> None:
+    repository.reconcile_orphaned_agent_runs()
     ensure_base_workspace_data(repository)
     ensure_tool_seed_data(repository, granted_by="system")
     ensure_model_seed_data(repository)
     ensure_risk_policy_seed_data(repository)
     ensure_permission_policy_seed_data(repository)
+    ensure_skill_catalog(repository)
     if not demo_mode_enabled():
         return
     ensure_demo_seed_data(repository)
@@ -97,6 +103,8 @@ app = FastAPI(title="AgentMesh", version="0.1.0", lifespan=lifespan)
 # 注册路由模块
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(agent_runs_router)
+app.include_router(artifacts_router)
 app.include_router(chat_router)
 app.include_router(agents_router)
 app.include_router(blackboard_router)
@@ -106,6 +114,7 @@ app.include_router(market_router)
 app.include_router(documents_router)
 app.include_router(data_sources_router)
 app.include_router(risk_router)
+app.include_router(skills_router)
 app.include_router(workspace_router)
 app.include_router(health_router)
 

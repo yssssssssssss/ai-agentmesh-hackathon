@@ -11,13 +11,26 @@ SYSTEM_TOOLS = [
         description="检索个人、项目和团队记忆中的可引用内容。",
         category="memory",
         risk_level="low",
+        input_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "要检索的记忆或经验"}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
     ),
     ToolDefinition(
         id="tool_web_research",
         name="web_research",
-        description="通过后续接入的 Web provider 检索外部网页内容。",
+        description="通过已配置的 Research provider 检索外部资料并返回来源。",
         category="research",
         risk_level="medium",
+        side_effect="external",
+        input_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "要调研的主题"}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
     ),
     ToolDefinition(
         id="tool_document_upload",
@@ -25,6 +38,26 @@ SYSTEM_TOOLS = [
         description="上传并解析用户提供的项目文档。",
         category="document",
         risk_level="medium",
+        side_effect="write",
+        input_schema={
+            "type": "object",
+            "properties": {"document_id": {"type": "string"}},
+            "required": ["document_id"],
+            "additionalProperties": False,
+        },
+    ),
+    ToolDefinition(
+        id="tool_document_search",
+        name="document_search",
+        description="在当前用户可访问的已解析项目文档中检索内容。",
+        category="document",
+        risk_level="low",
+        input_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "要检索的文档内容"}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
     ),
     ToolDefinition(
         id="tool_risk_review",
@@ -32,6 +65,12 @@ SYSTEM_TOOLS = [
         description="检查外部来源、素材授权和高风险动作。",
         category="risk",
         risk_level="high",
+        input_schema={
+            "type": "object",
+            "properties": {"content": {"type": "string", "description": "要检查的内容或操作"}},
+            "required": ["content"],
+            "additionalProperties": False,
+        },
     ),
     ToolDefinition(
         id="tool_data_query",
@@ -39,11 +78,18 @@ SYSTEM_TOOLS = [
         description="通过获准的数据连接器执行只读查询。",
         category="data",
         risk_level="medium",
+        input_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "指标、时间范围和分析问题"}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
     ),
 ]
 
 DEFAULT_TOOL_GRANTS = {
     "agent_personal_current": ["tool_memory_search", "tool_data_query"],
+
     "agent_personal_lead": ["tool_memory_search", "tool_risk_review", "tool_data_query"],
     "agent_personal_admin": ["tool_memory_search", "tool_risk_review", "tool_data_query"],
     "agent_research": ["tool_memory_search", "tool_web_research"],
@@ -54,8 +100,15 @@ DEFAULT_TOOL_GRANTS = {
 
 def ensure_tool_seed_data(repository: SQLiteStore, granted_by: str) -> None:
     for tool in SYSTEM_TOOLS:
-        if repository.get_tool_definition(tool.id) is None:
+        existing = repository.get_tool_definition(tool.id)
+        if existing is None:
             repository.save_tool_definition(tool)
+            continue
+        updated = tool.model_copy(deep=True)
+        updated.enabled = existing.enabled
+        updated.created_at = existing.created_at
+        updated.updated_at = existing.updated_at
+        repository.save_tool_definition(updated)
 
     for agent_id, tool_ids in DEFAULT_TOOL_GRANTS.items():
         existing_tool_ids = {grant.tool_id for grant in repository.list_agent_tool_grants(agent_id)}
@@ -75,10 +128,12 @@ def list_agent_tools(repository: SQLiteStore, agent_id: str) -> list[ToolDefinit
     ensure_tool_seed_data(repository, granted_by="system")
     tools_by_id = {tool.id: tool for tool in repository.tool_definitions}
     result = []
+    seen_tool_ids: set[str] = set()
     for grant in repository.list_agent_tool_grants(agent_id):
         tool = tools_by_id.get(grant.tool_id)
-        if grant.enabled and tool is not None and tool.enabled:
+        if grant.enabled and tool is not None and tool.enabled and tool.id not in seen_tool_ids:
             result.append(tool)
+            seen_tool_ids.add(tool.id)
     return result
 
 

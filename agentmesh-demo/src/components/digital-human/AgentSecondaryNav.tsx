@@ -29,7 +29,7 @@ export function AgentSecondaryNav({ section, onSelect }: Props) {
       <div className="flex items-center gap-3 border-b border-white/[0.06] px-5 py-5">
         <DigitalHumanMark size={40} online={false} />
         <div className="min-w-0 leading-tight">
-          <div className="truncate text-[15px] font-semibold text-white">Digital Human demo</div>
+          <div className="truncate text-[15px] font-semibold text-white">数字员工管理</div>
         </div>
       </div>
 
@@ -59,13 +59,6 @@ export function AgentSecondaryNav({ section, onSelect }: Props) {
           )
         })}
       </nav>
-
-      {/* 底部说明 —— 明确本页与首页的分工 */}
-      <div className="border-t border-white/[0.06] px-5 py-4">
-        <p className="text-[11px] leading-relaxed text-slate-500">
-          本页为本地视觉演示，人物、数据与状态均为示意，不代表当前登录用户的真实信息。
-        </p>
-      </div>
     </aside>
   )
 }

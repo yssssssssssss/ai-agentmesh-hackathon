@@ -11,7 +11,10 @@ from agentmesh.models import (
     BlackboardPostType,
     BootstrapMetrics,
     BootstrapState,
+    ChatMessage,
+    ChatRole,
     ChatThread,
+    ChatTurnTrace,
     CollaborationStage,
     InboxItem,
     Intent,
@@ -53,7 +56,7 @@ USER = User(
     id="usr_current_designer",
     workspace_id=WORKSPACE.id,
     default_project_id=PROJECT.id,
-    name="当前设计师",
+    name="何云深",
     role=UserRole.USER,
     personal_agent_id="agent_personal_current",
 )
@@ -77,6 +80,7 @@ ADMIN = User(
 )
 
 USERS = [USER, TEAM_LEAD, ADMIN]
+LEGACY_CURRENT_DESIGNER_NAME = "当前设计师"
 DEFAULT_PASSWORDS = {
     USER.id: "designer123",
     TEAM_LEAD.id: "lead123",
@@ -441,8 +445,11 @@ def ensure_demo_seed_data(repository: SQLiteStore) -> None:
         if repository.get_team_membership(membership.id) is None:
             repository.save_team_membership(membership)
     for user in USERS:
-        if repository.get_user(user.id) is None:
+        existing_user = repository.get_user(user.id)
+        if existing_user is None:
             repository.save_user(user)
+        elif user.id == USER.id and existing_user.name == LEGACY_CURRENT_DESIGNER_NAME:
+            repository.save_user(existing_user.model_copy(update={"name": USER.name}))
         if repository.get_auth_credential(user.id) is None:
             repository.save_auth_credential(
                 AuthCredential(
@@ -529,23 +536,215 @@ def bootstrap_state(repository: SQLiteStore, user: User = USER) -> BootstrapStat
     )
 
 
+def _graph_demo_sources() -> list[Source]:
+    return [
+        Source(
+            id="src_graph_demo_2025_review",
+            title="2025 年 618 家电会场复盘",
+            source_type="project_review",
+            reference="review://home-appliance-618-2025",
+        ),
+        Source(
+            id="src_graph_demo_2024_category_day",
+            title="2024 年家电超级品类日",
+            source_type="project_review",
+            reference="review://home-appliance-category-day-2024",
+        ),
+        Source(
+            id="src_graph_demo_core_experience",
+            title="团队经验：首屏核心入口优先",
+            source_type="team_experience",
+            reference="memory://team/home-appliance-entry-priority",
+        ),
+        Source(
+            id="src_graph_demo_entry_metrics",
+            title="首页营销入口点击数据",
+            source_type="data_connector",
+            reference="internal://analytics/home-appliance-entry-ctr-90d",
+        ),
+        Source(
+            id="src_graph_demo_liming_peer",
+            title="李明的数字员工 · 协作贡献",
+            source_type="peer_contribution",
+            reference="peer://liming/home-appliance-2025-review",
+        ),
+    ]
+
+
+def _graph_demo_assistant_content() -> str:
+    return """项目理解
+家电设计师 · 618 会场改版 · 首屏结构决策 · 基于本人及团队已授权工作知识分析。
+
+任务分析
+1. 理解任务：识别当前处于 618 会场改版准备阶段，本次需要解决的是首屏结构与核心入口效率问题。
+2. 查找相似项目：找到 3 个相关项目：2025 年 618 家电会场复盘、2024 年家电超级品类日等。
+3. 检索已确认团队经验：找到 2 条已确认经验，与首屏入口效率和沉浸式头图使用相关。
+4. 查询近期业务数据：调用数据查询 Skill，读取近 90 天首页营销入口点击数据。数据范围：近 90 天 · 当前用户有权访问。
+5. 邀请数字员工补充判断：李明的数字员工补充项目经验，王晨的数字员工补充入口数据并提醒确认数据统计口径。
+6. 本次依据摘要：3 个相似项目 · 2 条已确认经验 · 近 90 天业务数据 · 2 位数字员工贡献。
+
+核心建议
+综合历史项目与近 90 天数据，我的建议是：2026 年 618 家电会场首屏应优先保证核心入口效率。沉浸式头图能增强氛围，但会下压重点商品与活动入口、拉低首屏点击。推荐采用效率型楼层结构，并把重点品类入口固定在首屏可视区。
+
+本次工作过程
+- 在团队 Wiki 与项目库检索「618 家电会场 首屏」，命中 3 个高相似度会场、2 条团队经验。
+- 调用「数据查询 Skill」，取回首页营销入口近 90 天点击数据。
+- 李明的数字人：补充 2025 年复盘，沉浸式头图降低首屏核心入口可见性。
+- 王晨的数字人：补充首屏入口点击数据，量化点击率下降约 11%。
+- 综合历史结论与近 90 天数据，判断入口型会场应优先保证首屏核心入口效率，并据此生成 2026 Brief。
+
+技术执行记录
+- 知识检索：wiki.search(query="618家电会场 首屏", top_k=8) · 命中 3 项目 / 2 经验。
+- Skill 调用：skill.marketing_entry_metrics(scene="home", range="90d") · 200 OK · 1.2s。
+- 分身协作：peer.request(to=["李明","王晨"], type="evidence") · 2 responses。
+- 生成：compose_brief(evidence=6, template="project_kickoff") · tokens 3.1k。
+
+引用资料详情
+1. 2025 年 618 家电会场复盘（历史项目 · 相似度 92%）
+   - 项目背景：2025 年 618 家电会场首页采用沉浸式头图方案，强调品牌氛围与视觉冲击。
+   - 核心问题：沉浸式头图占据首屏主要空间，重点商品与活动入口被下压到折叠线以下。
+   - 设计方案：首屏以整屏头图 + 轮播为主，核心入口楼层排在头图之后。
+   - 结果数据：首屏核心入口点击率环比下降 11%，用户到达重点品类的路径变长。
+   - 与当前任务的关联：直接对应本次「首屏是否沿用沉浸式头图」的核心决策，是最相似的历史样本。
+
+2. 2024 年家电超级品类日（历史项目 · 相似度 78%）
+   - 项目背景：2024 年家电超级品类日首页采用效率型楼层结构，头图精简。
+   - 核心问题：需要在有限首屏内平衡氛围表达与多品类入口。
+   - 设计方案：精简头图 + 核心品类入口楼层前置，氛围元素下沉到楼层背景。
+   - 结果数据：首屏入口点击率相比沉浸式方案高出约 9%，转化路径更短。
+   - 与当前任务的关联：为「效率型楼层结构」提供正向历史依据。
+
+3. 团队经验：首屏核心入口优先（家电设计组 · 团队经验）
+   - 经验结论：入口型营销会场首屏应优先保证核心入口的可见性与点击效率，氛围表达服从入口效率。
+   - 来源项目：2025 618 家电会场复盘、2024 家电超级品类日。
+   - 适用范围：入口型营销活动会场（会场首页、品类日首页）。
+   - 最近验证时间：最近验证：2025 年 618 大促，数据再次支持该结论。
+   - 引用项目：2024 家电超级品类日、PLUS 会员日活动页、清凉家电会场（引用中）。
+
+4. 首页营销入口点击数据（数据查询 Skill · 近 90 天）
+   - 数据范围：家电会场首页营销入口（头图、重点品类、活动楼层）的曝光与点击。
+   - 核心指标：首屏核心入口点击率，沉浸式头图方案 -11%；效率型楼层首屏点击率，对比沉浸式方案 +9%；重点品类入口到达率，效率型更优 +7%。
+   - 关键结论：效率型楼层结构在首屏核心入口点击与重点品类到达上均优于沉浸式头图方案。
+   - 数据时间：统计区间：近 90 天（含 2025 618 大促期）。
+   - 口径说明：首屏 = 进入页面首个可视区；点击率 = 入口点击 UV / 首屏曝光 UV。
+
+5. 李明的数字员工 · 协作贡献（来自已授权的项目经验）
+   - 角色和擅长领域：李明 · 家电设计组；擅长：营销会场设计、历史项目复盘。
+   - 引用经验：2025 年 618 家电会场复盘；✓ 已确认经验；经验结论：沉浸式头图能够增强会场氛围，但可能压缩核心商品和活动入口的首屏可见性。
+   - 具体贡献：结合当前 618 项目以品类分流和重点商品承接为主要目标，建议避免整屏沉浸式头图，优先保证核心入口首屏可见。
+   - 知识来源：来源项目：2025 年 618 家电会场；确认人：李明；验证时间：2025 年 7 月；适用范围：会场首页首屏结构决策。本次仅调用李明已授权共享的工作知识，不读取私人对话和未授权项目。
+
+2026 年 618 家电会场首页设计 Brief
+- 项目目标：在 618 大促期间提升家电会场首屏的核心入口效率，兼顾品牌氛围与转化路径。
+- 历史背景：
+  · 2025 年 618 采用沉浸式头图，首屏视觉氛围强，但核心入口首屏可见性下降。
+  · 2024 年家电超级品类日使用效率型楼层，核心入口点击表现更稳定。
+- 核心问题：沉浸式头图占据首屏后，重点商品与活动入口被下压，首屏核心入口点击率下滑。
+- 设计原则：
+  1. 首屏优先保证核心入口的可见性与点击效率。
+  2. 沉浸式头图需结合入口点击数据谨慎使用，控制首屏占比。
+  3. 采用效率型楼层结构，保留重点商品入口在首屏可达。
+- 设计方向：
+  · 首屏采用「精简头图 + 核心入口楼层」组合。
+  · 重点品类入口固定在首屏可视区，减少下滑成本。
+  · 氛围表达迁移到二屏及楼层背景，避免挤占入口。
+- 数据支撑：
+  · 2025 年沉浸式头图方案首屏核心入口点击率环比下降 11%。
+  · 效率型楼层在 2024 品类日首屏入口点击率高出 9%。
+
+后续建议
+- 继续补充重点商品入口方案。
+- 对比两种首屏结构。
+- 创建后续任务。""".strip()
+
+
 def ensure_graph_demo_data(repository: SQLiteStore) -> None:
     """Inject multi-agent collaboration mock data for the graph view."""
     from datetime import timedelta
 
+    base_time = datetime(2026, 6, 26, 10, 0, 0, tzinfo=UTC)
+    thread_title = "2026 年 618 家电会场首页改版"
+
+    thread = repository.get_chat_thread("thread_graph_demo")
+    if thread is None:
+        thread = ChatThread(
+            id="thread_graph_demo",
+            workspace_id=WORKSPACE.id,
+            project_id=PROJECT.id,
+            user_id=USER.id,
+            title=thread_title,
+            created_at=base_time,
+            updated_at=base_time,
+        )
+        repository.save_chat_thread(thread)
+    elif thread.title == "618 家电首屏历史经验查询":
+        thread = thread.model_copy(update={"title": thread_title})
+        repository.save_chat_thread(thread)
+
+    sources = _graph_demo_sources()
+    assistant_content = _graph_demo_assistant_content()
+    messages_by_id = {message.id: message for message in repository.list_thread_messages(thread.id)}
+    if "msg_graph_demo_user" not in messages_by_id:
+        repository.add_chat_message(
+            ChatMessage(
+                id="msg_graph_demo_user",
+                thread_id=thread.id,
+                role=ChatRole.USER,
+                content="我要做今年 618 家电会场首页改版，帮我查找过去有没有类似项目经验，并给出首屏设计建议。",
+                scope=Scope.PRIVATE,
+                created_at=base_time + timedelta(seconds=1),
+            )
+        )
+    existing_assistant = messages_by_id.get("msg_graph_demo_assistant")
+    if (
+        existing_assistant is None
+        or "2026 年 618 家电会场首页设计 Brief" not in existing_assistant.content
+        or len(existing_assistant.sources) < len(sources)
+    ):
+        repository.add_chat_message(
+            ChatMessage(
+                id="msg_graph_demo_assistant",
+                thread_id=thread.id,
+                role=ChatRole.ASSISTANT,
+                content=assistant_content,
+                scope=Scope.PRIVATE,
+                sources=sources,
+                created_at=base_time + timedelta(seconds=2),
+            )
+        )
+    traces_by_id = {trace.id: trace for trace in repository.list_thread_turn_traces(thread.id)}
+    existing_trace = traces_by_id.get("trace_graph_demo_initial")
+    if existing_trace is None or len(existing_trace.sources) < len(sources):
+        repository.add_chat_turn_trace(
+            ChatTurnTrace(
+                id="trace_graph_demo_initial",
+                thread_id=thread.id,
+                user_message_id="msg_graph_demo_user",
+                assistant_message_id="msg_graph_demo_assistant",
+                intent=Intent.ASK_MEMORY,
+                source="demo_seed",
+                selected_workflow="persisted_demo_conversation",
+                persisted=True,
+                llm_used=False,
+                confidence=1.0,
+                actual_provider="seed",
+                provider_mode="fallback",
+                latency_ms=0.0,
+                steps=[
+                    "received_user_message",
+                    "searched_memory",
+                    "external_research_requested",
+                    "evidence_received",
+                    "synthesized",
+                    "brief_drafted",
+                ],
+                sources=sources,
+                created_at=base_time + timedelta(seconds=3),
+            )
+        )
+
     if repository.get_task("task_graph_demo_1") is not None:
         return
-
-    base_time = datetime(2026, 6, 26, 10, 0, 0, tzinfo=UTC)
-
-    thread = ChatThread(
-        id="thread_graph_demo",
-        workspace_id=WORKSPACE.id,
-        project_id=PROJECT.id,
-        user_id=USER.id,
-        title="618 家电首屏历史经验查询",
-    )
-    repository.save_chat_thread(thread)
 
     # --- Task 1: memory search → research → evidence → digest ---
     task1 = Task(

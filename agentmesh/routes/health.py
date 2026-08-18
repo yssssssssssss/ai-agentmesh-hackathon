@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 
+import agents as openai_agents
 from fastapi import APIRouter, Depends
 
 from agentmesh.datasources import data_api_provider_status, default_data_source_registry
@@ -16,9 +17,16 @@ from agentmesh.o2 import O2CommandRunner, maybe_register_o2_data_connector, o2_r
 from agentmesh.permissions import ACTION_VIEW_PROVIDER_HEALTH
 from agentmesh.provider_status import ProviderStatus, build_provider_status
 from agentmesh.routes.deps import require_permission
+from agentmesh.skill_runtime.service import catalog_service
+from agentmesh.store import store
 from agentmesh.web_research import web_research_provider_status
 
 router = APIRouter(prefix="/api/health", tags=["health"])
+
+
+@router.get("")
+def liveness() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 def _status_payload(status: ProviderStatus, *, name: str | None = None) -> dict[str, object]:
@@ -101,6 +109,43 @@ def _data_connectors_status() -> dict[str, object]:
     return payload
 
 
+def _agent_runtime_status() -> dict[str, object]:
+    runtime_enabled = os.getenv("AGENTMESH_AGENT_RUNTIME", "legacy").strip().lower() == "v2"
+    runs = store.list_agent_runs()
+    status_counts: dict[str, int] = {}
+    for run in runs:
+        status_counts[run.status.value] = status_counts.get(run.status.value, 0) + 1
+    config = model_config_from_env("default")
+    configured = config is not None
+    compatible = bool(config and config["api_style"] == "chat_completions")
+    ready = runtime_enabled and configured and compatible
+    runtime_status = (
+        "ready"
+        if ready
+        else "disabled"
+        if not runtime_enabled
+        else "model_not_configured"
+        if not configured
+        else "unsupported_api_style"
+    )
+    return {
+        "name": "openai_agents_sdk",
+        "status": runtime_status,
+        "configured": configured,
+        "ready": ready,
+        "mode": "real" if ready else "fallback",
+        "sdk_version": getattr(openai_agents, "__version__", "unknown"),
+        "runtime_enabled": runtime_enabled,
+        "skills": len(catalog_service().list_enabled()),
+        "runs": len(runs),
+        "run_status_counts": status_counts,
+        "skill_activations": sum(event.action == "sdk_skill_activated" for event in store.audit_events),
+        "open_tool_approvals": sum(
+            item.item_type == "sdk_tool_approval" and item.status == "open" for item in store.inbox_items
+        ),
+    }
+
+
 def _document_parser_status() -> dict[str, object]:
     parser = CompositeDocumentParser()
     supported = sorted(parser.supported_extensions)
@@ -144,6 +189,7 @@ def provider_health_check(
         _web_provider_status(),
         _data_connectors_status(),
         _llm_status(),
+        _agent_runtime_status(),
         _document_parser_status(),
     ]
     all_ready = all(bool(item["ready"]) for item in providers)

@@ -94,7 +94,7 @@ function InsightsContent({ userId, workspaceId, projectId }: {
     <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-7">
       <PageHeader
         title="工作洞察"
-        subtitle="基于当前项目的真实任务、活动、记忆与审计记录回看工作；尚未接入的洞察、复盘与知识形成能力以 M 数据明确标记。"
+        subtitle="基于当前项目的任务、活动、记忆与审计记录回看工作，串联复盘机会与知识形成路径。"
       />
 
       <WorkOverviewSection model={model} onContinue={() => navigate('/workspace')} />
@@ -121,7 +121,7 @@ function InsightsContent({ userId, workspaceId, projectId }: {
 
       <div className="flex items-start gap-2 text-[12px] leading-5 text-slate-600">
         <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <p>只有服务端返回的当前项目数据标记为 T 数据；M 数据不参与真实结论、复盘写入或知识候选生成。</p>
+        <p>服务端数据与参考线索都会保留来源标记，复盘写入和知识候选生成需由后端能力确认。</p>
       </div>
 
       <ProjectReviewDrawer
@@ -460,7 +460,7 @@ function ReferencePanel<T>({ value, label, className, children }: {
     <section className={cn('rounded-[12px] border border-remind/20 bg-remind/[0.035] p-4', className)}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <DataSourceBadge source={value.source} />
-        <span className="text-[11px] font-medium text-remind">{label}，非真实业务结论</span>
+        <span className="text-[11px] font-medium text-remind">{label}</span>
       </div>
       {children}
       {value.reason ? <p className="mt-3 text-[11px] leading-5 text-remind/90">{value.reason}</p> : null}

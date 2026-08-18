@@ -4,8 +4,8 @@ import hashlib
 import os
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from datetime import date as dt_date
-from datetime import datetime
 from pathlib import Path
 from typing import TypeVar
 
@@ -15,7 +15,11 @@ from agentmesh.models import (
     ActivityLog,
     Agent,
     AgentMemoryBinding,
+    AgentRun,
+    AgentRunEvent,
+    AgentRunStatus,
     AgentToolGrant,
+    Artifact,
     AuditEvent,
     AuthCredential,
     AuthSession,
@@ -44,7 +48,11 @@ from agentmesh.models import (
     RiskPolicyRule,
     ScheduledAgentTaskDefinition,
     Scope,
+    SDKSessionRecord,
     SearchResult,
+    SkillBinding,
+    SkillDefinition,
+    SkillPackage,
     Source,
     Task,
     Team,
@@ -283,6 +291,51 @@ class SQLiteStore:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_records_vec_collection ON records_vec(collection)"
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_runs (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_run_receipts (
+                user_id TEXT NOT NULL,
+                client_turn_id TEXT NOT NULL,
+                run_id TEXT NOT NULL UNIQUE,
+                PRIMARY KEY(user_id, client_turn_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_run_events (
+                run_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                id TEXT NOT NULL UNIQUE,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(run_id, sequence)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_run_events_created ON agent_run_events(run_id, created_at)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS artifacts (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at)")
         VectorIndex.ensure_schema(connection)
 
     def reset(self) -> None:
@@ -291,6 +344,10 @@ class SQLiteStore:
             connection.execute("DELETE FROM records_fts")
             connection.execute("DELETE FROM records_vec")
             connection.execute("DELETE FROM vector_states")
+            connection.execute("DELETE FROM agent_run_events")
+            connection.execute("DELETE FROM agent_run_receipts")
+            connection.execute("DELETE FROM agent_runs")
+            connection.execute("DELETE FROM artifacts")
 
     def _upsert(self, collection: str, item: BaseModel) -> None:
         work: VectorWork | None = None
@@ -520,6 +577,18 @@ class SQLiteStore:
     @property
     def tool_definitions(self) -> list[ToolDefinition]:
         return self._list("tool_definitions", ToolDefinition)
+
+    @property
+    def skill_definitions(self) -> list[SkillDefinition]:
+        return self._list("skill_definitions", SkillDefinition)
+
+    @property
+    def skill_bindings(self) -> list[SkillBinding]:
+        return self._list("skill_bindings", SkillBinding)
+
+    @property
+    def skill_packages(self) -> list[SkillPackage]:
+        return self._list("skill_packages", SkillPackage)
 
     @property
     def model_definitions(self) -> list[ModelDefinition]:
@@ -783,6 +852,380 @@ class SQLiteStore:
     def save_tool_definition(self, tool: ToolDefinition) -> ToolDefinition:
         self._upsert("tool_definitions", tool)
         return tool
+
+    def save_skill_definition(self, skill: SkillDefinition) -> SkillDefinition:
+        self._upsert("skill_definitions", skill)
+        return skill
+
+    def get_skill_definition(self, skill_id: str) -> SkillDefinition | None:
+        return self._get("skill_definitions", skill_id, SkillDefinition)
+
+    def get_skill_definition_by_name(self, name: str) -> SkillDefinition | None:
+        for skill in self.skill_definitions:
+            if skill.name == name:
+                return skill
+        return None
+
+    def save_skill_binding(self, binding: SkillBinding) -> SkillBinding:
+        self._upsert("skill_bindings", binding)
+        return binding
+
+    def save_skill_package(self, package: SkillPackage) -> SkillPackage:
+        self._upsert("skill_packages", package)
+        return package
+
+    def get_skill_package(self, package_id: str) -> SkillPackage | None:
+        return self._get("skill_packages", package_id, SkillPackage)
+
+    def list_agent_skill_bindings(self, agent_id: str) -> list[SkillBinding]:
+        return [binding for binding in self.skill_bindings if binding.agent_id == agent_id]
+
+    def save_sdk_session(self, session: SDKSessionRecord) -> SDKSessionRecord:
+        self._upsert("sdk_sessions", session)
+        return session
+
+    def get_sdk_session(self, session_id: str) -> SDKSessionRecord | None:
+        return self._get("sdk_sessions", session_id, SDKSessionRecord)
+
+    def append_sdk_session_items(
+        self,
+        session_id: str,
+        items: list[dict[str, object]],
+        message_ids: list[str] | None = None,
+    ) -> SDKSessionRecord:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("sdk_sessions", session_id),
+            ).fetchone()
+            record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            record.items.extend(items)
+            if message_ids:
+                record.synced_chat_message_ids = list(
+                    dict.fromkeys([*record.synced_chat_message_ids, *message_ids])
+                )
+            record.version += 1
+            record.updated_at = now_utc()
+            connection.execute(
+                """
+                INSERT INTO records(collection, id, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                """,
+                ("sdk_sessions", session_id, record.model_dump_json()),
+            )
+        return record
+
+    def mark_sdk_session_chat_messages(self, session_id: str, message_ids: list[str]) -> SDKSessionRecord:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("sdk_sessions", session_id),
+            ).fetchone()
+            record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            record.synced_chat_message_ids = list(dict.fromkeys([*record.synced_chat_message_ids, *message_ids]))
+            record.version += 1
+            record.updated_at = now_utc()
+            connection.execute(
+                """
+                INSERT INTO records(collection, id, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                """,
+                ("sdk_sessions", session_id, record.model_dump_json()),
+            )
+        return record
+
+    def reconcile_sdk_session_messages(
+        self,
+        session_id: str,
+        messages: list[tuple[str, dict[str, object]]],
+    ) -> SDKSessionRecord:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("sdk_sessions", session_id),
+            ).fetchone()
+            record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            synced = set(record.synced_chat_message_ids)
+            missing = [(message_id, item) for message_id, item in messages if message_id not in synced]
+            if missing:
+                record.items.extend(item for _message_id, item in missing)
+                record.synced_chat_message_ids.extend(message_id for message_id, _item in missing)
+                record.synced_chat_message_ids = list(dict.fromkeys(record.synced_chat_message_ids))
+                record.version += 1
+                record.updated_at = now_utc()
+                connection.execute(
+                    """
+                    INSERT INTO records(collection, id, payload)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                    """,
+                    ("sdk_sessions", session_id, record.model_dump_json()),
+                )
+        return record
+
+    def replace_sdk_session_items(
+        self,
+        session_id: str,
+        items: list[dict[str, object]],
+        *,
+        expected_version: int,
+    ) -> bool:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("sdk_sessions", session_id),
+            ).fetchone()
+            record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            if record.version != expected_version:
+                return False
+            record.items = items
+            record.version += 1
+            record.updated_at = now_utc()
+            connection.execute(
+                """
+                INSERT INTO records(collection, id, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                """,
+                ("sdk_sessions", session_id, record.model_dump_json()),
+            )
+        return True
+
+    def pop_sdk_session_item(self, session_id: str) -> dict[str, object] | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("sdk_sessions", session_id),
+            ).fetchone()
+            if row is None:
+                return None
+            record = SDKSessionRecord.model_validate_json(row["payload"])
+            if not record.items:
+                return None
+            item = record.items.pop()
+            record.version += 1
+            record.updated_at = now_utc()
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = ? AND id = ?",
+                (record.model_dump_json(), "sdk_sessions", session_id),
+            )
+        return item
+
+    def clear_sdk_session(self, session_id: str) -> SDKSessionRecord:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("sdk_sessions", session_id),
+            ).fetchone()
+            record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            record.items = []
+            record.version += 1
+            record.updated_at = now_utc()
+            connection.execute(
+                """
+                INSERT INTO records(collection, id, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                """,
+                ("sdk_sessions", session_id, record.model_dump_json()),
+            )
+        return record
+
+    def save_agent_run(self, run: AgentRun) -> AgentRun:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO agent_runs(id, payload, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+                """,
+                (run.id, run.model_dump_json(), run.updated_at.isoformat()),
+            )
+        return run
+
+    def claim_new_agent_run(self, run: AgentRun) -> tuple[AgentRun, bool]:
+        if not run.client_turn_id:
+            return self.save_agent_run(run), True
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            receipt = connection.execute(
+                "SELECT run_id FROM agent_run_receipts WHERE user_id = ? AND client_turn_id = ?",
+                (run.user_id, run.client_turn_id),
+            ).fetchone()
+            if receipt is not None:
+                row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (receipt["run_id"],)).fetchone()
+                if row is None:
+                    raise RuntimeError("Agent run receipt points to a missing run")
+                return AgentRun.model_validate_json(row["payload"]), False
+            active = connection.execute(
+                """
+                SELECT payload FROM agent_runs
+                WHERE json_extract(payload, '$.user_id') = ?
+                  AND json_extract(payload, '$.thread_id') = ?
+                  AND json_extract(payload, '$.status') IN (?, ?)
+                LIMIT 1
+                """,
+                (run.user_id, run.thread_id, AgentRunStatus.CREATED.value, AgentRunStatus.RUNNING.value),
+            ).fetchone()
+            if active is not None:
+                raise RuntimeError("Another Agent run is already active for this thread")
+            connection.execute(
+                "INSERT INTO agent_runs(id, payload, updated_at) VALUES (?, ?, ?)",
+                (run.id, run.model_dump_json(), run.updated_at.isoformat()),
+            )
+            connection.execute(
+                "INSERT INTO agent_run_receipts(user_id, client_turn_id, run_id) VALUES (?, ?, ?)",
+                (run.user_id, run.client_turn_id, run.id),
+            )
+        return run, True
+
+    def get_agent_run_by_client_turn(self, user_id: str, client_turn_id: str) -> AgentRun | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT ar.payload
+                FROM agent_run_receipts receipt
+                JOIN agent_runs ar ON ar.id = receipt.run_id
+                WHERE receipt.user_id = ? AND receipt.client_turn_id = ?
+                """,
+                (user_id, client_turn_id),
+            ).fetchone()
+        return AgentRun.model_validate_json(row["payload"]) if row is not None else None
+
+    def claim_agent_run_for_resume(self, run_id: str, user_id: str) -> AgentRun | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            if row is None:
+                return None
+            run = AgentRun.model_validate_json(row["payload"])
+            if run.user_id != user_id or run.status != AgentRunStatus.WAITING_APPROVAL or run.paused_state is None:
+                return None
+            run.status = AgentRunStatus.RUNNING
+            run.updated_at = now_utc()
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+            )
+        return run
+
+    def reconcile_orphaned_agent_runs(self) -> int:
+        reconciled = 0
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute("SELECT id, payload FROM agent_runs").fetchall()
+            for row in rows:
+                run = AgentRun.model_validate_json(row["payload"])
+                if run.status not in {AgentRunStatus.CREATED, AgentRunStatus.RUNNING}:
+                    continue
+                run.status = AgentRunStatus.FAILED
+                run.error_code = "process_restarted"
+                run.updated_at = now_utc()
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+                )
+                sequence = connection.execute(
+                    "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_run_events WHERE run_id = ?",
+                    (run.id,),
+                ).fetchone()[0]
+                event = AgentRunEvent(
+                    run_id=run.id,
+                    sequence=sequence,
+                    event_type="run_failed",
+                    payload={"error_code": "process_restarted"},
+                )
+                connection.execute(
+                    "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (run.id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
+                )
+                reconciled += 1
+        return reconciled
+
+    def get_agent_run(self, run_id: str) -> AgentRun | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+        return AgentRun.model_validate_json(row["payload"]) if row is not None else None
+
+    def list_agent_runs(self, user_id: str | None = None) -> list[AgentRun]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT payload FROM agent_runs ORDER BY updated_at").fetchall()
+        runs = [AgentRun.model_validate_json(row["payload"]) for row in rows]
+        return [run for run in runs if user_id is None or run.user_id == user_id]
+
+    def append_agent_run_event(
+        self,
+        run_id: str,
+        event_type: str,
+        payload: dict[str, object] | None = None,
+    ) -> AgentRunEvent:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_run_events WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()[0]
+            event = AgentRunEvent(run_id=run_id, sequence=sequence, event_type=event_type, payload=payload or {})
+            connection.execute(
+                "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                (run_id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
+            )
+        return event
+
+    def list_agent_run_events(self, run_id: str, after_sequence: int = 0) -> list[AgentRunEvent]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM agent_run_events WHERE run_id = ? AND sequence > ? ORDER BY sequence",
+                (run_id, after_sequence),
+            ).fetchall()
+        return [AgentRunEvent.model_validate_json(row["payload"]) for row in rows]
+
+    def prune_agent_stream_events(self, retention_days: int = 30) -> int:
+        cutoff = (datetime.now(UTC) - timedelta(days=max(1, retention_days))).isoformat()
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM agent_run_events
+                WHERE created_at < ?
+                  AND json_extract(payload, '$.event_type') = 'sdk_stream_event'
+                  AND run_id IN (
+                      SELECT id FROM agent_runs
+                      WHERE json_extract(payload, '$.status') IN (?, ?, ?)
+                  )
+                """,
+                (
+                    cutoff,
+                    AgentRunStatus.COMPLETED.value,
+                    AgentRunStatus.FAILED.value,
+                    AgentRunStatus.CANCELLED.value,
+                ),
+            )
+        return max(0, cursor.rowcount)
+
+    def save_artifact(self, artifact: Artifact) -> Artifact:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO artifacts(id, run_id, payload, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
+                """,
+                (artifact.id, artifact.run_id, artifact.model_dump_json(), artifact.created_at.isoformat()),
+            )
+        return artifact
+
+    def get_artifact(self, artifact_id: str) -> Artifact | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+        return Artifact.model_validate_json(row["payload"]) if row is not None else None
 
     def save_model_definition(self, model: ModelDefinition) -> ModelDefinition:
         self._upsert("model_definitions", model)
@@ -1251,7 +1694,7 @@ class SQLiteStore:
         allowed_record_ids: set[str] | None = None,
     ) -> list[SearchResult]:
         needle = query.strip()
-        if not needle:
+        if not needle or not allowed_scopes:
             return []
 
         scope_values = [s.value for s in allowed_scopes]
@@ -1277,6 +1720,9 @@ class SQLiteStore:
                 placeholders,
                 allowed_collections,
                 allowed_record_ids,
+                workspace_id,
+                project_id,
+                user_id,
             )
             if not fts_rows:
                 fts_rows = self._fts_like_fallback(
@@ -1286,6 +1732,9 @@ class SQLiteStore:
                     placeholders,
                     allowed_collections,
                     allowed_record_ids,
+                    workspace_id,
+                    project_id,
+                    user_id,
                 )
             vec_rows = self._vec_search(
                 connection,
@@ -1503,6 +1952,9 @@ class SQLiteStore:
         placeholders: str,
         allowed_collections: set[str] | None = None,
         allowed_record_ids: set[str] | None = None,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[sqlite3.Row]:
         if not _can_use_fts_match(needle):
             return []
@@ -1517,6 +1969,18 @@ class SQLiteStore:
         if record_id_values:
             record_id_placeholders = ",".join("?" for _ in record_id_values)
             record_id_clause = f" AND record_id IN ({record_id_placeholders})"
+        tenant_clauses: list[str] = []
+        tenant_values: list[str] = []
+        if workspace_id is not None:
+            tenant_clauses.append("AND workspace_id = ?")
+            tenant_values.append(workspace_id)
+        if project_id is not None:
+            tenant_clauses.append("AND project_id = ?")
+            tenant_values.append(project_id)
+        if user_id is not None:
+            tenant_clauses.append("AND (scope != ? OR user_id = ?)")
+            tenant_values.extend([Scope.PRIVATE.value, user_id])
+        tenant_clause = " ".join(tenant_clauses)
         try:
             return connection.execute(
                 f"""
@@ -1527,10 +1991,11 @@ class SQLiteStore:
                   AND scope IN ({placeholders})
                   {collection_clause}
                   {record_id_clause}
+                  {tenant_clause}
                 ORDER BY score
                 LIMIT 200
                 """,
-                [fts_query, *scope_values, *collection_values, *record_id_values],
+                [fts_query, *scope_values, *collection_values, *record_id_values, *tenant_values],
             ).fetchall()
         except sqlite3.OperationalError:
             return []
@@ -1543,6 +2008,9 @@ class SQLiteStore:
         placeholders: str,
         allowed_collections: set[str] | None = None,
         allowed_record_ids: set[str] | None = None,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[sqlite3.Row]:
         like_pattern = f"%{needle}%"
         collection_values = sorted(allowed_collections) if allowed_collections is not None else []
@@ -1555,6 +2023,18 @@ class SQLiteStore:
         if record_id_values:
             record_id_placeholders = ",".join("?" for _ in record_id_values)
             record_id_clause = f" AND record_id IN ({record_id_placeholders})"
+        tenant_clauses: list[str] = []
+        tenant_values: list[str] = []
+        if workspace_id is not None:
+            tenant_clauses.append("AND workspace_id = ?")
+            tenant_values.append(workspace_id)
+        if project_id is not None:
+            tenant_clauses.append("AND project_id = ?")
+            tenant_values.append(project_id)
+        if user_id is not None:
+            tenant_clauses.append("AND (scope != ? OR user_id = ?)")
+            tenant_values.extend([Scope.PRIVATE.value, user_id])
+        tenant_clause = " ".join(tenant_clauses)
         return connection.execute(
             f"""
             SELECT collection, record_id, scope, workspace_id, project_id,
@@ -1564,9 +2044,10 @@ class SQLiteStore:
               AND scope IN ({placeholders})
               {collection_clause}
               {record_id_clause}
+              {tenant_clause}
             LIMIT 200
             """,
-            [like_pattern, like_pattern, *scope_values, *collection_values, *record_id_values],
+            [like_pattern, like_pattern, *scope_values, *collection_values, *record_id_values, *tenant_values],
         ).fetchall()
 
     @staticmethod
