@@ -11,7 +11,7 @@ FRONTEND_HOST="${AGENTMESH_FRONTEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${AGENTMESH_BACKEND_PORT:-8010}"
 FRONTEND_PORT="${AGENTMESH_FRONTEND_PORT:-5178}"
 
-UVICORN_BIN="$ROOT_DIR/.venv/bin/uvicorn"
+UVICORN_CMD=($ROOT_DIR/.venv/bin/python -m uvicorn)
 VITE_BIN="$FRONTEND_DIR/node_modules/.bin/vite"
 
 BACKEND_PID_FILE="$RUN_DIR/backend.pid"
@@ -50,7 +50,7 @@ ensure_runtime_tools() {
 
 ensure_start_prereqs() {
   ensure_runtime_tools
-  [[ -x "$UVICORN_BIN" ]] || die "missing $UVICORN_BIN; run: /opt/homebrew/bin/python3 -m venv .venv && .venv/bin/python -m pip install -e '.[dev]'"
+  [[ -x "$ROOT_DIR/.venv/bin/python" ]] || die "missing $ROOT_DIR/.venv/bin/python; run: /opt/homebrew/bin/python3 -m venv .venv && .venv/bin/python -m pip install -e '.[dev]'"
   [[ -x "$VITE_BIN" ]] || die "missing $VITE_BIN; run: npm --prefix agentmesh-demo install"
 }
 
@@ -111,7 +111,7 @@ start_backend() {
   mkdir -p "$RUN_DIR" "$LOG_DIR"
   (
     cd "$ROOT_DIR"
-    nohup "$UVICORN_BIN" agentmesh.app:app --reload --host "$BACKEND_HOST" --port "$BACKEND_PORT" >"$BACKEND_LOG" 2>&1 &
+    nohup "${UVICORN_CMD[@]}" agentmesh.app:app --reload --host "$BACKEND_HOST" --port "$BACKEND_PORT" >"$BACKEND_LOG" 2>&1 &
     echo "$!" >"$BACKEND_PID_FILE"
   )
 
