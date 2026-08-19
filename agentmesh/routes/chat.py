@@ -185,8 +185,17 @@ def chat_thread_detail(thread_id: str, user: User = Depends(current_user)) -> Ch
         or thread.project_id != user.default_project_id
     ):
         raise HTTPException(status_code=404, detail="Chat thread not found")
+    latest_research_run = store.get_latest_research_run_for_thread(thread.id, user.id)
+    latest_research_run_id = (
+        latest_research_run.id
+        if latest_research_run is not None
+        and latest_research_run.workspace_id == thread.workspace_id
+        and latest_research_run.project_id == thread.project_id
+        else None
+    )
     return ChatThreadDetailResponse(
         thread=thread,
         messages=store.list_thread_messages(thread.id),
         turn_traces=store.list_thread_turn_traces(thread.id),
+        latest_research_run_id=latest_research_run_id,
     )

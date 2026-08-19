@@ -80,7 +80,16 @@ def test_provider_status_has_one_secret_safe_serializable_contract() -> None:
     payload = status.model_dump(mode="json")
     serialized = json.dumps(payload)
 
-    assert set(payload) == {"name", "configured", "ready", "mode", "last_error", "latency_ms"}
+    assert set(payload) == {
+        "name",
+        "configured",
+        "ready",
+        "mode",
+        "checked_at",
+        "last_error",
+        "latency_ms",
+    }
+    assert payload["checked_at"].endswith("Z")
     assert "super-secret" not in serialized
     assert "hidden" not in serialized
     assert "user:pass" not in serialized

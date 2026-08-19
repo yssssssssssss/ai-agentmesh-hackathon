@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import pytest
 from agents.testing import ScriptedModel
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
 import agentmesh.routes.agent_runs as agent_run_routes
@@ -1151,6 +1151,7 @@ def test_run_plan_and_retry_reject_revoked_run_project(tmp_path, monkeypatch) ->
                     content=run.input_text,
                     client_turn_id=run.client_turn_id,
                 ),
+                Request({"type": "http", "app": app}),
                 user=user,
             )
         )

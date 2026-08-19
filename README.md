@@ -148,6 +148,7 @@ Run the deterministic release gates before moving beyond `preview`:
 ```bash
 .venv/bin/python eval/run_skill_retrieval_eval.py
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
+.venv/bin/python eval/research_orchestration/run_eval.py
 .venv/bin/python -m pytest
 .venv/bin/ruff check .
 npm --prefix agentmesh-demo test -- --run
@@ -156,7 +157,7 @@ npm --prefix agentmesh-demo run build
 npm --prefix agentmesh-demo run test:e2e
 ```
 
-On an approved release host with real credentials, run `scripts/agent_sdk_smoke.py --all-configured`. It is intentionally not a credential-free pull-request gate.
+`eval/research_orchestration/run_eval.py` validates the fixed 20-case dataset and rubric; without real observations it deliberately reports `release_gate_passed=false`. On an approved release host with real credentials, run the Provider checks in [the research-v2 runbook](docs/runbooks/research-orchestration-v2.md). The redacted engineering evidence is recorded in [the research-v2 baseline](docs/verification/2026-08-19-research-orchestration-v2-baseline.md). Neither document substitutes for the pending blind review and internal pilot.
 
 ### Reference UI and data provenance
 
@@ -371,7 +372,7 @@ export AGENTMESH_MODEL_GPT52_API_STYLE=chat_completions
 # The complete secret-free template is in .env.example.
 ```
 
-`AGENTMESH_MODEL_DEFAULT=default` keeps the `AI_API_*` model as the default while exposing the four named models in the Agent model selector. JoyBuilder currently accepts JSON mode but rejects OpenAI Native Structured Outputs, so configure `AGENTMESH_SDK_STRUCTURED_OUTPUT_MODE=json_object`. Providers that implement `response_format=json_schema` can keep the default `json_schema`; mixed deployments can override one named model with `AGENTMESH_MODEL_<ID>_STRUCTURED_OUTPUT_MODE`. JSON-object mode injects the same schema into the system instructions and still validates the final value locally with the SDK and Pydantic.
+`AGENTMESH_MODEL_DEFAULT=default` keeps the `AI_API_*` model as the default while exposing the three named GPT models in the Agent model selector. JoyBuilder currently accepts JSON mode but rejects OpenAI Native Structured Outputs, so configure `AGENTMESH_SDK_STRUCTURED_OUTPUT_MODE=json_object`. Providers that implement `response_format=json_schema` can keep the default `json_schema`; mixed deployments can override one named model with `AGENTMESH_MODEL_<ID>_STRUCTURED_OUTPUT_MODE`. JSON-object mode injects the same schema into the system instructions and still validates the final value locally with the SDK and Pydantic.
 
 Gateways that reject strict function declarations can separately set `AGENTMESH_SDK_STRICT_TOOLS=false`; this does not change structured-output validation, and AgentMesh still validates arguments locally through Pydantic and tool guardrails.
 

@@ -375,6 +375,7 @@ class ResultPipeline:
             skill_output,
             model_call_receipt_id=model_call_receipt_id,
             evidence_sources=evidence_sources,
+            evidence_policy=plan_body.control_snapshot.evidence_policy.content,
             plan=plan_body.problem_contract,
         )
         ledger_gaps = _ordered_unique(
@@ -591,8 +592,18 @@ class ResultPipeline:
         *,
         model_call_receipt_id: str,
         evidence_sources: dict[str, EvidenceSource],
+        evidence_policy: object,
         plan,
     ) -> list[ClaimRecord]:
+        if not isinstance(evidence_policy, dict):
+            raise DeliveryError("delivery_evidence_policy_invalid")
+        provider_summary_policy = evidence_policy.get("provider_summary")
+        if (
+            evidence_policy.get("version") != "evidence-policy-v1"
+            or not isinstance(provider_summary_policy, dict)
+            or provider_summary_policy.get("maximum_confidence") != ClaimConfidence.MEDIUM.value
+        ):
+            raise DeliveryError("delivery_evidence_policy_invalid")
         claims = [
             *(
                 ClaimRecord(
@@ -672,8 +683,20 @@ class ResultPipeline:
             ]
             return max(values, key=conflict_rank.__getitem__)
 
-        return [
+        claims = [
             claim.model_copy(update={"conflict_status": effective_conflict(claim.claim_id)})
+            for claim in claims
+        ]
+        evidence_by_claim = _claim_evidence_map(claims)
+        return [
+            claim.model_copy(update={"confidence": ClaimConfidence.MEDIUM})
+            if claim.confidence == ClaimConfidence.HIGH
+            and evidence_by_claim[claim.claim_id]
+            and all(
+                evidence_sources[evidence_id].source_tier == "provider_summary"
+                for evidence_id in evidence_by_claim[claim.claim_id]
+            )
+            else claim
             for claim in claims
         ]
 

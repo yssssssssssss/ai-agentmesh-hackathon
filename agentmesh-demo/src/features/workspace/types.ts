@@ -103,6 +103,7 @@ export type ThreadDetailResponse = {
   thread: ChatThread
   messages: ChatMessage[]
   turn_traces: ChatTurnTrace[]
+  latest_research_run_id?: string | null
 }
 export type Skill = components['schemas']['SkillCatalogItem']
 export type SkillsResponse = components['schemas']['SkillCatalogResponse']

@@ -26,7 +26,9 @@ from agentmesh.research_orchestration.delivery import (
     REVIEW_SCHEMA,
     SKILL_RESULT_KIND,
     SKILL_RESULT_SCHEMA,
+    ClaimConfidence,
     ClaimLedger,
+    ClaimType,
     DeliverableDocument,
     DeliveryError,
     DeterministicReview,
@@ -688,7 +690,7 @@ def test_duplicate_self_referencing_and_cyclic_claim_graphs_are_rejected(tmp_pat
         assert caught.value.code == expected
 
 
-@pytest.mark.parametrize("failure", ["coverage", "evidence_policy", "confidence"])
+@pytest.mark.parametrize("failure", ["coverage", "evidence_policy"])
 def test_deterministic_review_blocks_report_for_quality_failures(tmp_path, failure: str) -> None:
     context = research_execution_context(
         tmp_path / f"blocked-{failure}.sqlite3",
@@ -702,9 +704,6 @@ def test_deterministic_review_blocks_report_for_quality_failures(tmp_path, failu
     payload = _valid_skill_payload(prepared.evidence_inputs[0].evidence_id)
     if failure == "coverage":
         payload["recommendations"] = []
-    elif failure == "confidence":
-        payload["facts"][0]["confidence"] = "high"
-
     _, _, outcome = _finalize(context, prepared, payload)
 
     assert outcome.status == "block"
@@ -720,6 +719,76 @@ def test_deterministic_review_blocks_report_for_quality_failures(tmp_path, failu
             (REPORT_KIND,),
         ).fetchone()[0]
     assert report_count == 0
+
+
+@pytest.mark.parametrize(
+    ("group", "claim_type"),
+    [
+        ("facts", ClaimType.FACT),
+        ("inferences", ClaimType.INFERENCE),
+        ("recommendations", ClaimType.RECOMMENDATION),
+    ],
+)
+def test_provider_summary_caps_high_confidence_before_review(
+    tmp_path,
+    group: str,
+    claim_type: ClaimType,
+) -> None:
+    context = research_execution_context(
+        tmp_path / f"provider-summary-cap-{group}.sqlite3",
+        run_id=f"run_provider_summary_cap_{group}",
+    )
+    prepared = _prepare_evidence(context)
+    payload = _valid_skill_payload(prepared.evidence_inputs[0].evidence_id)
+    payload[group][0]["confidence"] = "high"
+
+    _, _, outcome = _finalize(context, prepared, payload)
+
+    assert outcome.status == "pass"
+    assert outcome.report_ref is not None
+    ledger_artifact = context.artifacts.read_verified(outcome.claim_ledger_ref, scope=context.lineage_step_2)
+    ledger = ClaimLedger.model_validate_json(ledger_artifact.content)
+    claim = next(item for item in ledger.claims if item.claim_type == claim_type)
+    assert claim.confidence == ClaimConfidence.MEDIUM
+    deliverable_artifact = context.artifacts.read_verified(outcome.deliverable_ref, scope=context.lineage_step_2)
+    deliverable = DeliverableDocument.model_validate_json(deliverable_artifact.content)
+    delivered_claims = [*deliverable.payload.comparison, *deliverable.payload.recommendations]
+    delivered_claim = next(item for item in delivered_claims if item.claim_id == claim.claim_id)
+    assert delivered_claim.confidence == ClaimConfidence.MEDIUM
+    review_artifact = context.artifacts.read_verified(outcome.review_ref, scope=context.lineage_step_2)
+    review = DeterministicReview.model_validate_json(review_artifact.content)
+    checks = {check.code: check.passed for check in review.checks}
+    assert checks["provider_summary_confidence_cap"]
+
+
+def test_review_still_blocks_an_uncapped_provider_summary_claim(tmp_path, monkeypatch) -> None:
+    context = research_execution_context(
+        tmp_path / "provider-summary-defense.sqlite3",
+        run_id="run_provider_summary_defense",
+    )
+    prepared = _prepare_evidence(context)
+    payload = _valid_skill_payload(prepared.evidence_inputs[0].evidence_id)
+    original_claims = ResultPipeline._claims
+
+    def bypass_confidence_normalization(*args, **kwargs):
+        claims = original_claims(*args, **kwargs)
+        return [
+            claim.model_copy(update={"confidence": ClaimConfidence.HIGH})
+            if claim.claim_type == ClaimType.FACT
+            else claim
+            for claim in claims
+        ]
+
+    monkeypatch.setattr(ResultPipeline, "_claims", staticmethod(bypass_confidence_normalization))
+
+    _, _, outcome = _finalize(context, prepared, payload)
+
+    assert outcome.status == "block"
+    assert outcome.report_ref is None
+    review_artifact = context.artifacts.read_verified(outcome.review_ref, scope=context.lineage_step_2)
+    review = DeterministicReview.model_validate_json(review_artifact.content)
+    checks = {check.code: check.passed for check in review.checks}
+    assert not checks["provider_summary_confidence_cap"]
 
 
 def test_unknown_evidence_conflict_cannot_be_downgraded_to_none(tmp_path) -> None:

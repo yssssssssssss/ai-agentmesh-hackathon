@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from agentmesh.app import app
 from agentmesh.auth import SESSION_COOKIE_NAME, issue_session
 from agentmesh.models import (
+    AgentRun,
+    AgentRunStatus,
     ChatMessage,
     ChatRole,
     ChatThread,
@@ -91,11 +93,59 @@ def test_thread_list_and_detail_are_owner_only_and_messages_are_ordered() -> Non
     assert [item["id"] for item in listed.json()["items"]] == [owner_thread.id]
     assert detail.status_code == 200
     assert detail.json()["thread"]["id"] == owner_thread.id
+    assert detail.json()["latest_research_run_id"] is None
     assert [item["id"] for item in detail.json()["messages"]] == [first.id, second.id]
     assert other.get(f"/api/chat/threads/{owner_thread.id}").status_code == 404
     assert owner.get(f"/api/chat/threads/{foreign_thread.id}").status_code == 404
     assert owner.get("/api/chat/threads/thread_missing").status_code == 404
     assert TestClient(app).get(f"/api/chat/threads/{owner_thread.id}").status_code == 401
+
+
+def test_thread_detail_exposes_latest_research_run_for_history_recovery() -> None:
+    client = authenticated_client(USER.id)
+    thread = add_thread(USER.id, "Research history")
+    timestamp = now_utc()
+    base = {
+        "thread_id": thread.id,
+        "user_id": USER.id,
+        "workspace_id": WORKSPACE.id,
+        "project_id": PROJECT.id,
+        "input_text": "compare research assistants",
+        "status": AgentRunStatus.COMPLETED,
+    }
+    store.save_agent_run(
+        AgentRun(
+            id="run_research_history_old",
+            **base,
+            orchestration_version="research-v2",
+            created_at=timestamp - timedelta(minutes=3),
+            updated_at=timestamp - timedelta(minutes=3),
+        )
+    )
+    store.save_agent_run(
+        AgentRun(
+            id="run_research_history_latest",
+            **base,
+            orchestration_version="research-v2",
+            created_at=timestamp - timedelta(minutes=2),
+            updated_at=timestamp - timedelta(minutes=2),
+        )
+    )
+    store.save_agent_run(
+        AgentRun(
+            id="run_v1_history_newer_but_ignored",
+            **base,
+            orchestration_version="v1",
+            created_at=timestamp - timedelta(minutes=1),
+            updated_at=timestamp - timedelta(minutes=1),
+        )
+    )
+
+    detail = client.get(f"/api/chat/threads/{thread.id}")
+
+    assert detail.status_code == 200
+    assert detail.json()["latest_research_run_id"] == "run_research_history_latest"
+
 
 def test_thread_detail_reads_legacy_turn_trace_without_confidence() -> None:
     client = authenticated_client(USER.id)
@@ -214,7 +264,8 @@ def test_thread_detail_returns_owner_scoped_turn_traces_with_memory_provenance()
     assert owner.get("/api/chat/threads/thread_missing").status_code == 404
 
     payload = detail.json()
-    assert set(payload) == {"thread", "messages", "turn_traces"}
+    assert set(payload) == {"thread", "messages", "turn_traces", "latest_research_run_id"}
+    assert payload["latest_research_run_id"] is None
     messages = payload["messages"]
     traces = payload["turn_traces"]
     assert [message["role"] for message in messages] == ["user", "assistant"]

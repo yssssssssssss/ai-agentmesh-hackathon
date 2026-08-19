@@ -65,7 +65,7 @@ export function Collaboration() {
     queryFn: () => knowledgeApi.inbox(true),
   })
   const inboxItems = inboxQuery.data?.items
-  const mutations = useCollaborationMutations()
+  const mutations = useCollaborationMutations(context)
   const taskIds = collaborationDetailTaskIds(
     cardsQuery.data?.items ?? [],
     inboxItems ?? [],

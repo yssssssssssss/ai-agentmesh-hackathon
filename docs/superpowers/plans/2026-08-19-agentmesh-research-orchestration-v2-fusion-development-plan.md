@@ -1,8 +1,10 @@
 # AgentMesh Research Orchestration v2 融合开发方案
 
-> 状态：In Progress，Web Preview 纵向切片实施中；scoped WIP checkpoint：`f2e09ca`
+> 状态：Engineering Candidate；Web Preview 与 Web Execute 已完成，Release Gate 工程门禁已通过，真人质量与价值门禁待完成
 >
 > 日期：2026-08-19
+>
+> 最后更新：2026-08-20
 >
 > 适用范围：当前 Python 3.12 + FastAPI + SQLite + React/Vite 内部试点
 >
@@ -66,6 +68,15 @@
 
 Kimi K2.6 已从 AGENTMESH_MODELS 备选池移除，不再属于发布门禁对象。后续只测试实际启用的模型，不保留无生产用途的候选模型。
 
+截至 2026-08-20，三个纵向切片的实施状态为：
+
+- Web Preview 已完成并形成提交 `7ce55fb`；
+- Web Execute 已完成，两个独立 P1 review 缺口关闭后形成提交 `391caeb`；
+- Release Gate 的代码、固定评测资产、全量本地门禁、真实 Tavily + GPT-5.2 闭环、三种启用 GPT 兼容 smoke 和 `off` 回滚演练已完成；
+- 20 条真实 v1/v2 运行观察、两名评审盲评及必要裁决、10 人内部试点仍未完成，因此当前只能称为工程候选，不能称为正式 Release Gate 通过或批准 `execute` 灰度。
+
+脱敏工程证据记录在 `docs/verification/2026-08-19-research-orchestration-v2-baseline.md`，运行与回滚步骤记录在 `docs/runbooks/research-orchestration-v2.md`。
+
 ### 2.2 基线与恢复点门禁
 
 原方案要求在 v2 开发前建立可回退基线，但实际开发从 `976648d` 上的脏工作区继续，Skill Matrix 与 Research v2 修改已经混合。该历史事实不能用事后文档伪装成已满足。
@@ -77,7 +88,7 @@ Kimi K2.6 已从 AGENTMESH_MODELS 备选池移除，不再属于发布门禁对�
 - checkpoint 前 245 项 Research Orchestration 测试和相关 Ruff 通过；
 - 该提交只是可靠恢复点，不是发布基线，也不证明生产 Web 链路可用。
 
-后续每个纵向切片必须基于该恢复点形成独立、可验证的增量。只有全量后端、Ruff、前端、OpenAPI、build、E2E、retrieval eval、catalog report、真实 Provider 和 off 回滚全部通过，才能生成发布基线与 `docs/verification/2026-08-19-research-orchestration-v2-baseline.md`。
+后续每个纵向切片必须基于该恢复点形成独立、可验证的增量。全量后端、Ruff、前端、OpenAPI、build、E2E、retrieval eval、catalog report、真实 Provider 和 off 回滚已经通过，并生成 `docs/verification/2026-08-19-research-orchestration-v2-baseline.md`。该文档是工程候选基线，不是发布授权；第 5.2 节的真人门禁完成前不得把它改写成正式 Release Gate 通过。
 
 ### 2.3 唯一配置开关
 
@@ -1146,7 +1157,9 @@ eval/research_orchestration/run_eval.py
 
 切片按“Web 输入到用户可见结果”划分，不再按 Store、Service、UI 横向建设。每个切片只允许一个主控制目标；当前切片未通过端到端验收前，不进入下一个切片。
 
-### Slice 1：Web Preview 闭环（当前）
+### Slice 1：Web Preview 闭环（已完成，`7ce55fb`）
+
+状态：生产 composition、版本路由、只读 projection、Workspace Preview 和 `off` 回退均已接通并通过分层验证。
 
 #### 用户可获得
 
@@ -1176,7 +1189,9 @@ eval/research_orchestration/run_eval.py
 - Runtime 缺失 fail closed，跨用户读取拒绝；
 - v1 SkillPlan 和普通聊天测试无回归。
 
-### Slice 2：Web Execute 闭环
+### Slice 2：Web Execute 闭环（已完成，`391caeb`）
+
+状态：Plan Confirmation、独立 Tool Approval、Tool-to-Report、restart/UNKNOWN/cancel、对话历史恢复和 Web 结果链路均已接通；GET 副作用与 approval timeout 收敛缺口已关闭。
 
 #### 用户可获得
 
@@ -1204,7 +1219,21 @@ eval/research_orchestration/run_eval.py
 - `off` 阻止新 claim，但允许已 SENT 调用完成记账后停在安全点；
 - Artifact 篡改阻断下游 Report。
 
-### Slice 3：Release Gate
+### Slice 3：Release Gate（工程门禁已完成，真人门禁待完成）
+
+当前已完成：
+
+- 20 条固定评测数据与 rubric 的结构校验；
+- 全量本地测试、OpenAPI、production build、Web E2E、安全/完整性回归；
+- Tavily real + GPT-5.2 完整研究 Run 及进程重启后的持久化复核；
+- GPT-5.2、GPT-5.4、GPT-5.5 structured output、streaming、Function Tool、usage、cancellation 和 provenance 兼容 smoke；
+- `off` 历史只读、新请求 v1 fallback、无数据库降级的回滚演练。
+
+当前未完成：
+
+- 固定 20 条样本的真实 v1/v2 运行观察与非确定性重复运行；
+- 两名评审的匿名 A/B 盲评及分差超过 1/5 时的第三人裁决；
+- 10 人内部试点以及至少 8 人认可证据/缺口价值。
 
 #### 用户可获得
 
@@ -1389,6 +1418,7 @@ npm --prefix agentmesh-demo run build
 npm --prefix agentmesh-demo run test:e2e
 .venv/bin/python eval/run_skill_retrieval_eval.py
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
+.venv/bin/python eval/research_orchestration/run_eval.py
 ~~~
 
 授权环境执行：
@@ -1562,6 +1592,8 @@ AgentRun 创建时冻结 orchestration_version。修改当前开关不能把历�
 
 ### Web Preview 完成
 
+状态：已完成。
+
 - Web 输入能够创建并读取 research-v2 Requirement/Plan；
 - `ResearchRuntime` 是生产唯一 composition root，路由无模块级可变 service；
 - Workspace 按 immutable `orchestration_version` 展示 research-v2；
@@ -1570,12 +1602,16 @@ AgentRun 创建时冻结 orchestration_version。修改当前开关不能把历�
 
 ### Web Execute 完成
 
+状态：已完成。
+
 - Plan Confirmation、Tool Approval、Tool→Skill、Artifact、Evidence、Claim、Deliverable、Review、Report 全链可用；
 - heartbeat、fencing、invocation ledger、启动恢复、UNKNOWN 和 cancel 通过崩溃/竞态测试；
 - Web 能完成批准、执行、Evidence 查看、retry/abort 和结果恢复；
 - `off` 安全点语义和历史只读通过。
 
 ### Release Gate 完成
+
+状态：未完成。工程候选已形成，但 20 条真实观察、盲评和 10 人试点仍是不可由自动化替代的阻断项。
 
 - 20 条评测集、10 人试点、全量本地门禁和 adversarial security suite 通过；
 - 默认 GPT 完整 smoke、所有启用 GPT 兼容 smoke 与真实 web_research 通过；

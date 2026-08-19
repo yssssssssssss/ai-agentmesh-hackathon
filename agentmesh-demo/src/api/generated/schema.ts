@@ -2957,6 +2957,8 @@ export interface components {
             messages: components["schemas"]["ChatMessage"][];
             /** Turn Traces */
             turn_traces: components["schemas"]["ChatTurnTrace"][];
+            /** Latest Research Run Id */
+            latest_research_run_id?: string | null;
         };
         /** ChatThreadListResponse */
         ChatThreadListResponse: {

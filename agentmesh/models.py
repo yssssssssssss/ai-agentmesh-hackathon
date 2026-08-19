@@ -620,6 +620,7 @@ class ChatThreadDetailResponse(BaseModel):
     thread: ChatThread
     messages: list[ChatMessage]
     turn_traces: list[ChatTurnTrace]
+    latest_research_run_id: str | None = None
 
 
 class Task(BaseModel):

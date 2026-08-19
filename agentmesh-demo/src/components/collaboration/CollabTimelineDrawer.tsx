@@ -45,7 +45,7 @@ export function CollabTimelineDrawer({
   onClose,
 }: CollabTimelineDrawerProps) {
   const detail = useTaskDetail(context, open ? taskId : null)
-  const mutations = useCollaborationMutations()
+  const mutations = useCollaborationMutations(context)
   const [reply, setReply] = useState('')
   const [nextOwner, setNextOwner] = useState('')
   const [handoffResult, setHandoffResult] = useState('')

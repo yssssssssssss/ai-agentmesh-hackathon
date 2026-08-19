@@ -61,9 +61,10 @@ export function Workspace() {
   const navigate = useNavigate()
   const threadId = threadIdFromPath(pathname)
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch])
-  const runId = searchParams.get('run')
+  const explicitRunId = searchParams.get('run')
   const prefilledSkill = searchParams.get('skill')
   const thread = useThreadDetailQuery(scope, threadId)
+  const runId = explicitRunId ?? thread.data?.latest_research_run_id ?? null
   const skills = useSkillsQuery(scope)
   const sendMessage = useSendMessageMutation(scope)
   const sendAgentRun = useSendAgentRunMutation(scope)

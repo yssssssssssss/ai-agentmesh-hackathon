@@ -2790,6 +2790,21 @@ class SQLiteStore:
             row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
         return AgentRun.model_validate_json(row["payload"]) if row is not None else None
 
+    def get_latest_research_run_for_thread(self, thread_id: str, user_id: str) -> AgentRun | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload FROM agent_runs
+                WHERE orchestration_version = 'research-v2'
+                  AND json_extract(payload, '$.thread_id') = ?
+                  AND json_extract(payload, '$.user_id') = ?
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                """,
+                (thread_id, user_id),
+            ).fetchone()
+        return AgentRun.model_validate_json(row["payload"]) if row is not None else None
+
     def user_can_execute_agent_run(
         self,
         user_id: str,

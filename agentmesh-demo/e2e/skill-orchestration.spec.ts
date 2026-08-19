@@ -78,6 +78,7 @@ function run(phase: Phase) {
     input_text: '评审 PRD、分析竞品并准备访谈',
     status,
     plan_id: 'plan_orchestration_e2e',
+    orchestration_version: 'v1',
     orchestration_mode: 'execute',
     agent_definition_version: '1',
     project_chat: true,

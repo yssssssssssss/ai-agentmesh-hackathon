@@ -1,7 +1,7 @@
 # CONTEXT.md — Digital Twin × Agent Market
 
 Glossary for the "digital twin / agent collaboration market" work. Each term maps to its
-**code reality** as of 2026-08-14, so downstream work doesn't mistake the design doc's
+**code reality** as of 2026-08-20, so downstream work doesn't mistake the design doc's
 aspiration for what is built. Source design: `docs/2026-08-08-数字分身-Agent协作市场-产品设计.md`.
 MVP scope decisions: `docs/adr/0003-mvp-scope-answer-only-gateway.md`.
 
@@ -76,18 +76,24 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
 ## Research orchestration v2
 
 - **ResearchRuntime** — the single in-process composition root and lifecycle owner for
-  research-v2 planning, execution, recovery, reconciliation and shutdown. ⚠️ Accepted in
-  ADR 0005; the domain modules exist at checkpoint `f2e09ca`, while production Web assembly
-  is the active implementation slice. It is not a durable state source.
+  research-v2 planning, execution, recovery, reconciliation and shutdown. ✅ Created by the
+  FastAPI lifespan, injected through `app.state`, and used by the production Web path. It is
+  not a durable state source; SQLite remains authoritative.
 - **Research Workflow** — durable control state bound one-to-one to a research-v2
   `AgentRun`. ✅ `ResearchWorkflow.phase`, `active_gate` and `state_version` are persisted;
   AgentRun/Attempt/Step/Invocation states are subordinate projections.
-- **Orchestration version** — immutable per Run: `v1` or `research-v2`. ⚠️ Persistence and
-  validation exist; `POST /api/agent/runs` production routing and Workspace projection are
-  being connected by the Web Preview slice.
+- **Orchestration version** — immutable per Run: `v1` or `research-v2`. ✅ The single
+  `POST /api/agent/runs` routing decision, client-turn replay, aggregate projection and
+  Workspace branch are connected. `off` creates only v1 Runs while historical v2 remains readable.
 - **Research recovery** — UNKNOWN external calls are never automatically replayed. ✅ The
-  internal retry/abort state transition is implemented and tested; Web/runtime lifecycle
-  reachability belongs to the Web Execute slice.
+  runtime and Web expose explicit retry/abort decisions; refresh, SSE reconnect and process
+  restart recover persisted state without silently resending Provider work.
+
+Web Preview and Web Execute are implemented. The engineering candidate has passed local gates,
+one authorized Tavily + GPT-5.2 end-to-end Run, all three enabled GPT compatibility smokes and an
+`off` rollback drill. Formal Release Gate approval and `execute` rollout are still blocked on the
+20-case real observation set, two-reviewer blind scoring and the 10-person internal pilot. See
+`docs/verification/2026-08-19-research-orchestration-v2-baseline.md`.
 
 Architecture and delivery boundaries are fixed by `docs/adr/0005-research-runtime-web-vertical-slices.md`.
 

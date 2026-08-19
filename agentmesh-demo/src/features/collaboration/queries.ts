@@ -4,7 +4,7 @@ import { queryKeys } from '../../app/queryKeys'
 
 import { ApiError } from '../../api/client'
 import { useAuth } from '../auth/AuthProvider'
-import type { HandoffPayload, ReplyPayload } from './api'
+import type { BlackboardPost, HandoffPayload, ReplyPayload } from './api'
 import { collaborationApi } from './api'
 
 export interface CollaborationContext {
@@ -44,8 +44,25 @@ function useDocumentVisible() {
   return visible
 }
 
-async function invalidateTaskResources(queryClient: QueryClient, refreshBootstrap: () => Promise<void>) {
+async function invalidateTaskResources(
+  queryClient: QueryClient,
+  refreshBootstrap: () => Promise<void>,
+  context: CollaborationContext,
+  taskId: string,
+) {
   await Promise.all([
+    queryClient.invalidateQueries({ queryKey: collaborationKeys.cards(context), exact: true }),
+    queryClient.invalidateQueries({ queryKey: collaborationKeys.task(context, taskId), exact: true }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.audit.root }),
+    refreshBootstrap(),
+  ])
+}
+
+function refreshTaskResourcesAfterError(
+  queryClient: QueryClient,
+  refreshBootstrap: () => Promise<void>,
+) {
+  void Promise.allSettled([
     queryClient.invalidateQueries({ queryKey: queryKeys.tasks.root }),
     queryClient.invalidateQueries({ queryKey: queryKeys.audit.root }),
     refreshBootstrap(),
@@ -98,10 +115,15 @@ export function useMarketQueries(context: CollaborationContext, marketVisible: b
   return { status, board, participation, polling: enabled }
 }
 
-export function useCollaborationMutations() {
+export function useCollaborationMutations(context: CollaborationContext) {
   const queryClient = useQueryClient()
   const { refreshBootstrap } = useAuth()
-  const taskOptions = { onSettled: () => invalidateTaskResources(queryClient, refreshBootstrap) }
+  const taskOptions = {
+    onSuccess: (response: { item: BlackboardPost }) => (
+      invalidateTaskResources(queryClient, refreshBootstrap, context, response.item.task_id)
+    ),
+    onError: () => refreshTaskResourcesAfterError(queryClient, refreshBootstrap),
+  }
   const reply = useMutation({
     mutationFn: ({ postId, payload }: { postId: string; payload: ReplyPayload }) =>
       collaborationApi.reply(postId, payload),
