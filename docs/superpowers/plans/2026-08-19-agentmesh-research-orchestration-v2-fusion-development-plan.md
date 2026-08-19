@@ -1,12 +1,12 @@
 # AgentMesh Research Orchestration v2 融合开发方案
 
-> 状态：In Progress，Slice A 已批准实施
+> 状态：In Progress，Web Preview 纵向切片实施中；scoped WIP checkpoint：`f2e09ca`
 >
 > 日期：2026-08-19
 >
 > 适用范围：当前 Python 3.12 + FastAPI + SQLite + React/Vite 内部试点
 >
-> 决策：保留审计级研究闭环方向，改为三个可独立发布的垂直切片；不按原六阶段方案实施
+> 决策：保留审计级研究闭环方向，由单一 ResearchRuntime 组装生产链路，并按 Web Preview、Web Execute、Release Gate 三个纵向切片实施
 
 ## 1. 执行摘要
 
@@ -66,17 +66,18 @@
 
 Kimi K2.6 已从 AGENTMESH_MODELS 备选池移除，不再属于发布门禁对象。后续只测试实际启用的模型，不保留无生产用途的候选模型。
 
-### 2.2 基线提交门禁
+### 2.2 基线与恢复点门禁
 
-Research Orchestration v2 开发开始前，Release owner 必须建立一个可回退的基线提交。门禁不是“工作区看起来干净”，而是以下证据同时存在：
+原方案要求在 v2 开发前建立可回退基线，但实际开发从 `976648d` 上的脏工作区继续，Skill Matrix 与 Research v2 修改已经混合。该历史事实不能用事后文档伪装成已满足。
 
-- git status 已人工审查，确认无凭证、数据库、smoke payload 和无关大目录；
-- 当前 Skill Matrix 代码、前端、OpenAPI、ADR 0004 和测试属于同一提交；
-- 后端、Ruff、前端测试、OpenAPI 类型生成、production build、E2E、retrieval eval 和 catalog report 全部通过；
-- docs/verification/2026-08-19-research-orchestration-v2-baseline.md 记录 commit SHA、命令、退出码和测试数量；
-- .env、本地 SQLite、Provider key、原始 prompt 和真实 Tool payload 不进入提交。
+2026-08-19 已建立 scoped WIP checkpoint `f2e09ca`：
 
-v2 实现不得与未经审查的历史工作区修改混在同一个提交中。
+- 只包含当前 AgentMesh 编排相关后端、前端、测试、配置和文档；
+- 排除 `2C-DesignWiki/`、`deliverables/`、本地 SQLite、凭证、原始 Provider payload 和 Harness 状态；
+- checkpoint 前 245 项 Research Orchestration 测试和相关 Ruff 通过；
+- 该提交只是可靠恢复点，不是发布基线，也不证明生产 Web 链路可用。
+
+后续每个纵向切片必须基于该恢复点形成独立、可验证的增量。只有全量后端、Ruff、前端、OpenAPI、build、E2E、retrieval eval、catalog report、真实 Provider 和 off 回滚全部通过，才能生成发布基线与 `docs/verification/2026-08-19-research-orchestration-v2-baseline.md`。
 
 ### 2.3 唯一配置开关
 
@@ -87,6 +88,16 @@ v2 实现不得与未经审查的历史工作区修改混在同一个提交中�
 - execute：允许满足门禁的 v2 Workflow 执行。
 
 不增加第二个前后端 feature flag。前端继续从 Bootstrap 读取服务端 effective mode。
+
+### 2.4 Control Contract
+
+- Primary Setpoint：用户在 Web 输入 eligible competitive research 请求后，能够进入 research-v2、看到持久化 Requirement/Plan，并在刷新后恢复同一投影；`off` 时完整回到 v1。
+- Acceptance：真实 HTTP 创建与读取、Workspace Preview、SSE/刷新只读、`off` 回退均有自动化测试和浏览器证据。
+- Guardrails：v1 普通聊天、显式单 Skill、Legacy command、权限、Artifact owner scope 和客户端幂等行为不得回退。
+- Sampling：每个纵向切片执行 L0 定向测试、L1 跨模块集成、L2 浏览器/真实 Provider；不以单次绿灯代替分层验证。
+- Recovery Target：任何切片失败都能回到最近 checkpoint；运行时重启后 30 秒内重新发现可恢复工作，UNKNOWN 永不自动重发。
+- Rollback Trigger：出现双事实源、GET/SSE 触发执行、未批准 Tool 发送、旧 lease 接受结果或 `off` 仍创建 v2 时立即停止推进。
+- Boundary：首期只触及单进程 FastAPI、SQLite、competitive-analysis、web_research 和现有 Workspace；不新增队列、Worker 服务、PostgreSQL 或第二套 UI。
 
 ## 3. 产品假设、目标和停止条件
 
@@ -111,7 +122,7 @@ v2 实现不得与未经审查的历史工作区修改混在同一个提交中�
 
 ### 3.3 停止扩张条件
 
-Slice A 完成后，如果出现以下任一情况，不进入 Slice C：
+competitive research 通过 Release Gate 后，如果出现以下任一情况，不迁移其余九个 Skill：
 
 - 在固定 20 条 competitive research 评测集上，v2 的证据可信度评分未比 v1 提升至少 0.5/5；
 - v2 任一核心质量维度比 v1 下降超过 0.2/5；
@@ -120,7 +131,7 @@ Slice A 完成后，如果出现以下任一情况，不进入 Slice C：
 - 中位 Provider 成本超过 v1 的 2 倍，且人工质量评分提升不足 0.5/5；
 - 少于 80% 的试点用户认为“可点击证据和明确缺口”有实际价值。
 
-触发停止条件时，保留 v1 Executor，只吸收 Slice A 中已证明有价值的澄清、显式 Tool Step、可点击引用和 Deliverable 展示，不继续建设完整 v2。
+触发停止条件时，保留 v1 Executor，只吸收首发闭环中已证明有价值的澄清、显式 Tool Step、可点击引用和 Deliverable 展示，不继续扩张 v2。
 
 ## 4. 任务分型与首期范围
 
@@ -136,7 +147,7 @@ Slice A 完成后，如果出现以下任一情况，不进入 Slice C：
 
 只有包含业务事实主张的任务才强制 Evidence。方法知识可以支撑方法选择，但不能冒充业务事实。
 
-### 4.2 Slice A 固定范围
+### 4.2 Competitive research 首发固定范围
 
 首个真实闭环固定为：
 
@@ -150,7 +161,7 @@ Slice A 完成后，如果出现以下任一情况，不进入 Slice C：
 - execution：一个默认候选、顺序执行 Tool → Skill → deterministic review → report composition；
 - Provider：当前默认真实 GPT 模型和 real web_research Adapter。
 
-Slice A 可以独立长期运行；即使 Slice B、C 永不实施，它仍然是完整可用的产品闭环。
+competitive research 可以独立长期运行；即使其余九个 Skill 永不迁移，它仍然是完整可用的产品闭环。
 
 ### 4.3 非目标
 
@@ -195,7 +206,7 @@ Slice A 可以独立长期运行；即使 Slice B、C 永不实施，它仍然�
 - 5 条来源冲突或信息过期的请求；
 - 5 条包含缺失资料、恶意网页指令或不充分证据的请求。
 
-使用相同默认模型、相同 Tool budget 和相同时间窗口比较 v1/v2。Slice A 进入 execute 灰度必须满足：
+使用相同默认模型、相同 Tool budget 和相同时间窗口比较 v1/v2。competitive research 进入 execute 灰度必须满足：
 
 - 端到端完成至少 18/20；
 - factual Claim 的机器可解析 Evidence 覆盖率 100%；
@@ -239,32 +250,37 @@ SkillPlan 继续表示 v1 对象。v2 使用 ExecutionPlanVersion，不复用一
 ### 7.1 模块关系
 
 ~~~text
-Workspace / HTTP / SSE
-          │
-          ▼
-ResearchWorkflowService
-  ├─ RequirementPlanner
-  ├─ PlanCompiler
-  ├─ ExecutionEngine
-  │    ├─ ToolActor
-  │    ├─ SkillActor
-  │    └─ LlmActor
-  └─ ResultPipeline
-       ├─ Evidence + Claim Ledger
-       ├─ Deliverable Review
-       └─ Optional Report Renderer
-          │
-          ▼
-SQLiteStore + ArtifactStore + existing Auth/Inbox
+Workspace / POST /api/agent/runs
+               │
+               ▼
+       唯一版本分流点
+          ├─ v1 existing runtime
+          └─ research-v2
+                 │
+                 ▼
+          ResearchRuntime
+          ├─ ResearchWorkflowService
+          ├─ CompetitiveResearchPlanning
+          ├─ ExecutionEngine
+          │    ├─ ToolActor
+          │    ├─ SkillActor
+          │    └─ ResultPipeline
+          ├─ startup / reconcile / heartbeat / shutdown
+          └─ aggregate projection
+                 │
+                 ▼
+       SQLiteStore + ArtifactStore + existing Auth/Inbox
 ~~~
 
-控制流从上到下，不允许 ResultPipeline 回调 Planner，不允许 Skill 递归创建 Workflow，不允许 SSE 或 GET 请求触发执行。
+`ResearchRuntime` 是 composition root 和唯一生命周期 owner，不是第二个状态事实源。它在 FastAPI lifespan 中创建并挂载到 `app.state`，路由通过依赖注入取得；禁止模块级可变 service 全局变量。控制流从上到下，不允许 ResultPipeline 回调 Planner，不允许 Skill 递归创建 Workflow，不允许 SSE 或 GET 请求触发执行。
 
 ### 7.2 深 Module
 
 | Module | 外部 Interface | 内部职责 |
 | --- | --- | --- |
-| ResearchWorkflowService | create、clarify、confirm、revise、execute、recover | 状态、gate、CAS、命令回放和 v1/v2 路由 |
+| ResearchRuntime | start、shutdown、start_run、cancel、workflow_service | 生产依赖组装、单进程任务监督、启动恢复、周期 reconciliation 和安全关闭 |
+| ResearchWorkflowService | create、clarify、confirm、revise、execute、recover、project | 状态、gate、CAS、命令回放和聚合投影；不负责 v1/v2 路由 |
+| CompetitiveResearchPlanning | raw input/answers → frozen plan | 组合 RequirementPlanner、能力解析、ResourceSnapshot 和 PlanCompiler |
 | RequirementPlanner | raw input/answers → Requirement + Problem Contract + candidates | task archetype、阻断歧义、能力解析、候选差异判断 |
 | PlanCompiler | candidate → frozen plan 或稳定错误码 | Actor、DAG、coverage、binding、approval、snapshot 和 hash |
 | ExecutionEngine | plan + lease → attempt result | fencing、wave、invocation ledger、Actor dispatch、retry 和 restart reconciliation |
@@ -292,6 +308,15 @@ SQLiteStore + ArtifactStore + existing Auth/Inbox
 - current_user、项目权限、Tool Grant 和 Inbox → Auth/Gate Adapter。
 
 不新增生产 Runtime 依赖。
+
+### 7.4 生命周期与单 Writer
+
+- `POST /api/agent/runs` 是唯一 orchestration version 分流点，创建后 `orchestration_version` 不可改变；
+- FastAPI lifespan 在 seed/catalog 完成后创建 `ResearchRuntime`，随后执行恢复扫描；
+- Runtime 只监督内存 Task，SQLite 中的 Workflow、Attempt、Step 和 Invocation 才是恢复事实；
+- 运行期间每 30 秒扫描一次，失败采用有上限退避，不允许多个 reconciler 同时 claim 同一工作；
+- shutdown 停止新 claim，等待安全点；已 SENT 调用必须完成记账或进入 UNKNOWN，不能伪装成取消；
+- 单进程、单 SQLite 是首期冻结边界；不通过新增队列或第二个 Worker 掩盖生命周期问题。
 
 ## 8. 状态模型
 
@@ -581,7 +606,7 @@ canonical JSON 规则固定为：
 - retry lineage；
 - terminal status。
 
-默认 lease TTL 为 60 秒，heartbeat 每 15 秒一次。启动时和运行期间每 30 秒扫描过期 lease。
+默认 lease TTL 为 60 秒，heartbeat 每 15 秒一次。启动时和运行期间每 30 秒扫描过期 lease。Attempt deadline 与 lease 不是同一概念：`deadline_at = created_at + frozen execution_budget + settlement_grace`，首期 settlement grace 为 60 秒；不得再用同一个五分钟常量同时表示 worker 存活和业务执行预算。
 
 每次提交 Step、Artifact、Evidence、Deliverable、Review 或 Report 前，必须同时校验：
 
@@ -612,33 +637,34 @@ off 只阻止新的 claim。已经进入 SENT 的 Provider 调用仍允许提交
 PREPARED → SENT → ACKNOWLEDGED
               └→ UNKNOWN
 PREPARED → CANCELLED
+UNKNOWN --explicit retry--> PREPARED
+UNKNOWN --abort--> UNKNOWN + Workflow/Attempt CANCELLED
 ~~~
 
 - operation key 由 run、plan hash、step contract hash 和规范 input hash 生成，在相同输入的 retry attempt 间保持稳定；
 - invocation ID 标识本地一次逻辑外部操作；严格匹配的 retry 继续使用同一 invocation 记录并增加 send_count；
-- 支持 Provider idempotency key 时必须透传稳定 operation key；
+- operation key 作为独立 transport 参数传给 Tool Port；不能混入 Tool 业务 arguments；支持 Provider idempotency key 时由 Adapter 透传；
 - Provider 支持结果查询时，UNKNOWN 先 reconcile；
 - read 或 provider-idempotent Tool 可按 manifest 规则重试；
 - non-idempotent write 且无法 reconcile 时保持 UNKNOWN，进入 recovery_decision；
-- 人工只能选择“标记已完成并附 receipt”“确认未发生后重试”或“终止任务”；
+- 首期人工恢复 API 只提供 `retry | abort`：retry 表示用户确认外部操作未完成并授权下一次发送；abort 终止 Workflow，但 Invocation 继续保持 UNKNOWN 以保留外部事实；
+- “附 Provider receipt 标记完成”在实现可靠 receipt 验证和 settlement 前不对外承诺；
 - 系统不允许把 UNKNOWN 自动当作失败并重放。
 
 因此，本方案保证“同一个 operation key 最多接受一个结果”，而不是声称所有 Provider 最多收到一次请求。Provider 计费请求在网络超时边界可能重复，必须在审计和成本中披露。
 
 ### 13.4 启动恢复
 
-进程启动后：
+进程启动后由 `ResearchRuntime` 执行一次统一恢复，周期 reconciler 复用相同路径：
 
-1. 扫描非 terminal Workflow；
-2. 将 lease 未过期的 attempt 保持原状态；
-3. 对过期 lease 增加 fencing epoch；
-4. PREPARED 且未发送的 invocation 可安全重新 claim；
-5. SENT 无 receipt 转为 UNKNOWN；
-6. ACKNOWLEDGED 但 Step 未提交时，从已校验 Artifact 补交 Step；
-7. idempotent read 根据 manifest 自动 reconcile/retry；
-8. 不可判断的写操作进入 recovery_decision；
-9. 重新计算 ready Step 并恢复 scheduler；
-10. 旧 lease 的晚到结果只记录审计，不改变状态。
+1. 恢复 requirement/planning 且无 gate 的 Workflow；
+2. 调度已持久化但尚未 claim 的 PENDING Attempt；
+3. 将 lease 未过期的 RUNNING Attempt 保持原状态，对过期 lease 重新 claim 并提高 fencing epoch；
+4. PREPARED 且未发送的 Invocation 可安全继续；SENT 无 receipt 根据 Provider 能力 reconcile，否则进入 UNKNOWN；
+5. ACKNOWLEDGED 但 Step 未提交时，只能从已验证 Artifact 补交；
+6. UNKNOWN 保持 recovery_decision，GET、SSE、启动扫描和周期扫描均不得自动重发；
+7. 所有恢复错误进入与正常执行相同的 Workflow 错误协调器，不能只返回日志而不推进 gate/terminal；
+8. 旧 lease、旧 Attempt 或旧 send sequence 的晚到结果只记录审计，不改变状态。
 
 ### 13.5 Wave 和失败传播
 
@@ -689,7 +715,7 @@ Artifact 状态：
 
 ### 14.2 大小限制
 
-Slice A：
+Competitive research 首发：
 
 - 模型单次可见 Tool 内容最多 50 KiB、2000 行；
 - 单个 JSON Artifact 最多 1 MiB；
@@ -881,7 +907,7 @@ Deliverable 是用户主要成果。输入：
 
 competitive research 默认生成，guided_generation 默认不生成。
 
-Slice A 的 Markdown/HTML Report 使用确定性模板渲染。Report 只能消费 Review 通过的 Deliverable，不能直接读取原始 Tool payload、调用模型补写内容或产生新事实。
+Competitive research 的 Markdown/HTML Report 使用确定性模板渲染。Report 只能消费 Review 通过的 Deliverable，不能直接读取原始 Tool payload、调用模型补写内容或产生新事实。
 
 ## 18. 持久化设计
 
@@ -951,6 +977,14 @@ Problem Contract、ResourceSnapshot、Evidence Manifest、Claim Ledger、Deliver
 - GET /api/artifacts/{artifact_id}；
 - 现有 Inbox Tool Approval。
 
+`POST /api/agent/runs` 是唯一分流入口：
+
+- `off` 始终创建 v1；
+- `preview` 或 `execute` 下，显式 `$competitive-analysis` 和服务端确定性识别的 competitive request 创建 `research-v2`；
+- 不符合首期范围的自然语言、其他显式 Skill 和 Legacy command 继续 v1；
+- client turn replay 必须返回原 Run，不允许同一 client turn 在 v1/v2 间漂移；
+- 创建时冻结 `orchestration_version`，后续开关变化不能改写历史 Run。
+
 新增七个 v2 Interface：
 
 - GET /api/agent/runs/{run_id}/research；
@@ -970,6 +1004,8 @@ GET research 返回单一聚合投影：
 - gap；
 - Evidence/Deliverable/Review/Report Artifact IDs；
 - provenance summary。
+
+Research 路由从 `request.app.state.research_runtime` 注入 service。Runtime 缺失时 fail closed 为 503；不允许测试或生产通过修改模块级全局变量接线。GET research 与 SSE 都是纯读取，SSE 事件只用于让前端失效并重取聚合投影。
 
 不为 Evidence、Claim、Deliverable 和三种 Report 格式分别增加 GET 路由。正文继续走现有 owner-scoped Artifact API。
 
@@ -1010,6 +1046,8 @@ DAG、hash、pointer、Claim lineage、model receipt 和完整审计信息放在
 
 不新增独立的 ProblemGraphView、FindingGraphView 和十个同级页面。
 
+这些组件复用现有 Workspace shell、Composer、ConversationThread 和右侧资源区域。Workspace 必须按 `AgentRun.orchestration_version` 选择 v1 SkillPlan 或 research-v2 projection，不能通过 `plan_id`、status 或前端 feature flag 猜测运行类型。首个 Web Preview 只实现 Requirement、当前 gate 和单 Plan 展示；执行、Evidence 和 Report 状态在 Web Execute 切片接入。
+
 ### 20.3 交互原则
 
 - 明确输入不显示空澄清页；
@@ -1030,8 +1068,12 @@ DAG、hash、pointer、Claim lineage、model receipt 和完整审计信息放在
 ~~~text
 agentmesh/research_orchestration/
   __init__.py
+  api.py
   contracts.py
   ports.py
+  runtime.py
+  capabilities.py
+  resource_snapshot.py
   planning.py
   compiler.py
   workflow.py
@@ -1042,7 +1084,7 @@ agentmesh/research_orchestration/
   delivery.py
 ~~~
 
-Slice A policy/config：
+Competitive research policy/config：
 
 ~~~text
 agentmesh/research_orchestration/config/
@@ -1052,7 +1094,7 @@ agentmesh/research_orchestration/config/
   report-templates/competitive-analysis-v1.md
 ~~~
 
-Slice A schemas：
+Competitive research schemas：
 
 ~~~text
 agentmesh/schemas/
@@ -1095,118 +1137,90 @@ eval/research_orchestration/run_eval.py
 - competitive-analysis Skill profile 和 schemas；
 - Workspace API、types、queries 和上述五个 React 组件；
 - OpenAPI、README、CONTEXT、ADR 和验证文档；
-- docs/adr/0005-research-orchestration-v2.md，记录垂直切片、状态分层、invocation UNKNOWN、EvidenceSource 和可选 Report 决策；
+- docs/adr/0005-research-runtime-web-vertical-slices.md，记录 production composition、纵向切片、状态分层、invocation UNKNOWN 和 Web projection 决策；
 - 后端、前端、E2E、eval 和 smoke。
 
-Slice A 预计触及 45–60 个文件；完整三切片预计 85–125 个文件。该工作明确超过 8 个文件并新增一个 package，必须保持单 Writer 或隔离 worktree。
+当前 WIP checkpoint 已触及 136 个相关文件，因此后续不再用文件数量估算完成度。每个剩余切片只按端到端行为和独立 diff 验收，并保持单 Writer 或隔离 worktree。
 
-## 22. 三个可独立发布的垂直切片
+## 22. 三个纵向实施切片
 
-### Slice A：Competitive Research 可审计闭环
+切片按“Web 输入到用户可见结果”划分，不再按 Store、Service、UI 横向建设。每个切片只允许一个主控制目标；当前切片未通过端到端验收前，不进入下一个切片。
 
-#### 用户可获得
-
-- Web 自然语言或 $competitive-analysis 启动；
-- 对缺少 required competitive input 的请求进行一轮、最多三个问题的阻断澄清；
-- 清晰请求直接生成一个 recommended Plan；
-- real web_research → competitive-analysis；
-- SEALED Artifact、Evidence 和 Claim Ledger；
-- Competitive Analysis Deliverable；
-- deterministic Review；
-- Markdown/HTML Report；
-- 浏览器刷新、重复命令和进程重启安全；
-- off/preview/execute 灰度。
-
-#### 工程范围
-
-- Research Workflow、Requirement Version 和 Problem Contract；
-- 单轮 clarification command 和 Requirement versioning；
-- 单候选 PlanCompiler；
-- Tool/Skill Actor；
-- ToolInvocation ledger、lease 和 fencing；
-- Artifact stage/seal/read_verified；
-- Evidence quality 和 Claim Ledger；
-- Deliverable/Report；
-- 聚合 research API；
-- 五个主 UI 组件中的最小可用状态；
-- 默认 GPT 全链 smoke 和全部启用 GPT 兼容 smoke。
-
-#### 验收
-
-- 20 条固定评测集满足第 5 节门禁；
-- 一轮澄清后能够继续的歧义请求不会被直接失败；
-- Tool 和 Skill 是独立 Step；
-- Skill 不拥有 Function Tool/MCP 权限；
-- factual Claim 100% 可反查；
-- Provider summary 不冒充页面 observation；
-- Artifact 篡改阻断下游；
-- SENT 后崩溃能进入 reconcile/UNKNOWN，不静默重试写操作；
-- 旧 lease 晚到结果无法覆盖；
-- Web 输入、计划、执行、证据、Deliverable 和 Report 完整可见；
-- 关闭开关后不创建新 v2 Workflow，历史结果仍可读；
-- Slice A 合并后即使后续停止，competitive research 仍可长期使用。
-
-### Slice B：澄清、选择、恢复和安全增强
+### Slice 1：Web Preview 闭环（当前）
 
 #### 用户可获得
 
-- 将 Slice A 的单轮澄清扩展为最多两轮，并支持 assumption edits；
-- 只有存在实质差异时才显示 fast/thorough；
-- 用户调整目标/节点后生成新 Plan Version；
-- 并行 wave、optional gap 和清晰恢复动作；
-- semantic quality Review 和一次受限修订；
-- UNKNOWN invocation 人工对账；
-- research data 删除；
-- 更完整的 Evidence 冲突和注入风险展示。
+- 从现有 Workspace 输入自然语言 competitive request 或 `$competitive-analysis`；
+- 服务端创建 immutable `research-v2` Run；
+- 清晰请求看到 Requirement summary、范围、单一 recommended Plan、Tool/Skill 和预计成本；
+- 阻断歧义看到最多三个澄清问题；
+- 刷新、SSE 重连和重复 GET 继续看到同一 Plan，不触发执行；
+- `off` 时同一入口完整回到 v1。
 
 #### 工程范围
 
-- second-round clarify/assumption edit、revise、recover 和 purge commands；
-- 双候选差异判定；
-- 最多三并发 wave；
-- Provider reconcile Adapter；
-- semantic reviewer independence 标记；
-- retention/cleanup；
-- prompt injection、SSRF、XSS 和 PII adversarial suite；
-- progressive disclosure 和 accessibility E2E。
+- `ResearchRuntime` composition root 和 `CompetitiveResearchPlanning` façade；
+- FastAPI lifespan 创建/关闭 Runtime，`app.state` 依赖注入；
+- POST 唯一版本分流和 client turn 幂等；
+- Requirement/Plan 聚合 projection；
+- Workspace 按 `orchestration_version` 分支并复用现有 shell；
+- preview/off HTTP、前端和浏览器测试。
 
 #### 验收
 
-- 澄清不会无限循环；
-- 候选无实质差异时只展示一个；
-- revise 产生新 plan hash，旧 Plan 不变；
-- optional 失败只产生 gap，不污染 required output；
-- UNKNOWN write 不自动 retry；
-- purge 后正文不可读取，tombstone 和审计存在；
-- 恶意网页不能修改 Plan、Tool 权限、schema 或 Review 结果；
-- Slice B 未发布也不影响 Slice A 的完整使用。
+- 生产路由不再依赖模块级 `research_workflow_service`；
+- eligible preview 请求创建 research-v2，非 eligible 请求和 off 模式保持 v1；
+- Web 可见 Requirement、Plan 和当前 gate；
+- GET/SSE/刷新 Provider 调用次数保持 0；
+- 重复 client turn 返回同一 Run；
+- Runtime 缺失 fail closed，跨用户读取拒绝；
+- v1 SkillPlan 和普通聊天测试无回归。
 
-### Slice C：按任务原型扩展九个 Skill
+### Slice 2：Web Execute 闭环
 
-按三个独立批次发布，不要求九个 Skill 同时完成：
+#### 用户可获得
 
-1. guided_generation：research plan、interview guide、survey、usability test；
-2. decision_analysis：feasibility、issue prioritization、JTBD、experience metrics；
-3. evidence_synthesis：experiment conclusions。
+- Plan Confirmation 后执行 Tool → Skill → Deliverable → Review → Report；
+- Tool Approval 与 Plan Confirmation 是两个独立动作；
+- 页面展示 Step 进度、Evidence、gap、Deliverable 和 Report；
+- 刷新、重启、取消、UNKNOWN retry/abort 后仍能继续或安全终止。
 
-每个批次：
+#### 工程范围
 
-- 增加 task/Deliverable contract 和 Skill schema；
-- 根据 archetype 启用必要 Stage；
-- guided_generation 不强制 Evidence/Claim Ledger/Report；
-- 包含 factual claims 时才启用 Evidence policy；
-- 每个 Skill 单独 contract test 和 Web acceptance；
-- 通过灰度后才停止该 Skill 的 v1 新运行；
-- 其他未迁移 Skill 继续 v1，不做一次性切换。
+- Runtime supervisor、PENDING/expired Attempt 恢复、heartbeat 和周期 reconciliation；
+- Tool Approval Inbox 接线与原子 resume；
+- operation key transport、Tool/Skill Actor、ResultPipeline 和最终聊天投影；
+- UNKNOWN `retry | abort`、cancel、late result fencing；
+- ResearchExecutionProgress、Deliverable、Evidence Drawer；
+- restart/crash/approval/recovery Web E2E。
 
 #### 验收
 
-- 10 个 Skill 均有明确 archetype、input/output schema、report_policy 和 owner；
-- 自然语言与 $skill 共享权限、Artifact 和审计边界；
-- 每个 Skill 输出其真实 Deliverable，不套统一报告；
-- 每个迁移 Skill 的 v1/v2 对照评测通过；
-- 普通聊天和 11 个 Legacy command 无回归；
-- 任一批次停止不会破坏已发布批次。
+- 未批准 Tool 调用次数为 0，Plan Confirmation 不能代替 Tool Approval；
+- Tool 和 Skill 是独立 Step，factual Claim 100% 可反查到 verified Evidence；
+- SENT 后崩溃进入 reconcile/UNKNOWN，系统不静默重放；
+- retry 后只接受一个结果，旧 lease/Attempt/sequence 均无法 settlement；
+- restart、refresh 和 SSE 不重复 Provider 调用；
+- `off` 阻止新 claim，但允许已 SENT 调用完成记账后停在安全点；
+- Artifact 篡改阻断下游 Report。
+
+### Slice 3：Release Gate
+
+#### 用户可获得
+
+- 一个经过质量、安全、真实 Provider 和回滚演练的 competitive research 功能，而不是只在测试夹具中成立的模块集合。
+
+#### 工程范围与验收
+
+- 20 条固定评测集和人工证据支持度抽检满足第 5 节；
+- 全量 pytest、Ruff、前端 Vitest、OpenAPI types、production build 和 Web E2E；
+- Prompt Injection、SSRF、XSS、PII、越权、篡改和超大输入门禁；
+- 默认 GPT 完整真实研究闭环；所有实际启用 GPT 分别通过兼容 smoke；Kimi 不在模型池且不测试；
+- 真实 web_research、requested/actual model、usage、receipt、Artifact hash 和 Evidence pointer 均有脱敏证据；
+- `off` 回滚演练通过，历史 research-v2 只读可见；
+- ADR、OpenAPI、README、运营手册和验证记录一致。
+
+其余九个 Skill 的 archetype 扩展不属于以上三个首发切片。只有 competitive research 通过 Release Gate 并证明用户价值后，才按单 Skill 垂直切片迁移；未迁移 Skill 始终保留 v1。
 
 ## 23. 测试策略
 
@@ -1391,10 +1405,10 @@ Release owner 保存脱敏退出码、耗时、Provider identity 和审计 ID，
 
 ### 26.1 灰度
 
-- Slice A 首先只允许 competitive_research 进入 preview；
-- 评测集和真实 smoke 通过后，对内部试点用户进入 execute；
+- Web Preview 首先只允许 competitive_research 进入 preview；
+- Web Execute、本地门禁和真实 smoke 通过后，对内部试点用户进入 execute；
 - 其他 task type 继续 v1；
-- Slice C 每个 Skill 单独达到门禁后迁移；
+- 后续每个 Skill 单独达到垂直门禁后迁移；
 - 不按“十个 Skill 同时切换”发布。
 
 ### 26.2 immutable orchestration version
@@ -1457,7 +1471,7 @@ AgentRun 创建时冻结 orchestration_version。修改当前开关不能把历�
 | AgentRun status | +0 | 用独立 workflow phase 避免污染现有生命周期 | Backend/Frontend | 无枚举迁移 |
 | 环境开关 | +0 | 复用现有 off/preview/execute | Release owner | 设置 off |
 | Runtime/服务 | +0 外部服务，+1 内部 package | 隔离研究控制复杂度 | Backend；约 10 个深模块文件 | 路由关闭，记录只读 |
-| Slice A schemas | +10 | 8 个工作流 schema + competitive Skill input/output，稳定输入、计划、证据、Claim、Deliverable 和 Report | Skill/Backend owner | 按 schema version 只读 |
+| Competitive schemas | +10 | 8 个工作流 schema + competitive Skill input/output，稳定输入、计划、证据、Claim、Deliverable 和 Report | Skill/Backend owner | 按 schema version 只读 |
 | Policy/template files | +4 | 冻结 task contract、Evidence policy、Review rubric 和确定性 Report 模板 | Backend/Product owner | 旧 Plan 继续引用原版本 |
 | 主前端组件 | +5 | 用渐进披露完成研究任务 | Frontend | effective mode 隐藏 v2 |
 | v1 新运行路径 | 最终按 Skill -1 | 每个迁移 Skill 只保留一个生产 Executor | Runtime owner | 未迁移 Skill 不受影响 |
@@ -1470,12 +1484,12 @@ AgentRun 创建时冻结 orchestration_version。修改当前开关不能把历�
 
 | Slice | P50 | P90 | 主要不确定性 |
 | --- | --- | --- | --- |
-| A | 5 工程周 | 8 工程周 | invocation crash boundary、Evidence contract、真实 Web Provider |
-| B | 4 工程周 | 7 工程周 | reconcile、双候选 UX、安全 adversarial suite |
-| C | 5 工程周 | 9 工程周 | 九个 Skill 输入/输出差异和人工质量评测 |
-| 总计 | 14 工程周 | 24 工程周 | Provider 稳定性、schema 迁移和真实用户反馈 |
+| Web Preview | 1 工程周 | 2 工程周 | 生产 composition、路由幂等、现有 Workspace 兼容 |
+| Web Execute | 3 工程周 | 6 工程周 | approval、restart、UNKNOWN、真实 Web Provider |
+| Release Gate | 1 工程周 | 3 工程周 | Provider 稳定性、安全门禁和人工质量评测 |
+| 首发总计 | 5 工程周 | 11 工程周 | 真实环境、schema 迁移和用户反馈 |
 
-2 名后端 + 1 名前端并不线性提速；预计 P50 8–10 个日历周、P90 12–16 个日历周。
+2 名后端 + 1 名前端并不线性提速；在保留单 Writer 和分层门禁的前提下，预计 P50 3–5 个日历周、P90 6–8 个日历周。
 
 职责：
 
@@ -1492,8 +1506,8 @@ AgentRun 创建时冻结 orchestration_version。修改当前开关不能把历�
 
 | 风险 | 应对 |
 | --- | --- |
-| 当前基线混有大量修改 | 先建立经过审查和全量验证的 baseline commit |
-| v2 成为第二套永久编排内核 | 只做 Slice A 垂直闭环，后续受产品指标门禁 |
+| 当前基线混有大量修改 | 已建立 scoped WIP checkpoint；后续每个纵向切片独立提交和验证 |
+| v2 成为第二套永久编排内核 | 只做 competitive research 首发闭环，后续受产品指标门禁 |
 | 外部调用成功但 receipt 未提交 | invocation ledger、UNKNOWN、reconcile、禁止不安全自动重试 |
 | 只有 hash 没有旧内容 | 冻结控制快照；Adapter 不兼容时 replan |
 | Wiki 无关文件变化导致全部失效 | 只 snapshot 实际读取文件 |
@@ -1546,40 +1560,36 @@ AgentRun 创建时冻结 orchestration_version。修改当前开关不能把历�
 
 ## 32. 最终完成定义
 
-### Slice A 完成
+### Web Preview 完成
 
-- competitive research 从 Web 输入到 Report 全链可用；
-- 单候选、Tool→Skill、Artifact、Evidence、Claim、Deliverable、Review、Report 全部落库；
-- lease、fencing、invocation ledger 和启动恢复通过崩溃测试；
-- Prompt Injection、SSRF、XSS、PII 基础门禁通过；
-- 20 条评测集和 10 人试点门禁通过；
-- 默认 GPT 完整 smoke 与所有启用 GPT 兼容 smoke 通过；
+- Web 输入能够创建并读取 research-v2 Requirement/Plan；
+- `ResearchRuntime` 是生产唯一 composition root，路由无模块级可变 service；
+- Workspace 按 immutable `orchestration_version` 展示 research-v2；
+- refresh、SSE 和 GET 均为纯读取；
+- preview/off、client turn replay、owner scope 和 v1 回退测试通过。
+
+### Web Execute 完成
+
+- Plan Confirmation、Tool Approval、Tool→Skill、Artifact、Evidence、Claim、Deliverable、Review、Report 全链可用；
+- heartbeat、fencing、invocation ledger、启动恢复、UNKNOWN 和 cancel 通过崩溃/竞态测试；
+- Web 能完成批准、执行、Evidence 查看、retry/abort 和结果恢复；
+- `off` 安全点语义和历史只读通过。
+
+### Release Gate 完成
+
+- 20 条评测集、10 人试点、全量本地门禁和 adversarial security suite 通过；
+- 默认 GPT 完整 smoke、所有启用 GPT 兼容 smoke 与真实 web_research 通过；
 - off 回滚演练通过；
-- 文档、ADR、OpenAPI 和运营手册一致。
-
-### Slice B 完成
-
-- 阻断澄清、实质差异双候选、revise 和 recover 可用；
-- 并发 wave、optional gap、semantic review、retention 和 purge 可用；
-- UNKNOWN 外部调用可人工对账；
-- adversarial security suite 和 accessibility E2E 通过；
-- Slice A 无回归。
-
-### Slice C 完成
-
-- 剩余九个 Skill 按三个 archetype 批次迁移；
-- 每个 Skill 有独立 contract、quality eval 和 Web acceptance；
-- guided_generation 不被强制生成 Evidence/Report；
-- 每个迁移 Skill 停止 v1 新运行，未迁移 Skill 保持 v1；
-- 十个 Skill、普通聊天和 Legacy command 全量无回归。
+- 文档、ADR、OpenAPI、运营手册和脱敏验证证据一致；
+- 剩余九个 Skill 仍保持 v1，除非后续各自通过独立垂直切片。
 
 ## 33. 关键前提与前提失效处理
 
 最关键前提是：审计级证据、明确缺口和可恢复执行能显著提升研究结果的可信度，而不是只增加流程。
 
-如果 Slice A 的固定评测和用户试点不能证明这一点：
+如果 competitive research 的 Release Gate 和用户试点不能证明这一点：
 
-- 不实施 Slice C；
+- 不迁移剩余九个 Skill；
 - AGENTMESH_SKILL_ORCHESTRATION 保持 preview 或 off；
 - 保留现有 Skill Matrix Executor；
 - 只合并已经单独证明价值的可点击证据、显式 Tool Step、澄清和 Deliverable 组件；
@@ -1589,13 +1599,14 @@ AgentRun 创建时冻结 orchestration_version。修改当前开关不能把历�
 
 ## 34. 批准结论
 
-本修订方案推荐批准的方向是：
+本修订方案已于 2026-08-19 获准按以下方向实施：
 
-- 先交付 competitive research 单闭环；
+- 先交付 Web Preview，再交付 Web Execute，最后执行 Release Gate；
+- 用单一 ResearchRuntime 消除生产入口、生命周期和恢复的影子实现；
 - 用 invocation ledger 和 UNKNOWN 语义修正错误的 exactly-once 承诺；
 - 用独立 Research Workflow phase 避免污染 AgentRunStatus；
 - 用 Evidence quality + Claim Ledger 取代“hash 即真实”和六层 FindingGraph；
 - 用 archetype pipeline、可选 Report 和 $skill 快速路径保护真实用户体验；
-- 只有 Slice A 的评测和试点证明价值后，才扩展恢复能力和其余九个 Skill。
+- 只有 competitive research 的真实评测和试点证明价值后，才扩展其余九个 Skill。
 
-方案批准后才开始代码实现；实现完成后必须执行独立 code review 和发布门禁。
+每个切片必须以 Web 输入到用户可见结果验收；内部 Module 测试通过不能代替主链完成。实现完成后必须执行独立 code review 和发布门禁。

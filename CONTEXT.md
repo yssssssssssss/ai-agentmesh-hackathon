@@ -73,6 +73,24 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
   capture. ❌ absent from this repo — belongs to **designOS**, which is not checked in here
   (referenced only in `o2.py:21-28`). MVP replaces this entry point with pasted notes text.
 
+## Research orchestration v2
+
+- **ResearchRuntime** — the single in-process composition root and lifecycle owner for
+  research-v2 planning, execution, recovery, reconciliation and shutdown. ⚠️ Accepted in
+  ADR 0005; the domain modules exist at checkpoint `f2e09ca`, while production Web assembly
+  is the active implementation slice. It is not a durable state source.
+- **Research Workflow** — durable control state bound one-to-one to a research-v2
+  `AgentRun`. ✅ `ResearchWorkflow.phase`, `active_gate` and `state_version` are persisted;
+  AgentRun/Attempt/Step/Invocation states are subordinate projections.
+- **Orchestration version** — immutable per Run: `v1` or `research-v2`. ⚠️ Persistence and
+  validation exist; `POST /api/agent/runs` production routing and Workspace projection are
+  being connected by the Web Preview slice.
+- **Research recovery** — UNKNOWN external calls are never automatically replayed. ✅ The
+  internal retry/abort state transition is implemented and tested; Web/runtime lifecycle
+  reachability belongs to the Web Execute slice.
+
+Architecture and delivery boundaries are fixed by `docs/adr/0005-research-runtime-web-vertical-slices.md`.
+
 ## Not in this repo
 
 - **designOS** — org-layer + meeting capture + business scenes. Referenced only; no source
