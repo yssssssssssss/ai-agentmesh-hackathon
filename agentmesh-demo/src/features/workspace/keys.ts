@@ -13,6 +13,10 @@ export const workspaceKeys = {
   thread: (scope: WorkspaceScope, threadId: string) => [...scopedRoot(scope), 'threads', threadId] as const,
   skills: (scope: WorkspaceScope) => [...scopedRoot(scope), 'skills'] as const,
   skillCatalog: (scope: WorkspaceScope) => [...scopedRoot(scope), 'skill-catalog'] as const,
+  runRoot: (scope: WorkspaceScope) => [...scopedRoot(scope), 'agent-runs'] as const,
+  run: (scope: WorkspaceScope, runId: string) => [...scopedRoot(scope), 'agent-runs', runId] as const,
+  plan: (scope: WorkspaceScope, runId: string) =>
+    [...scopedRoot(scope), 'agent-runs', runId, 'plan'] as const,
   documents: (scope: WorkspaceScope) => [...scopedRoot(scope), 'documents'] as const,
   document: (scope: WorkspaceScope, documentId: string) =>
     [...scopedRoot(scope), 'documents', documentId] as const,

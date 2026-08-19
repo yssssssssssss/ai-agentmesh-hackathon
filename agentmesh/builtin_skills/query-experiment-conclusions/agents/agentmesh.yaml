@@ -1,0 +1,18 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: e37fb77128ce9ce7dce17e5c37166a803bf9b01097e9b3bb15718971e9327556
+profile_version: "1"
+primary_stage: pre_design
+lifecycle_tags: [pre_design, during_design]
+capability_type: retrieval
+input_kinds: [design_requirement, experiment_query, component]
+output_kinds: [historical_experiment, research_evidence]
+examples:
+  - 查询历史 AB 实验结论和失败经验
+  - 找类似首页组件以前是否做过以及结果如何
+negative_examples:
+  - 预测一个从未做过的实验结果
+  - 生成新的产品方案
+required_capabilities: [wiki.experiments]
+side_effect: read
+planner_eligible: true

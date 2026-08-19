@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from datetime import date as dt_date
 from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentmesh.provider_status import ProviderStatus
 
@@ -255,6 +256,34 @@ class SkillActivationPolicy(StrEnum):
     MODEL_ALLOWED = "model_allowed"
 
 
+class SkillLifecycleStage(StrEnum):
+    PRE_DESIGN = "pre_design"
+    DURING_DESIGN = "during_design"
+    POST_DESIGN = "post_design"
+    PLATFORM = "platform"
+
+
+class SkillCapabilityType(StrEnum):
+    RETRIEVAL = "retrieval"
+    RESEARCH = "research"
+    ANALYSIS = "analysis"
+    SYNTHESIS = "synthesis"
+    PLANNING = "planning"
+    GENERATION = "generation"
+    TRANSFORMATION = "transformation"
+    REVIEW = "review"
+    DELIVERY = "delivery"
+    KNOWLEDGE = "knowledge"
+    PLATFORM = "platform"
+
+
+class SkillSideEffect(StrEnum):
+    READ = "read"
+    DRAFT = "draft"
+    LOCAL_WRITE = "local_write"
+    EXTERNAL_WRITE = "external_write"
+
+
 class SkillDefinition(BaseModel):
     """A parsed, versioned Agent Skills definition available to AgentMesh."""
 
@@ -299,6 +328,85 @@ class SkillBinding(BaseModel):
     updated_at: datetime = Field(default_factory=now_utc)
 
 
+class SkillCapabilityProfile(BaseModel):
+    """Planner-safe metadata. It never contains Skill instructions or credentials."""
+
+    id: str
+    skill_id: str
+    skill_name: str = Field(min_length=1, max_length=64)
+    skill_version: str = Field(min_length=1, max_length=40)
+    skill_content_hash: str = Field(min_length=1, max_length=128)
+    profile_version: str = Field(min_length=1, max_length=40)
+    profile_content_hash: str = Field(min_length=1, max_length=128)
+    primary_stage: SkillLifecycleStage
+    lifecycle_tags: list[SkillLifecycleStage] = Field(default_factory=list)
+    capability_type: SkillCapabilityType
+    input_kinds: list[str] = Field(default_factory=list)
+    output_kinds: list[str] = Field(default_factory=list)
+    examples: list[str] = Field(default_factory=list)
+    negative_examples: list[str] = Field(default_factory=list)
+    required_capabilities: list[str] = Field(default_factory=list)
+    task_types: list[str] = Field(default_factory=list)
+    archetypes: list[str] = Field(default_factory=list)
+    required_tools: list[str] = Field(default_factory=list)
+    required_resources: list[str] = Field(default_factory=list)
+    input_schema_ref: str | None = Field(default=None, max_length=240)
+    output_schema_ref: str | None = Field(default=None, max_length=240)
+    produces_factual_claims: bool = False
+    report_policy: Literal["never", "on_request", "default"] = "never"
+    cost_level: Literal["low", "medium", "high"] = "low"
+    risk_level: Literal["low", "medium", "high"] = "low"
+    owner: str = Field(default="platform", min_length=1, max_length=120)
+    side_effect: SkillSideEffect = SkillSideEffect.READ
+    planner_eligible: bool = True
+    updated_at: datetime = Field(default_factory=now_utc)
+
+    def search_text(self, title: str = "", description: str = "") -> str:
+        return " ".join(
+            [
+                self.skill_name,
+                title,
+                description,
+                self.primary_stage.value,
+                self.capability_type.value,
+                *self.input_kinds,
+                *self.output_kinds,
+                *self.examples,
+            ]
+        )
+
+
+class SkillCatalogItem(BaseModel):
+    id: str
+    command: str
+    title: str
+    description: str
+    usage: str
+    placeholder: str
+    aliases: list[str] = Field(default_factory=list)
+    requires_input: bool = True
+    source: SkillSourceScope
+    version: str
+    activation_policy: SkillActivationPolicy
+    enabled: bool
+    binding_enabled: bool
+    planner_eligible: bool
+    readiness: Literal["ready", "unavailable"]
+    primary_stage: SkillLifecycleStage | None = None
+    capability_type: SkillCapabilityType | None = None
+    input_kinds: list[str] = Field(default_factory=list)
+    output_kinds: list[str] = Field(default_factory=list)
+    side_effect: SkillSideEffect | None = None
+
+
+class SkillCatalogResponse(BaseModel):
+    items: list[SkillCatalogItem]
+
+
+class SkillCatalogItemResponse(BaseModel):
+    item: SkillCatalogItem
+
+
 class ToolDefinition(BaseModel):
     id: str
     name: str
@@ -311,7 +419,13 @@ class ToolDefinition(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
     input_schema: dict[str, Any] = Field(default_factory=lambda: {"type": "object", "properties": {}, "additionalProperties": False})
     output_schema: dict[str, Any] | None = None
-    side_effect: Literal["read", "write", "external"] = "read"
+    side_effect: Literal["read", "write", "external", "idempotent_write", "non_idempotent_write"] = "read"
+    implementation_id: str | None = Field(default=None, max_length=240)
+    implementation_version: str = Field(default="1", min_length=1, max_length=80)
+    idempotency_support: Literal["provider", "reconcile_only", "none"] = "none"
+    approval_required: bool = False
+    evidence_class: Literal["provider_summary", "page_observation", "document", "internal"] | None = None
+    health_ttl_seconds: int = Field(default=60, ge=1, le=300)
     timeout_seconds: float = Field(default=45.0, gt=0, le=300)
     sdk_metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=now_utc)
@@ -410,6 +524,11 @@ class Source(BaseModel):
     title: str
     source_type: str
     reference: str
+    workspace_id: str | None = None
+    project_id: str | None = None
+    user_id: str | None = None
+    run_id: str | None = None
+    skill_id: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
 
 
@@ -845,11 +964,226 @@ class DelegatedAnswer(BaseModel):
     inbox_item: InboxItem | None = None
 
 
+class SkillIntentComplexity(StrEnum):
+    DIRECT = "direct"
+    ASSISTED = "assisted"
+    WORKFLOW = "workflow"
+
+
+class SkillIntentConstraints(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    external_write: bool = False
+    project_scope: Literal["current"] = "current"
+    time_budget_seconds: int | None = Field(default=None, ge=1, le=300)
+
+
+class SkillIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: str = Field(min_length=1, max_length=1000)
+    primary_stage: SkillLifecycleStage = SkillLifecycleStage.PRE_DESIGN
+    input_kinds: list[str] = Field(default_factory=list, max_length=20)
+    deliverables: list[str] = Field(default_factory=list, max_length=20)
+    constraints: SkillIntentConstraints = Field(default_factory=SkillIntentConstraints)
+    explicit_skill_names: list[str] = Field(default_factory=list, max_length=10)
+    complexity: SkillIntentComplexity = SkillIntentComplexity.DIRECT
+
+
+class SkillCandidateScore(BaseModel):
+    fts: float = Field(default=0, ge=0)
+    embedding: float = Field(default=0, ge=0)
+    stage: float = Field(default=0, ge=0)
+    inputs: float = Field(default=0, ge=0)
+    outputs: float = Field(default=0, ge=0)
+    examples: float = Field(default=0, ge=0)
+    recent_success: float = Field(default=0, ge=0)
+    negative: float = Field(default=0, ge=0)
+    total: float = 0
+
+
+class SkillCandidate(BaseModel):
+    skill_id: str
+    skill_name: str
+    title: str
+    description: str
+    profile: SkillCapabilityProfile
+    score: SkillCandidateScore
+    reason: str
+    ready: bool = True
+    diagnostics: list[str] = Field(default_factory=list)
+
+
+class SkillRecommendationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=4000)
+    thread_id: str | None = Field(default=None, max_length=120)
+
+
+class SkillRecommendationResponse(BaseModel):
+    intent: SkillIntent
+    candidates: list[SkillCandidate]
+    diagnostics: list[str] = Field(default_factory=list)
+
+
+class SkillPlanStatus(StrEnum):
+    PLANNING = "planning"
+    WAITING_APPROVAL = "waiting_approval"
+    APPROVED = "approved"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
+class SkillPlanNodeStatus(StrEnum):
+    PENDING = "pending"
+    READY = "ready"
+    RUNNING = "running"
+    WAITING_TOOL_APPROVAL = "waiting_tool_approval"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+
+
+class SkillPlanNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: new_id("node"))
+    skill_id: str
+    skill_version: str
+    skill_content_hash: str
+    reason: str = Field(min_length=1, max_length=1000)
+    required: bool = True
+    depends_on: list[str] = Field(default_factory=list, max_length=6)
+    parallel_group: str | None = Field(default=None, max_length=120)
+    input_bindings: list[str] = Field(default_factory=list, max_length=20)
+    output_contract: list[str] = Field(default_factory=list, max_length=20)
+    side_effect: SkillSideEffect = SkillSideEffect.READ
+    status: SkillPlanNodeStatus = SkillPlanNodeStatus.PENDING
+    attempt: int = Field(default=0, ge=0, le=2)
+    error_code: str | None = Field(default=None, max_length=120)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class SkillPlanDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    output_contract: list[str] = Field(default_factory=list, max_length=20)
+    nodes: list[SkillPlanNode] = Field(default_factory=list, max_length=6)
+
+
+class SkillPlan(BaseModel):
+    id: str = Field(default_factory=lambda: new_id("plan"))
+    run_id: str
+    version: int = Field(default=1, ge=1)
+    status: SkillPlanStatus = SkillPlanStatus.PLANNING
+    intent: SkillIntent
+    candidate_skill_ids: list[str] = Field(default_factory=list, max_length=12)
+    output_contract: list[str] = Field(default_factory=list, max_length=20)
+    preferred_order: list[str] = Field(default_factory=list, max_length=6)
+    nodes: list[SkillPlanNode] = Field(default_factory=list, max_length=6)
+    degradation: str | None = Field(default=None, max_length=500)
+    synthesis: dict[str, Any] | None = None
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
+class SkillPlanUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+    selected_skill_ids: list[str] = Field(min_length=1, max_length=6)
+    preferred_order: list[str] = Field(default_factory=list, max_length=6)
+
+
+class SkillPlanVersionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+
+
+class SkillNodeUsage(BaseModel):
+    total_tokens: int = Field(default=0, ge=0)
+
+
+class SkillResultSource(BaseModel):
+    id: str
+    title: str = Field(min_length=1, max_length=300)
+    source_type: str = Field(min_length=1, max_length=80)
+    reference: str = Field(default="", max_length=2000)
+
+
+class SkillNodeResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: new_id("node_result"))
+    node_id: str
+    skill_id: str
+    summary: str = Field(min_length=1, max_length=8000)
+    findings: list[str] = Field(default_factory=list, max_length=100)
+    recommendations: list[str] = Field(default_factory=list, max_length=100)
+    sources: list[SkillResultSource] = Field(default_factory=list, max_length=100)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    limitations: list[str] = Field(default_factory=list, max_length=100)
+    artifact_ids: list[str] = Field(default_factory=list, max_length=100)
+    usage: SkillNodeUsage = Field(default_factory=SkillNodeUsage)
+    degradation: str | None = Field(default=None, max_length=1000)
+    reused_from_run_id: str | None = Field(default=None, max_length=120)
+    reused_from_result_id: str | None = Field(default=None, max_length=120)
+    attempt: int = Field(default=1, ge=1, le=2)
+    created_at: datetime = Field(default_factory=now_utc)
+
+
+class SkillSynthesisClaim(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    node_result_ids: list[str] = Field(min_length=1, max_length=20)
+    source_ids: list[str] = Field(default_factory=list, max_length=100)
+    recommendation: bool = False
+
+
+class SkillSynthesisResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=1, max_length=8000)
+    sections: list[str] = Field(default_factory=list, max_length=100)
+    claims: list[SkillSynthesisClaim] = Field(default_factory=list, max_length=100)
+    limitations: list[str] = Field(default_factory=list, max_length=100)
+    next_actions: list[str] = Field(default_factory=list, max_length=100)
+    artifact_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class SkillPlanDetailResponse(BaseModel):
+    plan: SkillPlan
+    results: list[SkillNodeResult] = Field(default_factory=list)
+    synthesis: SkillSynthesisResult | None = None
+
+
+class SkillOrchestrationRequestMode(StrEnum):
+    AUTO = "auto"
+    SINGLE = "single"
+
+
 class AgentRunCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     content: str = Field(min_length=1, max_length=4000)
     client_turn_id: str = Field(min_length=1, max_length=120)
     thread_id: str | None = None
     skill_name: str | None = Field(default=None, max_length=64)
+    explicit_skill_name: str | None = Field(default=None, max_length=64)
+    orchestration_mode: SkillOrchestrationRequestMode = SkillOrchestrationRequestMode.AUTO
+
+
+class AgentRunRetryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_turn_id: str = Field(min_length=1, max_length=120)
 
 
 class ChatRequest(BaseModel):
@@ -1121,6 +1455,8 @@ class BootstrapState(BaseModel):
     agents: list[Agent]
     metrics: BootstrapMetrics
     capabilities: list[str] = Field(default_factory=list)
+    agent_runtime_enabled: bool = False
+    skill_orchestration_mode: Literal["off", "preview", "execute"] = "off"
 
 
 class RetrievalMetrics(BaseModel):
@@ -1182,10 +1518,14 @@ class SDKSessionRecord(BaseModel):
 
 class AgentRunStatus(StrEnum):
     CREATED = "created"
+    PLANNING = "planning"
     RUNNING = "running"
+    WAITING_PLAN_APPROVAL = "waiting_plan_approval"
     WAITING_APPROVAL = "waiting_approval"
     COMPLETED = "completed"
+    PARTIAL = "partial"
     FAILED = "failed"
+    REJECTED = "rejected"
     CANCELLED = "cancelled"
 
 
@@ -1200,13 +1540,24 @@ class AgentRun(BaseModel):
     status: AgentRunStatus = AgentRunStatus.CREATED
     skill_id: str | None = None
     skill_name: str | None = None
+    plan_id: str | None = None
+    orchestration_version: Literal["v1", "research-v2"] = "v1"
+    orchestration_mode: Literal["off", "preview", "execute"] = "off"
+    requested_orchestration_mode: SkillOrchestrationRequestMode | None = None
     agent_definition_version: str = "1"
     project_chat: bool = False
+    tool_call_count: int = Field(default=0, ge=0, le=24)
+    deadline_at: datetime | None = None
     paused_state: dict[str, Any] | None = None
     output_text: str | None = None
     error_code: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+
+
+class SkillPlanTransitionResponse(BaseModel):
+    plan: SkillPlan
+    run: AgentRun
 
 
 class AgentRunEvent(BaseModel):
@@ -1216,6 +1567,18 @@ class AgentRunEvent(BaseModel):
     event_type: str
     payload: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=now_utc)
+
+
+class AgentRunEventsResponse(BaseModel):
+    items: list[AgentRunEvent]
+
+
+class ArtifactVerificationState(StrEnum):
+    STAGING = "staging"
+    SEALED = "sealed"
+    FAILED = "failed"
+    LEGACY_UNVERIFIED = "legacy_unverified"
+    PURGED = "purged"
 
 
 class Artifact(BaseModel):
@@ -1228,7 +1591,74 @@ class Artifact(BaseModel):
     content_type: str
     content: str
     truncated: bool = False
+    verification_state: ArtifactVerificationState | None = None
+    schema_version: str | None = Field(default=None, max_length=120)
+    content_hash: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
+    size_bytes: int | None = Field(default=None, ge=0)
+    requirement_version_id: str | None = Field(default=None, max_length=120)
+    plan_version_id: str | None = Field(default=None, max_length=120)
+    attempt_id: str | None = Field(default=None, max_length=120)
+    step_number: int | None = Field(default=None, ge=1)
+    purged_at: datetime | None = None
+    purged_by: str | None = Field(default=None, max_length=120)
     created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_verification_state(self) -> Artifact:
+        if self.verification_state is None and any(
+            value is not None
+            for value in (
+                self.schema_version,
+                self.content_hash,
+                self.size_bytes,
+                self.requirement_version_id,
+                self.plan_version_id,
+                self.attempt_id,
+                self.step_number,
+                self.purged_at,
+                self.purged_by,
+            )
+        ):
+            raise ValueError("legacy artifacts cannot carry v2 verification metadata")
+        if self.verification_state in {
+            ArtifactVerificationState.STAGING,
+            ArtifactVerificationState.SEALED,
+            ArtifactVerificationState.FAILED,
+        } and (self.schema_version is None or self.requirement_version_id is None):
+            raise ValueError("v2 artifacts require schema and requirement lineage")
+        if self.plan_version_id is None and (self.attempt_id is not None or self.step_number is not None):
+            raise ValueError("attempt and step lineage require a plan")
+        if (self.attempt_id is None) != (self.step_number is None):
+            raise ValueError("attempt and step lineage must be set together")
+        if self.verification_state == ArtifactVerificationState.STAGING and (
+            self.content
+            or self.content_hash is not None
+            or self.size_bytes is not None
+            or self.purged_at is not None
+            or self.purged_by is not None
+            or self.schema_version is None
+        ):
+            raise ValueError("staging artifacts require a schema and cannot contain sealed content")
+        if self.verification_state == ArtifactVerificationState.SEALED:
+            content_bytes = self.content.encode("utf-8")
+            if self.schema_version is None or self.content_hash is None or self.size_bytes is None:
+                raise ValueError("sealed artifacts require schema_version, content_hash, and size_bytes")
+            if self.content_hash != hashlib.sha256(content_bytes).hexdigest() or self.size_bytes != len(content_bytes):
+                raise ValueError("sealed artifact hash or size does not match content")
+        if self.verification_state == ArtifactVerificationState.FAILED and (
+            self.purged_at is not None or self.purged_by is not None
+        ):
+            raise ValueError("failed artifacts cannot be marked purged")
+        if self.verification_state == ArtifactVerificationState.PURGED and (
+            self.purged_at is None
+            or self.purged_by is None
+            or self.content
+            or self.content_hash is None
+            or self.size_bytes is None
+        ):
+            raise ValueError("purged artifacts keep a tombstone hash/size and empty content")
+        return self
 
 
 class ChatTurnTrace(BaseModel):

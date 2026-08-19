@@ -68,23 +68,23 @@ export type ChatResponse = Omit<components['schemas']['ChatResponse'], 'user_mes
   turn_trace?: ChatTurnTrace | null
 }
 
-export type AgentRunStatus = 'created' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled'
-export type AgentRun = {
-  id: string
-  thread_id: string
-  user_id: string
-  workspace_id: string
-  project_id: string
-  input_text: string
-  status: AgentRunStatus
-  skill_id?: string | null
-  skill_name?: string | null
-  output_text?: string | null
-  error_code?: string | null
-  created_at: string
-  updated_at: string
-}
+export type AgentRunStatus = components['schemas']['AgentRunStatus']
+export type AgentRun = Omit<components['schemas']['AgentRun'], 'id'> & { id: string }
+export type AgentRunEvent = components['schemas']['AgentRunEvent']
 export type AgentRunResponse = { item: AgentRun }
+export type AgentRunEventsResponse = components['schemas']['AgentRunEventsResponse']
+export type SkillCandidate = components['schemas']['SkillCandidate']
+export type SkillRecommendationRequest = components['schemas']['SkillRecommendationRequest']
+export type SkillRecommendationResponse = components['schemas']['SkillRecommendationResponse']
+export type SkillPlan = components['schemas']['SkillPlan']
+export type SkillPlanNode = components['schemas']['SkillPlanNode']
+export type SkillPlanDetailResponse = components['schemas']['SkillPlanDetailResponse']
+export type SkillPlanUpdateRequest = components['schemas']['SkillPlanUpdateRequest']
+export type SkillPlanVersionRequest = components['schemas']['SkillPlanVersionRequest']
+export type SkillPlanTransitionResponse = components['schemas']['SkillPlanTransitionResponse']
+export type SkillNodeResult = components['schemas']['SkillNodeResult']
+export type SkillResultSource = components['schemas']['SkillResultSource']
+export type SkillSynthesisResult = components['schemas']['SkillSynthesisResult']
 
 export type ChatTurnReceipt = {
   client_turn_id: string
@@ -99,21 +99,8 @@ export type ThreadDetailResponse = {
   messages: ChatMessage[]
   turn_traces: ChatTurnTrace[]
 }
-export type Skill = {
-  id?: string
-  command: string
-  title: string
-  description: string
-  usage: string
-  placeholder: string
-  aliases: string[]
-  requires_input: boolean
-  source?: 'builtin' | 'workspace' | 'project'
-  version?: string
-  activation_policy?: 'explicit_only' | 'model_allowed'
-  enabled?: boolean
-}
-export type SkillsResponse = { items: Skill[] }
+export type Skill = components['schemas']['SkillCatalogItem']
+export type SkillsResponse = components['schemas']['SkillCatalogResponse']
 
 export type DocumentRecord = {
   id: string

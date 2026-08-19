@@ -11,16 +11,21 @@ from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agents import PersonalAgent
 from agentmesh.models import (
+    AgentRun,
+    AgentRunStatus,
     AgentToolGrant,
+    ChatThread,
     MemoryLayer,
     Scope,
     SkillDefinition,
     SkillSourceScope,
+    Source,
     ToolDefinition,
     UserMemoryItem,
 )
 from agentmesh.seed import USER, ensure_base_workspace_data
-from agentmesh.skill_runtime.resources import build_skill_resource_tool
+from agentmesh.skill_runtime.resources import build_skill_resource_tool, resolve_skill_resource
+from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
 from agentmesh.tool_runtime.factory import AgentMeshToolFactory
 from agentmesh.tools import ensure_tool_seed_data
@@ -37,6 +42,40 @@ def _repository(tmp_path) -> SQLiteStore:
 def _core_event_types(repository: SQLiteStore, run_id: str) -> list[str]:
     core = {"run_started", "approval_requested", "approval_resolved", "run_completed", "run_failed", "run_cancelled"}
     return [event.event_type for event in repository.list_agent_run_events(run_id) if event.event_type in core]
+
+
+def test_late_ordinary_run_completion_cannot_overwrite_cancellation(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    run = repository.save_agent_run(
+        AgentRun(
+            id="run_late_completion",
+            thread_id="thread_late_completion",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="late",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    runtime = AgentRuntimeService(repository, model=ScriptedModel([]), enabled=True)
+    assert repository.cancel_agent_run_tree(run.id, user_id=USER.id) is not None
+    result = SimpleNamespace(
+        interruptions=[],
+        final_output="too late",
+        context_wrapper=SimpleNamespace(usage=SimpleNamespace(total_tokens=1)),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        runtime._finalize_result(
+            run=run,
+            result=result,
+            selected=SimpleNamespace(requested_model="test", actual_model="test"),
+            skill=None,
+        )
+
+    persisted = repository.get_agent_run(run.id)
+    assert persisted is not None and persisted.status == AgentRunStatus.CANCELLED
+    assert persisted.output_text is None
 
 
 def test_sdk_runner_calls_granted_memory_tool(tmp_path) -> None:
@@ -410,6 +449,26 @@ def test_skill_resource_tool_reads_only_approved_roots(tmp_path) -> None:
         source_scope=SkillSourceScope.WORKSPACE,
         content_hash="resource-hash",
     )
+    repository.add_chat_thread(
+        ChatThread(
+            id="thread_resource",
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            user_id=USER.id,
+            title="Resource test",
+        )
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id="run_resource",
+            thread_id="thread_resource",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="read resource",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
     tool = build_skill_resource_tool(repository, skill)
     context = AgentMeshRunContext(
         user_id=USER.id,
@@ -422,9 +481,331 @@ def test_skill_resource_tool_reads_only_approved_roots(tmp_path) -> None:
 
     output = asyncio.run(tool.on_invoke_tool(wrapper, json.dumps({"path": "references/guide.md"})))
 
-    assert output == "trusted guide"
+    payload = json.loads(output)
+    assert payload["content"] == "trusted guide"
+    assert payload["source"]["source_type"] == "skill_resource"
+    assert payload["source"]["run_id"] == context.run_id
+    assert context.source_ids == [payload["source"]["id"]]
     with pytest.raises(FileNotFoundError):
         asyncio.run(tool.on_invoke_tool(wrapper, json.dumps({"path": "../outside.txt"})))
+
+
+def test_function_and_resource_tools_recheck_project_membership_at_invocation(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    context = AgentMeshRunContext(
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        thread_id="thread_revoked_tool_access",
+        run_id="run_revoked_tool_access",
+    )
+    repository.add_chat_thread(
+        ChatThread(
+            id=context.thread_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            user_id=context.user_id,
+            title="Revoked tool access",
+        )
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id=context.run_id,
+            thread_id=context.thread_id,
+            user_id=context.user_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            input_text="invoke governed tools",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    definition = repository.save_tool_definition(
+        ToolDefinition(
+            id="tool_revoked_access_probe",
+            name="revoked_access_probe",
+            description="Verify project membership immediately before execution",
+            category="test",
+            side_effect="read",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        )
+    )
+    repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_revoked_access_probe",
+            agent_id=USER.personal_agent_id,
+            tool_id=definition.id,
+            granted_by="test",
+        )
+    )
+    calls: list[str] = []
+
+    class Gateway:
+        @staticmethod
+        def handlers():
+            return {"revoked_access_probe": lambda _context, _arguments: calls.append("function")}
+
+    function_tool = AgentMeshToolFactory(repository, gateway=Gateway()).build(  # type: ignore[arg-type]
+        USER,
+        allowed_tool_names={definition.name},
+    )[0]
+    skill_dir = tmp_path / "revoked-resource-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: revoked-resource\ndescription: Test\n---\n")
+    (skill_dir / "guide.md").write_text("must not be read after revocation", encoding="utf-8")
+    resource_tool = build_skill_resource_tool(
+        repository,
+        SkillDefinition(
+            id="skill_revoked_resource",
+            name="revoked-resource",
+            title="Revoked Resource",
+            description="Revoked resource test",
+            instructions="Read guide.md",
+            source_path=str(skill_dir / "SKILL.md"),
+            source_scope=SkillSourceScope.WORKSPACE,
+            content_hash="revoked-resource-hash",
+        ),
+    )
+    project = repository.get_project(context.project_id)
+    assert project is not None
+    repository.save_project(project.model_copy(update={"member_ids": ["another_user"]}))
+    wrapper = SimpleNamespace(context=context)
+
+    with pytest.raises(PermissionError, match="project access was revoked"):
+        asyncio.run(function_tool.on_invoke_tool(wrapper, "{}"))
+    with pytest.raises(PermissionError, match="project access was revoked"):
+        asyncio.run(resource_tool.on_invoke_tool(wrapper, json.dumps({"path": "guide.md"})))
+
+    assert calls == []
+    assert context.source_ids == []
+
+
+def test_function_tool_rechecks_grant_immediately_before_invocation(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    context = AgentMeshRunContext(
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        thread_id="thread_revoked_function_grant",
+        run_id="run_revoked_function_grant",
+    )
+    repository.add_chat_thread(
+        ChatThread(
+            id=context.thread_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            user_id=context.user_id,
+            title="Revoked function grant",
+        )
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id=context.run_id,
+            thread_id=context.thread_id,
+            user_id=context.user_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            input_text="invoke after grant revocation",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    definition = repository.save_tool_definition(
+        ToolDefinition(
+            id="tool_revoked_function_grant",
+            name="revoked_function_grant",
+            description="Must stop when its grant is revoked",
+            category="test",
+            side_effect="read",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        )
+    )
+    grant = repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_revoked_function_grant",
+            agent_id=USER.personal_agent_id,
+            tool_id=definition.id,
+            granted_by="test",
+        )
+    )
+    calls: list[str] = []
+
+    class Gateway:
+        @staticmethod
+        def handlers():
+            return {definition.name: lambda _context, _arguments: calls.append("called")}
+
+    tool = AgentMeshToolFactory(repository, gateway=Gateway()).build(  # type: ignore[arg-type]
+        USER,
+        allowed_tool_names={definition.name},
+    )[0]
+    repository.save_agent_tool_grant(grant.model_copy(update={"enabled": False}))
+
+    with pytest.raises(PermissionError, match="tool grant was revoked"):
+        asyncio.run(tool.on_invoke_tool(SimpleNamespace(context=context), "{}"))
+
+    assert calls == []
+
+
+def test_skill_resource_tool_cannot_cross_registered_wiki_subtree(tmp_path, monkeypatch) -> None:
+    repository = _repository(tmp_path)
+    skill_dir = tmp_path / "scoped-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: scoped-skill\ndescription: Test\n---\n")
+    wiki = tmp_path / "wiki"
+    allowed = wiki / "domain-a"
+    denied = wiki / "domain-b"
+    allowed.mkdir(parents=True)
+    denied.mkdir(parents=True)
+    (allowed / "guide.md").write_text("allowed", encoding="utf-8")
+    (denied / "secret.md").write_text("denied", encoding="utf-8")
+    monkeypatch.setenv("AGENTMESH_WIKI_ROOT", str(wiki))
+    skill = SkillDefinition(
+        id="skill_scoped_resource",
+        name="scoped-skill",
+        title="Scoped Skill",
+        description="Scoped resource test",
+        instructions="Read the registered Wiki subtree",
+        source_path=str(skill_dir / "SKILL.md"),
+        source_scope=SkillSourceScope.BUILTIN,
+        content_hash="scoped-resource-hash",
+        metadata={"source": "2C-DesignWiki/domain-a/skills/scoped-skill/SKILL.md"},
+    )
+    repository.add_chat_thread(
+        ChatThread(
+            id="thread_scoped_resource",
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            user_id=USER.id,
+            title="Scoped resource test",
+        )
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id="run_scoped_resource",
+            thread_id="thread_scoped_resource",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="read scoped resource",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    context = AgentMeshRunContext(
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        thread_id="thread_scoped_resource",
+        run_id="run_scoped_resource",
+    )
+    tool = build_skill_resource_tool(repository, skill)
+    wrapper = SimpleNamespace(context=context)
+
+    allowed_payload = json.loads(
+        asyncio.run(tool.on_invoke_tool(wrapper, json.dumps({"path": "guide.md"})))
+    )
+    assert allowed_payload["content"] == "allowed"
+    with pytest.raises(FileNotFoundError):
+        asyncio.run(tool.on_invoke_tool(wrapper, json.dumps({"path": "domain-b/secret.md"})))
+
+
+def test_skill_resource_rejects_unrelated_wiki_subtree_with_same_suffix(tmp_path, monkeypatch) -> None:
+    wiki = tmp_path / "wiki"
+    wrong_subtree = wiki / "shared-tail"
+    wrong_subtree.mkdir(parents=True)
+    (wrong_subtree / "secret.md").write_text("wrong subtree", encoding="utf-8")
+    package = tmp_path / "suffix-collision-skill"
+    package.mkdir()
+    (package / "SKILL.md").write_text("---\nname: suffix-collision\ndescription: Test\n---\n", encoding="utf-8")
+    monkeypatch.setenv("AGENTMESH_WIKI_ROOT", str(wiki))
+    skill = SkillDefinition(
+        id="skill_suffix_collision",
+        name="suffix-collision",
+        title="Suffix Collision",
+        description="Reject a same-suffix Wiki subtree",
+        instructions="Read only the registered Wiki subtree",
+        source_path=str(package / "SKILL.md"),
+        source_scope=SkillSourceScope.BUILTIN,
+        content_hash="suffix-collision-hash",
+        metadata={"source": "2C-DesignWiki/domain-a/shared-tail/skills/suffix-collision/SKILL.md"},
+    )
+
+    assert not (wiki / "domain-a" / "shared-tail").exists()
+    assert resolve_skill_resource(skill, "secret.md") is None
+
+
+def test_builtin_skill_resources_follow_each_registered_wiki_subtree(tmp_path, monkeypatch) -> None:
+    wiki = tmp_path / "wiki"
+    boundaries = {
+        "generate-research-plan": "jd-design-system-md-v16/horizontal/user-research",
+        "query-experiment-conclusions": (
+            "jd-design-system-md-v16/product-architecture/plus-and-new-channel"
+        ),
+        "prd-feasibility": (
+            "jd-design-system-md-v16/product-architecture/comprehensive-business/content-ecosystem"
+        ),
+    }
+    for boundary in boundaries.values():
+        directory = wiki / boundary
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "boundary-proof.md").write_text(boundary, encoding="utf-8")
+    sibling = wiki / "jd-design-system-md-v16/product-architecture/comprehensive-business/other-domain"
+    sibling.mkdir(parents=True)
+    (sibling / "secret.md").write_text("outside approved subtree", encoding="utf-8")
+    monkeypatch.setenv("AGENTMESH_WIKI_ROOT", str(wiki))
+    repository = _repository(tmp_path)
+    catalog = SkillCatalogService(repository)
+    catalog.reload()
+
+    for skill_name, boundary in boundaries.items():
+        skill = catalog.get_by_name(skill_name, USER.personal_agent_id)
+        assert skill is not None
+        assert resolve_skill_resource(skill, "boundary-proof.md") == (
+            wiki / boundary / "boundary-proof.md"
+        ).resolve()
+
+    prd = catalog.get_by_name("prd-feasibility", USER.personal_agent_id)
+    assert prd is not None
+    assert resolve_skill_resource(
+        prd,
+        "jd-design-system-md-v16/product-architecture/comprehensive-business/other-domain/secret.md",
+    ) is None
+
+
+def test_untrusted_skill_metadata_cannot_expand_the_configured_wiki_root(tmp_path, monkeypatch) -> None:
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    escaped = tmp_path / "escaped"
+    escaped.mkdir()
+    (escaped / "secret.md").write_text("must remain outside", encoding="utf-8")
+    forged_workspace_root = wiki / "escaped"
+    forged_workspace_root.mkdir()
+    (forged_workspace_root / "secret.md").write_text("workspace metadata is untrusted", encoding="utf-8")
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "SKILL.md").write_text("---\nname: unsafe\ndescription: Unsafe\n---\n", encoding="utf-8")
+    monkeypatch.setenv("AGENTMESH_WIKI_ROOT", str(wiki))
+
+    traversal = SkillDefinition(
+        id="skill_wiki_traversal",
+        name="wiki-traversal",
+        title="Wiki Traversal",
+        description="Traversal attempt",
+        instructions="Read a forged Wiki boundary",
+        source_path=str(package / "SKILL.md"),
+        source_scope=SkillSourceScope.BUILTIN,
+        content_hash="wiki-traversal-hash",
+        metadata={"source": "2C-DesignWiki/../escaped/skills/wiki-traversal/SKILL.md"},
+    )
+    workspace_skill = traversal.model_copy(
+        update={
+            "id": "skill_workspace_wiki",
+            "name": "workspace-wiki",
+            "source_scope": SkillSourceScope.WORKSPACE,
+            "metadata": {"source": "2C-DesignWiki/escaped/skills/workspace-wiki/SKILL.md"},
+        }
+    )
+
+    assert resolve_skill_resource(traversal, "secret.md") is None
+    assert resolve_skill_resource(workspace_skill, "secret.md") is None
 
 
 def test_unsafe_oversized_tool_output_is_not_persisted_as_artifact(tmp_path) -> None:
@@ -461,9 +842,137 @@ def test_unsafe_oversized_tool_output_is_not_persisted_as_artifact(tmp_path) -> 
         thread_id="thread_unsafe_large",
         run_id="run_unsafe_large",
     )
+    repository.save_agent_run(
+        AgentRun(
+            id=context.run_id,
+            thread_id=context.thread_id,
+            user_id=context.user_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            input_text="unsafe output test",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
 
     output = asyncio.run(tool.on_invoke_tool(SimpleNamespace(context=context), "{}"))
 
     assert output == "Tool output was withheld by AgentMesh policy."
     with repository._connect() as connection:
         assert connection.execute("SELECT COUNT(*) FROM artifacts WHERE run_id = ?", (context.run_id,)).fetchone()[0] == 0
+
+
+def test_source_shaped_tool_records_do_not_grant_unpersisted_or_foreign_sources(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    context = AgentMeshRunContext(
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        thread_id="thread_source_shape",
+        run_id="run_source_shape",
+    )
+    repository.add_chat_thread(
+        ChatThread(
+            id=context.thread_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            user_id=context.user_id,
+            title="Source-shaped records",
+        )
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id=context.run_id,
+            thread_id=context.thread_id,
+            user_id=context.user_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            input_text="return ordinary records",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    foreign = repository.add_source(
+        Source(
+            id="src_foreign_shape",
+            title="Foreign source",
+            source_type="web_page",
+            reference="https://example.test/foreign",
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            user_id="another_user",
+            run_id=context.run_id,
+        )
+    )
+    definition = repository.save_tool_definition(
+        ToolDefinition(
+            id="tool_source_shape",
+            name="source_shape",
+            description="Return records that happen to look like Source objects",
+            category="test",
+            side_effect="read",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        )
+    )
+    repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_source_shape",
+            agent_id=USER.personal_agent_id,
+            tool_id=definition.id,
+            granted_by="test",
+        )
+    )
+
+    class Gateway:
+        @staticmethod
+        def handlers():
+            return {
+                "source_shape": lambda _context, _arguments: {
+                    "records": [
+                        {
+                            "id": "src_not_persisted",
+                            "title": "Ordinary row",
+                            "source_type": "web_page",
+                            "reference": "row://not-a-citation",
+                        },
+                        foreign.model_dump(mode="json"),
+                    ]
+                }
+            }
+
+    tool = AgentMeshToolFactory(repository, gateway=Gateway()).build(  # type: ignore[arg-type]
+        USER,
+        allowed_tool_names={definition.name},
+    )[0]
+
+    asyncio.run(tool.on_invoke_tool(SimpleNamespace(context=context), "{}"))
+
+    assert context.source_ids == []
+
+
+def test_source_identity_cannot_be_reassigned_to_another_run_or_project(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    original = repository.add_source(
+        Source(
+            id="src_immutable_identity",
+            title="Original source",
+            source_type="web_page",
+            reference="https://example.test/original",
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            user_id=USER.id,
+            run_id="run_original",
+            skill_id="skill_original",
+        )
+    )
+
+    with pytest.raises(ValueError, match="source_identity_conflict"):
+        repository.add_source(
+            original.model_copy(
+                update={
+                    "project_id": "project_other",
+                    "run_id": "run_other",
+                    "skill_id": "skill_other",
+                }
+            )
+        )
+
+    assert repository.get_source(original.id) == original

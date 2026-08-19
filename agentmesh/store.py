@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
 import sqlite3
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from datetime import date as dt_date
 from pathlib import Path
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
 
@@ -20,6 +23,7 @@ from agentmesh.models import (
     AgentRunStatus,
     AgentToolGrant,
     Artifact,
+    ArtifactVerificationState,
     AuditEvent,
     AuthCredential,
     AuthSession,
@@ -51,8 +55,14 @@ from agentmesh.models import (
     SDKSessionRecord,
     SearchResult,
     SkillBinding,
+    SkillCapabilityProfile,
     SkillDefinition,
+    SkillNodeResult,
     SkillPackage,
+    SkillPlan,
+    SkillPlanNode,
+    SkillPlanNodeStatus,
+    SkillPlanStatus,
     Source,
     Task,
     Team,
@@ -64,7 +74,35 @@ from agentmesh.models import (
     Workspace,
     now_utc,
 )
+from agentmesh.research_orchestration.contracts import (
+    AttemptStatus,
+    ExecutionAttempt,
+    ExecutionLease,
+    ExecutionPlanVersion,
+    InvocationState,
+    ModelCallReceipt,
+    RequirementVersion,
+    ResearchCommandReceipt,
+    ResearchGate,
+    ResearchPhase,
+    ResearchStep,
+    ResearchWorkflow,
+    StepStatus,
+    ToolInvocation,
+    ToolReceipt,
+    canonical_json_bytes,
+    canonical_sha256,
+)
 from agentmesh.vector_index import VectorIndex, VectorState, VectorStatus, VectorWork
+
+if TYPE_CHECKING:
+    from agentmesh.research_orchestration.api import ResearchCommandType, ResearchOwnerScope
+    from agentmesh.research_orchestration.workflow import (
+        CommandCommitResult,
+        CommandMutation,
+        PlanningMutation,
+        WorkflowContext,
+    )
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -78,6 +116,10 @@ class BriefConfirmationError(RuntimeError):
         self.detail = detail
 
 
+class ResearchStoreConflict(RuntimeError):
+    """A durable research invariant or compare-and-swap precondition failed."""
+
+
 @dataclass(slots=True)
 class BriefConfirmationResult:
     inbox_item: InboxItem
@@ -88,8 +130,18 @@ class BriefConfirmationResult:
 # --- FTS5 infrastructure ---
 
 _FTS_COLLECTIONS = frozenset(
-    {"chat_messages", "activity_logs", "blackboard_posts", "memory_items", "user_memory_items", "documents"}
+    {
+        "chat_messages",
+        "activity_logs",
+        "blackboard_posts",
+        "memory_items",
+        "user_memory_items",
+        "documents",
+        "skill_capability_profiles",
+    }
 )
+
+_KNOWLEDGE_FTS_COLLECTIONS = frozenset(_FTS_COLLECTIONS - {"skill_capability_profiles"})
 
 _RESULT_TYPE_COLLECTIONS = {
     "chat_message": "chat_messages",
@@ -178,6 +230,18 @@ def _extract_fts_doc(collection: str, item: BaseModel) -> _FTSDoc | None:
         project_id = getattr(item, "project_id", "") or ""
         user_id = getattr(item, "uploaded_by", "") or ""
         created_at = _dt_str(getattr(item, "created_at", None))
+    elif collection == "skill_capability_profiles":
+        title = getattr(item, "skill_name", "")
+        body = " ".join(
+            [
+                getattr(item, "capability_type", ""),
+                *getattr(item, "input_kinds", []),
+                *getattr(item, "output_kinds", []),
+                *getattr(item, "examples", []),
+            ]
+        )
+        scope = Scope.PROJECT.value
+        created_at = _dt_str(getattr(item, "updated_at", None))
 
     if isinstance(scope, Scope):
         scope = scope.value
@@ -223,6 +287,7 @@ _FTS_COLLECTION_MODELS: dict[str, type[BaseModel]] = {
     "memory_items": MemoryItem,
     "user_memory_items": UserMemoryItem,
     "documents": DocumentRecord,
+    "skill_capability_profiles": SkillCapabilityProfile,
 }
 
 
@@ -233,6 +298,7 @@ class SQLiteStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.vector_index = VectorIndex(self.db_path)
         self._init_schema()
+        self._backfill_artifact_projections()
         self._backfill_fts()
         self._backfill_vec()
 
@@ -245,6 +311,55 @@ class SQLiteStore:
     def _init_schema(self) -> None:
         with sqlite3.connect(self.db_path) as connection:
             self._ensure_schema(connection)
+
+    def _backfill_artifact_projections(self) -> None:
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                """
+                UPDATE artifacts SET
+                    workspace_id = COALESCE(workspace_id, json_extract(payload, '$.workspace_id')),
+                    project_id = COALESCE(project_id, json_extract(payload, '$.project_id')),
+                    user_id = COALESCE(user_id, json_extract(payload, '$.user_id')),
+                    artifact_type = COALESCE(artifact_type, json_extract(payload, '$.artifact_type')),
+                    content_type = COALESCE(content_type, json_extract(payload, '$.content_type')),
+                    truncated = COALESCE(truncated, json_extract(payload, '$.truncated')),
+                    verification_state = COALESCE(verification_state, json_extract(payload, '$.verification_state')),
+                    schema_version = COALESCE(schema_version, json_extract(payload, '$.schema_version')),
+                    content_hash = COALESCE(content_hash, json_extract(payload, '$.content_hash')),
+                    size_bytes = COALESCE(size_bytes, json_extract(payload, '$.size_bytes')),
+                    requirement_version_id = COALESCE(
+                        requirement_version_id,
+                        json_extract(payload, '$.requirement_version_id')
+                    ),
+                    plan_version_id = COALESCE(plan_version_id, json_extract(payload, '$.plan_version_id')),
+                    attempt_id = COALESCE(attempt_id, json_extract(payload, '$.attempt_id')),
+                    step_number = COALESCE(step_number, json_extract(payload, '$.step_number')),
+                    purged_at = COALESCE(purged_at, json_extract(payload, '$.purged_at')),
+                    purged_by = COALESCE(purged_by, json_extract(payload, '$.purged_by')),
+                    updated_at = COALESCE(updated_at, json_extract(payload, '$.updated_at'))
+                WHERE json_valid(payload)
+                  AND (
+                      workspace_id IS NULL OR project_id IS NULL OR user_id IS NULL
+                      OR artifact_type IS NULL OR content_type IS NULL OR truncated IS NULL
+                  )
+                """
+            )
+
+    @staticmethod
+    def _ensure_column(
+        connection: sqlite3.Connection,
+        table: str,
+        column: str,
+        declaration: str,
+    ) -> None:
+        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            try:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+            except sqlite3.OperationalError as error:
+                refreshed = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+                if column not in refreshed:
+                    raise error
 
     @staticmethod
     def _ensure_schema(connection: sqlite3.Connection) -> None:
@@ -296,9 +411,16 @@ class SQLiteStore:
             CREATE TABLE IF NOT EXISTS agent_runs (
                 id TEXT PRIMARY KEY,
                 payload TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                orchestration_version TEXT NOT NULL DEFAULT 'v1'
             )
             """
+        )
+        SQLiteStore._ensure_column(
+            connection,
+            "agent_runs",
+            "orchestration_version",
+            "TEXT NOT NULL DEFAULT 'v1'",
         )
         connection.execute(
             """
@@ -331,11 +453,282 @@ class SQLiteStore:
                 id TEXT PRIMARY KEY,
                 run_id TEXT NOT NULL,
                 payload TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                workspace_id TEXT,
+                project_id TEXT,
+                user_id TEXT,
+                artifact_type TEXT,
+                content_type TEXT,
+                truncated INTEGER,
+                verification_state TEXT,
+                schema_version TEXT,
+                content_hash TEXT,
+                size_bytes INTEGER,
+                requirement_version_id TEXT,
+                plan_version_id TEXT,
+                attempt_id TEXT,
+                step_number INTEGER,
+                purged_at TEXT,
+                purged_by TEXT,
+                updated_at TEXT
             )
             """
         )
+        for column, declaration in (
+            ("workspace_id", "TEXT"),
+            ("project_id", "TEXT"),
+            ("user_id", "TEXT"),
+            ("artifact_type", "TEXT"),
+            ("content_type", "TEXT"),
+            ("truncated", "INTEGER"),
+            ("verification_state", "TEXT"),
+            ("schema_version", "TEXT"),
+            ("content_hash", "TEXT"),
+            ("size_bytes", "INTEGER"),
+            ("requirement_version_id", "TEXT"),
+            ("plan_version_id", "TEXT"),
+            ("attempt_id", "TEXT"),
+            ("step_number", "INTEGER"),
+            ("purged_at", "TEXT"),
+            ("purged_by", "TEXT"),
+            ("updated_at", "TEXT"),
+        ):
+            SQLiteStore._ensure_column(connection, "artifacts", column, declaration)
         connection.execute("CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_artifacts_run_kind_state "
+            "ON artifacts(run_id, artifact_type, verification_state, created_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_artifacts_verification ON artifacts(verification_state, created_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_artifacts_attempt_step ON artifacts(attempt_id, step_number)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_artifacts_plan_kind ON artifacts(plan_version_id, artifact_type, created_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_artifacts_run_provenance "
+            "ON artifacts(run_id, requirement_version_id, plan_version_id, attempt_id, step_number, created_at)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS skill_plans (
+                id TEXT PRIMARY KEY,
+                run_id TEXT UNIQUE NOT NULL,
+                version INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_skill_plans_status ON skill_plans(status, updated_at)")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS skill_plan_nodes (
+                plan_id TEXT NOT NULL,
+                id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(plan_id, id)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skill_plan_nodes_status ON skill_plan_nodes(plan_id, status, updated_at)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS skill_node_results (
+                plan_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(plan_id, node_id, attempt)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skill_node_results_plan ON skill_node_results(plan_id, created_at)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_workflows (
+                run_id TEXT PRIMARY KEY,
+                phase TEXT NOT NULL,
+                active_gate TEXT NOT NULL,
+                active_requirement_version_id TEXT,
+                active_plan_version_id TEXT,
+                active_attempt_id TEXT,
+                state_version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_research_workflows_state ON research_workflows(phase, active_gate, updated_at)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_requirement_versions (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(run_id, version)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_research_requirements_run ON research_requirement_versions(run_id, version)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_plan_versions (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                requirement_version_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                plan_hash TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(run_id, version),
+                UNIQUE(run_id, plan_hash)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_research_plans_run ON research_plan_versions(run_id, version)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_commands (
+                run_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                command_type TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                response_status INTEGER NOT NULL,
+                response_payload TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(run_id, idempotency_key)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_attempts (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                plan_version_id TEXT NOT NULL,
+                attempt_number INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                lease_owner TEXT,
+                lease_token TEXT,
+                fencing_epoch INTEGER NOT NULL,
+                lease_expires_at TEXT,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(run_id, attempt_number)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_research_attempts_lease ON research_attempts(status, lease_expires_at)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_research_attempts_one_active "
+            "ON research_attempts(run_id) WHERE status IN ('pending', 'running', 'recovery_required')"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_steps (
+                attempt_id TEXT NOT NULL,
+                step_number INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                claim_epoch INTEGER NOT NULL,
+                result_artifact_id TEXT,
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(attempt_id, step_number)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_research_steps_status ON research_steps(attempt_id, status, step_number)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_tool_invocations (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                plan_version_id TEXT NOT NULL,
+                step_number INTEGER NOT NULL,
+                operation_key TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                resolved_input_hash TEXT NOT NULL,
+                request_artifact_id TEXT NOT NULL,
+                active_attempt_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                send_count INTEGER NOT NULL,
+                active_send_sequence INTEGER NOT NULL,
+                sent_fencing_epoch INTEGER,
+                receipt_payload TEXT,
+                artifact_id TEXT,
+                provider_operation_id TEXT,
+                last_sent_at TEXT,
+                acknowledged_at TEXT,
+                unknown_at TEXT,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(run_id, operation_key)
+            )
+            """
+        )
+        for column, declaration in (
+            ("resolved_input_hash", "TEXT"),
+            ("request_artifact_id", "TEXT"),
+            ("active_attempt_id", "TEXT"),
+            ("active_send_sequence", "INTEGER NOT NULL DEFAULT 0"),
+            ("sent_fencing_epoch", "INTEGER"),
+            ("provider_operation_id", "TEXT"),
+            ("last_sent_at", "TEXT"),
+            ("acknowledged_at", "TEXT"),
+            ("unknown_at", "TEXT"),
+        ):
+            SQLiteStore._ensure_column(connection, "research_tool_invocations", column, declaration)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_research_invocations_state ON research_tool_invocations(state, updated_at)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_research_invocations_plan_step "
+            "ON research_tool_invocations(run_id, plan_version_id, step_number)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_model_call_receipts (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                owner_kind TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                call_key TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(owner_kind, owner_id, stage, call_key)
+            )
+            """
+        )
         VectorIndex.ensure_schema(connection)
 
     def reset(self) -> None:
@@ -346,8 +739,19 @@ class SQLiteStore:
             connection.execute("DELETE FROM vector_states")
             connection.execute("DELETE FROM agent_run_events")
             connection.execute("DELETE FROM agent_run_receipts")
+            connection.execute("DELETE FROM research_model_call_receipts")
+            connection.execute("DELETE FROM research_tool_invocations")
+            connection.execute("DELETE FROM research_steps")
+            connection.execute("DELETE FROM research_attempts")
+            connection.execute("DELETE FROM research_commands")
+            connection.execute("DELETE FROM research_plan_versions")
+            connection.execute("DELETE FROM research_requirement_versions")
+            connection.execute("DELETE FROM research_workflows")
             connection.execute("DELETE FROM agent_runs")
             connection.execute("DELETE FROM artifacts")
+            connection.execute("DELETE FROM skill_node_results")
+            connection.execute("DELETE FROM skill_plan_nodes")
+            connection.execute("DELETE FROM skill_plans")
 
     def _upsert(self, collection: str, item: BaseModel) -> None:
         work: VectorWork | None = None
@@ -581,6 +985,10 @@ class SQLiteStore:
     @property
     def skill_definitions(self) -> list[SkillDefinition]:
         return self._list("skill_definitions", SkillDefinition)
+
+    @property
+    def skill_capability_profiles(self) -> list[SkillCapabilityProfile]:
+        return self._list("skill_capability_profiles", SkillCapabilityProfile)
 
     @property
     def skill_bindings(self) -> list[SkillBinding]:
@@ -857,6 +1265,119 @@ class SQLiteStore:
         self._upsert("skill_definitions", skill)
         return skill
 
+    def save_skill_capability_profile(self, profile: SkillCapabilityProfile) -> SkillCapabilityProfile:
+        self._upsert("skill_capability_profiles", profile)
+        return profile
+
+    def get_skill_capability_profile(self, skill_id: str) -> SkillCapabilityProfile | None:
+        return self._get("skill_capability_profiles", skill_id, SkillCapabilityProfile)
+
+    def delete_skill_capability_profile(self, skill_id: str) -> None:
+        collection = "skill_capability_profiles"
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "DELETE FROM records WHERE collection = ? AND id = ?",
+                (collection, skill_id),
+            )
+            connection.execute(
+                "DELETE FROM records_fts WHERE collection = ? AND record_id = ?",
+                (collection, skill_id),
+            )
+            connection.execute(
+                "DELETE FROM records_vec WHERE collection = ? AND record_id = ?",
+                (collection, skill_id),
+            )
+            connection.execute(
+                "DELETE FROM vector_states WHERE collection = ? AND record_id = ?",
+                (collection, skill_id),
+            )
+
+    def skill_profile_index_counts(self) -> dict[str, int]:
+        """Return aggregate FTS coverage without exposing profile identifiers."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM records
+                     WHERE collection = 'skill_capability_profiles') AS records,
+                    (SELECT COUNT(*) FROM records_fts
+                     WHERE collection = 'skill_capability_profiles') AS indexed,
+                    (SELECT COUNT(*) FROM records AS profile
+                     WHERE profile.collection = 'skill_capability_profiles'
+                       AND NOT EXISTS (
+                           SELECT 1 FROM records_fts
+                           WHERE collection = 'skill_capability_profiles'
+                             AND record_id = profile.id
+                       )) AS missing
+                """
+            ).fetchone()
+        return {key: int(row[key]) for key in ("records", "indexed", "missing")}
+
+    def rank_skill_profiles(
+        self,
+        query: str,
+        allowed_skill_ids: set[str],
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Return isolated lexical/vector rankings for already-authorized profiles."""
+        if not query.strip() or not allowed_skill_ids:
+            return [], [], []
+        allowed = sorted(allowed_skill_ids)
+        placeholders = ",".join("?" for _ in allowed)
+        chunks: list[str] = []
+        for token in re.findall(r"[\w\u3400-\u9fff]+", query.lower()):
+            if len(token) <= 8 and len(token) >= 3:
+                chunks.append(token)
+            chunks.extend(token[index : index + 3] for index in range(max(0, len(token) - 2)))
+        chunks = list(dict.fromkeys(chunks))[:80]
+        fts_ids: list[str] = []
+        diagnostics: list[str] = []
+        query_embedding = None
+        from agentmesh.embedding import EMBEDDING_ENABLED, deserialize_embedding, embed_text
+
+        if EMBEDDING_ENABLED:
+            query_embedding = embed_text(query)
+            if query_embedding is None:
+                diagnostics.append("embedding_unavailable")
+        else:
+            diagnostics.append("embedding_unavailable")
+        with self._connect() as connection:
+            if chunks:
+                match_query = " OR ".join(f'"{chunk.replace(chr(34), chr(34) * 2)}"' for chunk in chunks)
+                rows = connection.execute(
+                    f"""
+                    SELECT record_id
+                    FROM records_fts
+                    WHERE records_fts MATCH ?
+                      AND collection = 'skill_capability_profiles'
+                      AND record_id IN ({placeholders})
+                    ORDER BY bm25(records_fts)
+                    LIMIT 50
+                    """,
+                    [match_query, *allowed],
+                ).fetchall()
+                fts_ids = [str(row["record_id"]) for row in rows]
+            vector_ids: list[str] = []
+            if query_embedding is not None:
+                from agentmesh.embedding import cosine_similarity
+
+                rows = connection.execute(
+                    f"""
+                    SELECT record_id, embedding
+                    FROM records_vec
+                    WHERE collection = 'skill_capability_profiles'
+                      AND record_id IN ({placeholders})
+                    """,
+                    allowed,
+                ).fetchall()
+                scores = [
+                    (cosine_similarity(query_embedding, deserialize_embedding(row["embedding"])), str(row["record_id"]))
+                    for row in rows
+                ]
+                scores.sort(reverse=True)
+                vector_ids = [skill_id for _score, skill_id in scores]
+        return fts_ids, vector_ids, diagnostics
+
     def get_skill_definition(self, skill_id: str) -> SkillDefinition | None:
         return self._get("skill_definitions", skill_id, SkillDefinition)
 
@@ -1039,17 +1560,960 @@ class SQLiteStore:
             )
         return record
 
-    def save_agent_run(self, run: AgentRun) -> AgentRun:
+    @staticmethod
+    def _write_skill_plan(connection: sqlite3.Connection, plan: SkillPlan) -> None:
+        connection.execute(
+            """
+            INSERT INTO skill_plans(id, run_id, version, status, payload, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                run_id = excluded.run_id,
+                version = excluded.version,
+                status = excluded.status,
+                payload = excluded.payload,
+                updated_at = excluded.updated_at
+            """,
+            (
+                plan.id,
+                plan.run_id,
+                plan.version,
+                plan.status.value,
+                plan.model_dump_json(),
+                plan.updated_at.isoformat(),
+            ),
+        )
+        node_ids = [node.id for node in plan.nodes]
+        if node_ids:
+            placeholders = ",".join("?" for _ in node_ids)
+            connection.execute(
+                f"DELETE FROM skill_plan_nodes WHERE plan_id = ? AND id NOT IN ({placeholders})",
+                [plan.id, *node_ids],
+            )
+        else:
+            connection.execute("DELETE FROM skill_plan_nodes WHERE plan_id = ?", (plan.id,))
+        for node in plan.nodes:
+            connection.execute(
+                """
+                INSERT INTO skill_plan_nodes(plan_id, id, status, payload, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(plan_id, id) DO UPDATE SET
+                    status = excluded.status,
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                (plan.id, node.id, node.status.value, node.model_dump_json(), plan.updated_at.isoformat()),
+            )
+
+    @staticmethod
+    def _append_agent_run_events(
+        connection: sqlite3.Connection,
+        run_id: str,
+        events: list[tuple[str, dict[str, object]]],
+    ) -> None:
+        sequence = connection.execute(
+            "SELECT COALESCE(MAX(sequence), 0) FROM agent_run_events WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()[0]
+        for event_type, payload in events:
+            sequence += 1
+            event = AgentRunEvent(run_id=run_id, sequence=sequence, event_type=event_type, payload=payload)
+            connection.execute(
+                "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                (run_id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
+            )
+
+    @staticmethod
+    def _resolve_open_run_inboxes(
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        reason: str,
+        resolved_at: datetime,
+    ) -> None:
+        rows = connection.execute(
+            """
+            SELECT payload FROM records
+            WHERE collection = 'inbox_items'
+              AND json_extract(payload, '$.metadata.run_id') = ?
+              AND json_extract(payload, '$.status') = 'open'
+            """,
+            (run_id,),
+        ).fetchall()
+        for row in rows:
+            item = InboxItem.model_validate_json(row["payload"])
+            item.status = "resolved"
+            item.acknowledged_at = item.acknowledged_at or resolved_at
+            item.resolved_at = resolved_at
+            item.updated_at = resolved_at
+            item.metadata["approval_failure"] = reason
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = 'inbox_items' AND id = ?",
+                (item.model_dump_json(), item.id),
+            )
+
+    @staticmethod
+    def _waiting_approval_expired(
+        connection: sqlite3.Connection,
+        run: AgentRun,
+        *,
+        checked_at: datetime,
+    ) -> bool:
+        if run.status != AgentRunStatus.WAITING_APPROVAL:
+            return False
+        expiries: list[datetime] = []
+        if run.deadline_at is not None:
+            expiries.append(run.deadline_at)
+        raw_expiry = (run.paused_state or {}).get("expires_at")
+        if isinstance(raw_expiry, str):
+            with suppress(ValueError):
+                parsed = datetime.fromisoformat(raw_expiry)
+                expiries.append(parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC))
+        rows = connection.execute(
+            """
+            SELECT payload FROM records
+            WHERE collection = 'inbox_items'
+              AND json_extract(payload, '$.metadata.run_id') = ?
+              AND json_extract(payload, '$.status') = 'open'
+            """,
+            (run.id,),
+        ).fetchall()
+        expiries.extend(InboxItem.model_validate_json(row["payload"]).created_at + timedelta(hours=24) for row in rows)
+        return bool(expiries) and checked_at >= min(expiries)
+
+    def _close_research_execution_for_cancel(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        cancelled_at: datetime,
+        reason: str,
+    ) -> None:
+        invocation_rows = connection.execute(
+            """
+            SELECT * FROM research_tool_invocations
+            WHERE run_id = ? AND state IN (?, ?)
+            """,
+            (run_id, InvocationState.PREPARED.value, InvocationState.SENT.value),
+        ).fetchall()
+        for row in invocation_rows:
+            try:
+                current = ToolInvocation.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+            if not self._research_invocation_projection_matches(row, current):
+                raise ResearchStoreConflict("Tool invocation failed integrity verification")
+            if current.state == InvocationState.PREPARED:
+                updated = current.model_copy(
+                    update={
+                        "state": InvocationState.CANCELLED,
+                        "error_code": reason,
+                        "updated_at": cancelled_at,
+                    }
+                )
+            else:
+                updated = current.model_copy(
+                    update={
+                        "state": InvocationState.UNKNOWN,
+                        "unknown_at": cancelled_at,
+                        "error_code": "cancelled_after_send_result_unknown",
+                        "updated_at": cancelled_at,
+                    }
+                )
+            connection.execute(
+                """
+                UPDATE research_tool_invocations
+                SET state = ?, unknown_at = ?, payload = ?, updated_at = ?
+                WHERE id = ? AND state = ? AND active_send_sequence = ?
+                  AND sent_fencing_epoch IS ? AND updated_at = ?
+                """,
+                (
+                    updated.state.value,
+                    updated.unknown_at.isoformat() if updated.unknown_at is not None else None,
+                    updated.model_dump_json(),
+                    cancelled_at.isoformat(),
+                    current.id,
+                    current.state.value,
+                    current.active_send_sequence,
+                    current.sent_fencing_epoch,
+                    current.updated_at.isoformat(),
+                ),
+            )
+
+        attempt_rows = connection.execute(
+            "SELECT * FROM research_attempts WHERE run_id = ?",
+            (run_id,),
+        ).fetchall()
+        for attempt_row in attempt_rows:
+            try:
+                attempt = ExecutionAttempt.model_validate_json(attempt_row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research attempt failed integrity verification") from None
+            if not self._research_attempt_projection_matches(attempt_row, attempt):
+                raise ResearchStoreConflict("research attempt failed integrity verification")
+            if attempt.status in {AttemptStatus.COMPLETED, AttemptStatus.FAILED, AttemptStatus.CANCELLED}:
+                continue
+            step_rows = connection.execute(
+                "SELECT * FROM research_steps WHERE attempt_id = ?",
+                (attempt.id,),
+            ).fetchall()
+            for step_row in step_rows:
+                try:
+                    step = ResearchStep.model_validate_json(step_row["payload"])
+                except (RecursionError, TypeError, ValueError):
+                    raise ResearchStoreConflict("research step failed integrity verification") from None
+                if not self._research_step_projection_matches(step_row, step):
+                    raise ResearchStoreConflict("research step failed integrity verification")
+                if step.status in {
+                    StepStatus.COMPLETED,
+                    StepStatus.FAILED,
+                    StepStatus.SKIPPED,
+                    StepStatus.CANCELLED,
+                }:
+                    continue
+                cancelled_step = step.model_copy(
+                    update={
+                        "status": StepStatus.CANCELLED,
+                        "result_artifact_id": None,
+                        "error_code": reason,
+                        "completed_at": cancelled_at,
+                        "updated_at": cancelled_at,
+                    }
+                )
+                connection.execute(
+                    """
+                    UPDATE research_steps
+                    SET status = ?, result_artifact_id = ?, payload = ?, updated_at = ?
+                    WHERE attempt_id = ? AND step_number = ? AND status = ?
+                      AND claim_epoch = ? AND updated_at = ?
+                    """,
+                    (
+                        cancelled_step.status.value,
+                        cancelled_step.result_artifact_id,
+                        cancelled_step.model_dump_json(),
+                        cancelled_at.isoformat(),
+                        step.attempt_id,
+                        step.step_number,
+                        step.status.value,
+                        step.claim_epoch,
+                        step.updated_at.isoformat(),
+                    ),
+                )
+            cancelled_attempt = attempt.model_copy(
+                update={
+                    "status": AttemptStatus.CANCELLED,
+                    "lease_owner": None,
+                    "lease_token": None,
+                    "lease_expires_at": None,
+                    "completed_at": cancelled_at,
+                    "updated_at": cancelled_at,
+                }
+            )
+            connection.execute(
+                """
+                UPDATE research_attempts
+                SET status = ?, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
+                    payload = ?, updated_at = ?
+                WHERE id = ? AND status = ? AND fencing_epoch = ? AND updated_at = ?
+                """,
+                (
+                    cancelled_attempt.status.value,
+                    cancelled_attempt.model_dump_json(),
+                    cancelled_at.isoformat(),
+                    attempt.id,
+                    attempt.status.value,
+                    attempt.fencing_epoch,
+                    attempt.updated_at.isoformat(),
+                ),
+            )
+
+    def _cancel_agent_run_tree_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        run: AgentRun,
+        *,
+        reason: str,
+    ) -> AgentRun:
+        cancelled_at = now_utc()
+        events: list[tuple[str, dict[str, object]]] = []
+        plan_row = connection.execute(
+            "SELECT payload FROM skill_plans WHERE run_id = ?",
+            (run.id,),
+        ).fetchone()
+        if plan_row is not None:
+            plan = SkillPlan.model_validate_json(plan_row["payload"])
+            terminal_nodes = {
+                SkillPlanNodeStatus.COMPLETED,
+                SkillPlanNodeStatus.FAILED,
+                SkillPlanNodeStatus.SKIPPED,
+                SkillPlanNodeStatus.CANCELLED,
+            }
+            for node in plan.nodes:
+                if node.status in terminal_nodes:
+                    continue
+                node.status = SkillPlanNodeStatus.CANCELLED
+                node.completed_at = cancelled_at
+                events.append(("node_cancelled", {"plan_id": plan.id, "node_id": node.id}))
+            plan.status = SkillPlanStatus.CANCELLED
+            plan.updated_at = cancelled_at
+            self._write_skill_plan(connection, plan)
+        if run.orchestration_version == "research-v2":
+            self._close_research_execution_for_cancel(
+                connection,
+                run.id,
+                cancelled_at=cancelled_at,
+                reason=reason,
+            )
+            workflow_row = connection.execute(
+                "SELECT payload, state_version FROM research_workflows WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()
+            if workflow_row is not None:
+                workflow = ResearchWorkflow.model_validate_json(workflow_row["payload"])
+                if workflow.phase != ResearchPhase.TERMINAL:
+                    workflow.phase = ResearchPhase.TERMINAL
+                    workflow.active_gate = ResearchGate.NONE
+                    workflow.state_version = workflow_row["state_version"] + 1
+                    workflow.updated_at = cancelled_at
+                    connection.execute(
+                        """
+                        UPDATE research_workflows
+                        SET phase = ?, active_gate = ?, state_version = ?, payload = ?, updated_at = ?
+                        WHERE run_id = ? AND state_version = ?
+                        """,
+                        (
+                            workflow.phase.value,
+                            workflow.active_gate.value,
+                            workflow.state_version,
+                            workflow.model_dump_json(),
+                            cancelled_at.isoformat(),
+                            run.id,
+                            workflow_row["state_version"],
+                        ),
+                    )
+                    events.append(
+                        (
+                            "research_updated",
+                            {
+                                "state_version": workflow.state_version,
+                                "phase": workflow.phase.value,
+                                "active_gate": workflow.active_gate.value,
+                            },
+                        )
+                    )
+        run.status = AgentRunStatus.CANCELLED
+        run.paused_state = None
+        run.error_code = None
+        run.updated_at = cancelled_at
+        connection.execute(
+            "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+            (run.model_dump_json(), cancelled_at.isoformat(), run.id),
+        )
+        self._resolve_open_run_inboxes(
+            connection,
+            run.id,
+            reason=reason,
+            resolved_at=cancelled_at,
+        )
+        events.append(("run_cancelled", {"reason": reason}))
+        self._append_agent_run_events(connection, run.id, events)
+        return run
+
+    def save_skill_plan(self, plan: SkillPlan) -> SkillPlan:
+        plan.updated_at = now_utc()
+        with self._connect() as connection:
+            self._write_skill_plan(connection, plan)
+        return plan
+
+    def compare_and_swap_skill_plan(
+        self,
+        plan: SkillPlan,
+        *,
+        expected_version: int,
+        events: list[tuple[str, dict[str, object]]] | None = None,
+    ) -> bool:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan.id,)).fetchone()
+            run_row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (plan.run_id,)).fetchone()
+            if row is None or run_row is None:
+                return False
+            current = SkillPlan.model_validate_json(row["payload"])
+            run = AgentRun.model_validate_json(run_row["payload"])
+            if (
+                current.run_id != run.id
+                or current.version != expected_version
+                or current.status != SkillPlanStatus.WAITING_APPROVAL
+                or plan.status != SkillPlanStatus.WAITING_APPROVAL
+                or run.status != AgentRunStatus.WAITING_PLAN_APPROVAL
+            ):
+                return False
+            plan.version = expected_version + 1
+            plan.updated_at = now_utc()
+            self._write_skill_plan(connection, plan)
+            self._append_agent_run_events(connection, plan.run_id, events or [])
+        return True
+
+    def transition_skill_plan_and_run(
+        self,
+        *,
+        plan_id: str,
+        run_id: str,
+        expected_version: int,
+        expected_plan_status: SkillPlanStatus,
+        expected_run_status: AgentRunStatus,
+        next_plan_status: SkillPlanStatus,
+        next_run_status: AgentRunStatus,
+        events: list[tuple[str, dict[str, object]]],
+        output_text: str | None = None,
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            plan_row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
+            run_row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            if plan_row is None or run_row is None:
+                return None
+            plan = SkillPlan.model_validate_json(plan_row["payload"])
+            run = AgentRun.model_validate_json(run_row["payload"])
+            if (
+                plan.run_id != run.id
+                or plan.version != expected_version
+                or plan.status != expected_plan_status
+                or run.status != expected_run_status
+            ):
+                return None
+            now = now_utc()
+            plan.version += 1
+            plan.status = next_plan_status
+            plan.updated_at = now
+            run.status = next_run_status
+            run.output_text = output_text
+            run.updated_at = now
+            self._write_skill_plan(connection, plan)
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) FROM agent_run_events WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()[0]
+            for event_type, payload in events:
+                sequence += 1
+                event = AgentRunEvent(run_id=run.id, sequence=sequence, event_type=event_type, payload=payload)
+                connection.execute(
+                    "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (run.id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
+                )
+        return plan, run
+
+    def get_skill_plan(self, plan_id: str) -> SkillPlan | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
+        return SkillPlan.model_validate_json(row["payload"]) if row is not None else None
+
+    def get_skill_plan_for_run(self, run_id: str) -> SkillPlan | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM skill_plans WHERE run_id = ?", (run_id,)).fetchone()
+        return SkillPlan.model_validate_json(row["payload"]) if row is not None else None
+
+    def claim_skill_plan_for_execution(self, plan_id: str, run_id: str) -> SkillPlan | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            plan_row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
+            run_row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            if plan_row is None or run_row is None:
+                return None
+            plan = SkillPlan.model_validate_json(plan_row["payload"])
+            run = AgentRun.model_validate_json(run_row["payload"])
+            if plan.run_id != run.id or plan.status != SkillPlanStatus.APPROVED or run.status != AgentRunStatus.RUNNING:
+                return None
+            plan.status = SkillPlanStatus.RUNNING
+            plan.updated_at = now_utc()
+            self._write_skill_plan(connection, plan)
+        return plan
+
+    def claim_skill_plan_node(self, plan_id: str, node_id: str) -> SkillPlanNode | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            plan_row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
+            node_row = connection.execute(
+                "SELECT payload FROM skill_plan_nodes WHERE plan_id = ? AND id = ?",
+                (plan_id, node_id),
+            ).fetchone()
+            if plan_row is None or node_row is None:
+                return None
+            plan = SkillPlan.model_validate_json(plan_row["payload"])
+            run_row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (plan.run_id,)).fetchone()
+            if run_row is None:
+                return None
+            run = AgentRun.model_validate_json(run_row["payload"])
+            node = SkillPlanNode.model_validate_json(node_row["payload"])
+            if (
+                plan.status != SkillPlanStatus.RUNNING
+                or run.status != AgentRunStatus.RUNNING
+                or node.status != SkillPlanNodeStatus.READY
+                or node.attempt >= 2
+            ):
+                return None
+            node.status = SkillPlanNodeStatus.RUNNING
+            node.attempt += 1
+            node.started_at = now_utc()
+            plan.nodes = [node if item.id == node.id else item for item in plan.nodes]
+            plan.updated_at = now_utc()
+            self._write_skill_plan(connection, plan)
+            sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_run_events WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()[0]
+            event = AgentRunEvent(
+                run_id=run.id,
+                sequence=sequence,
+                event_type="node_started",
+                payload={"plan_id": plan.id, "node_id": node.id, "attempt": node.attempt},
+            )
+            connection.execute(
+                "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                (run.id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
+            )
+        return node
+
+    def transition_skill_plan_node(
+        self,
+        *,
+        plan_id: str,
+        run_id: str,
+        node: SkillPlanNode,
+        expected_statuses: set[SkillPlanNodeStatus],
+        event_type: str,
+        event_payload: dict[str, object],
+        result: SkillNodeResult | None = None,
+        clear_run_paused_state: bool = False,
+        expected_attempt: int | None = None,
+    ) -> SkillPlanNode | None:
+        """CAS one node transition, optional immutable result, and event in one transaction."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            plan_row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
+            run_row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            node_row = connection.execute(
+                "SELECT payload FROM skill_plan_nodes WHERE plan_id = ? AND id = ?",
+                (plan_id, node.id),
+            ).fetchone()
+            if plan_row is None or run_row is None or node_row is None:
+                return None
+            plan = SkillPlan.model_validate_json(plan_row["payload"])
+            run = AgentRun.model_validate_json(run_row["payload"])
+            current = SkillPlanNode.model_validate_json(node_row["payload"])
+            required_attempt = node.attempt if expected_attempt is None else expected_attempt
+            if (
+                plan.run_id != run.id
+                or run.id != run_id
+                or plan.status != SkillPlanStatus.RUNNING
+                or run.status != AgentRunStatus.RUNNING
+                or current.status not in expected_statuses
+                or current.attempt != required_attempt
+            ):
+                return None
+            if result is not None:
+                if (
+                    result.node_id != current.id
+                    or result.skill_id != current.skill_id
+                    or result.attempt != current.attempt
+                ):
+                    return None
+                exists = connection.execute(
+                    "SELECT 1 FROM skill_node_results WHERE plan_id = ? AND node_id = ? AND attempt = ?",
+                    (plan.id, result.node_id, result.attempt),
+                ).fetchone()
+                if exists is not None:
+                    return None
+                connection.execute(
+                    """
+                    INSERT INTO skill_node_results(plan_id, node_id, attempt, payload, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (plan.id, result.node_id, result.attempt, result.model_dump_json(), result.created_at.isoformat()),
+                )
+            plan.nodes = [node if item.id == node.id else item for item in plan.nodes]
+            plan.updated_at = now_utc()
+            self._write_skill_plan(connection, plan)
+            if clear_run_paused_state:
+                run.paused_state = None
+                run.updated_at = now_utc()
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+                )
+            sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_run_events WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()[0]
+            event = AgentRunEvent(
+                run_id=run.id,
+                sequence=sequence,
+                event_type=event_type,
+                payload=event_payload,
+            )
+            connection.execute(
+                "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                (run.id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
+            )
+        return node
+
+    def pause_skill_plan_node_and_run(
+        self,
+        *,
+        plan_id: str,
+        run_id: str,
+        node_id: str,
+        attempt: int,
+        paused_state: dict[str, object],
+        inbox_item: InboxItem,
+        call_ids: list[str],
+    ) -> tuple[SkillPlan, AgentRun, SkillPlanNode] | None:
+        """Atomically pause one running node, its parent Run, events, and approval inbox."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            plan_row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
+            run_row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            node_row = connection.execute(
+                "SELECT payload FROM skill_plan_nodes WHERE plan_id = ? AND id = ?",
+                (plan_id, node_id),
+            ).fetchone()
+            if plan_row is None or run_row is None or node_row is None:
+                return None
+            plan = SkillPlan.model_validate_json(plan_row["payload"])
+            run = AgentRun.model_validate_json(run_row["payload"])
+            node = SkillPlanNode.model_validate_json(node_row["payload"])
+            if (
+                plan.run_id != run.id
+                or run.id != run_id
+                or plan.status != SkillPlanStatus.RUNNING
+                or run.status != AgentRunStatus.RUNNING
+                or node.status != SkillPlanNodeStatus.RUNNING
+                or node.attempt != attempt
+            ):
+                return None
+            now = now_utc()
+            node.status = SkillPlanNodeStatus.WAITING_TOOL_APPROVAL
+            plan.nodes = [node if item.id == node.id else item for item in plan.nodes]
+            plan.updated_at = now
+            run.status = AgentRunStatus.WAITING_APPROVAL
+            run.paused_state = paused_state
+            run.updated_at = now
+            self._write_skill_plan(connection, plan)
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) FROM agent_run_events WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()[0]
+            for event_type, payload in (
+                ("node_waiting_tool_approval", {"plan_id": plan.id, "node_id": node.id}),
+                ("approval_requested", {"plan_id": plan.id, "node_id": node.id, "call_ids": call_ids}),
+            ):
+                sequence += 1
+                event = AgentRunEvent(run_id=run.id, sequence=sequence, event_type=event_type, payload=payload)
+                connection.execute(
+                    "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (run.id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
+                )
+            connection.execute(
+                """
+                INSERT INTO records(collection, id, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                """,
+                ("inbox_items", inbox_item.id, inbox_item.model_dump_json()),
+            )
+        return plan, run, node
+
+    def update_skill_plan_node(self, plan_id: str, node: SkillPlanNode) -> SkillPlan | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
+            if row is None:
+                return None
+            plan = SkillPlan.model_validate_json(row["payload"])
+            if not any(item.id == node.id for item in plan.nodes):
+                return None
+            plan.nodes = [node if item.id == node.id else item for item in plan.nodes]
+            plan.updated_at = now_utc()
+            self._write_skill_plan(connection, plan)
+        return plan
+
+    def save_skill_node_result(self, plan_id: str, result: SkillNodeResult) -> SkillNodeResult:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO agent_runs(id, payload, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+                INSERT INTO skill_node_results(plan_id, node_id, attempt, payload, created_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (run.id, run.model_dump_json(), run.updated_at.isoformat()),
+                (plan_id, result.node_id, result.attempt, result.model_dump_json(), result.created_at.isoformat()),
+            )
+        return result
+
+    def list_skill_node_results(self, plan_id: str) -> list[SkillNodeResult]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM skill_node_results WHERE plan_id = ? ORDER BY created_at, node_id, attempt",
+                (plan_id,),
+            ).fetchall()
+        return [SkillNodeResult.model_validate_json(row["payload"]) for row in rows]
+
+    def save_agent_run(self, run: AgentRun) -> AgentRun:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT orchestration_version FROM agent_runs WHERE id = ?",
+                (run.id,),
+            ).fetchone()
+            if existing is not None and existing["orchestration_version"] != run.orchestration_version:
+                raise ResearchStoreConflict("Agent run orchestration_version is immutable")
+            connection.execute(
+                """
+                INSERT INTO agent_runs(id, payload, updated_at, orchestration_version)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                (run.id, run.model_dump_json(), run.updated_at.isoformat(), run.orchestration_version),
             )
         return run
+
+    def pause_agent_run_with_inbox(
+        self,
+        *,
+        run_id: str,
+        paused_state: dict[str, object],
+        inbox_item: InboxItem,
+        interruptions: list[dict[str, str]],
+    ) -> AgentRun | None:
+        """Atomically persist an ordinary Run pause, event, and approval Inbox."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            if row is None:
+                return None
+            run = AgentRun.model_validate_json(row["payload"])
+            if run.status != AgentRunStatus.RUNNING:
+                return None
+            now = now_utc()
+            run.status = AgentRunStatus.WAITING_APPROVAL
+            run.paused_state = paused_state
+            run.updated_at = now
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [("approval_requested", {"interruptions": interruptions})],
+            )
+            connection.execute(
+                """
+                INSERT INTO records(collection, id, payload)
+                VALUES ('inbox_items', ?, ?)
+                ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                """,
+                (inbox_item.id, inbox_item.model_dump_json()),
+            )
+        return run
+
+    def cancel_agent_run_tree(self, run_id: str, *, user_id: str) -> AgentRun | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            if row is None:
+                return None
+            run = AgentRun.model_validate_json(row["payload"])
+            if run.user_id != user_id:
+                return None
+            if run.status not in {
+                AgentRunStatus.CREATED,
+                AgentRunStatus.PLANNING,
+                AgentRunStatus.RUNNING,
+                AgentRunStatus.WAITING_PLAN_APPROVAL,
+                AgentRunStatus.WAITING_APPROVAL,
+            }:
+                return run
+            return self._cancel_agent_run_tree_in_transaction(connection, run, reason="run_cancelled")
+
+    def expire_agent_run_approval(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        inbox_id: str,
+        checked_at: datetime | None = None,
+    ) -> bool:
+        """Cancel an expired approval only if the Run and Inbox are still waiting."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            inbox_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'inbox_items' AND id = ?",
+                (inbox_id,),
+            ).fetchone()
+            if run_row is None or inbox_row is None:
+                return False
+            run = AgentRun.model_validate_json(run_row["payload"])
+            item = InboxItem.model_validate_json(inbox_row["payload"])
+            if (
+                run.user_id != user_id
+                or run.status != AgentRunStatus.WAITING_APPROVAL
+                or item.status != "open"
+                or item.metadata.get("run_id") != run.id
+            ):
+                return False
+            now = checked_at or now_utc()
+            expires_at = item.created_at + timedelta(hours=24)
+            raw_expiry = (run.paused_state or {}).get("expires_at")
+            if isinstance(raw_expiry, str):
+                with suppress(ValueError):
+                    expires_at = datetime.fromisoformat(raw_expiry)
+            if run.deadline_at is not None:
+                expires_at = min(expires_at, run.deadline_at)
+            if now < expires_at:
+                return False
+            self._cancel_agent_run_tree_in_transaction(connection, run, reason="approval_expired")
+        return True
+
+    def save_agent_run_with_event(
+        self,
+        run: AgentRun,
+        event_type: str,
+        payload: dict[str, object] | None = None,
+        *,
+        expected_statuses: set[AgentRunStatus] | None = None,
+    ) -> AgentRunEvent | None:
+        """Commit a Run state transition and its observable event atomically."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run.id,)).fetchone()
+            if row is None:
+                return None
+            current = AgentRun.model_validate_json(row["payload"])
+            if expected_statuses is not None and current.status not in expected_statuses:
+                return None
+            run.tool_call_count = max(run.tool_call_count, current.tool_call_count)
+            run.deadline_at = current.deadline_at
+            run.updated_at = now_utc()
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+            )
+            sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_run_events WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()[0]
+            event = AgentRunEvent(run_id=run.id, sequence=sequence, event_type=event_type, payload=payload or {})
+            connection.execute(
+                "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                (run.id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
+            )
+        return event
+
+    def finish_skill_plan_and_run(
+        self,
+        *,
+        plan: SkillPlan,
+        run: AgentRun,
+        expected_plan_statuses: set[SkillPlanStatus],
+        expected_run_statuses: set[AgentRunStatus],
+        events: list[tuple[str, dict[str, object]]],
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        """Atomically persist a terminal Plan/Run pair and its ordered events."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            plan_row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan.id,)).fetchone()
+            run_row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run.id,)).fetchone()
+            if plan_row is None or run_row is None:
+                return None
+            current_plan = SkillPlan.model_validate_json(plan_row["payload"])
+            current_run = AgentRun.model_validate_json(run_row["payload"])
+            if (
+                current_plan.run_id != current_run.id
+                or current_plan.status not in expected_plan_statuses
+                or current_run.status not in expected_run_statuses
+            ):
+                return None
+            now = now_utc()
+            plan.version = current_plan.version
+            plan.created_at = current_plan.created_at
+            current_nodes = {node.id: node for node in current_plan.nodes}
+            terminal_nodes = {
+                SkillPlanNodeStatus.COMPLETED,
+                SkillPlanNodeStatus.FAILED,
+                SkillPlanNodeStatus.SKIPPED,
+                SkillPlanNodeStatus.CANCELLED,
+            }
+            plan.nodes = [
+                current_nodes[node.id]
+                if node.id in current_nodes
+                and (
+                    current_nodes[node.id].status in terminal_nodes
+                    or current_nodes[node.id].attempt > node.attempt
+                )
+                else node
+                for node in plan.nodes
+            ]
+            plan.updated_at = now
+            run.tool_call_count = max(run.tool_call_count, current_run.tool_call_count)
+            run.deadline_at = current_run.deadline_at
+            run.created_at = current_run.created_at
+            run.updated_at = now
+            self._write_skill_plan(connection, plan)
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            if run.status in {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED,
+                AgentRunStatus.CANCELLED,
+            }:
+                self._resolve_open_run_inboxes(
+                    connection,
+                    run.id,
+                    reason=run.error_code or run.status.value,
+                    resolved_at=now,
+                )
+            sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) FROM agent_run_events WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()[0]
+            for event_type, payload in events:
+                sequence += 1
+                event = AgentRunEvent(run_id=run.id, sequence=sequence, event_type=event_type, payload=payload)
+                connection.execute(
+                    "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (run.id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
+                )
+        return plan, run
+
+    def consume_agent_run_tool_call(self, run_id: str, *, limit: int = 24) -> int | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            if row is None:
+                return None
+            run = AgentRun.model_validate_json(row["payload"])
+            if run.status != AgentRunStatus.RUNNING or run.tool_call_count >= limit:
+                return None
+            run.tool_call_count += 1
+            run.updated_at = now_utc()
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+            )
+        return run.tool_call_count
 
     def claim_new_agent_run(self, run: AgentRun) -> tuple[AgentRun, bool]:
         if not run.client_turn_id:
@@ -1064,22 +2528,65 @@ class SQLiteStore:
                 row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (receipt["run_id"],)).fetchone()
                 if row is None:
                     raise RuntimeError("Agent run receipt points to a missing run")
-                return AgentRun.model_validate_json(row["payload"]), False
-            active = connection.execute(
+                existing = AgentRun.model_validate_json(row["payload"])
+                mode_conflict = (
+                    existing.requested_orchestration_mode is not None
+                    and run.requested_orchestration_mode is not None
+                    and existing.requested_orchestration_mode != run.requested_orchestration_mode
+                )
+                if (
+                    existing.input_text != run.input_text
+                    or existing.thread_id != run.thread_id
+                    or existing.workspace_id != run.workspace_id
+                    or existing.project_id != run.project_id
+                    or existing.skill_id != run.skill_id
+                    or existing.skill_name != run.skill_name
+                    or mode_conflict
+                ):
+                    raise RuntimeError("client_turn_id was already used for another Agent run")
+                return existing, False
+            active_rows = connection.execute(
                 """
                 SELECT payload FROM agent_runs
                 WHERE json_extract(payload, '$.user_id') = ?
                   AND json_extract(payload, '$.thread_id') = ?
-                  AND json_extract(payload, '$.status') IN (?, ?)
-                LIMIT 1
+                  AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?)
                 """,
-                (run.user_id, run.thread_id, AgentRunStatus.CREATED.value, AgentRunStatus.RUNNING.value),
-            ).fetchone()
-            if active is not None:
+                (
+                    run.user_id,
+                    run.thread_id,
+                    AgentRunStatus.CREATED.value,
+                    AgentRunStatus.PLANNING.value,
+                    AgentRunStatus.RUNNING.value,
+                    AgentRunStatus.WAITING_PLAN_APPROVAL.value,
+                    AgentRunStatus.WAITING_APPROVAL.value,
+                ),
+            ).fetchall()
+            checked_at = now_utc()
+            for active_row in active_rows:
+                active = AgentRun.model_validate_json(active_row["payload"])
+                if (
+                    active.status == AgentRunStatus.WAITING_PLAN_APPROVAL
+                    and active.deadline_at is not None
+                    and checked_at >= active.deadline_at
+                ):
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        active,
+                        reason="plan_approval_expired",
+                    )
+                    continue
+                if self._waiting_approval_expired(connection, active, checked_at=checked_at):
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        active,
+                        reason="approval_expired",
+                    )
+                    continue
                 raise RuntimeError("Another Agent run is already active for this thread")
             connection.execute(
-                "INSERT INTO agent_runs(id, payload, updated_at) VALUES (?, ?, ?)",
-                (run.id, run.model_dump_json(), run.updated_at.isoformat()),
+                "INSERT INTO agent_runs(id, payload, updated_at, orchestration_version) VALUES (?, ?, ?, ?)",
+                (run.id, run.model_dump_json(), run.updated_at.isoformat(), run.orchestration_version),
             )
             connection.execute(
                 "INSERT INTO agent_run_receipts(user_id, client_turn_id, run_id) VALUES (?, ?, ?)",
@@ -1100,7 +2607,14 @@ class SQLiteStore:
             ).fetchone()
         return AgentRun.model_validate_json(row["payload"]) if row is not None else None
 
-    def claim_agent_run_for_resume(self, run_id: str, user_id: str) -> AgentRun | None:
+    def claim_agent_run_for_resume(
+        self,
+        run_id: str,
+        user_id: str,
+        *,
+        inbox_id: str | None = None,
+        call_ids: set[str] | None = None,
+    ) -> AgentRun | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
@@ -1109,6 +2623,62 @@ class SQLiteStore:
             run = AgentRun.model_validate_json(row["payload"])
             if run.user_id != user_id or run.status != AgentRunStatus.WAITING_APPROVAL or run.paused_state is None:
                 return None
+            if inbox_id is not None:
+                inbox_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'inbox_items' AND id = ?",
+                    (inbox_id,),
+                ).fetchone()
+                if inbox_row is None:
+                    return None
+                inbox_item = InboxItem.model_validate_json(inbox_row["payload"])
+                if inbox_item.status != "open" or inbox_item.metadata.get("run_id") != run.id:
+                    return None
+                expires_at = inbox_item.created_at + timedelta(hours=24)
+                raw_expiry = run.paused_state.get("expires_at")
+                if isinstance(raw_expiry, str):
+                    with suppress(ValueError):
+                        expires_at = datetime.fromisoformat(raw_expiry)
+                if run.deadline_at is not None:
+                    expires_at = min(expires_at, run.deadline_at)
+                if now_utc() >= expires_at:
+                    self._cancel_agent_run_tree_in_transaction(connection, run, reason="approval_expired")
+                    return None
+                if call_ids is not None:
+                    try:
+                        interruptions = json.loads(inbox_item.metadata.get("interruptions", "[]"))
+                    except (TypeError, ValueError):
+                        return None
+                    pending_call_ids = {
+                        str(interruption.get("call_id", ""))
+                        for interruption in interruptions
+                        if isinstance(interruption, dict)
+                    }
+                    if not call_ids or not call_ids.issubset(pending_call_ids):
+                        return None
+            if run.paused_state.get("kind") == "skill_plan_node":
+                plan_id = run.paused_state.get("plan_id")
+                node_id = run.paused_state.get("node_id")
+                if not isinstance(plan_id, str) or not isinstance(node_id, str):
+                    return None
+                plan_row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
+                node_row = connection.execute(
+                    "SELECT payload FROM skill_plan_nodes WHERE plan_id = ? AND id = ?",
+                    (plan_id, node_id),
+                ).fetchone()
+                if plan_row is None or node_row is None:
+                    return None
+                plan = SkillPlan.model_validate_json(plan_row["payload"])
+                node = SkillPlanNode.model_validate_json(node_row["payload"])
+                if (
+                    plan.run_id != run.id
+                    or plan.status != SkillPlanStatus.RUNNING
+                    or node.status != SkillPlanNodeStatus.WAITING_TOOL_APPROVAL
+                ):
+                    return None
+                node.status = SkillPlanNodeStatus.RUNNING
+                plan.nodes = [node if item.id == node.id else item for item in plan.nodes]
+                plan.updated_at = now_utc()
+                self._write_skill_plan(connection, plan)
             run.status = AgentRunStatus.RUNNING
             run.updated_at = now_utc()
             connection.execute(
@@ -1122,10 +2692,55 @@ class SQLiteStore:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute("SELECT id, payload FROM agent_runs").fetchall()
+            checked_at = now_utc()
             for row in rows:
                 run = AgentRun.model_validate_json(row["payload"])
-                if run.status not in {AgentRunStatus.CREATED, AgentRunStatus.RUNNING}:
+                if run.orchestration_version == "research-v2":
                     continue
+                if run.status == AgentRunStatus.WAITING_PLAN_APPROVAL:
+                    if run.deadline_at is not None and checked_at >= run.deadline_at:
+                        self._cancel_agent_run_tree_in_transaction(
+                            connection,
+                            run,
+                            reason="plan_approval_expired",
+                        )
+                        reconciled += 1
+                    continue
+                if run.status == AgentRunStatus.WAITING_APPROVAL:
+                    if self._waiting_approval_expired(connection, run, checked_at=checked_at):
+                        self._cancel_agent_run_tree_in_transaction(
+                            connection,
+                            run,
+                            reason="approval_expired",
+                        )
+                        reconciled += 1
+                    continue
+                if run.status not in {
+                    AgentRunStatus.CREATED,
+                    AgentRunStatus.PLANNING,
+                    AgentRunStatus.RUNNING,
+                }:
+                    continue
+                plan_row = connection.execute(
+                    "SELECT payload FROM skill_plans WHERE run_id = ?",
+                    (run.id,),
+                ).fetchone()
+                if plan_row is not None:
+                    plan = SkillPlan.model_validate_json(plan_row["payload"])
+                    for node in plan.nodes:
+                        if node.status in {SkillPlanNodeStatus.RUNNING, SkillPlanNodeStatus.READY}:
+                            node.status = SkillPlanNodeStatus.FAILED
+                            node.error_code = "process_restarted"
+                            node.completed_at = now_utc()
+                        elif node.status in {
+                            SkillPlanNodeStatus.PENDING,
+                            SkillPlanNodeStatus.WAITING_TOOL_APPROVAL,
+                        }:
+                            node.status = SkillPlanNodeStatus.CANCELLED
+                            node.completed_at = now_utc()
+                    plan.status = SkillPlanStatus.FAILED
+                    plan.updated_at = now_utc()
+                    self._write_skill_plan(connection, plan)
                 run.status = AgentRunStatus.FAILED
                 run.error_code = "process_restarted"
                 run.updated_at = now_utc()
@@ -1154,6 +2769,33 @@ class SQLiteStore:
         with self._connect() as connection:
             row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
         return AgentRun.model_validate_json(row["payload"]) if row is not None else None
+
+    def user_can_execute_agent_run(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        allowed_statuses: set[AgentRunStatus] | None = None,
+    ) -> bool:
+        user = self.get_user(user_id)
+        run = self.get_agent_run(run_id)
+        if user is None or user.status != "active" or run is None or run.user_id != user.id:
+            return False
+        if allowed_statuses is not None and run.status not in allowed_statuses:
+            return False
+        project = self.get_project(run.project_id)
+        thread = self.get_chat_thread(run.thread_id)
+        thread_matches = thread is None or (
+            thread.user_id == user.id
+            and thread.workspace_id == run.workspace_id
+            and thread.project_id == run.project_id
+        )
+        return bool(
+            project is not None
+            and project.workspace_id == user.workspace_id == run.workspace_id
+            and self.user_can_access_project(user.id, project.id)
+            and thread_matches
+        )
 
     def list_agent_runs(self, user_id: str | None = None) -> list[AgentRun]:
         with self._connect() as connection:
@@ -1198,27 +2840,3556 @@ class SQLiteStore:
                   AND json_extract(payload, '$.event_type') = 'sdk_stream_event'
                   AND run_id IN (
                       SELECT id FROM agent_runs
-                      WHERE json_extract(payload, '$.status') IN (?, ?, ?)
+                      WHERE json_extract(payload, '$.status') IN (?, ?, ?, ?, ?)
                   )
                 """,
                 (
                     cutoff,
                     AgentRunStatus.COMPLETED.value,
+                    AgentRunStatus.PARTIAL.value,
                     AgentRunStatus.FAILED.value,
+                    AgentRunStatus.REJECTED.value,
                     AgentRunStatus.CANCELLED.value,
                 ),
             )
         return max(0, cursor.rowcount)
 
-    def save_artifact(self, artifact: Artifact) -> Artifact:
+    @staticmethod
+    def _research_agent_run_status(workflow: ResearchWorkflow) -> AgentRunStatus | None:
+        if workflow.phase == ResearchPhase.TERMINAL:
+            return None
+        if workflow.active_gate == ResearchGate.PLAN_CONFIRMATION:
+            return AgentRunStatus.WAITING_PLAN_APPROVAL
+        if workflow.active_gate == ResearchGate.TOOL_APPROVAL:
+            return AgentRunStatus.WAITING_APPROVAL
+        if workflow.phase in {ResearchPhase.REQUIREMENT, ResearchPhase.PLANNING}:
+            return AgentRunStatus.PLANNING
+        return AgentRunStatus.RUNNING
+
+    @staticmethod
+    def _require_research_run(connection: sqlite3.Connection, run_id: str) -> AgentRun:
+        row = connection.execute(
+            "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            raise ResearchStoreConflict("research record requires an existing Agent run")
+        run = AgentRun.model_validate_json(row["payload"])
+        if run.orchestration_version != "research-v2" or row["orchestration_version"] != "research-v2":
+            raise ResearchStoreConflict("research record requires a research-v2 Agent run")
+        return run
+
+    @staticmethod
+    def _validate_research_workflow_links(
+        connection: sqlite3.Connection,
+        workflow: ResearchWorkflow,
+    ) -> None:
+        requirement_id = workflow.active_requirement_version_id
+        plan_id = workflow.active_plan_version_id
+        attempt_id = workflow.active_attempt_id
+        if requirement_id is not None:
+            row = connection.execute(
+                "SELECT run_id FROM research_requirement_versions WHERE id = ?",
+                (requirement_id,),
+            ).fetchone()
+            if row is None or row["run_id"] != workflow.run_id:
+                raise ResearchStoreConflict("active requirement does not belong to the workflow run")
+        if plan_id is not None:
+            row = connection.execute(
+                "SELECT run_id, requirement_version_id FROM research_plan_versions WHERE id = ?",
+                (plan_id,),
+            ).fetchone()
+            if (
+                row is None
+                or row["run_id"] != workflow.run_id
+                or requirement_id is None
+                or row["requirement_version_id"] != requirement_id
+            ):
+                raise ResearchStoreConflict("active plan does not match the active requirement")
+        if attempt_id is not None:
+            row = connection.execute(
+                "SELECT run_id, plan_version_id FROM research_attempts WHERE id = ?",
+                (attempt_id,),
+            ).fetchone()
+            if (
+                row is None
+                or row["run_id"] != workflow.run_id
+                or plan_id is None
+                or row["plan_version_id"] != plan_id
+            ):
+                raise ResearchStoreConflict("active attempt does not match the active plan")
+
+    @staticmethod
+    def _research_requirement_projection_matches(row: sqlite3.Row, requirement: RequirementVersion) -> bool:
+        try:
+            content_hash_matches = canonical_sha256(requirement.payload) == requirement.content_hash
+        except (TypeError, ValueError):
+            return False
+        return bool(
+            row["id"] == requirement.id
+            and row["run_id"] == requirement.run_id
+            and row["version"] == requirement.version
+            and row["content_hash"] == requirement.content_hash
+            and row["created_at"] == requirement.created_at.isoformat()
+            and content_hash_matches
+        )
+
+    @staticmethod
+    def _research_command_projection_matches(row: sqlite3.Row, receipt: ResearchCommandReceipt) -> bool:
+        try:
+            response_payload = json.loads(row["response_payload"])
+        except (RecursionError, TypeError, ValueError):
+            return False
+        return bool(
+            row["run_id"] == receipt.run_id
+            and row["idempotency_key"] == receipt.idempotency_key
+            and row["command_type"] == receipt.command_type
+            and row["request_hash"] == receipt.request_hash
+            and row["response_status"] == receipt.response_status
+            and response_payload == receipt.response_payload
+            and row["created_at"] == receipt.created_at.isoformat()
+        )
+
+    @staticmethod
+    def _research_run_identity_matches(current: AgentRun, supplied: AgentRun) -> bool:
+        immutable_fields = (
+            "id",
+            "thread_id",
+            "user_id",
+            "workspace_id",
+            "project_id",
+            "input_text",
+            "client_turn_id",
+            "skill_id",
+            "skill_name",
+            "orchestration_version",
+            "orchestration_mode",
+            "requested_orchestration_mode",
+            "agent_definition_version",
+            "project_chat",
+        )
+        return all(getattr(current, field) == getattr(supplied, field) for field in immutable_fields)
+
+    @staticmethod
+    def _insert_research_requirement(
+        connection: sqlite3.Connection,
+        requirement: RequirementVersion,
+    ) -> None:
+        if canonical_sha256(requirement.payload) != requirement.content_hash:
+            raise ResearchStoreConflict("research requirement content hash mismatch")
+        if connection.execute(
+            "SELECT 1 FROM research_requirement_versions WHERE id = ? OR (run_id = ? AND version = ?)",
+            (requirement.id, requirement.run_id, requirement.version),
+        ).fetchone() is not None:
+            raise ResearchStoreConflict("requirement versions are immutable")
+        connection.execute(
+            """
+            INSERT INTO research_requirement_versions(id, run_id, version, content_hash, payload, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                requirement.id,
+                requirement.run_id,
+                requirement.version,
+                requirement.content_hash,
+                requirement.model_dump_json(),
+                requirement.created_at.isoformat(),
+            ),
+        )
+
+    @staticmethod
+    def _insert_research_plan(
+        connection: sqlite3.Connection,
+        plan: ExecutionPlanVersion,
+    ) -> None:
+        if canonical_sha256(plan.payload) != plan.plan_hash:
+            raise ResearchStoreConflict("research plan content hash mismatch")
+        requirement_row = connection.execute(
+            "SELECT run_id FROM research_requirement_versions WHERE id = ?",
+            (plan.requirement_version_id,),
+        ).fetchone()
+        if requirement_row is None or requirement_row["run_id"] != plan.run_id:
+            raise ResearchStoreConflict("research plan requires a requirement from the same run")
+        if connection.execute(
+            """
+            SELECT 1 FROM research_plan_versions
+            WHERE id = ? OR (run_id = ? AND (version = ? OR plan_hash = ?))
+            """,
+            (plan.id, plan.run_id, plan.version, plan.plan_hash),
+        ).fetchone() is not None:
+            raise ResearchStoreConflict("plan versions are immutable")
+        connection.execute(
+            """
+            INSERT INTO research_plan_versions(
+                id, run_id, requirement_version_id, version, plan_hash, payload, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                plan.id,
+                plan.run_id,
+                plan.requirement_version_id,
+                plan.version,
+                plan.plan_hash,
+                plan.model_dump_json(),
+                plan.created_at.isoformat(),
+            ),
+        )
+
+    @staticmethod
+    def _insert_research_attempt(connection: sqlite3.Connection, attempt: ExecutionAttempt) -> None:
+        connection.execute(
+            """
+            INSERT INTO research_attempts(
+                id, run_id, plan_version_id, attempt_number, status,
+                lease_owner, lease_token, fencing_epoch, lease_expires_at,
+                payload, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                attempt.id,
+                attempt.run_id,
+                attempt.plan_version_id,
+                attempt.attempt_number,
+                attempt.status.value,
+                attempt.lease_owner,
+                attempt.lease_token,
+                attempt.fencing_epoch,
+                attempt.lease_expires_at.isoformat() if attempt.lease_expires_at is not None else None,
+                attempt.model_dump_json(),
+                attempt.created_at.isoformat(),
+                attempt.updated_at.isoformat(),
+            ),
+        )
+
+    @staticmethod
+    def _insert_research_step(connection: sqlite3.Connection, step: ResearchStep) -> None:
+        connection.execute(
+            """
+            INSERT INTO research_steps(
+                attempt_id, step_number, status, claim_epoch,
+                result_artifact_id, payload, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                step.attempt_id,
+                step.step_number,
+                step.status.value,
+                step.claim_epoch,
+                step.result_artifact_id,
+                step.model_dump_json(),
+                step.updated_at.isoformat(),
+            ),
+        )
+
+    def _load_research_workflow_context(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        owner: ResearchOwnerScope | None = None,
+    ) -> WorkflowContext | None:
+        from agentmesh.research_orchestration.workflow import WorkflowContext
+
+        run_row = connection.execute("SELECT * FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+        if run_row is None:
+            return None
+        try:
+            run = AgentRun.model_validate_json(run_row["payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise ResearchStoreConflict("research Agent run failed integrity verification") from None
+        if not self._research_run_projection_matches(run_row, run) or run.orchestration_version != "research-v2":
+            raise ResearchStoreConflict("research Agent run failed integrity verification")
+        if owner is not None and (
+            run.user_id != owner.user_id
+            or run.workspace_id != owner.workspace_id
+            or run.project_id != owner.project_id
+        ):
+            return None
+        if run.client_turn_id is not None:
+            receipt_row = connection.execute(
+                "SELECT user_id, client_turn_id, run_id FROM agent_run_receipts WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()
+            if (
+                receipt_row is None
+                or receipt_row["user_id"] != run.user_id
+                or receipt_row["client_turn_id"] != run.client_turn_id
+                or receipt_row["run_id"] != run.id
+            ):
+                raise ResearchStoreConflict("research Agent run receipt failed integrity verification")
+
+        workflow_row = connection.execute(
+            "SELECT * FROM research_workflows WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if workflow_row is None:
+            return None
+        try:
+            workflow = ResearchWorkflow.model_validate_json(workflow_row["payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise ResearchStoreConflict("research workflow failed integrity verification") from None
+        if not self._research_workflow_projection_matches(workflow_row, workflow):
+            raise ResearchStoreConflict("research workflow failed integrity verification")
+
+        requirement_rows = connection.execute(
+            "SELECT * FROM research_requirement_versions WHERE run_id = ? ORDER BY version",
+            (run_id,),
+        ).fetchall()
+        requirements: list[RequirementVersion] = []
+        for row in requirement_rows:
+            try:
+                requirement = RequirementVersion.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research requirement failed integrity verification") from None
+            if not self._research_requirement_projection_matches(row, requirement):
+                raise ResearchStoreConflict("research requirement failed integrity verification")
+            requirements.append(requirement)
+
+        plan_rows = connection.execute(
+            "SELECT * FROM research_plan_versions WHERE run_id = ? ORDER BY version",
+            (run_id,),
+        ).fetchall()
+        plans: list[ExecutionPlanVersion] = []
+        for row in plan_rows:
+            try:
+                plan = ExecutionPlanVersion.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research plan failed integrity verification") from None
+            if not self._research_plan_projection_matches(row, plan):
+                raise ResearchStoreConflict("research plan failed integrity verification")
+            plans.append(plan)
+
+        attempt_rows = connection.execute(
+            "SELECT * FROM research_attempts WHERE run_id = ? ORDER BY attempt_number",
+            (run_id,),
+        ).fetchall()
+        attempts: list[ExecutionAttempt] = []
+        for row in attempt_rows:
+            try:
+                attempt = ExecutionAttempt.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research attempt failed integrity verification") from None
+            if not self._research_attempt_projection_matches(row, attempt):
+                raise ResearchStoreConflict("research attempt failed integrity verification")
+            attempts.append(attempt)
+
+        active_requirement = next(
+            (item for item in requirements if item.id == workflow.active_requirement_version_id),
+            None,
+        )
+        active_plan = next((item for item in plans if item.id == workflow.active_plan_version_id), None)
+        active_attempt = next((item for item in attempts if item.id == workflow.active_attempt_id), None)
+        if workflow.active_requirement_version_id is not None and active_requirement is None:
+            raise ResearchStoreConflict("research workflow active requirement failed integrity verification")
+        if workflow.active_plan_version_id is not None and active_plan is None:
+            raise ResearchStoreConflict("research workflow active plan failed integrity verification")
+        if workflow.active_attempt_id is not None and active_attempt is None:
+            raise ResearchStoreConflict("research workflow active attempt failed integrity verification")
+        self._validate_research_workflow_links(connection, workflow)
+
+        step_rows = (
+            connection.execute(
+                "SELECT * FROM research_steps WHERE attempt_id = ? ORDER BY step_number",
+                (active_attempt.id,),
+            ).fetchall()
+            if active_attempt is not None
+            else []
+        )
+        steps: list[ResearchStep] = []
+        for row in step_rows:
+            try:
+                step = ResearchStep.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research step failed integrity verification") from None
+            if not self._research_step_projection_matches(row, step):
+                raise ResearchStoreConflict("research step failed integrity verification")
+            steps.append(step)
+
+        active_recovery_invocation: ToolInvocation | None = None
+        if workflow.active_gate == ResearchGate.RECOVERY_DECISION:
+            if active_attempt is None:
+                raise ResearchStoreConflict("research recovery gate has no active attempt")
+            invocation_rows = connection.execute(
+                """
+                SELECT * FROM research_tool_invocations
+                WHERE active_attempt_id = ? AND state = ?
+                ORDER BY id
+                """,
+                (active_attempt.id, InvocationState.UNKNOWN.value),
+            ).fetchall()
+            if len(invocation_rows) != 1:
+                raise ResearchStoreConflict("research recovery gate has no unique unknown invocation")
+            invocation_row = invocation_rows[0]
+            try:
+                active_recovery_invocation = ToolInvocation.model_validate_json(invocation_row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+            if (
+                not self._research_invocation_projection_matches(invocation_row, active_recovery_invocation)
+                or active_recovery_invocation.run_id != run.id
+                or active_recovery_invocation.plan_version_id != workflow.active_plan_version_id
+            ):
+                raise ResearchStoreConflict("research recovery invocation failed integrity verification")
+
+        expected_status = self._research_agent_run_status(workflow)
+        terminal_statuses = {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.PARTIAL,
+            AgentRunStatus.FAILED,
+            AgentRunStatus.REJECTED,
+            AgentRunStatus.CANCELLED,
+        }
+        if expected_status is not None and run.status != expected_status:
+            raise ResearchStoreConflict("research run and workflow failed integrity verification")
+        if expected_status is None and run.status not in terminal_statuses:
+            raise ResearchStoreConflict("terminal research workflow failed integrity verification")
+        return WorkflowContext(
+            run=run,
+            workflow=workflow,
+            active_requirement=active_requirement,
+            active_plan=active_plan,
+            active_attempt=active_attempt,
+            steps=tuple(steps),
+            requirements=tuple(requirements),
+            plans=tuple(plans),
+            attempt_count=len(attempts),
+            active_recovery_invocation=active_recovery_invocation,
+        )
+
+    def ensure_workflow(self, run: AgentRun, workflow: ResearchWorkflow) -> WorkflowContext:
+        if run.id != workflow.run_id or run.orchestration_version != "research-v2":
+            raise ResearchStoreConflict("research workflow identity is invalid")
+        if workflow.state_version != 1:
+            raise ResearchStoreConflict("new research workflows must start at state_version 1")
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute("SELECT * FROM agent_runs WHERE id = ?", (run.id,)).fetchone()
+            workflow_row = connection.execute(
+                "SELECT 1 FROM research_workflows WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()
+            if workflow_row is not None:
+                context = self._load_research_workflow_context(connection, run.id)
+                if context is None or not self._research_run_identity_matches(context.run, run):
+                    raise ResearchStoreConflict("research workflow identity conflicts with an existing run")
+                return context
+
+            effective_workflow = workflow.model_copy(
+                update={"created_at": workflow.created_at, "updated_at": workflow.updated_at}
+            )
+            next_status = self._research_agent_run_status(effective_workflow)
+            if next_status is None:
+                raise ResearchStoreConflict("new research workflow cannot be terminal")
+            if run_row is None:
+                stored_run = run.model_copy(update={"status": next_status, "updated_at": effective_workflow.updated_at})
+                connection.execute(
+                    "INSERT INTO agent_runs(id, payload, updated_at, orchestration_version) VALUES (?, ?, ?, ?)",
+                    (
+                        stored_run.id,
+                        stored_run.model_dump_json(),
+                        stored_run.updated_at.isoformat(),
+                        stored_run.orchestration_version,
+                    ),
+                )
+            else:
+                try:
+                    current_run = AgentRun.model_validate_json(run_row["payload"])
+                except (RecursionError, TypeError, ValueError):
+                    raise ResearchStoreConflict("research Agent run failed integrity verification") from None
+                if (
+                    not self._research_run_projection_matches(run_row, current_run)
+                    or not self._research_run_identity_matches(current_run, run)
+                ):
+                    raise ResearchStoreConflict("research workflow identity conflicts with an existing run")
+                stored_run = current_run.model_copy(
+                    update={"status": next_status, "updated_at": effective_workflow.updated_at}
+                )
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (stored_run.model_dump_json(), stored_run.updated_at.isoformat(), stored_run.id),
+                )
+
+            if stored_run.client_turn_id is not None:
+                receipt_row = connection.execute(
+                    """
+                    SELECT user_id, client_turn_id, run_id FROM agent_run_receipts
+                    WHERE (user_id = ? AND client_turn_id = ?) OR run_id = ?
+                    """,
+                    (stored_run.user_id, stored_run.client_turn_id, stored_run.id),
+                ).fetchone()
+                if receipt_row is None:
+                    connection.execute(
+                        "INSERT INTO agent_run_receipts(user_id, client_turn_id, run_id) VALUES (?, ?, ?)",
+                        (stored_run.user_id, stored_run.client_turn_id, stored_run.id),
+                    )
+                elif (
+                    receipt_row["user_id"] != stored_run.user_id
+                    or receipt_row["client_turn_id"] != stored_run.client_turn_id
+                    or receipt_row["run_id"] != stored_run.id
+                ):
+                    raise ResearchStoreConflict("research workflow identity conflicts with an existing receipt")
+
+            self._validate_research_workflow_links(connection, effective_workflow)
             connection.execute(
                 """
-                INSERT INTO artifacts(id, run_id, payload, created_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
+                INSERT INTO research_workflows(
+                    run_id, phase, active_gate, active_requirement_version_id,
+                    active_plan_version_id, active_attempt_id, state_version,
+                    payload, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (artifact.id, artifact.run_id, artifact.model_dump_json(), artifact.created_at.isoformat()),
+                (
+                    effective_workflow.run_id,
+                    effective_workflow.phase.value,
+                    effective_workflow.active_gate.value,
+                    effective_workflow.active_requirement_version_id,
+                    effective_workflow.active_plan_version_id,
+                    effective_workflow.active_attempt_id,
+                    effective_workflow.state_version,
+                    effective_workflow.model_dump_json(),
+                    effective_workflow.created_at.isoformat(),
+                    effective_workflow.updated_at.isoformat(),
+                ),
+            )
+            if connection.execute(
+                "SELECT 1 FROM agent_run_events WHERE run_id = ? LIMIT 1",
+                (run.id,),
+            ).fetchone() is None:
+                self._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [("run_started", {"orchestration_version": "research-v2"})],
+                )
+            context = self._load_research_workflow_context(connection, run.id)
+            if context is None:
+                raise ResearchStoreConflict("research workflow creation failed integrity verification")
+            return context
+
+    def load_context(
+        self,
+        run_id: str,
+        *,
+        owner: ResearchOwnerScope,
+    ) -> WorkflowContext | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            return self._load_research_workflow_context(connection, run_id, owner=owner)
+
+    def replay_command(
+        self,
+        run_id: str,
+        *,
+        owner: ResearchOwnerScope,
+        idempotency_key: str,
+        command_type: ResearchCommandType,
+        request_hash: str,
+    ) -> ResearchCommandReceipt | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            if self._load_research_workflow_context(connection, run_id, owner=owner) is None:
+                return None
+            row = connection.execute(
+                "SELECT * FROM research_commands WHERE run_id = ? AND idempotency_key = ?",
+                (run_id, idempotency_key),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                receipt = ResearchCommandReceipt.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research command failed integrity verification") from None
+            if not self._research_command_projection_matches(row, receipt):
+                raise ResearchStoreConflict("research command failed integrity verification")
+            if receipt.command_type != command_type or receipt.request_hash != request_hash:
+                raise ResearchStoreConflict("idempotency key was used for a different research command")
+            return receipt
+
+    def publish_planning(self, mutation: PlanningMutation) -> WorkflowContext:
+        if mutation.run_id != mutation.workflow.run_id:
+            raise ResearchStoreConflict("research planning identity is invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            context = self._load_research_workflow_context(connection, mutation.run_id)
+            if context is None:
+                raise ResearchStoreConflict("research workflow does not exist")
+            if context.workflow.state_version != mutation.expected_state_version:
+                raise ResearchStoreConflict("research workflow state version conflict")
+            if context.workflow.phase == ResearchPhase.TERMINAL:
+                raise ResearchStoreConflict("terminal research workflow cannot be planned")
+
+            requirement = mutation.requirement
+            if requirement is not None:
+                if requirement.run_id != mutation.run_id or requirement.version != len(context.requirements) + 1:
+                    raise ResearchStoreConflict("research requirement lineage is invalid")
+                self._insert_research_requirement(connection, requirement)
+            plan = mutation.plan
+            if plan is not None:
+                expected_requirement_id = requirement.id if requirement is not None else mutation.workflow.active_requirement_version_id
+                if (
+                    plan.run_id != mutation.run_id
+                    or plan.requirement_version_id != expected_requirement_id
+                    or plan.version != len(context.plans) + 1
+                ):
+                    raise ResearchStoreConflict("research plan lineage is invalid")
+                self._insert_research_plan(connection, plan)
+
+            expected_requirement_id = requirement.id if requirement is not None else (
+                context.active_requirement.id if context.active_requirement is not None else None
+            )
+            expected_plan_id = plan.id if plan is not None else (
+                None
+                if requirement is not None
+                else (context.active_plan.id if context.active_plan is not None else None)
+            )
+            if mutation.workflow.active_requirement_version_id != expected_requirement_id:
+                raise ResearchStoreConflict("active requirement does not match the planning mutation")
+            if mutation.workflow.active_plan_version_id != expected_plan_id:
+                raise ResearchStoreConflict("active plan does not match the planning mutation")
+
+            updated_at = now_utc()
+            updated = mutation.workflow.model_copy(
+                update={
+                    "state_version": mutation.expected_state_version + 1,
+                    "created_at": context.workflow.created_at,
+                    "updated_at": updated_at,
+                }
+            )
+            self._validate_research_workflow_links(connection, updated)
+            terminal_statuses = {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED,
+                AgentRunStatus.CANCELLED,
+            }
+            if updated.phase == ResearchPhase.TERMINAL:
+                if mutation.terminal_status not in terminal_statuses:
+                    raise ResearchStoreConflict("terminal planning requires a terminal Agent run status")
+                next_status = mutation.terminal_status
+            else:
+                if mutation.terminal_status is not None:
+                    raise ResearchStoreConflict("non-terminal planning cannot set a terminal status")
+                next_status = self._research_agent_run_status(updated)
+                if next_status is None:
+                    raise ResearchStoreConflict("research planning status is invalid")
+
+            cursor = connection.execute(
+                """
+                UPDATE research_workflows
+                SET phase = ?, active_gate = ?, active_requirement_version_id = ?,
+                    active_plan_version_id = ?, active_attempt_id = ?, state_version = ?,
+                    payload = ?, updated_at = ?
+                WHERE run_id = ? AND state_version = ?
+                """,
+                (
+                    updated.phase.value,
+                    updated.active_gate.value,
+                    updated.active_requirement_version_id,
+                    updated.active_plan_version_id,
+                    updated.active_attempt_id,
+                    updated.state_version,
+                    updated.model_dump_json(),
+                    updated.updated_at.isoformat(),
+                    updated.run_id,
+                    mutation.expected_state_version,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ResearchStoreConflict("research workflow state version conflict")
+            run = context.run.model_copy(
+                update={
+                    "status": next_status,
+                    "error_code": mutation.error_code,
+                    "updated_at": updated_at,
+                }
+            )
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), updated_at.isoformat(), run.id),
+            )
+            events: list[tuple[str, dict[str, object]]] = [
+                (
+                    "research_updated",
+                    {
+                        "state_version": updated.state_version,
+                        "phase": updated.phase.value,
+                        "active_gate": updated.active_gate.value,
+                    },
+                )
+            ]
+            if updated.phase == ResearchPhase.TERMINAL:
+                self._resolve_open_run_inboxes(
+                    connection,
+                    run.id,
+                    reason=mutation.error_code or next_status.value,
+                    resolved_at=updated_at,
+                )
+                events.append((f"run_{next_status.value}", {"error_code": mutation.error_code}))
+            self._append_agent_run_events(connection, run.id, events)
+            result = self._load_research_workflow_context(connection, mutation.run_id)
+            if result is None:
+                raise ResearchStoreConflict("research planning commit failed integrity verification")
+            return result
+
+    def commit_command(self, mutation: CommandMutation) -> CommandCommitResult:
+        from agentmesh.research_orchestration.workflow import CommandCommitResult
+
+        receipt = mutation.receipt
+        if receipt.run_id != mutation.workflow.run_id:
+            raise ResearchStoreConflict("research command identity is invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing_row = connection.execute(
+                "SELECT * FROM research_commands WHERE run_id = ? AND idempotency_key = ?",
+                (receipt.run_id, receipt.idempotency_key),
+            ).fetchone()
+            if existing_row is not None:
+                try:
+                    existing = ResearchCommandReceipt.model_validate_json(existing_row["payload"])
+                except (RecursionError, TypeError, ValueError):
+                    raise ResearchStoreConflict("research command failed integrity verification") from None
+                if not self._research_command_projection_matches(existing_row, existing):
+                    raise ResearchStoreConflict("research command failed integrity verification")
+                if existing.command_type != receipt.command_type or existing.request_hash != receipt.request_hash:
+                    raise ResearchStoreConflict("idempotency key was used for a different research command")
+                replay_context = self._load_research_workflow_context(connection, receipt.run_id)
+                if replay_context is None:
+                    raise ResearchStoreConflict("research command points to a missing workflow")
+                return CommandCommitResult(receipt=existing, context=replay_context, created=False)
+
+            context = self._load_research_workflow_context(connection, receipt.run_id)
+            if context is None:
+                raise ResearchStoreConflict("research workflow does not exist")
+            if context.workflow.state_version != mutation.expected_state_version:
+                raise ResearchStoreConflict("research workflow state version conflict")
+            if context.workflow.phase == ResearchPhase.TERMINAL:
+                raise ResearchStoreConflict("terminal research workflow cannot accept commands")
+            if (mutation.superseded_attempt_id is None) != (mutation.superseded_attempt_status is None):
+                raise ResearchStoreConflict("superseded attempt identity and status must be set together")
+            if (mutation.recovery_invocation_id is None) != (mutation.recovery_action is None):
+                raise ResearchStoreConflict("recovery invocation and action must be set together")
+            if receipt.command_type == "execute":
+                if (
+                    mutation.attempt is None
+                    or mutation.superseded_attempt_id is not None
+                    or mutation.recovery_invocation_id is not None
+                    or mutation.terminal_status is not None
+                ):
+                    raise ResearchStoreConflict("execute command mutation is invalid")
+            elif receipt.command_type == "recover":
+                if mutation.superseded_attempt_id is None or mutation.recovery_invocation_id is None:
+                    raise ResearchStoreConflict("recover command mutation is invalid")
+                if mutation.recovery_action == "retry" and (
+                    mutation.attempt is None or mutation.terminal_status is not None
+                ):
+                    raise ResearchStoreConflict("recover retry command mutation is invalid")
+                if mutation.recovery_action == "abort" and (
+                    mutation.attempt is not None or mutation.terminal_status != AgentRunStatus.CANCELLED
+                ):
+                    raise ResearchStoreConflict("recover abort command mutation is invalid")
+            elif any(
+                (
+                    mutation.attempt is not None,
+                    bool(mutation.steps),
+                    mutation.superseded_attempt_id is not None,
+                    mutation.recovery_invocation_id is not None,
+                    mutation.terminal_status is not None,
+                )
+            ):
+                raise ResearchStoreConflict("research command type does not match its mutation")
+
+            completed_at = now_utc()
+            recovery_invocation: ToolInvocation | None = None
+            if mutation.recovery_invocation_id is not None:
+                invocation_row = connection.execute(
+                    "SELECT * FROM research_tool_invocations WHERE id = ?",
+                    (mutation.recovery_invocation_id,),
+                ).fetchone()
+                if invocation_row is None:
+                    raise ResearchStoreConflict("recovery Tool invocation does not exist")
+                try:
+                    recovery_invocation = ToolInvocation.model_validate_json(invocation_row["payload"])
+                except (RecursionError, TypeError, ValueError):
+                    raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+                if not self._research_invocation_projection_matches(invocation_row, recovery_invocation):
+                    raise ResearchStoreConflict("Tool invocation failed integrity verification")
+                if (
+                    context.active_attempt is None
+                    or recovery_invocation.run_id != receipt.run_id
+                    or recovery_invocation.plan_version_id != context.workflow.active_plan_version_id
+                    or recovery_invocation.active_attempt_id != context.active_attempt.id
+                    or recovery_invocation.state != InvocationState.UNKNOWN
+                ):
+                    raise ResearchStoreConflict("recovery Tool invocation is not the active unknown operation")
+            if mutation.superseded_attempt_id is not None:
+                if (
+                    context.active_attempt is None
+                    or context.active_attempt.id != mutation.superseded_attempt_id
+                    or context.active_attempt.status != AttemptStatus.RECOVERY_REQUIRED
+                    or mutation.superseded_attempt_status not in {AttemptStatus.FAILED, AttemptStatus.CANCELLED}
+                ):
+                    raise ResearchStoreConflict("superseded research attempt is invalid")
+                superseded = context.active_attempt.model_copy(
+                    update={
+                        "status": mutation.superseded_attempt_status,
+                        "lease_owner": None,
+                        "lease_token": None,
+                        "lease_expires_at": None,
+                        "completed_at": completed_at,
+                        "updated_at": completed_at,
+                    }
+                )
+                cursor = connection.execute(
+                    """
+                    UPDATE research_attempts
+                    SET status = ?, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
+                        payload = ?, updated_at = ?
+                    WHERE id = ? AND status = ? AND updated_at = ?
+                    """,
+                    (
+                        superseded.status.value,
+                        superseded.model_dump_json(),
+                        superseded.updated_at.isoformat(),
+                        context.active_attempt.id,
+                        AttemptStatus.RECOVERY_REQUIRED.value,
+                        context.active_attempt.updated_at.isoformat(),
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ResearchStoreConflict("superseded research attempt changed concurrently")
+                for step in context.steps:
+                    if step.status in {
+                        StepStatus.COMPLETED,
+                        StepStatus.FAILED,
+                        StepStatus.SKIPPED,
+                        StepStatus.CANCELLED,
+                    }:
+                        continue
+                    cancelled_step = step.model_copy(
+                        update={
+                            "status": StepStatus.CANCELLED,
+                            "result_artifact_id": None,
+                            "error_code": "attempt_superseded",
+                            "completed_at": completed_at,
+                            "updated_at": completed_at,
+                        }
+                    )
+                    cursor = connection.execute(
+                        """
+                        UPDATE research_steps
+                        SET status = ?, result_artifact_id = NULL, payload = ?, updated_at = ?
+                        WHERE attempt_id = ? AND step_number = ? AND status = ?
+                          AND claim_epoch = ? AND updated_at = ?
+                        """,
+                        (
+                            cancelled_step.status.value,
+                            cancelled_step.model_dump_json(),
+                            cancelled_step.updated_at.isoformat(),
+                            step.attempt_id,
+                            step.step_number,
+                            step.status.value,
+                            step.claim_epoch,
+                            step.updated_at.isoformat(),
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ResearchStoreConflict("superseded research step changed concurrently")
+
+            if mutation.attempt is not None:
+                attempt = mutation.attempt
+                if (
+                    attempt.run_id != receipt.run_id
+                    or context.active_plan is None
+                    or attempt.plan_version_id != context.active_plan.id
+                    or attempt.attempt_number != context.attempt_count + 1
+                    or attempt.status != AttemptStatus.PENDING
+                    or attempt.lease_owner is not None
+                    or attempt.fencing_epoch != 0
+                ):
+                    raise ResearchStoreConflict("research attempt lineage is invalid")
+                if attempt.attempt_number == 1 and attempt.retry_of_attempt_id is not None:
+                    raise ResearchStoreConflict("the first research attempt cannot be a retry")
+                if attempt.attempt_number > 1 and (
+                    mutation.superseded_attempt_id is None
+                    or attempt.retry_of_attempt_id != mutation.superseded_attempt_id
+                    or mutation.superseded_attempt_status != AttemptStatus.FAILED
+                ):
+                    raise ResearchStoreConflict("retry attempt lineage is invalid")
+                if mutation.workflow.active_attempt_id != attempt.id:
+                    raise ResearchStoreConflict("active attempt does not match the command mutation")
+                plan_steps = context.active_plan.payload.get("steps")
+                if not isinstance(plan_steps, list) or len(plan_steps) != len(mutation.steps):
+                    raise ResearchStoreConflict("research command steps do not match the active plan")
+                expected_numbers = [item.get("step_number") for item in plan_steps if isinstance(item, dict)]
+                if expected_numbers != [step.step_number for step in mutation.steps]:
+                    raise ResearchStoreConflict("research command steps do not match the active plan")
+                if any(step.attempt_id != attempt.id or step.claim_epoch != 0 for step in mutation.steps):
+                    raise ResearchStoreConflict("research command step lineage is invalid")
+                expected_statuses = [StepStatus.READY, *([StepStatus.PENDING] * (len(mutation.steps) - 1))]
+                if [step.status for step in mutation.steps] != expected_statuses:
+                    raise ResearchStoreConflict("research command step readiness is invalid")
+                self._insert_research_attempt(connection, attempt)
+                for step in mutation.steps:
+                    self._insert_research_step(connection, step)
+                if recovery_invocation is not None:
+                    rebound = ToolInvocation.model_validate(
+                        recovery_invocation.model_copy(
+                            update={
+                                "active_attempt_id": attempt.id,
+                                "state": InvocationState.PREPARED,
+                                "sent_fencing_epoch": None,
+                                "provider_operation_id": None,
+                                "receipt": None,
+                                "artifact_id": None,
+                                "error_code": None,
+                                "last_sent_at": None,
+                                "acknowledged_at": None,
+                                "unknown_at": None,
+                                "updated_at": completed_at,
+                            }
+                        ).model_dump()
+                    )
+                    cursor = connection.execute(
+                        """
+                        UPDATE research_tool_invocations
+                        SET active_attempt_id = ?, state = ?, sent_fencing_epoch = NULL,
+                            receipt_payload = NULL, artifact_id = NULL, provider_operation_id = NULL,
+                            last_sent_at = NULL, acknowledged_at = NULL, unknown_at = NULL,
+                            payload = ?, updated_at = ?
+                        WHERE id = ? AND state = ? AND active_attempt_id = ? AND updated_at = ?
+                        """,
+                        (
+                            rebound.active_attempt_id,
+                            rebound.state.value,
+                            rebound.model_dump_json(),
+                            rebound.updated_at.isoformat(),
+                            recovery_invocation.id,
+                            InvocationState.UNKNOWN.value,
+                            recovery_invocation.active_attempt_id,
+                            recovery_invocation.updated_at.isoformat(),
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ResearchStoreConflict("recovery Tool invocation changed concurrently")
+                    self._append_agent_run_events(
+                        connection,
+                        receipt.run_id,
+                        [
+                            (
+                                "research_tool_invocation_retry_authorized",
+                                {
+                                    "invocation_id": recovery_invocation.id,
+                                    "operation_key": recovery_invocation.operation_key,
+                                    "previous_attempt_id": recovery_invocation.active_attempt_id,
+                                    "retry_attempt_id": attempt.id,
+                                    "previous_send_sequence": recovery_invocation.active_send_sequence,
+                                    "unknown_at": recovery_invocation.unknown_at.isoformat(),
+                                },
+                            )
+                        ],
+                    )
+            elif mutation.steps:
+                raise ResearchStoreConflict("research steps require a new attempt")
+
+            updated = mutation.workflow.model_copy(
+                update={
+                    "state_version": mutation.expected_state_version + 1,
+                    "created_at": context.workflow.created_at,
+                    "updated_at": completed_at,
+                }
+            )
+            if updated.active_requirement_version_id != context.workflow.active_requirement_version_id:
+                raise ResearchStoreConflict("research commands cannot replace the active requirement")
+            if updated.active_plan_version_id != context.workflow.active_plan_version_id:
+                raise ResearchStoreConflict("research commands cannot replace the active plan")
+            self._validate_research_workflow_links(connection, updated)
+            terminal_statuses = {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED,
+                AgentRunStatus.CANCELLED,
+            }
+            if updated.phase == ResearchPhase.TERMINAL:
+                if mutation.terminal_status not in terminal_statuses:
+                    raise ResearchStoreConflict("terminal command requires a terminal Agent run status")
+                next_status = mutation.terminal_status
+            else:
+                if mutation.terminal_status is not None:
+                    raise ResearchStoreConflict("non-terminal command cannot set a terminal status")
+                next_status = self._research_agent_run_status(updated)
+                if next_status is None:
+                    raise ResearchStoreConflict("research command status is invalid")
+
+            cursor = connection.execute(
+                """
+                UPDATE research_workflows
+                SET phase = ?, active_gate = ?, active_requirement_version_id = ?,
+                    active_plan_version_id = ?, active_attempt_id = ?, state_version = ?,
+                    payload = ?, updated_at = ?
+                WHERE run_id = ? AND state_version = ?
+                """,
+                (
+                    updated.phase.value,
+                    updated.active_gate.value,
+                    updated.active_requirement_version_id,
+                    updated.active_plan_version_id,
+                    updated.active_attempt_id,
+                    updated.state_version,
+                    updated.model_dump_json(),
+                    updated.updated_at.isoformat(),
+                    updated.run_id,
+                    mutation.expected_state_version,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ResearchStoreConflict("research workflow state version conflict")
+            run = context.run.model_copy(
+                update={
+                    "status": next_status,
+                    "error_code": mutation.error_code,
+                    "paused_state": None if updated.phase == ResearchPhase.TERMINAL else context.run.paused_state,
+                    "updated_at": completed_at,
+                }
+            )
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), completed_at.isoformat(), run.id),
+            )
+            if updated.phase == ResearchPhase.TERMINAL:
+                self._resolve_open_run_inboxes(
+                    connection,
+                    run.id,
+                    reason=mutation.error_code or next_status.value,
+                    resolved_at=completed_at,
+                )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "research_updated",
+                        {
+                            "state_version": updated.state_version,
+                            "phase": updated.phase.value,
+                            "active_gate": updated.active_gate.value,
+                        },
+                    ),
+                    *(
+                        [(f"run_{next_status.value}", {"error_code": mutation.error_code})]
+                        if updated.phase == ResearchPhase.TERMINAL
+                        else []
+                    ),
+                ],
+            )
+            connection.execute(
+                """
+                INSERT INTO research_commands(
+                    run_id, idempotency_key, command_type, request_hash,
+                    response_status, response_payload, payload, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    receipt.run_id,
+                    receipt.idempotency_key,
+                    receipt.command_type,
+                    receipt.request_hash,
+                    receipt.response_status,
+                    json.dumps(receipt.response_payload, ensure_ascii=False, separators=(",", ":")),
+                    receipt.model_dump_json(),
+                    receipt.created_at.isoformat(),
+                ),
+            )
+            committed_context = self._load_research_workflow_context(connection, receipt.run_id)
+            if committed_context is None:
+                raise ResearchStoreConflict("research command commit failed integrity verification")
+            return CommandCommitResult(receipt=receipt, context=committed_context, created=True)
+
+    def create_research_workflow(self, workflow: ResearchWorkflow) -> ResearchWorkflow:
+        if workflow.state_version != 1:
+            raise ResearchStoreConflict("new research workflows must start at state_version 1")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = self._require_research_run(connection, workflow.run_id)
+            self._validate_research_workflow_links(connection, workflow)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO research_workflows(
+                        run_id, phase, active_gate, active_requirement_version_id,
+                        active_plan_version_id, active_attempt_id, state_version,
+                        payload, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        workflow.run_id,
+                        workflow.phase.value,
+                        workflow.active_gate.value,
+                        workflow.active_requirement_version_id,
+                        workflow.active_plan_version_id,
+                        workflow.active_attempt_id,
+                        workflow.state_version,
+                        workflow.model_dump_json(),
+                        workflow.created_at.isoformat(),
+                        workflow.updated_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ResearchStoreConflict("research workflow already exists") from error
+            next_status = self._research_agent_run_status(workflow)
+            if next_status is not None:
+                run.status = next_status
+                run.updated_at = workflow.updated_at
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+                )
+        return workflow
+
+    def get_research_workflow(self, run_id: str) -> ResearchWorkflow | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM research_workflows WHERE run_id = ?", (run_id,)).fetchone()
+        return ResearchWorkflow.model_validate_json(row["payload"]) if row is not None else None
+
+    def compare_and_swap_research_workflow(
+        self,
+        workflow: ResearchWorkflow,
+        *,
+        expected_state_version: int,
+    ) -> bool:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload, state_version FROM research_workflows WHERE run_id = ?",
+                (workflow.run_id,),
+            ).fetchone()
+            if row is None or row["state_version"] != expected_state_version:
+                return False
+            current = ResearchWorkflow.model_validate_json(row["payload"])
+            run = self._require_research_run(connection, workflow.run_id)
+            terminal_run_statuses = {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED,
+                AgentRunStatus.CANCELLED,
+            }
+            if (
+                current.phase == ResearchPhase.TERMINAL
+                or workflow.phase == ResearchPhase.TERMINAL
+                or run.status in terminal_run_statuses
+            ):
+                return False
+            now = now_utc()
+            updated = workflow.model_copy(
+                update={
+                    "state_version": expected_state_version + 1,
+                    "created_at": current.created_at,
+                    "updated_at": now,
+                }
+            )
+            self._validate_research_workflow_links(connection, updated)
+            cursor = connection.execute(
+                """
+                UPDATE research_workflows
+                SET phase = ?, active_gate = ?, active_requirement_version_id = ?,
+                    active_plan_version_id = ?, active_attempt_id = ?, state_version = ?,
+                    payload = ?, updated_at = ?
+                WHERE run_id = ? AND state_version = ?
+                """,
+                (
+                    updated.phase.value,
+                    updated.active_gate.value,
+                    updated.active_requirement_version_id,
+                    updated.active_plan_version_id,
+                    updated.active_attempt_id,
+                    updated.state_version,
+                    updated.model_dump_json(),
+                    updated.updated_at.isoformat(),
+                    updated.run_id,
+                    expected_state_version,
+                ),
+            )
+            if cursor.rowcount != 1:
+                return False
+            next_status = self._research_agent_run_status(updated)
+            if next_status is not None:
+                run.status = next_status
+                run.updated_at = now
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), now.isoformat(), run.id),
+                )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "research_updated",
+                        {
+                            "state_version": updated.state_version,
+                            "phase": updated.phase.value,
+                            "active_gate": updated.active_gate.value,
+                        },
+                    )
+                ],
+            )
+        workflow.state_version = updated.state_version
+        workflow.created_at = updated.created_at
+        workflow.updated_at = updated.updated_at
+        return True
+
+    def finish_research_workflow(
+        self,
+        run_id: str,
+        *,
+        expected_state_version: int,
+        terminal_status: AgentRunStatus,
+        error_code: str | None = None,
+        output_text: str | None = None,
+    ) -> tuple[ResearchWorkflow, AgentRun] | None:
+        terminal_statuses = {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.PARTIAL,
+            AgentRunStatus.FAILED,
+            AgentRunStatus.REJECTED,
+            AgentRunStatus.CANCELLED,
+        }
+        if terminal_status not in terminal_statuses:
+            raise ValueError("terminal_status must be an AgentRun terminal status")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload, state_version FROM research_workflows WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None or row["state_version"] != expected_state_version:
+                return None
+            current = ResearchWorkflow.model_validate_json(row["payload"])
+            run = self._require_research_run(connection, run_id)
+            if current.phase == ResearchPhase.TERMINAL or run.status in terminal_statuses:
+                return None
+            now = now_utc()
+            workflow = current.model_copy(
+                update={
+                    "phase": ResearchPhase.TERMINAL,
+                    "active_gate": ResearchGate.NONE,
+                    "state_version": expected_state_version + 1,
+                    "updated_at": now,
+                }
+            )
+            cursor = connection.execute(
+                """
+                UPDATE research_workflows
+                SET phase = ?, active_gate = ?, state_version = ?, payload = ?, updated_at = ?
+                WHERE run_id = ? AND state_version = ?
+                """,
+                (
+                    workflow.phase.value,
+                    workflow.active_gate.value,
+                    workflow.state_version,
+                    workflow.model_dump_json(),
+                    now.isoformat(),
+                    run_id,
+                    expected_state_version,
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            run.status = terminal_status
+            run.error_code = error_code
+            run.output_text = output_text
+            run.paused_state = None
+            run.updated_at = now
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            self._resolve_open_run_inboxes(
+                connection,
+                run.id,
+                reason=error_code or terminal_status.value,
+                resolved_at=now,
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "research_updated",
+                        {
+                            "state_version": workflow.state_version,
+                            "phase": workflow.phase.value,
+                            "active_gate": workflow.active_gate.value,
+                        },
+                    ),
+                    (f"run_{terminal_status.value}", {"error_code": error_code} if error_code else {}),
+                ],
+            )
+        return workflow, run
+
+    def _load_research_execution_terminal_context(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        attempt_id: str,
+        lease: ExecutionLease,
+        expected_state_version: int,
+        completed_at: datetime,
+    ) -> tuple[
+        ResearchWorkflow,
+        AgentRun,
+        ExecutionAttempt,
+        ExecutionPlanVersion,
+        list[tuple[ResearchStep, dict[str, object]]],
+    ] | None:
+        workflow_row = connection.execute(
+            "SELECT * FROM research_workflows WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if workflow_row is None or workflow_row["state_version"] != expected_state_version:
+            return None
+        run_row = connection.execute(
+            "SELECT * FROM agent_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if run_row is None:
+            return None
+        try:
+            workflow = ResearchWorkflow.model_validate_json(workflow_row["payload"])
+            run = AgentRun.model_validate_json(run_row["payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise ResearchStoreConflict("research execution state failed integrity verification") from None
+        if (
+            not self._research_workflow_projection_matches(workflow_row, workflow)
+            or not self._research_run_projection_matches(run_row, run)
+        ):
+            raise ResearchStoreConflict("research execution state failed integrity verification")
+        if (
+            workflow.phase != ResearchPhase.EXECUTION
+            or workflow.active_gate != ResearchGate.NONE
+            or workflow.active_attempt_id != attempt_id
+            or run.status != AgentRunStatus.RUNNING
+            or run.orchestration_version != "research-v2"
+            or run.orchestration_mode != "execute"
+        ):
+            return None
+        attempt = self._live_research_attempt_for_lease(
+            connection,
+            attempt_id,
+            lease=lease,
+            now=completed_at,
+        )
+        if attempt is None or attempt.run_id != run_id:
+            return None
+        plan_row = connection.execute(
+            "SELECT * FROM research_plan_versions WHERE id = ?",
+            (attempt.plan_version_id,),
+        ).fetchone()
+        if plan_row is None:
+            raise ResearchStoreConflict("research execution plan is missing")
+        try:
+            plan = ExecutionPlanVersion.model_validate_json(plan_row["payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise ResearchStoreConflict("research execution plan failed integrity verification") from None
+        if not self._research_plan_projection_matches(plan_row, plan):
+            raise ResearchStoreConflict("research execution plan failed integrity verification")
+        if (
+            plan.run_id != run_id
+            or workflow.active_plan_version_id != plan.id
+            or workflow.active_requirement_version_id != plan.requirement_version_id
+        ):
+            raise ResearchStoreConflict("research execution lineage failed integrity verification")
+        plan_steps = plan.payload.get("steps") if isinstance(plan.payload, dict) else None
+        if not isinstance(plan_steps, list) or len(plan_steps) != 2:
+            raise ResearchStoreConflict("research execution requires the frozen two-step plan")
+        contracts: dict[int, dict[str, object]] = {}
+        for item in plan_steps:
+            if not isinstance(item, dict):
+                raise ResearchStoreConflict("research execution plan step is invalid")
+            step_number = item.get("step_number")
+            actor_type = item.get("actor_type")
+            if (
+                isinstance(step_number, bool)
+                or not isinstance(step_number, int)
+                or step_number < 1
+                or step_number in contracts
+                or actor_type not in {"tool", "skill"}
+            ):
+                raise ResearchStoreConflict("research execution plan step is invalid")
+            contracts[step_number] = item
+        if {item.get("actor_type") for item in contracts.values()} != {"tool", "skill"}:
+            raise ResearchStoreConflict("research execution requires one Tool and one Skill step")
+
+        step_rows = connection.execute(
+            "SELECT * FROM research_steps WHERE attempt_id = ? ORDER BY step_number",
+            (attempt.id,),
+        ).fetchall()
+        if len(step_rows) != len(contracts) or {row["step_number"] for row in step_rows} != set(contracts):
+            return None
+        steps: list[tuple[ResearchStep, dict[str, object]]] = []
+        for row in step_rows:
+            try:
+                step = ResearchStep.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research step failed integrity verification") from None
+            if not self._research_step_projection_matches(row, step):
+                raise ResearchStoreConflict("research step failed integrity verification")
+            steps.append((step, contracts[step.step_number]))
+        return workflow, run, attempt, plan, steps
+
+    def _close_research_execution(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        workflow: ResearchWorkflow,
+        run: AgentRun,
+        attempt: ExecutionAttempt,
+        attempt_status: AttemptStatus,
+        run_status: AgentRunStatus,
+        error_code: str | None,
+        output_text: str | None,
+        completed_at: datetime,
+    ) -> tuple[ResearchWorkflow, AgentRun]:
+        closed_attempt = attempt.model_copy(
+            update={
+                "status": attempt_status,
+                "lease_owner": None,
+                "lease_token": None,
+                "lease_expires_at": None,
+                "completed_at": completed_at,
+                "updated_at": completed_at,
+            }
+        )
+        attempt_cursor = connection.execute(
+            """
+            UPDATE research_attempts
+            SET status = ?, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
+                payload = ?, updated_at = ?
+            WHERE id = ? AND status = ? AND lease_owner = ? AND lease_token = ?
+              AND fencing_epoch = ? AND lease_expires_at = ? AND updated_at = ?
+            """,
+            (
+                closed_attempt.status.value,
+                closed_attempt.model_dump_json(),
+                completed_at.isoformat(),
+                attempt.id,
+                attempt.status.value,
+                attempt.lease_owner,
+                attempt.lease_token,
+                attempt.fencing_epoch,
+                attempt.lease_expires_at.isoformat() if attempt.lease_expires_at is not None else None,
+                attempt.updated_at.isoformat(),
+            ),
+        )
+        if attempt_cursor.rowcount != 1:
+            raise ResearchStoreConflict("research attempt finish lost its compare-and-swap")
+
+        closed_workflow = workflow.model_copy(
+            update={
+                "phase": ResearchPhase.TERMINAL,
+                "active_gate": ResearchGate.NONE,
+                "state_version": workflow.state_version + 1,
+                "updated_at": completed_at,
+            }
+        )
+        workflow_cursor = connection.execute(
+            """
+            UPDATE research_workflows
+            SET phase = ?, active_gate = ?, state_version = ?, payload = ?, updated_at = ?
+            WHERE run_id = ? AND state_version = ? AND updated_at = ?
+            """,
+            (
+                closed_workflow.phase.value,
+                closed_workflow.active_gate.value,
+                closed_workflow.state_version,
+                closed_workflow.model_dump_json(),
+                completed_at.isoformat(),
+                workflow.run_id,
+                workflow.state_version,
+                workflow.updated_at.isoformat(),
+            ),
+        )
+        if workflow_cursor.rowcount != 1:
+            raise ResearchStoreConflict("research workflow finish lost its compare-and-swap")
+
+        closed_run = run.model_copy(
+            update={
+                "status": run_status,
+                "error_code": error_code,
+                "output_text": output_text,
+                "paused_state": None,
+                "updated_at": completed_at,
+            }
+        )
+        run_cursor = connection.execute(
+            """
+            UPDATE agent_runs SET payload = ?, updated_at = ?
+            WHERE id = ? AND orchestration_version = ? AND updated_at = ?
+            """,
+            (
+                closed_run.model_dump_json(),
+                completed_at.isoformat(),
+                run.id,
+                run.orchestration_version,
+                run.updated_at.isoformat(),
+            ),
+        )
+        if run_cursor.rowcount != 1:
+            raise ResearchStoreConflict("Agent run finish lost its compare-and-swap")
+        self._resolve_open_run_inboxes(
+            connection,
+            run.id,
+            reason=error_code or run_status.value,
+            resolved_at=completed_at,
+        )
+        self._append_agent_run_events(
+            connection,
+            run.id,
+            [
+                (
+                    f"research_attempt_{attempt_status.value}",
+                    {
+                        "attempt_id": attempt.id,
+                        "fencing_epoch": attempt.fencing_epoch,
+                        **({"error_code": error_code} if error_code else {}),
+                    },
+                ),
+                (
+                    "research_updated",
+                    {
+                        "state_version": closed_workflow.state_version,
+                        "phase": closed_workflow.phase.value,
+                        "active_gate": closed_workflow.active_gate.value,
+                    },
+                ),
+                (f"run_{run_status.value}", {"error_code": error_code} if error_code else {}),
+            ],
+        )
+        return closed_workflow, closed_run
+
+    def finish_research_execution(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        lease: ExecutionLease,
+        expected_state_version: int,
+        claim_ledger_artifact_id: str,
+        deliverable_artifact_id: str,
+        review_artifact_id: str,
+        report_artifact_id: str | None = None,
+        terminal_status: AgentRunStatus = AgentRunStatus.COMPLETED,
+        output_text: str | None = None,
+        completed_at: datetime,
+    ) -> tuple[ResearchWorkflow, AgentRun] | None:
+        if terminal_status not in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}:
+            raise ValueError("successful research execution must finish completed or partial")
+        effective_completed_at = self._aware_research_time(completed_at)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            context = self._load_research_execution_terminal_context(
+                connection,
+                run_id,
+                attempt_id=attempt_id,
+                lease=lease,
+                expected_state_version=expected_state_version,
+                completed_at=effective_completed_at,
+            )
+            if context is None:
+                return None
+            workflow, run, attempt, plan, steps = context
+            if any(step.status != StepStatus.COMPLETED for step, _contract in steps):
+                return None
+            for step, contract in steps:
+                expected_kind = {
+                    "tool": "tool_actor_output",
+                    "skill": "skill_result",
+                }[str(contract["actor_type"])]
+                self._require_research_artifact(
+                    connection,
+                    step.result_artifact_id or "",
+                    run_id=run_id,
+                    requirement_version_id=plan.requirement_version_id,
+                    plan_version_id=plan.id,
+                    attempt_id=attempt.id,
+                    step_number=step.step_number,
+                    expected_kind=expected_kind,
+                )
+            skill_step = next(step for step, contract in steps if contract["actor_type"] == "skill")
+            delivery_artifacts = [
+                (claim_ledger_artifact_id, "claim_ledger"),
+                (deliverable_artifact_id, "deliverable"),
+                (review_artifact_id, "review"),
+            ]
+            if report_artifact_id is not None:
+                delivery_artifacts.append((report_artifact_id, "report"))
+            if len({artifact_id for artifact_id, _kind in delivery_artifacts}) != len(delivery_artifacts):
+                raise ResearchStoreConflict("research delivery Artifact identities must be distinct")
+            verified: dict[str, Artifact] = {}
+            for artifact_id, kind in delivery_artifacts:
+                verified[kind] = self._require_research_artifact(
+                    connection,
+                    artifact_id,
+                    run_id=run_id,
+                    requirement_version_id=plan.requirement_version_id,
+                    plan_version_id=plan.id,
+                    attempt_id=attempt.id,
+                    step_number=skill_step.step_number,
+                    expected_kind=kind,
+                )
+            try:
+                review_payload = json.loads(verified["review"].content)
+            except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research Review Artifact failed integrity verification") from None
+            if not isinstance(review_payload, dict) or review_payload.get("status") != "pass":
+                return None
+            return self._close_research_execution(
+                connection,
+                workflow=workflow,
+                run=run,
+                attempt=attempt,
+                attempt_status=AttemptStatus.COMPLETED,
+                run_status=terminal_status,
+                error_code=None,
+                output_text=output_text,
+                completed_at=effective_completed_at,
+            )
+
+    def fail_research_execution(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        lease: ExecutionLease,
+        expected_state_version: int,
+        error_code: str,
+        completed_at: datetime,
+        review_artifact_id: str | None = None,
+    ) -> tuple[ResearchWorkflow, AgentRun] | None:
+        if not error_code:
+            raise ValueError("failed research execution requires an error code")
+        effective_completed_at = self._aware_research_time(completed_at)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            context = self._load_research_execution_terminal_context(
+                connection,
+                run_id,
+                attempt_id=attempt_id,
+                lease=lease,
+                expected_state_version=expected_state_version,
+                completed_at=effective_completed_at,
+            )
+            if context is None:
+                return None
+            workflow, run, attempt, plan, steps = context
+            statuses = {step.status for step, _contract in steps}
+            if StepStatus.RUNNING in statuses:
+                return None
+            has_failed_step = StepStatus.FAILED in statuses
+            review_blocked = False
+            if not has_failed_step and statuses == {StepStatus.COMPLETED} and review_artifact_id is not None:
+                skill_step = next(step for step, contract in steps if contract["actor_type"] == "skill")
+                review = self._require_research_artifact(
+                    connection,
+                    review_artifact_id,
+                    run_id=run_id,
+                    requirement_version_id=plan.requirement_version_id,
+                    plan_version_id=plan.id,
+                    attempt_id=attempt.id,
+                    step_number=skill_step.step_number,
+                    expected_kind="review",
+                )
+                try:
+                    review_payload = json.loads(review.content)
+                except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
+                    raise ResearchStoreConflict("research Review Artifact failed integrity verification") from None
+                review_blocked = isinstance(review_payload, dict) and review_payload.get("status") == "block"
+            if not has_failed_step and not review_blocked:
+                return None
+            return self._close_research_execution(
+                connection,
+                workflow=workflow,
+                run=run,
+                attempt=attempt,
+                attempt_status=AttemptStatus.FAILED,
+                run_status=AgentRunStatus.FAILED,
+                error_code=error_code,
+                output_text=None,
+                completed_at=effective_completed_at,
+            )
+
+    def add_research_requirement_version(self, requirement: RequirementVersion) -> RequirementVersion:
+        if canonical_sha256(requirement.payload) != requirement.content_hash:
+            raise ResearchStoreConflict("research requirement content hash mismatch")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_research_run(connection, requirement.run_id)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO research_requirement_versions(id, run_id, version, content_hash, payload, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        requirement.id,
+                        requirement.run_id,
+                        requirement.version,
+                        requirement.content_hash,
+                        requirement.model_dump_json(),
+                        requirement.created_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ResearchStoreConflict("requirement versions are immutable") from error
+        return requirement
+
+    def get_research_requirement_version(self, requirement_id: str) -> RequirementVersion | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT content_hash, payload FROM research_requirement_versions WHERE id = ?",
+                (requirement_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        requirement = RequirementVersion.model_validate_json(row["payload"])
+        if row["content_hash"] != requirement.content_hash or canonical_sha256(requirement.payload) != requirement.content_hash:
+            raise ResearchStoreConflict("stored research requirement failed integrity verification")
+        return requirement
+
+    def list_research_requirement_versions(self, run_id: str) -> list[RequirementVersion]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT content_hash, payload FROM research_requirement_versions WHERE run_id = ? ORDER BY version",
+                (run_id,),
+            ).fetchall()
+        requirements = [RequirementVersion.model_validate_json(row["payload"]) for row in rows]
+        if any(
+            row["content_hash"] != requirement.content_hash
+            or canonical_sha256(requirement.payload) != requirement.content_hash
+            for row, requirement in zip(rows, requirements, strict=True)
+        ):
+            raise ResearchStoreConflict("stored research requirement failed integrity verification")
+        return requirements
+
+    def add_research_plan_version(self, plan: ExecutionPlanVersion) -> ExecutionPlanVersion:
+        if canonical_sha256(plan.payload) != plan.plan_hash:
+            raise ResearchStoreConflict("research plan content hash mismatch")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_research_run(connection, plan.run_id)
+            requirement_row = connection.execute(
+                "SELECT run_id FROM research_requirement_versions WHERE id = ?",
+                (plan.requirement_version_id,),
+            ).fetchone()
+            if requirement_row is None or requirement_row["run_id"] != plan.run_id:
+                raise ResearchStoreConflict("research plan requires a requirement from the same run")
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO research_plan_versions(
+                        id, run_id, requirement_version_id, version, plan_hash, payload, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        plan.id,
+                        plan.run_id,
+                        plan.requirement_version_id,
+                        plan.version,
+                        plan.plan_hash,
+                        plan.model_dump_json(),
+                        plan.created_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ResearchStoreConflict("plan versions are immutable") from error
+        return plan
+
+    def get_research_plan_version(self, plan_id: str) -> ExecutionPlanVersion | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT plan_hash, payload FROM research_plan_versions WHERE id = ?",
+                (plan_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        plan = ExecutionPlanVersion.model_validate_json(row["payload"])
+        if row["plan_hash"] != plan.plan_hash or canonical_sha256(plan.payload) != plan.plan_hash:
+            raise ResearchStoreConflict("stored research plan failed integrity verification")
+        return plan
+
+    def list_research_plan_versions(self, run_id: str) -> list[ExecutionPlanVersion]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT plan_hash, payload FROM research_plan_versions WHERE run_id = ? ORDER BY version",
+                (run_id,),
+            ).fetchall()
+        plans = [ExecutionPlanVersion.model_validate_json(row["payload"]) for row in rows]
+        if any(
+            row["plan_hash"] != plan.plan_hash or canonical_sha256(plan.payload) != plan.plan_hash
+            for row, plan in zip(rows, plans, strict=True)
+        ):
+            raise ResearchStoreConflict("stored research plan failed integrity verification")
+        return plans
+
+    def apply_research_workflow_command(
+        self,
+        receipt: ResearchCommandReceipt,
+        workflow: ResearchWorkflow,
+        *,
+        expected_state_version: int,
+    ) -> tuple[ResearchCommandReceipt, ResearchWorkflow, bool]:
+        if receipt.run_id != workflow.run_id:
+            raise ResearchStoreConflict("research command and workflow must belong to the same run")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM research_commands WHERE run_id = ? AND idempotency_key = ?",
+                (receipt.run_id, receipt.idempotency_key),
+            ).fetchone()
+            if row is not None:
+                existing = ResearchCommandReceipt.model_validate_json(row["payload"])
+                if existing.request_hash != receipt.request_hash or existing.command_type != receipt.command_type:
+                    raise ResearchStoreConflict("idempotency key was used for a different research command")
+                current = connection.execute(
+                    "SELECT payload FROM research_workflows WHERE run_id = ?",
+                    (receipt.run_id,),
+                ).fetchone()
+                if current is None:
+                    raise ResearchStoreConflict("research command points to a missing workflow")
+                return existing, ResearchWorkflow.model_validate_json(current["payload"]), False
+            workflow_row = connection.execute(
+                "SELECT payload, state_version FROM research_workflows WHERE run_id = ?",
+                (receipt.run_id,),
+            ).fetchone()
+            if workflow_row is None or workflow_row["state_version"] != expected_state_version:
+                raise ResearchStoreConflict("research workflow state version conflict")
+            current = ResearchWorkflow.model_validate_json(workflow_row["payload"])
+            run = self._require_research_run(connection, receipt.run_id)
+            terminal_statuses = {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED,
+                AgentRunStatus.CANCELLED,
+            }
+            if (
+                current.phase == ResearchPhase.TERMINAL
+                or workflow.phase == ResearchPhase.TERMINAL
+                or run.status in terminal_statuses
+            ):
+                raise ResearchStoreConflict("terminal research workflow cannot accept commands")
+            now = now_utc()
+            updated = workflow.model_copy(
+                update={
+                    "state_version": expected_state_version + 1,
+                    "created_at": current.created_at,
+                    "updated_at": now,
+                }
+            )
+            self._validate_research_workflow_links(connection, updated)
+            cursor = connection.execute(
+                """
+                UPDATE research_workflows
+                SET phase = ?, active_gate = ?, active_requirement_version_id = ?,
+                    active_plan_version_id = ?, active_attempt_id = ?, state_version = ?,
+                    payload = ?, updated_at = ?
+                WHERE run_id = ? AND state_version = ?
+                """,
+                (
+                    updated.phase.value,
+                    updated.active_gate.value,
+                    updated.active_requirement_version_id,
+                    updated.active_plan_version_id,
+                    updated.active_attempt_id,
+                    updated.state_version,
+                    updated.model_dump_json(),
+                    updated.updated_at.isoformat(),
+                    updated.run_id,
+                    expected_state_version,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ResearchStoreConflict("research workflow state version conflict")
+            next_status = self._research_agent_run_status(updated)
+            if next_status is None:
+                raise ResearchStoreConflict("terminal workflow requires finish_research_workflow")
+            run.status = next_status
+            run.updated_at = now
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "research_updated",
+                        {
+                            "state_version": updated.state_version,
+                            "phase": updated.phase.value,
+                            "active_gate": updated.active_gate.value,
+                        },
+                    )
+                ],
+            )
+            connection.execute(
+                """
+                INSERT INTO research_commands(
+                    run_id, idempotency_key, command_type, request_hash,
+                    response_status, response_payload, payload, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    receipt.run_id,
+                    receipt.idempotency_key,
+                    receipt.command_type,
+                    receipt.request_hash,
+                    receipt.response_status,
+                    json.dumps(receipt.response_payload, ensure_ascii=False, separators=(",", ":")),
+                    receipt.model_dump_json(),
+                    receipt.created_at.isoformat(),
+                ),
+            )
+        workflow.state_version = updated.state_version
+        workflow.created_at = updated.created_at
+        workflow.updated_at = updated.updated_at
+        return receipt, updated, True
+
+    def add_research_attempt(self, attempt: ExecutionAttempt) -> ExecutionAttempt:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_research_run(connection, attempt.run_id)
+            plan_row = connection.execute(
+                "SELECT run_id FROM research_plan_versions WHERE id = ?",
+                (attempt.plan_version_id,),
+            ).fetchone()
+            if plan_row is None or plan_row["run_id"] != attempt.run_id:
+                raise ResearchStoreConflict("research attempt requires a plan from the same run")
+            if attempt.attempt_number == 1 and attempt.retry_of_attempt_id is not None:
+                raise ResearchStoreConflict("the first research attempt cannot be a retry")
+            if attempt.attempt_number > 1:
+                prior = connection.execute(
+                    "SELECT run_id, plan_version_id, attempt_number, status FROM research_attempts WHERE id = ?",
+                    (attempt.retry_of_attempt_id,),
+                ).fetchone()
+                if (
+                    prior is None
+                    or prior["run_id"] != attempt.run_id
+                    or prior["plan_version_id"] != attempt.plan_version_id
+                    or prior["attempt_number"] != attempt.attempt_number - 1
+                    or prior["status"] not in {"completed", "failed", "cancelled"}
+                ):
+                    raise ResearchStoreConflict("retry attempt lineage is invalid")
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO research_attempts(
+                        id, run_id, plan_version_id, attempt_number, status,
+                        lease_owner, lease_token, fencing_epoch, lease_expires_at,
+                        payload, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        attempt.id,
+                        attempt.run_id,
+                        attempt.plan_version_id,
+                        attempt.attempt_number,
+                        attempt.status.value,
+                        attempt.lease_owner,
+                        attempt.lease_token,
+                        attempt.fencing_epoch,
+                        attempt.lease_expires_at.isoformat() if attempt.lease_expires_at is not None else None,
+                        attempt.model_dump_json(),
+                        attempt.created_at.isoformat(),
+                        attempt.updated_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ResearchStoreConflict("research attempt already exists") from error
+        return attempt
+
+    @staticmethod
+    def _research_attempt_projection_matches(row: sqlite3.Row, attempt: ExecutionAttempt) -> bool:
+        return bool(
+            row["id"] == attempt.id
+            and row["run_id"] == attempt.run_id
+            and row["plan_version_id"] == attempt.plan_version_id
+            and row["attempt_number"] == attempt.attempt_number
+            and row["status"] == attempt.status.value
+            and row["lease_owner"] == attempt.lease_owner
+            and row["lease_token"] == attempt.lease_token
+            and row["fencing_epoch"] == attempt.fencing_epoch
+            and row["lease_expires_at"]
+            == (attempt.lease_expires_at.isoformat() if attempt.lease_expires_at is not None else None)
+            and row["created_at"] == attempt.created_at.isoformat()
+            and row["updated_at"] == attempt.updated_at.isoformat()
+        )
+
+    @staticmethod
+    def _research_workflow_projection_matches(row: sqlite3.Row, workflow: ResearchWorkflow) -> bool:
+        return bool(
+            row["run_id"] == workflow.run_id
+            and row["phase"] == workflow.phase.value
+            and row["active_gate"] == workflow.active_gate.value
+            and row["active_requirement_version_id"] == workflow.active_requirement_version_id
+            and row["active_plan_version_id"] == workflow.active_plan_version_id
+            and row["active_attempt_id"] == workflow.active_attempt_id
+            and row["state_version"] == workflow.state_version
+            and row["created_at"] == workflow.created_at.isoformat()
+            and row["updated_at"] == workflow.updated_at.isoformat()
+        )
+
+    @staticmethod
+    def _research_run_projection_matches(row: sqlite3.Row, run: AgentRun) -> bool:
+        return bool(
+            row["id"] == run.id
+            and row["orchestration_version"] == run.orchestration_version
+            and row["updated_at"] == run.updated_at.isoformat()
+        )
+
+    @staticmethod
+    def _research_plan_projection_matches(row: sqlite3.Row, plan: ExecutionPlanVersion) -> bool:
+        try:
+            content_hash_matches = canonical_sha256(plan.payload) == plan.plan_hash
+        except (TypeError, ValueError):
+            return False
+        return bool(
+            row["id"] == plan.id
+            and row["run_id"] == plan.run_id
+            and row["requirement_version_id"] == plan.requirement_version_id
+            and row["version"] == plan.version
+            and row["plan_hash"] == plan.plan_hash
+            and row["created_at"] == plan.created_at.isoformat()
+            and content_hash_matches
+        )
+
+    @staticmethod
+    def _research_step_projection_matches(row: sqlite3.Row, step: ResearchStep) -> bool:
+        return bool(
+            row["attempt_id"] == step.attempt_id
+            and row["step_number"] == step.step_number
+            and row["status"] == step.status.value
+            and row["claim_epoch"] == step.claim_epoch
+            and row["result_artifact_id"] == step.result_artifact_id
+            and row["updated_at"] == step.updated_at.isoformat()
+        )
+
+    @staticmethod
+    def _research_invocation_projection_matches(row: sqlite3.Row, invocation: ToolInvocation) -> bool:
+        try:
+            receipt = (
+                ToolReceipt.model_validate_json(row["receipt_payload"])
+                if row["receipt_payload"] is not None
+                else None
+            )
+        except (RecursionError, TypeError, ValueError):
+            return False
+        return bool(
+            row["id"] == invocation.id
+            and row["run_id"] == invocation.run_id
+            and row["plan_version_id"] == invocation.plan_version_id
+            and row["step_number"] == invocation.step_number
+            and row["operation_key"] == invocation.operation_key
+            and row["request_hash"] == invocation.resolved_input_hash
+            and row["resolved_input_hash"] == invocation.resolved_input_hash
+            and row["request_artifact_id"] == invocation.request_artifact_id
+            and row["active_attempt_id"] == invocation.active_attempt_id
+            and row["state"] == invocation.state.value
+            and row["send_count"] == invocation.send_count
+            and row["active_send_sequence"] == invocation.active_send_sequence
+            and row["sent_fencing_epoch"] == invocation.sent_fencing_epoch
+            and receipt == invocation.receipt
+            and row["artifact_id"] == invocation.artifact_id
+            and row["provider_operation_id"] == invocation.provider_operation_id
+            and row["last_sent_at"]
+            == (invocation.last_sent_at.isoformat() if invocation.last_sent_at is not None else None)
+            and row["acknowledged_at"]
+            == (invocation.acknowledged_at.isoformat() if invocation.acknowledged_at is not None else None)
+            and row["unknown_at"]
+            == (invocation.unknown_at.isoformat() if invocation.unknown_at is not None else None)
+            and row["created_at"] == invocation.created_at.isoformat()
+            and row["updated_at"] == invocation.updated_at.isoformat()
+        )
+
+    @staticmethod
+    def _aware_research_time(value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("research execution timestamps must be timezone-aware")
+        return value
+
+    def _live_research_attempt_for_lease(
+        self,
+        connection: sqlite3.Connection,
+        attempt_id: str,
+        *,
+        lease: ExecutionLease,
+        now: datetime,
+        require_gate_none: bool = True,
+        allow_off: bool = False,
+    ) -> ExecutionAttempt | None:
+        row = connection.execute(
+            """
+            SELECT a.*, w.phase AS workflow_phase, w.active_gate AS workflow_gate,
+                   w.active_attempt_id AS workflow_attempt_id, w.payload AS workflow_payload,
+                   r.payload AS run_payload, r.orchestration_version AS run_orchestration_version
+            FROM research_attempts a
+            JOIN research_workflows w ON w.run_id = a.run_id
+            JOIN agent_runs r ON r.id = a.run_id
+            WHERE a.id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            attempt = ExecutionAttempt.model_validate_json(row["payload"])
+            workflow = ResearchWorkflow.model_validate_json(row["workflow_payload"])
+            run = AgentRun.model_validate_json(row["run_payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise ResearchStoreConflict("research execution state failed integrity verification") from None
+        if (
+            not self._research_attempt_projection_matches(row, attempt)
+            or workflow.phase.value != row["workflow_phase"]
+            or workflow.active_gate.value != row["workflow_gate"]
+            or workflow.active_attempt_id != row["workflow_attempt_id"]
+            or run.orchestration_version != row["run_orchestration_version"]
+        ):
+            raise ResearchStoreConflict("research execution state failed integrity verification")
+        if (
+            attempt.status != AttemptStatus.RUNNING
+            or attempt.lease_owner != lease.owner
+            or attempt.lease_token != lease.token
+            or attempt.fencing_epoch != lease.fencing_epoch
+            or attempt.lease_expires_at is None
+            or attempt.lease_expires_at <= now
+            or workflow.phase != ResearchPhase.EXECUTION
+            or workflow.active_attempt_id != attempt.id
+            or (require_gate_none and workflow.active_gate != ResearchGate.NONE)
+            or run.status != AgentRunStatus.RUNNING
+            or run.orchestration_version != "research-v2"
+            or (not allow_off and run.orchestration_mode != "execute")
+        ):
+            return None
+        return attempt
+
+    def claim_research_attempt(
+        self,
+        attempt_id: str,
+        *,
+        owner: str,
+        token: str,
+        now: datetime,
+        lease_ttl: timedelta = timedelta(seconds=60),
+    ) -> ExecutionAttempt | None:
+        checked_at = self._aware_research_time(now)
+        if not owner or not token or lease_ttl <= timedelta(0):
+            raise ValueError("attempt claim requires owner, token, and a positive lease TTL")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT a.*, w.phase AS workflow_phase, w.active_gate AS workflow_gate,
+                       w.active_attempt_id AS workflow_attempt_id, w.payload AS workflow_payload,
+                       r.payload AS run_payload, r.orchestration_version AS run_orchestration_version
+                FROM research_attempts a
+                JOIN research_workflows w ON w.run_id = a.run_id
+                JOIN agent_runs r ON r.id = a.run_id
+                WHERE a.id = ?
+                """,
+                (attempt_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                current = ExecutionAttempt.model_validate_json(row["payload"])
+                workflow = ResearchWorkflow.model_validate_json(row["workflow_payload"])
+                run = AgentRun.model_validate_json(row["run_payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research execution state failed integrity verification") from None
+            if (
+                not self._research_attempt_projection_matches(row, current)
+                or workflow.phase.value != row["workflow_phase"]
+                or workflow.active_gate.value != row["workflow_gate"]
+                or workflow.active_attempt_id != row["workflow_attempt_id"]
+                or run.orchestration_version != row["run_orchestration_version"]
+            ):
+                raise ResearchStoreConflict("research execution state failed integrity verification")
+            if (
+                workflow.phase != ResearchPhase.EXECUTION
+                or workflow.active_gate != ResearchGate.NONE
+                or workflow.active_attempt_id != current.id
+                or run.status != AgentRunStatus.RUNNING
+                or run.orchestration_version != "research-v2"
+                or run.orchestration_mode != "execute"
+                or current.deadline_at <= checked_at
+            ):
+                return None
+            if (
+                current.status == AttemptStatus.RUNNING
+                and current.lease_owner == owner
+                and current.lease_token == token
+                and current.lease_expires_at is not None
+                and current.lease_expires_at > checked_at
+            ):
+                return current
+            pending = current.status == AttemptStatus.PENDING
+            expired = (
+                current.status == AttemptStatus.RUNNING
+                and current.lease_expires_at is not None
+                and current.lease_expires_at <= checked_at
+            )
+            if not pending and not expired:
+                return None
+            expires_at = min(checked_at + lease_ttl, current.deadline_at)
+            if expires_at <= checked_at:
+                return None
+            claimed = current.model_copy(
+                update={
+                    "status": AttemptStatus.RUNNING,
+                    "lease_owner": owner,
+                    "lease_token": token,
+                    "fencing_epoch": current.fencing_epoch + 1,
+                    "lease_expires_at": expires_at,
+                    "updated_at": checked_at,
+                }
+            )
+            cursor = connection.execute(
+                """
+                UPDATE research_attempts
+                SET status = ?, lease_owner = ?, lease_token = ?, fencing_epoch = ?,
+                    lease_expires_at = ?, payload = ?, updated_at = ?
+                WHERE id = ? AND status = ? AND fencing_epoch = ?
+                  AND COALESCE(lease_owner, '') = COALESCE(?, '')
+                  AND COALESCE(lease_token, '') = COALESCE(?, '')
+                  AND COALESCE(lease_expires_at, '') = COALESCE(?, '')
+                """,
+                (
+                    claimed.status.value,
+                    claimed.lease_owner,
+                    claimed.lease_token,
+                    claimed.fencing_epoch,
+                    claimed.lease_expires_at.isoformat(),
+                    claimed.model_dump_json(),
+                    checked_at.isoformat(),
+                    claimed.id,
+                    current.status.value,
+                    current.fencing_epoch,
+                    current.lease_owner,
+                    current.lease_token,
+                    current.lease_expires_at.isoformat() if current.lease_expires_at is not None else None,
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            takeover_events: list[tuple[str, dict[str, object]]] = []
+            if expired:
+                invocation_rows = connection.execute(
+                    """
+                    SELECT * FROM research_tool_invocations
+                    WHERE active_attempt_id = ? AND state = ?
+                    ORDER BY id
+                    """,
+                    (claimed.id, InvocationState.SENT.value),
+                ).fetchall()
+                for invocation_row in invocation_rows:
+                    try:
+                        invocation = ToolInvocation.model_validate_json(invocation_row["payload"])
+                    except (RecursionError, TypeError, ValueError):
+                        raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+                    if not self._research_invocation_projection_matches(invocation_row, invocation):
+                        raise ResearchStoreConflict("Tool invocation failed integrity verification")
+                    unknown = invocation.model_copy(
+                        update={
+                            "state": InvocationState.UNKNOWN,
+                            "unknown_at": checked_at,
+                            "error_code": "provider_result_unknown",
+                            "updated_at": checked_at,
+                        }
+                    )
+                    invocation_cursor = connection.execute(
+                        """
+                        UPDATE research_tool_invocations
+                        SET state = ?, unknown_at = ?, payload = ?, updated_at = ?
+                        WHERE id = ? AND state = ? AND active_attempt_id = ?
+                          AND active_send_sequence = ? AND sent_fencing_epoch = ?
+                          AND updated_at = ?
+                        """,
+                        (
+                            unknown.state.value,
+                            checked_at.isoformat(),
+                            unknown.model_dump_json(),
+                            checked_at.isoformat(),
+                            invocation.id,
+                            InvocationState.SENT.value,
+                            claimed.id,
+                            invocation.active_send_sequence,
+                            invocation.sent_fencing_epoch,
+                            invocation.updated_at.isoformat(),
+                        ),
+                    )
+                    if invocation_cursor.rowcount != 1:
+                        raise ResearchStoreConflict("Tool invocation takeover lost its compare-and-swap")
+                    takeover_events.append(
+                        (
+                            "research_tool_invocation_unknown",
+                            {
+                                "invocation_id": invocation.id,
+                                "send_sequence": invocation.active_send_sequence,
+                                "reason": "attempt_takeover",
+                            },
+                        )
+                    )
+            self._append_agent_run_events(
+                connection,
+                claimed.run_id,
+                [
+                    (
+                        "research_attempt_claimed",
+                        {
+                            "attempt_id": claimed.id,
+                            "fencing_epoch": claimed.fencing_epoch,
+                            "takeover": expired,
+                        },
+                    ),
+                    *takeover_events,
+                ],
+            )
+        return claimed
+
+    def heartbeat_research_attempt(
+        self,
+        attempt_id: str,
+        *,
+        lease: ExecutionLease,
+        now: datetime,
+        lease_ttl: timedelta = timedelta(seconds=60),
+    ) -> ExecutionAttempt | None:
+        checked_at = self._aware_research_time(now)
+        if lease_ttl <= timedelta(0):
+            raise ValueError("attempt heartbeat requires a positive lease TTL")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = self._live_research_attempt_for_lease(
+                connection,
+                attempt_id,
+                lease=lease,
+                now=checked_at,
+                allow_off=True,
+            )
+            if current is None or current.deadline_at <= checked_at:
+                return None
+            expires_at = min(checked_at + lease_ttl, current.deadline_at)
+            if expires_at <= checked_at:
+                return None
+            updated = current.model_copy(update={"lease_expires_at": expires_at, "updated_at": checked_at})
+            cursor = connection.execute(
+                """
+                UPDATE research_attempts
+                SET lease_expires_at = ?, payload = ?, updated_at = ?
+                WHERE id = ? AND status = ? AND lease_owner = ? AND lease_token = ?
+                  AND fencing_epoch = ? AND lease_expires_at = ?
+                """,
+                (
+                    expires_at.isoformat(),
+                    updated.model_dump_json(),
+                    checked_at.isoformat(),
+                    current.id,
+                    AttemptStatus.RUNNING.value,
+                    lease.owner,
+                    lease.token,
+                    lease.fencing_epoch,
+                    current.lease_expires_at.isoformat(),
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+        return updated
+
+    def get_research_attempt(self, attempt_id: str) -> ExecutionAttempt | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM research_attempts WHERE id = ?", (attempt_id,)).fetchone()
+        return ExecutionAttempt.model_validate_json(row["payload"]) if row is not None else None
+
+    def list_expired_research_attempt_ids(self, now: datetime) -> list[str]:
+        checked_at = self._aware_research_time(now)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM research_attempts
+                WHERE status = ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?
+                ORDER BY lease_expires_at, id
+                """,
+                (AttemptStatus.RUNNING.value, checked_at.isoformat()),
+            ).fetchall()
+            expired: list[str] = []
+            for row in rows:
+                try:
+                    attempt = ExecutionAttempt.model_validate_json(row["payload"])
+                except (RecursionError, TypeError, ValueError):
+                    raise ResearchStoreConflict("research attempt failed integrity verification") from None
+                if not self._research_attempt_projection_matches(row, attempt):
+                    raise ResearchStoreConflict("research attempt failed integrity verification")
+                if (
+                    attempt.status != AttemptStatus.RUNNING
+                    or attempt.lease_expires_at is None
+                    or attempt.lease_expires_at > checked_at
+                    or attempt.deadline_at <= checked_at
+                ):
+                    continue
+                workflow_row = connection.execute(
+                    "SELECT * FROM research_workflows WHERE run_id = ?",
+                    (attempt.run_id,),
+                ).fetchone()
+                run_row = connection.execute(
+                    "SELECT * FROM agent_runs WHERE id = ?",
+                    (attempt.run_id,),
+                ).fetchone()
+                if workflow_row is None or run_row is None:
+                    continue
+                try:
+                    workflow = ResearchWorkflow.model_validate_json(workflow_row["payload"])
+                    run = AgentRun.model_validate_json(run_row["payload"])
+                except (RecursionError, TypeError, ValueError):
+                    raise ResearchStoreConflict("research execution state failed integrity verification") from None
+                if (
+                    not self._research_workflow_projection_matches(workflow_row, workflow)
+                    or not self._research_run_projection_matches(run_row, run)
+                ):
+                    raise ResearchStoreConflict("research execution state failed integrity verification")
+                if (
+                    workflow.phase != ResearchPhase.EXECUTION
+                    or workflow.active_gate != ResearchGate.NONE
+                    or workflow.active_attempt_id != attempt.id
+                    or workflow.active_plan_version_id != attempt.plan_version_id
+                    or run.id != attempt.run_id
+                    or run.status != AgentRunStatus.RUNNING
+                    or run.orchestration_version != "research-v2"
+                    or run.orchestration_mode != "execute"
+                ):
+                    continue
+                expired.append(attempt.id)
+        return expired
+
+    def add_research_step(self, step: ResearchStep) -> ResearchStep:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            lineage = connection.execute(
+                """
+                SELECT a.run_id, a.plan_version_id, p.requirement_version_id, p.plan_hash, p.payload AS plan_payload
+                FROM research_attempts a
+                JOIN research_plan_versions p ON p.id = a.plan_version_id AND p.run_id = a.run_id
+                WHERE a.id = ?
+                """,
+                (step.attempt_id,),
+            ).fetchone()
+            if lineage is None:
+                raise ResearchStoreConflict("research step requires an existing attempt")
+            try:
+                plan = ExecutionPlanVersion.model_validate_json(lineage["plan_payload"])
+            except (TypeError, ValueError):
+                raise ResearchStoreConflict("research step plan failed integrity verification") from None
+            if lineage["plan_hash"] != plan.plan_hash or canonical_sha256(plan.payload) != plan.plan_hash:
+                raise ResearchStoreConflict("research step plan failed integrity verification")
+            plan_steps = plan.payload.get("steps") if isinstance(plan.payload, dict) else None
+            step_contract = next(
+                (
+                    item
+                    for item in plan_steps or []
+                    if isinstance(item, dict) and item.get("step_number") == step.step_number
+                ),
+                None,
+            )
+            if step_contract is None:
+                raise ResearchStoreConflict("research step is not part of the frozen plan")
+            if step.result_artifact_id is not None:
+                expected_kind = {
+                    "tool": "tool_result",
+                    "skill": "skill_result",
+                }.get(step_contract.get("actor_type"))
+                self._require_research_artifact(
+                    connection,
+                    step.result_artifact_id,
+                    run_id=lineage["run_id"],
+                    requirement_version_id=lineage["requirement_version_id"],
+                    plan_version_id=lineage["plan_version_id"],
+                    attempt_id=step.attempt_id,
+                    step_number=step.step_number,
+                    expected_kind=expected_kind,
+                )
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO research_steps(
+                        attempt_id, step_number, status, claim_epoch,
+                        result_artifact_id, payload, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        step.attempt_id,
+                        step.step_number,
+                        step.status.value,
+                        step.claim_epoch,
+                        step.result_artifact_id,
+                        step.model_dump_json(),
+                        step.updated_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ResearchStoreConflict("research step already exists") from error
+        return step
+
+    def get_research_step(self, attempt_id: str, step_number: int) -> ResearchStep | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM research_steps WHERE attempt_id = ? AND step_number = ?",
+                (attempt_id, step_number),
+            ).fetchone()
+        return ResearchStep.model_validate_json(row["payload"]) if row is not None else None
+
+    def claim_research_step(
+        self,
+        attempt_id: str,
+        step_number: int,
+        *,
+        lease: ExecutionLease,
+        now: datetime,
+    ) -> ResearchStep | None:
+        checked_at = self._aware_research_time(now)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            attempt = self._live_research_attempt_for_lease(
+                connection,
+                attempt_id,
+                lease=lease,
+                now=checked_at,
+            )
+            if attempt is None:
+                return None
+            row = connection.execute(
+                "SELECT * FROM research_steps WHERE attempt_id = ? AND step_number = ?",
+                (attempt_id, step_number),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                current = ResearchStep.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research step failed integrity verification") from None
+            if not self._research_step_projection_matches(row, current):
+                raise ResearchStoreConflict("research step failed integrity verification")
+            if current.status == StepStatus.RUNNING and current.claim_epoch == lease.fencing_epoch:
+                return current
+            fresh_claim = current.status == StepStatus.READY and current.claim_epoch == 0
+            takeover = (
+                current.status == StepStatus.RUNNING
+                and current.claim_epoch > 0
+                and current.claim_epoch < lease.fencing_epoch
+            )
+            if not fresh_claim and not takeover:
+                return None
+            claimed = current.model_copy(
+                update={
+                    "status": StepStatus.RUNNING,
+                    "claim_epoch": lease.fencing_epoch,
+                    "started_at": current.started_at if takeover else checked_at,
+                    "updated_at": checked_at,
+                }
+            )
+            cursor = connection.execute(
+                """
+                UPDATE research_steps
+                SET status = ?, claim_epoch = ?, result_artifact_id = ?, payload = ?, updated_at = ?
+                WHERE attempt_id = ? AND step_number = ? AND status = ? AND claim_epoch = ?
+                  AND updated_at = ?
+                """,
+                (
+                    claimed.status.value,
+                    claimed.claim_epoch,
+                    claimed.result_artifact_id,
+                    claimed.model_dump_json(),
+                    checked_at.isoformat(),
+                    attempt_id,
+                    step_number,
+                    current.status.value,
+                    current.claim_epoch,
+                    current.updated_at.isoformat(),
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            self._append_agent_run_events(
+                connection,
+                attempt.run_id,
+                [
+                    (
+                        "research_step_claimed",
+                        {
+                            "attempt_id": attempt_id,
+                            "step_number": step_number,
+                            "fencing_epoch": lease.fencing_epoch,
+                            "takeover": takeover,
+                        },
+                    )
+                ],
+            )
+        return claimed
+
+    def compare_and_swap_research_step(
+        self,
+        attempt_id: str,
+        step_number: int,
+        *,
+        lease: ExecutionLease,
+        expected_status: StepStatus,
+        next_status: StepStatus,
+        result_artifact_id: str | None = None,
+        error_code: str | None = None,
+        now: datetime,
+    ) -> ResearchStep | None:
+        checked_at = self._aware_research_time(now)
+        allowed = {
+            (StepStatus.PENDING, StepStatus.READY),
+            (StepStatus.READY, StepStatus.SKIPPED),
+            (StepStatus.RUNNING, StepStatus.COMPLETED),
+            (StepStatus.RUNNING, StepStatus.FAILED),
+        }
+        if (expected_status, next_status) not in allowed:
+            raise ValueError("unsupported research step transition")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            attempt = self._live_research_attempt_for_lease(
+                connection,
+                attempt_id,
+                lease=lease,
+                now=checked_at,
+                allow_off=expected_status == StepStatus.RUNNING,
+            )
+            if attempt is None:
+                return None
+            row = connection.execute(
+                "SELECT * FROM research_steps WHERE attempt_id = ? AND step_number = ?",
+                (attempt_id, step_number),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                current = ResearchStep.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research step failed integrity verification") from None
+            if not self._research_step_projection_matches(row, current):
+                raise ResearchStoreConflict("research step failed integrity verification")
+            if current.status != expected_status:
+                return None
+            expected_epoch = lease.fencing_epoch if expected_status == StepStatus.RUNNING else 0
+            if current.claim_epoch != expected_epoch:
+                return None
+
+            updates: dict[str, object] = {"status": next_status, "updated_at": checked_at}
+            if next_status == StepStatus.READY:
+                if result_artifact_id is not None or error_code is not None:
+                    raise ValueError("ready steps cannot carry terminal fields")
+            elif next_status == StepStatus.COMPLETED:
+                if result_artifact_id is None or error_code is not None:
+                    raise ValueError("completed steps require only a result Artifact")
+                plan_row = connection.execute(
+                    """
+                    SELECT p.requirement_version_id, p.payload
+                    FROM research_attempts a
+                    JOIN research_plan_versions p ON p.id = a.plan_version_id
+                    WHERE a.id = ?
+                    """,
+                    (attempt_id,),
+                ).fetchone()
+                if plan_row is None:
+                    raise ResearchStoreConflict("research step plan is missing")
+                plan = ExecutionPlanVersion.model_validate_json(plan_row["payload"])
+                contract = next(
+                    (
+                        item
+                        for item in plan.payload.get("steps", [])
+                        if isinstance(item, dict) and item.get("step_number") == step_number
+                    ),
+                    None,
+                )
+                expected_kind = {
+                    "tool": "tool_actor_output",
+                    "skill": "skill_result",
+                }.get(contract.get("actor_type") if isinstance(contract, dict) else None)
+                self._require_research_artifact(
+                    connection,
+                    result_artifact_id,
+                    run_id=attempt.run_id,
+                    requirement_version_id=plan_row["requirement_version_id"],
+                    plan_version_id=attempt.plan_version_id,
+                    attempt_id=attempt_id,
+                    step_number=step_number,
+                    expected_kind=expected_kind,
+                )
+                if expected_kind == "tool_actor_output":
+                    acknowledged = connection.execute(
+                        """
+                        SELECT 1 FROM research_tool_invocations
+                        WHERE active_attempt_id = ? AND step_number = ? AND state = ?
+                        LIMIT 1
+                        """,
+                        (attempt_id, step_number, InvocationState.ACKNOWLEDGED.value),
+                    ).fetchone()
+                    if acknowledged is None:
+                        raise ResearchStoreConflict("Tool step requires an acknowledged invocation")
+                updates.update(
+                    {
+                        "result_artifact_id": result_artifact_id,
+                        "error_code": None,
+                        "completed_at": checked_at,
+                    }
+                )
+            elif next_status == StepStatus.FAILED:
+                if not error_code or result_artifact_id is not None:
+                    raise ValueError("failed steps require only an error code")
+                updates.update(
+                    {
+                        "result_artifact_id": None,
+                        "error_code": error_code,
+                        "completed_at": checked_at,
+                    }
+                )
+            else:
+                if result_artifact_id is not None:
+                    raise ValueError("skipped steps cannot contain a result Artifact")
+                updates.update({"error_code": error_code, "completed_at": checked_at})
+            updated = current.model_copy(update=updates)
+            cursor = connection.execute(
+                """
+                UPDATE research_steps
+                SET status = ?, claim_epoch = ?, result_artifact_id = ?, payload = ?, updated_at = ?
+                WHERE attempt_id = ? AND step_number = ? AND status = ? AND claim_epoch = ?
+                """,
+                (
+                    updated.status.value,
+                    updated.claim_epoch,
+                    updated.result_artifact_id,
+                    updated.model_dump_json(),
+                    checked_at.isoformat(),
+                    attempt_id,
+                    step_number,
+                    current.status.value,
+                    current.claim_epoch,
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            self._append_agent_run_events(
+                connection,
+                attempt.run_id,
+                [
+                    (
+                        f"research_step_{next_status.value}",
+                        {
+                            "attempt_id": attempt_id,
+                            "step_number": step_number,
+                            **({"error_code": error_code} if error_code else {}),
+                        },
+                    )
+                ],
+            )
+        return updated
+
+    def add_research_tool_invocation(self, invocation: ToolInvocation) -> tuple[ToolInvocation, bool]:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            plan_row = connection.execute(
+                "SELECT run_id, requirement_version_id FROM research_plan_versions WHERE id = ?",
+                (invocation.plan_version_id,),
+            ).fetchone()
+            if plan_row is None or plan_row["run_id"] != invocation.run_id:
+                raise ResearchStoreConflict("Tool invocation requires a plan from the same run")
+            self._require_research_run(connection, invocation.run_id)
+            attempt_row = connection.execute(
+                "SELECT run_id, plan_version_id, status, fencing_epoch FROM research_attempts WHERE id = ?",
+                (invocation.active_attempt_id,),
+            ).fetchone()
+            step_row = connection.execute(
+                "SELECT status, claim_epoch FROM research_steps WHERE attempt_id = ? AND step_number = ?",
+                (invocation.active_attempt_id, invocation.step_number),
+            ).fetchone()
+            if (
+                attempt_row is None
+                or attempt_row["run_id"] != invocation.run_id
+                or attempt_row["plan_version_id"] != invocation.plan_version_id
+                or attempt_row["status"] != "running"
+                or step_row is None
+                or step_row["status"] != "running"
+                or step_row["claim_epoch"] != attempt_row["fencing_epoch"]
+            ):
+                raise ResearchStoreConflict("Tool invocation requires the matching attempt step")
+            self._require_research_artifact(
+                connection,
+                invocation.request_artifact_id,
+                run_id=invocation.run_id,
+                requirement_version_id=plan_row["requirement_version_id"],
+                plan_version_id=invocation.plan_version_id,
+                attempt_id=invocation.active_attempt_id,
+                step_number=invocation.step_number,
+                expected_kind="tool_request",
+                expected_content_hash=invocation.resolved_input_hash,
+            )
+            if invocation.artifact_id is not None:
+                self._require_research_artifact(
+                    connection,
+                    invocation.artifact_id,
+                    run_id=invocation.run_id,
+                    requirement_version_id=plan_row["requirement_version_id"],
+                    plan_version_id=invocation.plan_version_id,
+                    attempt_id=invocation.active_attempt_id,
+                    step_number=invocation.step_number,
+                    expected_kind="tool_result",
+                )
+            row = connection.execute(
+                "SELECT * FROM research_tool_invocations WHERE run_id = ? AND operation_key = ?",
+                (invocation.run_id, invocation.operation_key),
+            ).fetchone()
+            if row is not None:
+                try:
+                    existing = ToolInvocation.model_validate_json(row["payload"])
+                except (RecursionError, TypeError, ValueError):
+                    raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+                if not self._research_invocation_projection_matches(row, existing):
+                    raise ResearchStoreConflict("Tool invocation failed integrity verification")
+                if (
+                    existing.resolved_input_hash != invocation.resolved_input_hash
+                    or existing.plan_version_id != invocation.plan_version_id
+                    or existing.step_number != invocation.step_number
+                    or existing.active_attempt_id != invocation.active_attempt_id
+                    or existing.request_artifact_id != invocation.request_artifact_id
+                ):
+                    raise ResearchStoreConflict("operation key was used for a different Tool request")
+                return existing, False
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO research_tool_invocations(
+                        id, run_id, plan_version_id, step_number, operation_key,
+                        request_hash, resolved_input_hash, request_artifact_id, active_attempt_id,
+                        state, send_count, active_send_sequence, sent_fencing_epoch,
+                        receipt_payload, artifact_id, provider_operation_id, last_sent_at,
+                        acknowledged_at, unknown_at, payload, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        invocation.id,
+                        invocation.run_id,
+                        invocation.plan_version_id,
+                        invocation.step_number,
+                        invocation.operation_key,
+                        invocation.resolved_input_hash,
+                        invocation.resolved_input_hash,
+                        invocation.request_artifact_id,
+                        invocation.active_attempt_id,
+                        invocation.state.value,
+                        invocation.send_count,
+                        invocation.active_send_sequence,
+                        invocation.sent_fencing_epoch,
+                        invocation.receipt.model_dump_json() if invocation.receipt is not None else None,
+                        invocation.artifact_id,
+                        invocation.provider_operation_id,
+                        invocation.last_sent_at.isoformat() if invocation.last_sent_at is not None else None,
+                        invocation.acknowledged_at.isoformat() if invocation.acknowledged_at is not None else None,
+                        invocation.unknown_at.isoformat() if invocation.unknown_at is not None else None,
+                        invocation.model_dump_json(),
+                        invocation.created_at.isoformat(),
+                        invocation.updated_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ResearchStoreConflict("Tool invocation already exists") from error
+        return invocation, True
+
+    def prepare_research_tool_invocation(
+        self,
+        invocation: ToolInvocation,
+        *,
+        lease: ExecutionLease,
+        now: datetime,
+    ) -> tuple[ToolInvocation, bool]:
+        checked_at = self._aware_research_time(now)
+        if invocation.state != InvocationState.PREPARED or invocation.send_count != 0:
+            raise ResearchStoreConflict("runtime Tool invocation must start prepared")
+        prepared = invocation.model_copy(update={"created_at": checked_at, "updated_at": checked_at})
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            attempt = self._live_research_attempt_for_lease(
+                connection,
+                prepared.active_attempt_id,
+                lease=lease,
+                now=checked_at,
+            )
+            if (
+                attempt is None
+                or attempt.run_id != prepared.run_id
+                or attempt.plan_version_id != prepared.plan_version_id
+            ):
+                raise ResearchStoreConflict("Tool invocation requires the active execution lease")
+            step_row = connection.execute(
+                "SELECT * FROM research_steps WHERE attempt_id = ? AND step_number = ?",
+                (prepared.active_attempt_id, prepared.step_number),
+            ).fetchone()
+            if step_row is None:
+                raise ResearchStoreConflict("Tool invocation requires the matching attempt step")
+            try:
+                step = ResearchStep.model_validate_json(step_row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research step failed integrity verification") from None
+            if (
+                not self._research_step_projection_matches(step_row, step)
+                or step.status != StepStatus.RUNNING
+                or step.claim_epoch != lease.fencing_epoch
+            ):
+                raise ResearchStoreConflict("Tool invocation requires the matching attempt step")
+            plan_row = connection.execute(
+                "SELECT run_id, requirement_version_id FROM research_plan_versions WHERE id = ?",
+                (prepared.plan_version_id,),
+            ).fetchone()
+            if plan_row is None or plan_row["run_id"] != prepared.run_id:
+                raise ResearchStoreConflict("Tool invocation requires a plan from the same run")
+            self._require_research_artifact(
+                connection,
+                prepared.request_artifact_id,
+                run_id=prepared.run_id,
+                requirement_version_id=plan_row["requirement_version_id"],
+                plan_version_id=prepared.plan_version_id,
+                attempt_id=prepared.active_attempt_id,
+                step_number=prepared.step_number,
+                expected_kind="tool_request",
+                expected_content_hash=prepared.resolved_input_hash,
+            )
+            row = connection.execute(
+                "SELECT * FROM research_tool_invocations WHERE run_id = ? AND operation_key = ?",
+                (prepared.run_id, prepared.operation_key),
+            ).fetchone()
+            if row is not None:
+                try:
+                    existing = ToolInvocation.model_validate_json(row["payload"])
+                except (RecursionError, TypeError, ValueError):
+                    raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+                if not self._research_invocation_projection_matches(row, existing):
+                    raise ResearchStoreConflict("Tool invocation failed integrity verification")
+                if (
+                    existing.resolved_input_hash != prepared.resolved_input_hash
+                    or existing.plan_version_id != prepared.plan_version_id
+                    or existing.step_number != prepared.step_number
+                    or existing.active_attempt_id != prepared.active_attempt_id
+                    or existing.request_artifact_id != prepared.request_artifact_id
+                ):
+                    raise ResearchStoreConflict("operation key was used for a different Tool request")
+                return existing, False
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO research_tool_invocations(
+                        id, run_id, plan_version_id, step_number, operation_key,
+                        request_hash, resolved_input_hash, request_artifact_id, active_attempt_id,
+                        state, send_count, active_send_sequence, sent_fencing_epoch,
+                        receipt_payload, artifact_id, provider_operation_id, last_sent_at,
+                        acknowledged_at, unknown_at, payload, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        prepared.id,
+                        prepared.run_id,
+                        prepared.plan_version_id,
+                        prepared.step_number,
+                        prepared.operation_key,
+                        prepared.resolved_input_hash,
+                        prepared.resolved_input_hash,
+                        prepared.request_artifact_id,
+                        prepared.active_attempt_id,
+                        prepared.state.value,
+                        prepared.send_count,
+                        prepared.active_send_sequence,
+                        prepared.sent_fencing_epoch,
+                        None,
+                        None,
+                        prepared.provider_operation_id,
+                        None,
+                        None,
+                        None,
+                        prepared.model_dump_json(),
+                        checked_at.isoformat(),
+                        checked_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ResearchStoreConflict("Tool invocation already exists") from error
+            self._append_agent_run_events(
+                connection,
+                prepared.run_id,
+                [
+                    (
+                        "research_tool_invocation_prepared",
+                        {"invocation_id": prepared.id, "step_number": prepared.step_number},
+                    )
+                ],
+            )
+        return prepared, True
+
+    def mark_research_tool_invocation_sent(
+        self,
+        invocation_id: str,
+        *,
+        lease: ExecutionLease,
+        sent_at: datetime,
+    ) -> ToolInvocation | None:
+        effective_sent_at = self._aware_research_time(sent_at)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM research_tool_invocations WHERE id = ?",
+                (invocation_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                current = ToolInvocation.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+            if not self._research_invocation_projection_matches(row, current):
+                raise ResearchStoreConflict("Tool invocation failed integrity verification")
+            if current.state not in {InvocationState.PREPARED, InvocationState.SENT}:
+                return None
+            attempt = self._live_research_attempt_for_lease(
+                connection,
+                current.active_attempt_id,
+                lease=lease,
+                now=effective_sent_at,
+            )
+            if attempt is None:
+                return None
+            step_row = connection.execute(
+                "SELECT * FROM research_steps WHERE attempt_id = ? AND step_number = ?",
+                (current.active_attempt_id, current.step_number),
+            ).fetchone()
+            if step_row is None:
+                return None
+            try:
+                step = ResearchStep.model_validate_json(step_row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research step failed integrity verification") from None
+            if (
+                not self._research_step_projection_matches(step_row, step)
+                or step.status != StepStatus.RUNNING
+                or step.claim_epoch != lease.fencing_epoch
+            ):
+                return None
+            if current.state == InvocationState.SENT:
+                return current if current.sent_fencing_epoch == lease.fencing_epoch else None
+            sent = current.model_copy(
+                update={
+                    "state": InvocationState.SENT,
+                    "send_count": current.send_count + 1,
+                    "active_send_sequence": current.active_send_sequence + 1,
+                    "sent_fencing_epoch": lease.fencing_epoch,
+                    "last_sent_at": effective_sent_at,
+                    "updated_at": effective_sent_at,
+                }
+            )
+            cursor = connection.execute(
+                """
+                UPDATE research_tool_invocations
+                SET state = ?, send_count = ?, active_send_sequence = ?, sent_fencing_epoch = ?,
+                    last_sent_at = ?, payload = ?, updated_at = ?
+                WHERE id = ? AND state = ? AND active_send_sequence = ?
+                  AND sent_fencing_epoch IS ? AND updated_at = ?
+                """,
+                (
+                    sent.state.value,
+                    sent.send_count,
+                    sent.active_send_sequence,
+                    sent.sent_fencing_epoch,
+                    effective_sent_at.isoformat(),
+                    sent.model_dump_json(),
+                    effective_sent_at.isoformat(),
+                    current.id,
+                    current.state.value,
+                    current.active_send_sequence,
+                    current.sent_fencing_epoch,
+                    current.updated_at.isoformat(),
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            self._append_agent_run_events(
+                connection,
+                current.run_id,
+                [
+                    (
+                        "research_tool_invocation_sent",
+                        {
+                            "invocation_id": current.id,
+                            "send_sequence": sent.active_send_sequence,
+                        },
+                    )
+                ],
+            )
+        return sent
+
+    def mark_research_tool_invocation_unknown(
+        self,
+        invocation_id: str,
+        *,
+        expected_send_sequence: int,
+        expected_sent_fencing_epoch: int,
+        unknown_at: datetime,
+        error_code: str = "provider_result_unknown",
+    ) -> ToolInvocation | None:
+        effective_unknown_at = self._aware_research_time(unknown_at)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM research_tool_invocations WHERE id = ?",
+                (invocation_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                current = ToolInvocation.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+            if not self._research_invocation_projection_matches(row, current):
+                raise ResearchStoreConflict("Tool invocation failed integrity verification")
+            if (
+                current.state == InvocationState.UNKNOWN
+                and current.active_send_sequence == expected_send_sequence
+                and current.sent_fencing_epoch == expected_sent_fencing_epoch
+            ):
+                return current
+            if (
+                current.state != InvocationState.SENT
+                or current.active_send_sequence != expected_send_sequence
+                or current.sent_fencing_epoch != expected_sent_fencing_epoch
+            ):
+                return None
+            unknown = current.model_copy(
+                update={
+                    "state": InvocationState.UNKNOWN,
+                    "unknown_at": effective_unknown_at,
+                    "error_code": error_code,
+                    "updated_at": effective_unknown_at,
+                }
+            )
+            cursor = connection.execute(
+                """
+                UPDATE research_tool_invocations
+                SET state = ?, unknown_at = ?, payload = ?, updated_at = ?
+                WHERE id = ? AND state = ? AND active_send_sequence = ?
+                  AND sent_fencing_epoch = ? AND updated_at = ?
+                """,
+                (
+                    unknown.state.value,
+                    effective_unknown_at.isoformat(),
+                    unknown.model_dump_json(),
+                    effective_unknown_at.isoformat(),
+                    current.id,
+                    InvocationState.SENT.value,
+                    expected_send_sequence,
+                    expected_sent_fencing_epoch,
+                    current.updated_at.isoformat(),
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            self._append_agent_run_events(
+                connection,
+                current.run_id,
+                [
+                    (
+                        "research_tool_invocation_unknown",
+                        {
+                            "invocation_id": current.id,
+                            "send_sequence": expected_send_sequence,
+                        },
+                    )
+                ],
+            )
+        return unknown
+
+    def enter_research_recovery_decision(
+        self,
+        attempt_id: str,
+        *,
+        error_code: str,
+        now: datetime,
+    ) -> ToolInvocation | None:
+        """Fence a running attempt after an UNKNOWN Tool result and open the user recovery gate."""
+
+        effective_now = self._aware_research_time(now)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            attempt_row = connection.execute(
+                "SELECT * FROM research_attempts WHERE id = ?",
+                (attempt_id,),
+            ).fetchone()
+            if attempt_row is None:
+                return None
+            try:
+                attempt = ExecutionAttempt.model_validate_json(attempt_row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research attempt failed integrity verification") from None
+            if not self._research_attempt_projection_matches(attempt_row, attempt):
+                raise ResearchStoreConflict("research attempt failed integrity verification")
+            workflow_row = connection.execute(
+                "SELECT * FROM research_workflows WHERE run_id = ?",
+                (attempt.run_id,),
+            ).fetchone()
+            run_row = connection.execute(
+                "SELECT * FROM agent_runs WHERE id = ?",
+                (attempt.run_id,),
+            ).fetchone()
+            if workflow_row is None or run_row is None:
+                return None
+            try:
+                workflow = ResearchWorkflow.model_validate_json(workflow_row["payload"])
+                run = AgentRun.model_validate_json(run_row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research recovery state failed integrity verification") from None
+            if (
+                not self._research_workflow_projection_matches(workflow_row, workflow)
+                or not self._research_run_projection_matches(run_row, run)
+            ):
+                raise ResearchStoreConflict("research recovery state failed integrity verification")
+            invocation_rows = connection.execute(
+                """
+                SELECT * FROM research_tool_invocations
+                WHERE active_attempt_id = ? AND state = ?
+                ORDER BY id
+                """,
+                (attempt.id, InvocationState.UNKNOWN.value),
+            ).fetchall()
+            if len(invocation_rows) != 1:
+                return None
+            invocation_row = invocation_rows[0]
+            try:
+                invocation = ToolInvocation.model_validate_json(invocation_row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+            if not self._research_invocation_projection_matches(invocation_row, invocation):
+                raise ResearchStoreConflict("Tool invocation failed integrity verification")
+            if (
+                attempt.status == AttemptStatus.RECOVERY_REQUIRED
+                and workflow.phase == ResearchPhase.EXECUTION
+                and workflow.active_gate == ResearchGate.RECOVERY_DECISION
+                and workflow.active_attempt_id == attempt.id
+            ):
+                return invocation
+            if (
+                attempt.status != AttemptStatus.RUNNING
+                or workflow.phase != ResearchPhase.EXECUTION
+                or workflow.active_gate != ResearchGate.NONE
+                or workflow.active_attempt_id != attempt.id
+                or run.status != AgentRunStatus.RUNNING
+                or run.orchestration_version != "research-v2"
+            ):
+                return None
+            recovery_attempt = attempt.model_copy(
+                update={
+                    "status": AttemptStatus.RECOVERY_REQUIRED,
+                    "lease_owner": None,
+                    "lease_token": None,
+                    "lease_expires_at": None,
+                    "updated_at": effective_now,
+                }
+            )
+            attempt_cursor = connection.execute(
+                """
+                UPDATE research_attempts
+                SET status = ?, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
+                    payload = ?, updated_at = ?
+                WHERE id = ? AND status = ? AND fencing_epoch = ? AND updated_at = ?
+                """,
+                (
+                    recovery_attempt.status.value,
+                    recovery_attempt.model_dump_json(),
+                    recovery_attempt.updated_at.isoformat(),
+                    attempt.id,
+                    AttemptStatus.RUNNING.value,
+                    attempt.fencing_epoch,
+                    attempt.updated_at.isoformat(),
+                ),
+            )
+            if attempt_cursor.rowcount != 1:
+                return None
+            recovery_workflow = workflow.model_copy(
+                update={
+                    "active_gate": ResearchGate.RECOVERY_DECISION,
+                    "state_version": workflow.state_version + 1,
+                    "updated_at": effective_now,
+                }
+            )
+            workflow_cursor = connection.execute(
+                """
+                UPDATE research_workflows
+                SET active_gate = ?, state_version = ?, payload = ?, updated_at = ?
+                WHERE run_id = ? AND state_version = ? AND active_gate = ?
+                """,
+                (
+                    recovery_workflow.active_gate.value,
+                    recovery_workflow.state_version,
+                    recovery_workflow.model_dump_json(),
+                    recovery_workflow.updated_at.isoformat(),
+                    workflow.run_id,
+                    workflow.state_version,
+                    ResearchGate.NONE.value,
+                ),
+            )
+            if workflow_cursor.rowcount != 1:
+                raise ResearchStoreConflict("research recovery workflow changed concurrently")
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "research_recovery_required",
+                        {
+                            "attempt_id": attempt.id,
+                            "invocation_id": invocation.id,
+                            "error_code": error_code,
+                            "state_version": recovery_workflow.state_version,
+                        },
+                    )
+                ],
+            )
+            return invocation
+
+    @staticmethod
+    def _require_research_artifact(
+        connection: sqlite3.Connection,
+        artifact_id: str,
+        *,
+        run_id: str,
+        requirement_version_id: str,
+        plan_version_id: str,
+        attempt_id: str,
+        step_number: int,
+        expected_kind: str | None = None,
+        expected_content_hash: str | None = None,
+    ) -> Artifact:
+        row = connection.execute("SELECT * FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+        if row is None or row["verification_state"] != ArtifactVerificationState.SEALED.value:
+            raise ResearchStoreConflict("research Artifact reference is missing or not sealed")
+        try:
+            artifact = Artifact.model_validate_json(row["payload"])
+        except (TypeError, ValueError):
+            raise ResearchStoreConflict("research Artifact failed integrity verification") from None
+        indexed_values = {
+            "id": artifact.id,
+            "run_id": artifact.run_id,
+            "workspace_id": artifact.workspace_id,
+            "project_id": artifact.project_id,
+            "user_id": artifact.user_id,
+            "artifact_type": artifact.artifact_type,
+            "content_type": artifact.content_type,
+            "truncated": int(artifact.truncated),
+            "verification_state": artifact.verification_state.value if artifact.verification_state else None,
+            "schema_version": artifact.schema_version,
+            "content_hash": artifact.content_hash,
+            "size_bytes": artifact.size_bytes,
+            "requirement_version_id": artifact.requirement_version_id,
+            "plan_version_id": artifact.plan_version_id,
+            "attempt_id": artifact.attempt_id,
+            "step_number": artifact.step_number,
+            "purged_at": artifact.purged_at.isoformat() if artifact.purged_at is not None else None,
+            "purged_by": artifact.purged_by,
+            "created_at": artifact.created_at.isoformat(),
+            "updated_at": artifact.updated_at.isoformat() if artifact.updated_at is not None else None,
+        }
+        if any(row[key] != value for key, value in indexed_values.items()):
+            raise ResearchStoreConflict("research Artifact failed integrity verification")
+        if artifact.content_type == "application/json":
+            try:
+                canonical_content = canonical_json_bytes(json.loads(artifact.content)).decode("utf-8")
+            except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research Artifact failed integrity verification") from None
+            if canonical_content != artifact.content:
+                raise ResearchStoreConflict("research Artifact failed integrity verification")
+        if (
+            artifact.run_id != run_id
+            or artifact.requirement_version_id != requirement_version_id
+            or artifact.plan_version_id != plan_version_id
+            or artifact.attempt_id != attempt_id
+            or artifact.step_number != step_number
+            or (expected_kind is not None and artifact.artifact_type != expected_kind)
+            or (expected_content_hash is not None and artifact.content_hash != expected_content_hash)
+        ):
+            raise ResearchStoreConflict("research Artifact provenance does not match its consumer")
+        return artifact
+
+    def get_research_tool_invocation(self, invocation_id: str) -> ToolInvocation | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM research_tool_invocations WHERE id = ?",
+                (invocation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            invocation = ToolInvocation.model_validate_json(row["payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise ResearchStoreConflict("Tool invocation failed integrity verification") from None
+        if not self._research_invocation_projection_matches(row, invocation):
+            raise ResearchStoreConflict("Tool invocation failed integrity verification")
+        return invocation
+
+    def add_research_model_call_receipt(self, receipt: ModelCallReceipt) -> ModelCallReceipt:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_research_run(connection, receipt.run_id)
+            owner_tables = {
+                "requirement_version": "research_requirement_versions",
+                "plan_version": "research_plan_versions",
+                "attempt": "research_attempts",
+            }
+            owner_table = owner_tables[receipt.owner_kind]
+            owner = connection.execute(
+                f"SELECT run_id FROM {owner_table} WHERE id = ?",
+                (receipt.owner_id,),
+            ).fetchone()
+            if owner is None or owner["run_id"] != receipt.run_id:
+                raise ResearchStoreConflict("model call receipt owner does not belong to the run")
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO research_model_call_receipts(
+                        id, run_id, owner_kind, owner_id, stage, call_key, payload, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        receipt.id,
+                        receipt.run_id,
+                        receipt.owner_kind,
+                        receipt.owner_id,
+                        receipt.stage,
+                        receipt.call_key,
+                        receipt.model_dump_json(),
+                        receipt.created_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ResearchStoreConflict("model call receipt already exists") from error
+        return receipt
+
+    def get_research_model_call_receipt(self, receipt_id: str) -> ModelCallReceipt | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM research_model_call_receipts WHERE id = ?",
+                (receipt_id,),
+            ).fetchone()
+        return ModelCallReceipt.model_validate_json(row["payload"]) if row is not None else None
+
+    def save_artifact(self, artifact: Artifact) -> Artifact:
+        if artifact.verification_state is not None:
+            raise ResearchStoreConflict("verified artifacts require the insert-only ArtifactStore")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (artifact.run_id,),
+            ).fetchone()
+            if run_row is None:
+                raise ResearchStoreConflict("artifact run does not exist")
+            try:
+                run = AgentRun.model_validate_json(run_row["payload"])
+            except (TypeError, ValueError):
+                raise ResearchStoreConflict("artifact run failed integrity verification") from None
+            if run.orchestration_version != "v1" or run_row["orchestration_version"] != "v1":
+                raise ResearchStoreConflict("research-v2 artifacts require ArtifactStore")
+            if (
+                run.user_id != artifact.user_id
+                or run.workspace_id != artifact.workspace_id
+                or run.project_id != artifact.project_id
+            ):
+                raise ResearchStoreConflict("artifact owner does not match its run")
+            row = connection.execute(
+                "SELECT payload, verification_state FROM artifacts WHERE id = ?",
+                (artifact.id,),
+            ).fetchone()
+            if row is not None:
+                existing = Artifact.model_validate_json(row["payload"])
+                if (
+                    row["verification_state"] is not None
+                    or existing.verification_state is not None
+                    or existing.run_id != artifact.run_id
+                    or existing.workspace_id != artifact.workspace_id
+                    or existing.project_id != artifact.project_id
+                    or existing.user_id != artifact.user_id
+                ):
+                    raise ResearchStoreConflict("artifact identity is immutable")
+            connection.execute(
+                """
+                INSERT INTO artifacts(
+                    id, run_id, payload, created_at, workspace_id, project_id, user_id,
+                    artifact_type, content_type, truncated, verification_state, schema_version,
+                    content_hash, size_bytes, requirement_version_id, plan_version_id,
+                    attempt_id, step_number, purged_at, purged_by, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    payload = excluded.payload,
+                    workspace_id = excluded.workspace_id,
+                    project_id = excluded.project_id,
+                    user_id = excluded.user_id,
+                    artifact_type = excluded.artifact_type,
+                    content_type = excluded.content_type,
+                    truncated = excluded.truncated,
+                    verification_state = excluded.verification_state,
+                    schema_version = excluded.schema_version,
+                    content_hash = excluded.content_hash,
+                    size_bytes = excluded.size_bytes,
+                    requirement_version_id = excluded.requirement_version_id,
+                    plan_version_id = excluded.plan_version_id,
+                    attempt_id = excluded.attempt_id,
+                    step_number = excluded.step_number,
+                    purged_at = excluded.purged_at,
+                    purged_by = excluded.purged_by,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    artifact.id,
+                    artifact.run_id,
+                    artifact.model_dump_json(),
+                    artifact.created_at.isoformat(),
+                    artifact.workspace_id,
+                    artifact.project_id,
+                    artifact.user_id,
+                    artifact.artifact_type,
+                    artifact.content_type,
+                    int(artifact.truncated),
+                    artifact.verification_state.value if artifact.verification_state is not None else None,
+                    artifact.schema_version,
+                    artifact.content_hash,
+                    artifact.size_bytes,
+                    artifact.requirement_version_id,
+                    artifact.plan_version_id,
+                    artifact.attempt_id,
+                    artifact.step_number,
+                    artifact.purged_at.isoformat() if artifact.purged_at is not None else None,
+                    artifact.purged_by,
+                    artifact.updated_at.isoformat() if artifact.updated_at is not None else None,
+                ),
             )
         return artifact
 
@@ -1295,6 +6466,21 @@ class SQLiteStore:
         return item
 
     def add_source(self, source: Source) -> Source:
+        existing = self.get_source(source.id)
+        if existing is not None:
+            identity = (
+                "title",
+                "source_type",
+                "reference",
+                "workspace_id",
+                "project_id",
+                "user_id",
+                "run_id",
+                "skill_id",
+            )
+            if any(getattr(existing, field) != getattr(source, field) for field in identity):
+                raise ValueError("source_identity_conflict")
+            return existing
         self._upsert("sources", source)
         return source
 
@@ -1699,7 +6885,7 @@ class SQLiteStore:
 
         scope_values = [s.value for s in allowed_scopes]
         placeholders = ",".join("?" for _ in scope_values)
-        allowed_collections: set[str] | None = None
+        allowed_collections: set[str] | None = set(_KNOWLEDGE_FTS_COLLECTIONS)
         if result_types is not None:
             allowed_collections = {
                 collection

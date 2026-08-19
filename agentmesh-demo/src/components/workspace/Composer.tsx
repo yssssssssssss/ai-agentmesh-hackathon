@@ -8,6 +8,7 @@ interface ComposerProps {
   value: string
   skills: Skill[]
   sending: boolean
+  locked?: boolean
   sendState: 'retryable' | 'processing' | 'approval' | 'failed' | 'unknown' | null
   statusMessage: string | null
   toolLauncher?: ReactNode
@@ -21,6 +22,7 @@ export function Composer({
   value,
   skills,
   sending,
+  locked = false,
   sendState,
   statusMessage,
   toolLauncher,
@@ -32,21 +34,21 @@ export function Composer({
   const [skillsDismissed, setSkillsDismissed] = useState(false)
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0)
   const fileInput = useRef<HTMLInputElement>(null)
-  const locked = sendState !== null && sendState !== 'retryable'
-  const canRetry = sendState === 'retryable' || sendState === 'processing'
+  const interactionLocked = locked || sendState === 'processing' || sendState === 'approval'
+  const canRetry = sendState === 'retryable' || sendState === 'processing' || sendState === 'unknown'
   const skillQuery = value.trim().toLowerCase()
   const acceptsSkillSelection = skillQuery.startsWith('$') && !skillQuery.includes(' ')
   const filteredSkills = useMemo(() => {
     if (!acceptsSkillSelection) return []
     return skills.filter((skill) => {
-      const searchable = [skill.command, skill.title, skill.description, ...skill.aliases]
+      const searchable = [skill.command, skill.title, skill.description, ...(skill.aliases ?? [])]
       return searchable.some((item) => item.toLowerCase().includes(skillQuery))
     })
   }, [acceptsSkillSelection, skillQuery, skills])
   const skillMenuOpen = acceptsSkillSelection && !skillsDismissed
 
   function chooseSkill(skill: Skill) {
-    onChange(`${skill.command}${skill.requires_input ? ' ' : ''}`)
+    onChange(`${skill.command}${skill.requires_input !== false ? ' ' : ''}`)
     setSkillsDismissed(true)
   }
 
@@ -60,7 +62,7 @@ export function Composer({
             {canRetry ? (
               <button type="button" onClick={onRetry} className="flex shrink-0 items-center gap-1 font-semibold">
                 <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                {sendState === 'processing' ? '重新核对' : '重试发送'}
+                {sendState === 'processing' || sendState === 'unknown' ? '重新核对' : '重试发送'}
               </button>
             ) : null}
           </div>
@@ -123,7 +125,7 @@ export function Composer({
               }
             }}
             rows={2}
-            disabled={sending || locked}
+            disabled={sending || interactionLocked}
             placeholder="输入问题，或选择 Skill 执行明确工作流…"
             className="max-h-40 w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-slate-100 placeholder:text-slate-600 focus:outline-none disabled:opacity-60"
           />
@@ -143,7 +145,7 @@ export function Composer({
               <button
                 type="button"
                 onClick={() => fileInput.current?.click()}
-                className="flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-xs text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
+                className="flex min-h-10 items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-xs text-slate-400 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.05] hover:text-slate-200"
               >
                 <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
                 上传文档
@@ -156,7 +158,7 @@ export function Composer({
                   setSkillsDismissed(false)
                   setSelectedSkillIndex(0)
                 }}
-                className="flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-xs text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
+                className="flex min-h-10 items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-xs text-slate-400 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.05] hover:text-slate-200"
               >
                 <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                 选择 Skill
@@ -165,10 +167,10 @@ export function Composer({
             <button
               type="button"
               onClick={onSend}
-              disabled={!value.trim() || sending || locked}
+              disabled={!value.trim() || sending || interactionLocked}
               className={cn(
-                'flex h-8 min-w-8 items-center justify-center rounded-[10px] px-2 transition-all',
-                value.trim() && !sending && !locked
+                'flex h-10 min-w-10 items-center justify-center rounded-[10px] px-2 transition-[transform,background-color,color] duration-150 active:scale-95',
+                value.trim() && !sending && !interactionLocked
                   ? 'bg-mint-400 text-[#06231c] hover:bg-mint-300'
                   : 'cursor-not-allowed bg-white/[0.06] text-slate-600',
               )}

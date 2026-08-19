@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentmesh://skills/competitive-analysis/input-v1",
+  "type": "object",
+  "required": ["research_goal", "competitor_scope", "evidence_inputs"],
+  "properties": {
+    "research_goal": {"type": "string", "minLength": 1},
+    "competitor_scope": {"type": "string", "minLength": 1},
+    "own_product_context": {"type": ["string", "null"]},
+    "analysis_dimensions": {"type": "array", "items": {"type": "string"}},
+    "evidence_inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "artifact_id", "content_hash", "evidence_pointer"],
+        "properties": {
+          "evidence_id": {"type": "string", "pattern": "^evidence_[a-zA-Z0-9_-]+$"},
+          "artifact_id": {"type": "string", "minLength": 1},
+          "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "evidence_pointer": {"type": "string", "const": "/quote"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

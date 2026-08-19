@@ -1,0 +1,8 @@
+version: competitive-analysis-review-v1
+deterministic:
+  require_schema: true
+  require_question_coverage: true
+  require_claim_evidence: true
+  require_gap_disclosure: true
+semantic:
+  enabled: false

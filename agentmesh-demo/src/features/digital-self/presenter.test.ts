@@ -42,6 +42,8 @@ const bootstrap: BootstrapState = {
     inbox_open_count: 1,
   },
   capabilities: ['workspace:read'],
+  agent_runtime_enabled: false,
+  skill_orchestration_mode: 'off',
 }
 
 const agent: Agent = {

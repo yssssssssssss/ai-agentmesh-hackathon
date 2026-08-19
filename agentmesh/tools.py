@@ -4,6 +4,49 @@ from agentmesh.models import AgentToolGrant, ToolDefinition, User
 from agentmesh.o2 import O2RegistryAdapter
 from agentmesh.store import SQLiteStore
 
+WEB_RESEARCH_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["title", "content", "sources", "permission", "metadata"],
+    "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "content": {"type": "string", "minLength": 1},
+        "sources": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "title",
+                    "source_type",
+                    "reference",
+                    "workspace_id",
+                    "project_id",
+                    "user_id",
+                    "run_id",
+                    "skill_id",
+                    "created_at",
+                ],
+                "properties": {
+                    "id": {"type": "string", "minLength": 1},
+                    "title": {"type": "string", "minLength": 1},
+                    "source_type": {"type": "string", "minLength": 1},
+                    "reference": {"type": "string", "minLength": 1},
+                    "workspace_id": {"type": ["string", "null"]},
+                    "project_id": {"type": ["string", "null"]},
+                    "user_id": {"type": ["string", "null"]},
+                    "run_id": {"type": ["string", "null"]},
+                    "skill_id": {"type": ["string", "null"]},
+                    "created_at": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "permission": {"type": "string", "minLength": 1},
+        "metadata": {"type": "object", "additionalProperties": {"type": "string"}},
+    },
+    "additionalProperties": False,
+}
+
 SYSTEM_TOOLS = [
     ToolDefinition(
         id="tool_memory_search",
@@ -24,13 +67,19 @@ SYSTEM_TOOLS = [
         description="通过已配置的 Research provider 检索外部资料并返回来源。",
         category="research",
         risk_level="medium",
-        side_effect="external",
+        side_effect="read",
+        implementation_id="agentmesh.tool_runtime.gateway.ToolGateway.web_research",
+        implementation_version="1",
+        idempotency_support="none",
+        approval_required=True,
+        evidence_class="provider_summary",
         input_schema={
             "type": "object",
             "properties": {"query": {"type": "string", "description": "要调研的主题"}},
             "required": ["query"],
             "additionalProperties": False,
         },
+        output_schema=WEB_RESEARCH_OUTPUT_SCHEMA,
     ),
     ToolDefinition(
         id="tool_document_upload",

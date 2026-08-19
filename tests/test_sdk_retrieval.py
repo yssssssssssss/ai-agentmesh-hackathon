@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from agents.testing import ScriptedModel, assistant_message
 
+from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agents import PersonalAgent
 from agentmesh.models import AgentMemoryBinding, MemoryItem, MemoryLayer, MemoryStatus, Scope, Source, UserMemoryItem
@@ -9,6 +10,7 @@ from agentmesh.retrieval import RetrievalProfile, RetrievalService
 from agentmesh.seed import TEAM_LEAD, USER, ensure_base_workspace_data
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
+from agentmesh.tool_runtime.gateway import ToolGateway
 from agentmesh.tools import ensure_tool_seed_data
 
 
@@ -118,8 +120,53 @@ def test_retrieval_honors_memory_type_project_and_result_limit_bindings(tmp_path
     assert service.retrieve("bound checkout", user=USER, agent_id=USER.personal_agent_id).hits == []
 
 
-def test_pilot_skill_output_is_written_only_to_private_short_term_memory(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENTMESH_WIKI_ROOT", str(tmp_path))
+def test_memory_tool_rebinds_visible_sources_to_the_current_run(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    original = Source(
+        id="src_original_memory",
+        title="Original memory source",
+        source_type="report",
+        reference="report://original",
+    )
+    repository.add_user_memory_item(
+        UserMemoryItem(
+            id="memory_run_scoped_source",
+            user_id=USER.id,
+            layer=MemoryLayer.MID_TERM,
+            title="Run-scoped checkout evidence",
+            summary="run scoped checkout evidence",
+            source_kind="test",
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            scope=Scope.PRIVATE,
+            sources=[original],
+        )
+    )
+    context = AgentMeshRunContext(
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        thread_id="thread_run_scoped_source",
+        run_id="run_scoped_source",
+        plan_id="plan_run_scoped_source",
+        node_id="node_run_scoped_source",
+        skill_id="skill_run_scoped_source",
+    )
+
+    payload = ToolGateway(repository).memory_search(context, {"query": "run scoped checkout"})
+
+    returned = payload["results"][0]["sources"][0]
+    assert returned["id"] != original.id
+    assert returned["workspace_id"] == context.workspace_id
+    assert returned["project_id"] == context.project_id
+    assert returned["user_id"] == context.user_id
+    assert returned["run_id"] == context.run_id
+    assert returned["skill_id"] == context.skill_id
+    assert repository.get_source(returned["id"]) is not None
+
+
+def test_pilot_skill_output_is_written_only_to_private_short_term_memory(tmp_path, configure_pilot_wiki) -> None:
+    configure_pilot_wiki(tmp_path)
     repository = _repository(tmp_path)
     catalog = SkillCatalogService(repository)
     catalog.reload()

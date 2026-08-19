@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 
 from agentmesh.auth import require_current_user
 from agentmesh.model_registry import ensure_model_seed_data
-from agentmesh.models import AuditEvent, User
+from agentmesh.models import AuditEvent, Project, User
 from agentmesh.permissions import ensure_permission, ensure_permission_policy_seed_data
 from agentmesh.risk import RiskDecision, ensure_risk_policy_seed_data
 from agentmesh.seed import ensure_seed_data
-from agentmesh.store import store
+from agentmesh.store import SQLiteStore, store
 from agentmesh.tools import ensure_tool_seed_data
 
 
@@ -23,6 +23,18 @@ def current_user(request: Request) -> User:
     ensure_risk_policy_seed_data(store)
     ensure_permission_policy_seed_data(store)
     return require_current_user(store, request)
+
+
+def require_default_project(user: User, repository: SQLiteStore = store) -> Project:
+    project = repository.get_project(user.default_project_id)
+    if (
+        project is None
+        or project.workspace_id != user.workspace_id
+        or not repository.user_can_access_project(user.id, project.id)
+    ):
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
 
 def require_permission(action: str) -> Callable[..., User]:
     def dependency(user: User = Depends(current_user)) -> User:

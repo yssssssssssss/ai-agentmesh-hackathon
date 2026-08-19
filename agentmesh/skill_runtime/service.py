@@ -6,6 +6,14 @@ from pathlib import Path
 
 from agentmesh.models import SkillDefinition, SkillSourceScope, now_utc
 from agentmesh.skill_runtime.discovery import SkillDiagnostic, SkillRoot, discover_skills
+from agentmesh.skill_runtime.profiles import (
+    ProfileError,
+    legacy_capability_profiles,
+    load_capability_profile,
+    profile_matches_skill,
+    profile_path,
+)
+from agentmesh.skill_runtime.resources import skill_wiki_corpus_ready
 from agentmesh.store import SQLiteStore, store
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -61,6 +69,32 @@ class SkillCatalogService:
         for stored in self.repository.skill_definitions:
             if stored.source_path.startswith("learned://") and stored.enabled and stored.name not in current:
                 current[stored.name] = stored
+        active_profile_ids: set[str] = set()
+        for skill in current.values():
+            if not profile_path(skill).is_file():
+                self.repository.delete_skill_capability_profile(skill.id)
+                continue
+            try:
+                profile = load_capability_profile(skill)
+            except ProfileError as error:
+                self.repository.delete_skill_capability_profile(skill.id)
+                self._diagnostics.append(
+                    SkillDiagnostic(
+                        level="error",
+                        code=str(error),
+                        message=f"Skill capability profile is not usable: {error}",
+                        path=str(profile_path(skill)),
+                    )
+                )
+                continue
+            self.repository.save_skill_capability_profile(profile)
+            active_profile_ids.add(profile.id)
+        for profile in legacy_capability_profiles():
+            self.repository.save_skill_capability_profile(profile)
+            active_profile_ids.add(profile.id)
+        for profile in self.repository.skill_capability_profiles:
+            if profile.id not in active_profile_ids:
+                self.repository.delete_skill_capability_profile(profile.id)
         self._skills = current
         return self.list_enabled()
 
@@ -73,8 +107,10 @@ class SkillCatalogService:
         source = skill.metadata.get("source", "")
         if skill.source_scope != SkillSourceScope.BUILTIN or not source.startswith("2C-DesignWiki/"):
             return True
-        configured = os.getenv("AGENTMESH_WIKI_ROOT", "").strip()
-        return bool(configured and Path(configured).expanduser().is_dir())
+        return skill_wiki_corpus_ready(skill)
+
+    def is_runtime_enabled(self, skill: SkillDefinition, *, binding_enabled: bool = True) -> bool:
+        return skill.enabled and self._external_corpus_ready(skill) and binding_enabled
 
     def list_for_agent(self, agent_id: str) -> list[tuple[SkillDefinition, bool]]:
         self._ensure_loaded()
@@ -91,10 +127,9 @@ class SkillCatalogService:
             if owner_user_id and learned_scope == "private" and agent_owner_user_id != owner_user_id:
                 continue
             binding = bindings.get(skill.id)
-            effective_enabled = (
-                skill.enabled
-                and self._external_corpus_ready(skill)
-                and (binding is None or binding.enabled)
+            effective_enabled = self.is_runtime_enabled(
+                skill,
+                binding_enabled=binding is None or binding.enabled,
             )
             if binding is not None and binding.aliases:
                 skill = skill.model_copy(update={"aliases": sorted(set([*skill.aliases, *binding.aliases]))})
@@ -128,11 +163,22 @@ class SkillCatalogService:
             return None
         return ResolvedSkill(definition=skill, command=command, argument=argument.strip())
 
-    @staticmethod
-    def to_chat_skill(skill: SkillDefinition, *, enabled: bool = True) -> dict[str, object]:
+    def get_profile(self, skill_id: str):  # noqa: ANN201
+        return self.repository.get_skill_capability_profile(skill_id)
+
+    def to_chat_skill(
+        self,
+        skill: SkillDefinition,
+        *,
+        enabled: bool = True,
+        binding_enabled: bool = True,
+    ) -> dict[str, object]:
         aliases = [alias if alias.startswith("$") else f"${alias}" for alias in skill.aliases]
         usage_suffix = f" {skill.argument_hint}" if skill.argument_hint else " <input>"
-        return {
+        profile = self.get_profile(skill.id)
+        profile_current = profile_matches_skill(profile, skill) if profile is not None else False
+        ready = self.is_runtime_enabled(skill) and profile_current
+        payload: dict[str, object] = {
             "id": skill.id,
             "command": skill.command,
             "title": skill.title,
@@ -145,7 +191,21 @@ class SkillCatalogService:
             "version": skill.version,
             "activation_policy": skill.activation_policy.value,
             "enabled": enabled,
+            "binding_enabled": binding_enabled,
+            "planner_eligible": bool(profile and profile.planner_eligible and ready and enabled),
+            "readiness": "ready" if ready else "unavailable",
         }
+        if profile is not None:
+            payload.update(
+                {
+                    "primary_stage": profile.primary_stage.value,
+                    "capability_type": profile.capability_type.value,
+                    "input_kinds": profile.input_kinds,
+                    "output_kinds": profile.output_kinds,
+                    "side_effect": profile.side_effect.value,
+                }
+            )
+        return payload
 
 
 _catalog_service = SkillCatalogService(store)

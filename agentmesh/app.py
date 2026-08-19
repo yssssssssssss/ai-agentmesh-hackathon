@@ -39,6 +39,7 @@ from agentmesh.routes.inbox import router as inbox_router
 from agentmesh.routes.market import router as market_router
 from agentmesh.routes.memory import router as memory_router
 from agentmesh.routes.memory import start_daily_memory_worker, stop_daily_memory_worker
+from agentmesh.routes.research import router as research_router
 from agentmesh.routes.risk import router as risk_router
 from agentmesh.routes.skills import router as skills_router
 from agentmesh.routes.users import router as users_router
@@ -104,6 +105,7 @@ app = FastAPI(title="AgentMesh", version="0.1.0", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(agent_runs_router)
+app.include_router(research_router)
 app.include_router(artifacts_router)
 app.include_router(chat_router)
 app.include_router(agents_router)

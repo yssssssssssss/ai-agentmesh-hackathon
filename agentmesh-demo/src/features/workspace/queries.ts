@@ -4,14 +4,15 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import { ApiError } from '../../api/client'
 import { queryRoots } from '../../app/queryKeys'
 import { useAuth } from '../auth/AuthProvider'
-import { streamAgentRun, workspaceApi } from './api'
+import { subscribeAgentRunEvents, workspaceApi, type StartAgentRunInput } from './api'
 import { workspaceKeys } from './keys'
 import type {
-  AgentRunResponse,
+  AgentRun,
   ChatResponse,
   DocumentJobsResponse,
   ThreadDetailResponse,
@@ -77,6 +78,29 @@ export function useSkillCatalogQuery(scope: WorkspaceScope) {
   return useQuery({
     queryKey: workspaceKeys.skillCatalog(scope),
     queryFn: workspaceApi.skillCatalog,
+  })
+}
+
+export function useAgentRunQuery(scope: WorkspaceScope, runId: string | null) {
+  return useQuery({
+    queryKey: workspaceKeys.run(scope, runId ?? 'none'),
+    queryFn: () => workspaceApi.agentRun(runId ?? ''),
+    enabled: Boolean(runId),
+  })
+}
+
+export function useSkillPlanQuery(scope: WorkspaceScope, runId: string | null, planId: string | null | undefined) {
+  return useQuery({
+    queryKey: workspaceKeys.plan(scope, runId ?? 'none'),
+    queryFn: () => workspaceApi.skillPlan(runId ?? ''),
+    enabled: Boolean(runId && planId),
+  })
+}
+
+export function useSkillRecommendationsMutation() {
+  return useMutation({
+    mutationFn: ({ content, threadId }: { content: string; threadId?: string | null }) =>
+      workspaceApi.recommendSkills(content, threadId),
   })
 }
 
@@ -232,48 +256,143 @@ export function useSendAgentRunMutation(scope: WorkspaceScope) {
   const queryClient = useQueryClient()
   const { refreshBootstrap } = useAuth()
   return useMutation({
-    mutationFn: async ({
-      threadId,
-      content,
-      clientTurnId,
-      onStarted,
-    }: {
-      threadId: string | null
-      content: string
-      clientTurnId: string
-      onStarted?: (run: AgentRunResponse['item']) => void
-    }) => {
-      const trimmed = content.trim()
-      const [command, ...rest] = trimmed.split(/\s+/)
-      const standardSkill = command.startsWith('$') && !command.includes('.') ? command.slice(1) : undefined
-      const runtimeContent = standardSkill ? rest.join(' ') : trimmed
-      const started = await workspaceApi.startAgentRun(threadId, runtimeContent, clientTurnId, standardSkill)
-      onStarted?.(started.item)
-      await streamAgentRun(started.item.id)
-      const completed = await workspaceApi.agentRun(started.item.id)
-      if (completed.item.status === 'failed' || completed.item.status === 'cancelled') {
-        throw new ChatSendError(
-          completed.item.error_code ? `Agent 运行失败：${completed.item.error_code}` : 'Agent 运行未完成',
-          'failed',
-          completed.item.thread_id,
-        )
-      }
-      if (completed.item.status === 'waiting_approval') {
-        throw new ChatSendError(
-          'Agent 运行已暂停，请在“我的知识 → 待我确认”中逐项审批工具调用。',
-          'approval',
-          completed.item.thread_id,
-        )
-      }
-      return completed.item
-    },
-    onSuccess: async (run) => {
+    mutationFn: (input: StartAgentRunInput) => workspaceApi.startAgentRun(input),
+    onSuccess: async (response) => {
+      const run = response.item
+      queryClient.setQueryData(workspaceKeys.run(scope, run.id), response)
       await Promise.all([
         invalidateCanonicalThread(queryClient, scope, run.thread_id),
         invalidateChatSideEffects(queryClient, refreshBootstrap),
       ])
     },
   })
+}
+
+export function useSkillPlanMutations(scope: WorkspaceScope, runId: string | null) {
+  const queryClient = useQueryClient()
+  const refresh = async () => {
+    if (!runId) return
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true }),
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, runId), exact: true }),
+    ])
+  }
+  const refreshOnConflict = async (error: unknown) => {
+    if (error instanceof ApiError && error.status === 409) await refresh()
+  }
+  const update = useMutation({
+    mutationFn: (request: Parameters<typeof workspaceApi.updateSkillPlan>[1]) => {
+      if (!runId) throw new Error('缺少 Agent Run')
+      return workspaceApi.updateSkillPlan(runId, request)
+    },
+    onSuccess: (detail) => {
+      if (runId) queryClient.setQueryData(workspaceKeys.plan(scope, runId), detail)
+    },
+    onError: refreshOnConflict,
+  })
+  const approve = useMutation({
+    mutationFn: (request: Parameters<typeof workspaceApi.approveSkillPlan>[1]) => {
+      if (!runId) throw new Error('缺少 Agent Run')
+      return workspaceApi.approveSkillPlan(runId, request)
+    },
+    onSuccess: async (response) => {
+      if (runId) queryClient.setQueryData(workspaceKeys.run(scope, runId), { item: response.run })
+      await refresh()
+    },
+    onError: refreshOnConflict,
+  })
+  const reject = useMutation({
+    mutationFn: (request: Parameters<typeof workspaceApi.rejectSkillPlan>[1]) => {
+      if (!runId) throw new Error('缺少 Agent Run')
+      return workspaceApi.rejectSkillPlan(runId, request)
+    },
+    onSuccess: async (response) => {
+      if (runId) queryClient.setQueryData(workspaceKeys.run(scope, runId), { item: response.run })
+      await refresh()
+    },
+    onError: refreshOnConflict,
+  })
+  return { update, approve, reject }
+}
+
+export function useCancelAgentRunMutation(scope: WorkspaceScope) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (run: AgentRun) => workspaceApi.cancelAgentRun(run.id),
+    onSuccess: async (response) => {
+      const run = response.item
+      queryClient.setQueryData(workspaceKeys.run(scope, run.id), response)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, run.id), exact: true }),
+        queryClient.invalidateQueries({ queryKey: queryRoots.inbox }),
+        invalidateCanonicalThread(queryClient, scope, run.thread_id),
+      ])
+    },
+  })
+}
+
+export function useRetryAgentRunMutation(scope: WorkspaceScope) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ runId, clientTurnId }: { runId: string; clientTurnId: string }) => (
+      workspaceApi.retryAgentRun(runId, clientTurnId)
+    ),
+    onSuccess: async (response) => {
+      queryClient.setQueryData(workspaceKeys.run(scope, response.item.id), response)
+      await invalidateCanonicalThread(queryClient, scope, response.item.thread_id)
+    },
+  })
+}
+
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'partial', 'failed', 'rejected', 'cancelled'])
+const PLAN_EVENT_PREFIXES = ['plan_', 'node_', 'synthesis_']
+
+export function useAgentRunEventSubscription(
+  scope: WorkspaceScope,
+  run: AgentRun | null | undefined,
+) {
+  const queryClient = useQueryClient()
+  const { refreshBootstrap } = useAuth()
+  const runId = run?.id
+  const runStatus = run?.status
+  const threadId = run?.thread_id
+  useEffect(() => {
+    if (!runId || !threadId || !runStatus || TERMINAL_RUN_STATUSES.has(runStatus)) return
+    return subscribeAgentRunEvents(runId, {
+      onEvent: (event) => {
+        const eventType = event.event_type
+        const work = [
+          queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true }),
+        ]
+        if (PLAN_EVENT_PREFIXES.some((prefix) => eventType.startsWith(prefix))) {
+          work.push(queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, runId), exact: true }))
+        }
+        if (eventType === 'approval_requested' || eventType === 'approval_resolved') {
+          work.push(queryClient.invalidateQueries({ queryKey: queryRoots.inbox }))
+        }
+        if (eventType.startsWith('run_') && TERMINAL_RUN_STATUSES.has(eventType.slice(4))) {
+          work.push(
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, runId), exact: true }),
+            invalidateCanonicalThread(queryClient, scope, threadId),
+            refreshBootstrap(),
+          )
+        }
+        void Promise.all(work)
+      },
+      onError: () => {
+        void queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true })
+      },
+    })
+  }, [
+    queryClient,
+    refreshBootstrap,
+    runId,
+    runStatus,
+    scope.projectId,
+    scope.userId,
+    scope.workspaceId,
+    threadId,
+  ])
 }
 
 export function useUploadDocumentMutation(scope: WorkspaceScope) {

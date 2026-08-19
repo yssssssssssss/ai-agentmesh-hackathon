@@ -1,0 +1,18 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 47dcf31674043af0e577efe65b3e0e19a7222694bd2942168b0fead8c66c2ae7
+profile_version: "1"
+primary_stage: during_design
+lifecycle_tags: [pre_design, during_design, post_design]
+capability_type: generation
+input_kinds: [research_plan, research_question, target_user]
+output_kinds: [survey]
+examples:
+  - 生成一份可直接投放的用户调研问卷
+  - 把体验指标落成带跳转逻辑的问卷题目
+negative_examples:
+  - 生成访谈提纲
+  - 设计可用性测试任务脚本
+required_capabilities: [wiki.corpus]
+side_effect: draft
+planner_eligible: true

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentmesh://deliverables/competitive-analysis-v1",
+  "type": "object",
+  "required": [
+    "summary",
+    "summary_claim_ids",
+    "comparison",
+    "recommendations",
+    "limitations",
+    "claim_ids"
+  ],
+  "properties": {
+    "summary": {"type": "string", "minLength": 1},
+    "summary_claim_ids": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^claim_[a-zA-Z0-9_-]+$"},
+      "uniqueItems": true
+    },
+    "comparison": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "claim_id",
+          "claim_type",
+          "statement",
+          "evidence_ids",
+          "parent_claim_ids",
+          "confidence",
+          "conflict_status"
+        ],
+        "properties": {
+          "claim_id": {"type": "string", "pattern": "^claim_[a-zA-Z0-9_-]+$"},
+          "claim_type": {"type": "string", "enum": ["fact", "inference"]},
+          "statement": {"type": "string", "minLength": 1},
+          "evidence_ids": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^evidence_[a-zA-Z0-9_-]+$"},
+            "uniqueItems": true
+          },
+          "parent_claim_ids": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^claim_[a-zA-Z0-9_-]+$"},
+            "uniqueItems": true
+          },
+          "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+          "conflict_status": {
+            "type": "string",
+            "enum": ["unknown", "none", "possible", "conflicting"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "claim_id",
+          "statement",
+          "evidence_ids",
+          "parent_claim_ids",
+          "confidence",
+          "conflict_status"
+        ],
+        "properties": {
+          "claim_id": {"type": "string", "pattern": "^claim_[a-zA-Z0-9_-]+$"},
+          "statement": {"type": "string", "minLength": 1},
+          "evidence_ids": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^evidence_[a-zA-Z0-9_-]+$"},
+            "uniqueItems": true
+          },
+          "parent_claim_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "pattern": "^claim_[a-zA-Z0-9_-]+$"},
+            "uniqueItems": true
+          },
+          "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+          "conflict_status": {
+            "type": "string",
+            "enum": ["unknown", "none", "possible", "conflicting"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "claim_ids": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^claim_[a-zA-Z0-9_-]+$"},
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}

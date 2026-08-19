@@ -53,7 +53,50 @@ def test_expired_tool_approval_is_resolved_without_execution() -> None:
 
     assert response.status_code == 409
     assert store.get_inbox_item(item.id).status == "resolved"  # type: ignore[union-attr]
-    assert store.get_agent_run(run.id).status == AgentRunStatus.WAITING_APPROVAL  # type: ignore[union-attr]
+    assert store.get_agent_run(run.id).status == AgentRunStatus.CANCELLED  # type: ignore[union-attr]
+
+
+def test_expired_tool_approval_cannot_be_claimed_directly() -> None:
+    run = store.save_agent_run(
+        AgentRun(
+            id="run_expired_direct_claim",
+            thread_id="thread_expired_direct_claim",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="expired direct claim",
+            status=AgentRunStatus.WAITING_APPROVAL,
+            paused_state={"state": "expired"},
+        )
+    )
+    item = store.add_inbox_item(
+        InboxItem(
+            id=f"inbox_tool_approval_{run.id}",
+            title="Expired approval",
+            summary="Expired",
+            item_type="sdk_tool_approval",
+            scope=Scope.PRIVATE,
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            metadata={
+                "run_id": run.id,
+                "interruptions": json.dumps([{"call_id": "expired-call"}]),
+            },
+            created_at=now_utc() - timedelta(hours=25),
+        )
+    )
+
+    claimed = store.claim_agent_run_for_resume(
+        run.id,
+        USER.id,
+        inbox_id=item.id,
+        call_ids={"expired-call"},
+    )
+
+    assert claimed is None
+    assert store.get_agent_run(run.id).status == AgentRunStatus.CANCELLED  # type: ignore[union-attr]
+    assert store.get_inbox_item(item.id).status == "resolved"  # type: ignore[union-attr]
 
 
 def test_agent_run_approval_claim_is_atomic() -> None:

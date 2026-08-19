@@ -1,18 +1,29 @@
 import { FileSearch, Search } from 'lucide-react'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { Composer } from '../components/workspace/Composer'
 import { ConversationThread } from '../components/workspace/ConversationThread'
 import { DetailPanel } from '../components/workspace/DetailPanel'
+import { SkillPlanPreview } from '../components/workspace/SkillPlanPreview'
+import { SkillPlanProgress } from '../components/workspace/SkillPlanProgress'
+import { SkillSynthesisView } from '../components/workspace/SkillSynthesisView'
+import { Button } from '../components/ui/Button'
+import { useAuth } from '../features/auth/AuthProvider'
 import { ToolLauncherBar } from '../features/tool-labs/ToolLauncherBar'
 import { WorkspaceToolDialog } from '../features/tool-labs/WorkspaceToolDialog'
 import type { WorkspaceToolId } from '../features/tool-labs/types'
 import {
   useDocumentJobsQuery,
+  useAgentRunEventSubscription,
+  useAgentRunQuery,
+  useCancelAgentRunMutation,
+  useRetryAgentRunMutation,
   useSearchQuery,
   useSendAgentRunMutation,
   useSendMessageMutation,
+  useSkillPlanMutations,
+  useSkillPlanQuery,
   useSkillsQuery,
   useThreadDetailQuery,
   useUploadDocumentMutation,
@@ -20,7 +31,7 @@ import {
   workspaceErrorMessage,
   ChatSendError,
 } from '../features/workspace/queries'
-import type { ResourceSelection } from '../features/workspace/types'
+import type { ResourceSelection, SkillResultSource } from '../features/workspace/types'
 
 function threadIdFromPath(pathname: string): string | null {
   const encoded = pathname.match(/^\/workspace\/thread\/([^/]+)$/)?.[1]
@@ -41,14 +52,26 @@ const JOB_STATUS_LABEL = {
 
 export function Workspace() {
   const scope = useWorkspaceScope()
-  const { pathname } = useLocation()
+  const { bootstrap } = useAuth()
+  const { pathname, search: locationSearch } = useLocation()
   const navigate = useNavigate()
   const threadId = threadIdFromPath(pathname)
+  const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch])
+  const runId = searchParams.get('run')
+  const prefilledSkill = searchParams.get('skill')
   const thread = useThreadDetailQuery(scope, threadId)
   const skills = useSkillsQuery(scope)
   const sendMessage = useSendMessageMutation(scope)
   const sendAgentRun = useSendAgentRunMutation(scope)
-  const runtimeV2 = import.meta.env.VITE_AGENT_RUNTIME_V2 === 'true'
+  const runQuery = useAgentRunQuery(scope, runId)
+  const currentRun = runQuery.data?.item
+  const planQuery = useSkillPlanQuery(scope, runId, currentRun?.plan_id)
+  const planMutations = useSkillPlanMutations(scope, runId)
+  const cancelRun = useCancelAgentRunMutation(scope)
+  const retryRun = useRetryAgentRunMutation(scope)
+  useAgentRunEventSubscription(scope, currentRun)
+  const runtimeV2 = bootstrap?.agent_runtime_enabled === true
+  const orchestrationMode = bootstrap?.skill_orchestration_mode ?? 'off'
   const upload = useUploadDocumentMutation(scope)
   const jobs = useDocumentJobsQuery(scope)
   const [draft, setDraft] = useState('')
@@ -61,35 +84,52 @@ export function Workspace() {
   const [selection, setSelection] = useState<ResourceSelection | null>(null)
   const [searchInput, setSearchInput] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
-  const search = useSearchQuery(scope, submittedSearch)
+  const searchQuery = useSearchQuery(scope, submittedSearch)
   const [activeTool, setActiveTool] = useState<WorkspaceToolId | null>(null)
   const closeActiveTool = useCallback(() => setActiveTool(null), [])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const runIsActive = Boolean(currentRun && [
+    'created',
+    'planning',
+    'waiting_plan_approval',
+    'running',
+    'waiting_approval',
+  ].includes(currentRun.status))
+
+  useEffect(() => {
+    if (!prefilledSkill) return
+    setDraft((current) => current.trim() ? current : `${prefilledSkill} `)
+  }, [prefilledSkill])
 
   async function send(content = draft) {
     const normalized = content.trim()
-    if (!normalized || sendMessage.isPending || sendAgentRun.isPending) return
+    if (!normalized || sendMessage.isPending || sendAgentRun.isPending || runIsActive) return
     setPending({ content: normalized, status: 'sending' })
     setDraft('')
     setSendError(null)
     try {
       const command = normalized.split(/\s+/, 1)[0]
-      const shouldUseRuntime = runtimeV2 && !(command.startsWith('$') && command.includes('.'))
-      const response = shouldUseRuntime
-        ? await sendAgentRun.mutateAsync({
+      const legacyCommand = command.startsWith('$') && command.includes('.')
+      const explicitSkillName = command.startsWith('$') && !legacyCommand ? command.slice(1) : undefined
+      const shouldUseRuntime = runtimeV2 && !legacyCommand
+      if (shouldUseRuntime) {
+        const runtimeContent = explicitSkillName
+          ? normalized.slice(command.length).trim() || normalized
+          : normalized
+        const response = await sendAgentRun.mutateAsync({
             threadId,
-            content: normalized,
+            content: runtimeContent,
             clientTurnId,
-            onStarted: (run) => {
-              if (run.thread_id !== threadId) {
-                navigate(`/workspace/thread/${encodeURIComponent(run.thread_id)}`)
-              }
-            },
+            explicitSkillName,
+            orchestrationMode: explicitSkillName || orchestrationMode === 'off' ? 'single' : 'auto',
           })
-        : await sendMessage.mutateAsync({ threadId, content: normalized, clientTurnId })
-
-      if (response.thread_id !== threadId) {
-        navigate(`/workspace/thread/${encodeURIComponent(response.thread_id)}`)
+        const started = response.item
+        navigate(`/workspace/thread/${encodeURIComponent(started.thread_id)}?run=${encodeURIComponent(started.id)}`)
+      } else {
+        const response = await sendMessage.mutateAsync({ threadId, content: normalized, clientTurnId })
+        if (response.thread_id !== threadId) {
+          navigate(`/workspace/thread/${encodeURIComponent(response.thread_id)}`)
+        }
       }
       setPending(null)
       setClientTurnId(crypto.randomUUID())
@@ -116,12 +156,65 @@ export function Workspace() {
     ),
     [thread.data?.turn_traces],
   )
+  const skillsById = useMemo(
+    () => new Map((skills.data?.items ?? []).map((skill) => [skill.id, skill])),
+    [skills.data?.items],
+  )
+  const planDetail = planQuery.data
+  const planPendingAction = planMutations.update.isPending
+    ? 'update'
+    : planMutations.approve.isPending
+      ? 'approve'
+      : planMutations.reject.isPending
+        ? 'reject'
+        : null
+  const planMutationError = planMutations.update.error
+    ?? planMutations.approve.error
+    ?? planMutations.reject.error
+  const planError = planMutationError ? workspaceErrorMessage(planMutationError) : null
+  const canRetryRun = Boolean(currentRun && ['partial', 'failed', 'rejected', 'cancelled'].includes(currentRun.status))
+
+  const openSkillSource = (source: SkillResultSource) => {
+    setSelection({
+      kind: 'source',
+      source: {
+        id: source.id,
+        title: source.title,
+        source_type: source.source_type,
+        reference: source.reference,
+      },
+    })
+  }
+
+  const cancelCurrentRun = () => {
+    if (!currentRun) return
+    void cancelRun.mutateAsync(currentRun).catch((error) => setSendError(workspaceErrorMessage(error)))
+  }
+
+  const retryCurrentRun = () => {
+    if (!currentRun) return
+    setSendError(null)
+    void retryRun.mutateAsync({ runId: currentRun.id, clientTurnId })
+      .then((response) => {
+        const nextRun = response.item
+        setClientTurnId(crypto.randomUUID())
+        navigate(`/workspace/thread/${encodeURIComponent(nextRun.thread_id)}?run=${encodeURIComponent(nextRun.id)}`)
+      })
+      .catch((error) => setSendError(workspaceErrorMessage(error)))
+  }
 
   useLayoutEffect(() => {
     const scrollContainer = scrollRef.current
     if (!scrollContainer) return
     scrollContainer.scrollTop = scrollContainer.scrollHeight
-  }, [messages.length, pending?.content, pending?.status, thread.isLoading])
+  }, [
+    currentRun?.status,
+    messages.length,
+    pending?.content,
+    pending?.status,
+    planDetail?.plan.updated_at,
+    thread.isLoading,
+  ])
   const uploadFileName = upload.variables?.name
   const showResources = Boolean(upload.isPending || upload.data || upload.isError || jobs.data?.items.length)
 
@@ -152,6 +245,80 @@ export function Workspace() {
                 loading={thread.isLoading}
                 onOpenSource={(source) => setSelection({ kind: 'source', source })}
               />
+
+              {runId && runQuery.isLoading ? (
+                <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
+                  正在恢复 Agent Run…
+                </section>
+              ) : null}
+              {runQuery.isError ? (
+                <p role="alert" className="mt-6 rounded-[12px] bg-rose/10 px-4 py-3 text-sm text-rose">
+                  {workspaceErrorMessage(runQuery.error)}
+                </p>
+              ) : null}
+              {currentRun?.plan_id && planQuery.isLoading ? (
+                <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
+                  正在加载 Skill Plan…
+                </section>
+              ) : null}
+              {planQuery.isError ? (
+                <p role="alert" className="mt-6 rounded-[12px] bg-rose/10 px-4 py-3 text-sm text-rose">
+                  {workspaceErrorMessage(planQuery.error)}
+                </p>
+              ) : null}
+              {currentRun && !currentRun.plan_id ? (
+                <section aria-label="单 Skill 运行状态" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[14px] bg-surface-1 px-5 py-4 shadow-card">
+                  <div>
+                    <p className="text-xs font-semibold text-mint-300">{currentRun.skill_name ? `$${currentRun.skill_name}` : 'Agent Runtime v2'}</p>
+                    <p className="mt-1 text-sm text-slate-300">状态：{currentRun.status}</p>
+                    {currentRun.error_code ? <p className="mt-1 text-xs text-rose">{currentRun.error_code}</p> : null}
+                  </div>
+                  <div className="flex gap-2">
+                    {runIsActive ? <Button variant="danger" size="sm" loading={cancelRun.isPending} onClick={cancelCurrentRun}>取消</Button> : null}
+                    {canRetryRun ? <Button variant="secondary" size="sm" loading={retryRun.isPending} onClick={retryCurrentRun}>重试</Button> : null}
+                  </div>
+                </section>
+              ) : null}
+              {currentRun?.status === 'waiting_plan_approval' && planDetail ? (
+                <SkillPlanPreview
+                  key={`${planDetail.plan.id}-${planDetail.plan.version}`}
+                  detail={planDetail}
+                  candidates={skills.data?.items ?? []}
+                  orchestrationMode={currentRun.orchestration_mode === 'preview' ? 'preview' : 'execute'}
+                  pendingAction={planPendingAction}
+                  error={planError}
+                  onUpdate={(request) => planMutations.update.mutate(request)}
+                  onApprove={(request) => planMutations.approve.mutate(request)}
+                  onReject={(request) => planMutations.reject.mutate(request)}
+                />
+              ) : null}
+              {currentRun?.plan_id && planDetail && currentRun.status !== 'waiting_plan_approval' ? (
+                <SkillPlanProgress
+                  run={currentRun}
+                  detail={planDetail}
+                  skillsById={skillsById}
+                  cancelling={cancelRun.isPending}
+                  onCancel={cancelCurrentRun}
+                  onOpenToolApproval={() => navigate('/knowledge?tab=pending')}
+                />
+              ) : null}
+              {currentRun && planDetail?.synthesis ? (
+                <SkillSynthesisView
+                  synthesis={planDetail.synthesis}
+                  results={planDetail.results ?? []}
+                  skillsById={skillsById}
+                  partial={currentRun.status === 'partial'}
+                  onOpenSource={openSkillSource}
+                  onOpenArtifact={(artifactId) => window.open(`/api/artifacts/${encodeURIComponent(artifactId)}`, '_blank', 'noopener,noreferrer')}
+                />
+              ) : null}
+              {currentRun?.plan_id && canRetryRun ? (
+                <div className="mt-4 flex justify-end">
+                  <Button variant="secondary" size="sm" loading={retryRun.isPending} onClick={retryCurrentRun}>
+                    以新 Run 重试
+                  </Button>
+                </div>
+              ) : null}
             </div>
 
             {showResources ? <aside className="space-y-4" aria-label="Workspace resources">
@@ -182,11 +349,11 @@ export function Workspace() {
                     搜索
                   </button>
                 </form>
-                {search.isFetching ? <p className="mt-3 text-xs text-slate-500">正在搜索…</p> : null}
-                {search.isError ? <p role="alert" className="mt-3 text-xs text-rose">{workspaceErrorMessage(search.error)}</p> : null}
-                {search.data?.items.length === 0 ? <p className="mt-3 text-xs text-slate-500">没有可见结果。</p> : null}
+                {searchQuery.isFetching ? <p className="mt-3 text-xs text-slate-500">正在搜索…</p> : null}
+                {searchQuery.isError ? <p role="alert" className="mt-3 text-xs text-rose">{workspaceErrorMessage(searchQuery.error)}</p> : null}
+                {searchQuery.data?.items.length === 0 ? <p className="mt-3 text-xs text-slate-500">没有可见结果。</p> : null}
                 <div className="mt-3 space-y-2">
-                  {search.data?.items.map((result) => (
+                  {searchQuery.data?.items.map((result) => (
                     <article
                       key={`${result.result_type}-${result.id}`}
                       data-testid="search-result"
@@ -256,12 +423,13 @@ export function Workspace() {
         value={draft}
         skills={skills.data?.items ?? []}
         sending={sendMessage.isPending || sendAgentRun.isPending}
+        locked={runIsActive}
         sendState={pending?.status === 'sending' ? null : pending?.status ?? null}
         statusMessage={pending?.status === 'sending' ? null : sendError}
         toolLauncher={<ToolLauncherBar activeTool={activeTool} onOpen={setActiveTool} />}
         onChange={(value) => {
           setDraft(value)
-          if (pending?.status === 'retryable') {
+          if (pending && ['retryable', 'failed', 'unknown'].includes(pending.status)) {
             setPending(null)
             setClientTurnId(crypto.randomUUID())
           }

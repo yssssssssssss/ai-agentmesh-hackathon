@@ -1,0 +1,18 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 0604513aa1a962cbc1e55761c3f382eb78eb84421ec5585554aaf046a826e59e
+profile_version: "1"
+primary_stage: pre_design
+lifecycle_tags: [pre_design]
+capability_type: analysis
+input_kinds: [design_requirement, feature_idea, research_material]
+output_kinds: [jtbd_analysis, opportunity_definition]
+examples:
+  - 用 JTBD 分析用户真正要完成的任务
+  - 判断一键复购需求命中了什么 Job
+negative_examples:
+  - 生成完整访谈提纲
+  - 系统比较多个竞品的战略
+required_capabilities: [wiki.corpus]
+side_effect: draft
+planner_eligible: true

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import os
 import shutil
+from math import ceil
 
 import agents as openai_agents
 from fastapi import APIRouter, Depends
 
+from agentmesh.agent_runtime.settings import agent_runtime_enabled, skill_orchestration_mode
 from agentmesh.datasources import data_api_provider_status, default_data_source_registry
 from agentmesh.documents import CompositeDocumentParser
 from agentmesh.embedding import embedding_provider_status
@@ -109,8 +111,111 @@ def _data_connectors_status() -> dict[str, object]:
     return payload
 
 
+def _p95(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    return round(ordered[max(0, ceil(len(ordered) * 0.95) - 1)], 3)
+
+
+def _ratio(numerator: int, denominator: int) -> float | None:
+    return round(numerator / denominator, 4) if denominator else None
+
+
+def _orchestration_metrics(runs) -> dict[str, object]:  # noqa: ANN001
+    plan_status_counts: dict[str, int] = {}
+    event_counts: dict[str, int] = {}
+    waiting_plan_ids: set[str] = set()
+    modified_plan_ids: set[str] = set()
+    candidate_latencies: list[float] = []
+    node_durations: list[float] = []
+    approval_latencies: list[float] = []
+    preview_latencies: list[float] = []
+    three_node_run_durations: list[float] = []
+    total_tokens = 0
+    results_total = 0
+    results_with_sources = 0
+
+    for run in runs:
+        plan = store.get_skill_plan_for_run(run.id)
+        if plan is None:
+            continue
+        plan_status_counts[plan.status.value] = plan_status_counts.get(plan.status.value, 0) + 1
+        for node in plan.nodes:
+            if node.started_at is not None and node.completed_at is not None:
+                node_durations.append((node.completed_at - node.started_at).total_seconds() * 1000)
+        results = store.list_skill_node_results(plan.id)
+        results_total += len(results)
+        results_with_sources += sum(bool(result.sources) for result in results)
+        total_tokens += sum(result.usage.total_tokens for result in results)
+
+        approval_requested_at = None
+        plan_approved_at = None
+        execution_started_at = None
+        terminal_at = None
+        for event in store.list_agent_run_events(run.id):
+            event_counts[event.event_type] = event_counts.get(event.event_type, 0) + 1
+            if event.event_type == "plan_waiting_approval":
+                waiting_plan_ids.add(plan.id)
+            elif event.event_type == "plan_updated":
+                modified_plan_ids.add(plan.id)
+
+            if event.event_type == "plan_approved" and plan_approved_at is None:
+                plan_approved_at = event.created_at
+            elif event.event_type == "plan_execution_started" and execution_started_at is None:
+                execution_started_at = event.created_at
+            elif event.event_type in {"run_completed", "run_partial", "run_failed", "run_cancelled"}:
+                terminal_at = terminal_at or event.created_at
+
+            if event.event_type == "skill_candidates_ranked":
+                latency = event.payload.get("latency_ms")
+                if isinstance(latency, int | float) and latency >= 0:
+                    candidate_latencies.append(float(latency))
+            elif event.event_type == "plan_created":
+                preview_latencies.append((event.created_at - run.created_at).total_seconds() * 1000)
+            elif event.event_type == "approval_requested":
+                approval_requested_at = event.created_at
+            elif event.event_type == "approval_resolved" and approval_requested_at is not None:
+                approval_latencies.append((event.created_at - approval_requested_at).total_seconds() * 1000)
+                approval_requested_at = None
+
+        execution_start = execution_started_at or plan_approved_at
+        if (
+            len(plan.nodes) >= 3
+            and run.orchestration_mode == "execute"
+            and execution_start is not None
+            and terminal_at is not None
+            and terminal_at >= execution_start
+        ):
+            three_node_run_durations.append((terminal_at - execution_start).total_seconds() * 1000)
+
+    plans_waiting = event_counts.get("plan_waiting_approval", 0)
+    plans_approved = event_counts.get("plan_approved", 0)
+    nodes_completed = event_counts.get("node_completed", 0)
+    nodes_failed = event_counts.get("node_failed", 0)
+    return {
+        "plans": sum(plan_status_counts.values()),
+        "plan_status_counts": plan_status_counts,
+        "plan_acceptance_rate": _ratio(plans_approved, plans_waiting),
+        "plan_modification_rate": _ratio(
+            len(modified_plan_ids & waiting_plan_ids),
+            len(waiting_plan_ids),
+        ),
+        "node_success_rate": _ratio(nodes_completed, nodes_completed + nodes_failed),
+        "node_retries": event_counts.get("node_retry_scheduled", 0),
+        "node_duration_p95_ms": _p95(node_durations),
+        "approval_latency_p95_ms": _p95(approval_latencies),
+        "candidate_retrieval_p95_ms": _p95(candidate_latencies),
+        "plan_preview_p95_ms": _p95(preview_latencies),
+        "three_node_run_p95_ms": _p95(three_node_run_durations),
+        "total_tokens": total_tokens,
+        "cost": None,
+        "source_coverage_rate": _ratio(results_with_sources, results_total),
+    }
+
+
 def _agent_runtime_status() -> dict[str, object]:
-    runtime_enabled = os.getenv("AGENTMESH_AGENT_RUNTIME", "legacy").strip().lower() == "v2"
+    runtime_enabled = agent_runtime_enabled()
     runs = store.list_agent_runs()
     status_counts: dict[str, int] = {}
     for run in runs:
@@ -119,6 +224,13 @@ def _agent_runtime_status() -> dict[str, object]:
     configured = config is not None
     compatible = bool(config and config["api_style"] == "chat_completions")
     ready = runtime_enabled and configured and compatible
+    catalog = catalog_service()
+    planner_profiles = [profile for profile in store.skill_capability_profiles if profile.planner_eligible]
+    profile_errors = sum(item.level == "error" for item in catalog.diagnostics)
+    profile_ready = bool(planner_profiles) and profile_errors == 0
+    index_counts = store.skill_profile_index_counts()
+    index_ready = index_counts["records"] == index_counts["indexed"] and index_counts["missing"] == 0
+    orchestration_mode = skill_orchestration_mode()
     runtime_status = (
         "ready"
         if ready
@@ -136,9 +248,23 @@ def _agent_runtime_status() -> dict[str, object]:
         "mode": "real" if ready else "fallback",
         "sdk_version": getattr(openai_agents, "__version__", "unknown"),
         "runtime_enabled": runtime_enabled,
-        "skills": len(catalog_service().list_enabled()),
+        "skill_orchestration_mode": orchestration_mode.value,
+        "skills": len(catalog.list_enabled()),
+        "planner_profiles": len(planner_profiles),
+        "profile_health": "ready" if profile_ready else "degraded",
+        "profile_errors": profile_errors,
+        "index_health": "ready" if index_ready else "degraded",
+        "index_counts": index_counts,
+        "planner_health": (
+            "disabled"
+            if orchestration_mode.value == "off"
+            else "ready"
+            if ready and profile_ready and index_ready
+            else "degraded"
+        ),
         "runs": len(runs),
         "run_status_counts": status_counts,
+        "orchestration_metrics": _orchestration_metrics(runs),
         "skill_activations": sum(event.action == "sdk_skill_activated" for event in store.audit_events),
         "open_tool_approvals": sum(
             item.item_type == "sdk_tool_approval" and item.status == "open" for item in store.inbox_items

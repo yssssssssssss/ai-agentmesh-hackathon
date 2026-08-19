@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "metrics_01",
+      "request": "为这次首页改版建立一套 HEART 体验指标和北极星指标。",
+      "expected_skill": "build-experience-metrics"
+    },
+    {
+      "id": "metrics_02",
+      "request": "我需要一份跨版本的用户体验度量体系，包含采集口径和护栏指标。",
+      "expected_skill": "build-experience-metrics"
+    },
+    {
+      "id": "metrics_03",
+      "request": "设计完成后，怎样用任务成功率、满意度和留存来衡量体验效果？",
+      "expected_skill": "build-experience-metrics"
+    },
+    {
+      "id": "metrics_04",
+      "request": "请把业务目标拆成可持续跟踪的体验指标与测量计划。",
+      "expected_skill": "build-experience-metrics"
+    },
+    {
+      "id": "competitive_01",
+      "request": "对比淘宝和拼多多首页的核心功能、设计策略与竞争威胁。",
+      "expected_skill": "competitive-analysis"
+    },
+    {
+      "id": "competitive_02",
+      "request": "研究同类家电 App 的购物车体验，给出竞品差异和应对建议。",
+      "expected_skill": "competitive-analysis"
+    },
+    {
+      "id": "competitive_03",
+      "request": "帮我分析三个竞品为什么都把会员入口放在首屏，它们的战略意图是什么？",
+      "expected_skill": "competitive-analysis"
+    },
+    {
+      "id": "competitive_04",
+      "request": "新品频道改版前，先做一份市场替代方案的竞争格局分析。",
+      "expected_skill": "competitive-analysis"
+    },
+    {
+      "id": "interview_01",
+      "request": "根据研究目标，为最近流失的用户生成一份深度访谈提纲。",
+      "expected_skill": "generate-interview-guide"
+    },
+    {
+      "id": "interview_02",
+      "request": "我要和五名新客聊首次下单障碍，请设计循序渐进的访谈问题。",
+      "expected_skill": "generate-interview-guide"
+    },
+    {
+      "id": "interview_03",
+      "request": "把这些研究问题整理成一小时可执行的半结构化用户访谈脚本。",
+      "expected_skill": "generate-interview-guide"
+    },
+    {
+      "id": "interview_04",
+      "request": "为复购用户调研准备开场白、追问和收尾问题组成的访谈指南。",
+      "expected_skill": "generate-interview-guide"
+    },
+    {
+      "id": "research_plan_01",
+      "request": "为首页改版制定完整的用户研究计划，说明方法、样本和时间表。",
+      "expected_skill": "generate-research-plan"
+    },
+    {
+      "id": "research_plan_02",
+      "request": "业务想知道新客为何放弃结算，请规划一套定性与定量结合的研究方案。",
+      "expected_skill": "generate-research-plan"
+    },
+    {
+      "id": "research_plan_03",
+      "request": "项目启动前，帮我明确研究问题、招募标准、执行节奏和交付物。",
+      "expected_skill": "generate-research-plan"
+    },
+    {
+      "id": "research_plan_04",
+      "request": "给家电频道改版写一份可落地的用户研究 Brief 和排期。",
+      "expected_skill": "generate-research-plan"
+    },
+    {
+      "id": "survey_01",
+      "request": "生成一份可以直接投放的新首页满意度调研问卷。",
+      "expected_skill": "generate-survey"
+    },
+    {
+      "id": "survey_02",
+      "request": "把品牌认知和购买意愿拆成量表题，并设计问卷跳转逻辑。",
+      "expected_skill": "generate-survey"
+    },
+    {
+      "id": "survey_03",
+      "request": "请为流失原因调查编写筛选题、单选题和开放题组成的在线问卷。",
+      "expected_skill": "generate-survey"
+    },
+    {
+      "id": "survey_04",
+      "request": "我想量化用户对改版的接受程度，帮我设计一份定量调查表。",
+      "expected_skill": "generate-survey"
+    },
+    {
+      "id": "usability_01",
+      "request": "为这个交互原型生成可执行的可用性测试方案和任务脚本。",
+      "expected_skill": "generate-usability-test"
+    },
+    {
+      "id": "usability_02",
+      "request": "上线前找用户验证结算流程，请规划观察任务、成功标准和 SEQ 量表。",
+      "expected_skill": "generate-usability-test"
+    },
+    {
+      "id": "usability_03",
+      "request": "如何用五名目标用户测试导航原型是否容易理解？请给出完整执行方案。",
+      "expected_skill": "generate-usability-test"
+    },
+    {
+      "id": "usability_04",
+      "request": "准备一次远程可用性测试，需要主持词、测试任务和 SUS 评分方法。",
+      "expected_skill": "generate-usability-test"
+    },
+    {
+      "id": "priority_01",
+      "request": "把评审发现的问题按用户影响、发生频率和修复成本排优先级。",
+      "expected_skill": "issue-prioritization"
+    },
+    {
+      "id": "priority_02",
+      "request": "这份可用性问题清单太长，请整理成有依据的修复顺序和行动计划。",
+      "expected_skill": "issue-prioritization"
+    },
+    {
+      "id": "priority_03",
+      "request": "根据严重度与工作量给二十条体验缺陷分级，指出哪些必须先解决。",
+      "expected_skill": "issue-prioritization"
+    },
+    {
+      "id": "priority_04",
+      "request": "研究结束后，请用影响成本矩阵确定问题优先级并安排下一步。",
+      "expected_skill": "issue-prioritization"
+    },
+    {
+      "id": "jtbd_01",
+      "request": "用 JTBD 分析用户购买洗衣机时真正想完成的任务。",
+      "expected_skill": "jobs-to-be-done"
+    },
+    {
+      "id": "jtbd_02",
+      "request": "一键复购这个需求背后对应什么 Job、动机和期望结果？",
+      "expected_skill": "jobs-to-be-done"
+    },
+    {
+      "id": "jtbd_03",
+      "request": "不要急着想功能，先从情境、挣扎和进步角度定义用户机会。",
+      "expected_skill": "jobs-to-be-done"
+    },
+    {
+      "id": "jtbd_04",
+      "request": "结合已有研究材料，梳理目标用户雇佣这个产品要解决的核心任务。",
+      "expected_skill": "jobs-to-be-done"
+    },
+    {
+      "id": "feasibility_01",
+      "request": "评审这份 PRD 的业务逻辑可行性、方案风险和上线影响。",
+      "expected_skill": "prd-feasibility"
+    },
+    {
+      "id": "feasibility_02",
+      "request": "请判断会员改版需求是否合理，并找出产品规则里的冲突和遗漏。",
+      "expected_skill": "prd-feasibility"
+    },
+    {
+      "id": "feasibility_03",
+      "request": "在设计原型前审查需求文档，分析边界场景、数据影响与业务风险。",
+      "expected_skill": "prd-feasibility"
+    },
+    {
+      "id": "feasibility_04",
+      "request": "这个产品方案能不能上线？请做一次完整的 PRD 评审并给出修改建议。",
+      "expected_skill": "prd-feasibility"
+    },
+    {
+      "id": "experiment_01",
+      "request": "查询以前首页入口相关的 AB 实验结论和失败经验。",
+      "expected_skill": "query-experiment-conclusions"
+    },
+    {
+      "id": "experiment_02",
+      "request": "团队过去是否测试过沉浸式头图？请找出历史实验结果。",
+      "expected_skill": "query-experiment-conclusions"
+    },
+    {
+      "id": "experiment_03",
+      "request": "在设计这个组件前，查一下类似方案做过哪些 A/B Test 以及最终数据。",
+      "expected_skill": "query-experiment-conclusions"
+    },
+    {
+      "id": "experiment_04",
+      "request": "帮我从知识库检索老版本促销频道的实验记录和已验证结论。",
+      "expected_skill": "query-experiment-conclusions"
+    }
+  ]
+}

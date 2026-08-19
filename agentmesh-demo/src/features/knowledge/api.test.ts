@@ -1,0 +1,31 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { knowledgeApi } from './api'
+
+const jsonResponse = (payload: unknown) => new Response(JSON.stringify(payload), {
+  status: 200,
+  headers: { 'Content-Type': 'application/json' },
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('knowledgeApi.resolveToolApproval', () => {
+  it.each(['approve', 'reject'] as const)('posts one call-scoped %s decision using the Inbox route contract', async (action) => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      item: { id: 'inbox/1', status: 'open' },
+      run_id: 'run-1',
+      waiting_approval: true,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await knowledgeApi.resolveToolApproval('inbox/1', 'call id/2', action)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/inbox/inbox%2F1/resolve-tool-approval?action=${action}&call_id=call%20id%2F2`,
+      expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
+    )
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined()
+  })
+})

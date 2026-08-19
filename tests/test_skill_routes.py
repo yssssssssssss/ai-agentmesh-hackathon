@@ -11,7 +11,7 @@ def _login(client: TestClient, user_id: str, password: str) -> None:
     assert response.status_code == 200
 
 
-def test_skill_catalog_and_chat_compatibility_routes(tmp_path, monkeypatch) -> None:
+def test_skill_catalog_and_chat_compatibility_routes(tmp_path, monkeypatch, configure_pilot_wiki) -> None:
     monkeypatch.setenv("AGENTMESH_AGENT_RUNTIME", "legacy")
     monkeypatch.delenv("AGENTMESH_WIKI_ROOT", raising=False)
     client = TestClient(app)
@@ -34,7 +34,7 @@ def test_skill_catalog_and_chat_compatibility_routes(tmp_path, monkeypatch) -> N
     assert not any(item["enabled"] for item in catalog_items)
 
     monkeypatch.setenv("AGENTMESH_AGENT_RUNTIME", "v2")
-    monkeypatch.setenv("AGENTMESH_WIKI_ROOT", str(tmp_path))
+    configure_pilot_wiki(tmp_path)
     compatibility_names = {item["command"] for item in client.get("/api/chat/skills").json()["items"]}
     assert names.issubset(compatibility_names)
 

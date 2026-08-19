@@ -496,6 +496,8 @@ def list_users(repository: SQLiteStore) -> list[User]:
 
 
 def bootstrap_state(repository: SQLiteStore, user: User = USER) -> BootstrapState:
+    from agentmesh.agent_runtime.settings import agent_runtime_enabled, skill_orchestration_mode
+
     ensure_seed_data(repository)
     agents = list_agents(repository)
     now = datetime.now(UTC)
@@ -507,6 +509,8 @@ def bootstrap_state(repository: SQLiteStore, user: User = USER) -> BootstrapStat
         teams=repository.list_teams(workspace_id=user.workspace_id),
         team_memberships=repository.list_team_memberships(user_id=user.id),
         agents=agents,
+        agent_runtime_enabled=agent_runtime_enabled(),
+        skill_orchestration_mode=skill_orchestration_mode().value,
         capabilities=capabilities_for_user(user, repository.permission_policy_rules),
         metrics=BootstrapMetrics(
             personal_activity_count=len(

@@ -1,0 +1,18 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 7a87dba190d59914fcd528dea5eaf3197c15e30101b3f251e08a630026f89adc
+profile_version: "1"
+primary_stage: pre_design
+lifecycle_tags: [pre_design]
+capability_type: planning
+input_kinds: [design_requirement, research_question, project_context]
+output_kinds: [research_plan, research_brief]
+examples:
+  - 根据业务问题制定完整的用户研究计划
+  - 为首页改版规划研究方法样本和时间表
+negative_examples:
+  - 只生成访谈提纲
+  - 直接分析竞品战略
+required_capabilities: [wiki.corpus]
+side_effect: draft
+planner_eligible: true

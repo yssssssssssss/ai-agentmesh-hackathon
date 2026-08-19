@@ -88,9 +88,14 @@ export function useKnowledgeMutations() {
       knowledgeApi.resolveInjection(itemId, action),
     ...options,
   })
+  const resolveToolApproval = useMutation({
+    mutationFn: ({ itemId, callId, action }: { itemId: string; callId: string; action: 'approve' | 'reject' }) =>
+      knowledgeApi.resolveToolApproval(itemId, callId, action),
+    ...options,
+  })
   const acceptMemory = useMutation({
     mutationFn: knowledgeApi.acceptMemory,
     ...options,
   })
-  return { updateInbox, confirmBrief, resolveInjection, acceptMemory }
+  return { updateInbox, confirmBrief, resolveInjection, resolveToolApproval, acceptMemory }
 }

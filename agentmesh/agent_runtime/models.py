@@ -13,7 +13,13 @@ class AgentMeshRunContext(BaseModel):
     project_id: str
     thread_id: str
     run_id: str
+    plan_id: str | None = None
+    node_id: str | None = None
+    skill_id: str | None = None
     policy_snapshot_ids: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+    artifact_ids: list[str] = Field(default_factory=list)
+    resource_references: list[str] = Field(default_factory=list)
     tool_call_count: int = Field(default=0, ge=0)
 
 

@@ -1,0 +1,18 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 6191fe05eeec6d9e9d1899898c7467d4bf7b463e169651350a3bbfb5261922d8
+profile_version: "1"
+primary_stage: pre_design
+lifecycle_tags: [pre_design, during_design]
+capability_type: generation
+input_kinds: [research_plan, research_question, target_user]
+output_kinds: [interview_guide]
+examples:
+  - 根据研究目标生成用户访谈提纲
+  - 为流失用户设计可执行的深访问题
+negative_examples:
+  - 设计完整研究项目计划
+  - 生成定量调查问卷
+required_capabilities: [wiki.corpus]
+side_effect: draft
+planner_eligible: true

@@ -10,7 +10,7 @@ from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, Field
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
-from agentmesh.models import Artifact, AuditEvent, SkillDefinition, ToolDefinition, User
+from agentmesh.models import AgentRunStatus, Artifact, AuditEvent, SkillDefinition, ToolDefinition, User
 from agentmesh.store import SQLiteStore
 from agentmesh.tool_runtime.guardrails import contains_credential, unsafe_tool_output_reason
 from agentmesh.tools import list_agent_tools
@@ -96,6 +96,18 @@ class GovernedMCPServer(MCPServer):
         arguments: dict[str, Any] | None,
         meta: dict[str, Any] | None = None,
     ) -> CallToolResult:
+        if not self.repository.user_can_execute_agent_run(
+            self.context.user_id,
+            self.context.run_id,
+            allowed_statuses={AgentRunStatus.RUNNING},
+        ):
+            return CallToolResult(content=[TextContent(text="Agent run project access was revoked.")], isError=True)
+        user = self.repository.get_user(self.context.user_id)
+        if user is None or not any(
+            tool.id == self.definition.id
+            for tool in list_agent_tools(self.repository, user.personal_agent_id)
+        ):
+            return CallToolResult(content=[TextContent(text="Agent tool grant was revoked.")], isError=True)
         if tool_name not in self.allowed_tool_names:
             return CallToolResult(content=[TextContent(text="MCP tool is not granted by AgentMesh.")], isError=True)
         raw_arguments = json.dumps(arguments or {}, ensure_ascii=False, default=str)
@@ -198,9 +210,12 @@ class AgentMeshMCPFactory:
         user: User,
         context: AgentMeshRunContext,
         skill: SkillDefinition | None = None,
+        allowed_tool_names: set[str] | None = None,
     ) -> list[MCPServer]:
         granted = {tool.id: tool for tool in list_agent_tools(self.repository, user.personal_agent_id)}
-        requested = set(skill.requested_tools) if skill and skill.requested_tools else None
+        requested = allowed_tool_names
+        if requested is None:
+            requested = set(skill.requested_tools) if skill and skill.requested_tools else None
         servers: list[MCPServer] = []
         for config in self.config.servers:
             definition = granted.get(config.tool_id)

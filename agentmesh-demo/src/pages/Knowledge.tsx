@@ -32,6 +32,7 @@ import {
 const KNOWLEDGE_TABS = ['assets', 'pending', 'shared'] as const
 type KnowledgeTab = (typeof KNOWLEDGE_TABS)[number]
 type PendingAction = 'confirm' | 'snooze' | 'resolve' | 'release' | 'discard' | 'accept'
+type ToolApprovalAction = 'approve' | 'reject'
 
 function normalizeTab(value: string | null | undefined): KnowledgeTab {
   return KNOWLEDGE_TABS.includes(value as KnowledgeTab) ? value as KnowledgeTab : 'assets'
@@ -116,6 +117,9 @@ export function Knowledge() {
   const documentId = selectedBrief?.metadata?.document_id ?? null
   const documentQuery = useDocumentQuery(context, documentId)
   const busy = Object.values(mutations).some((mutation) => mutation.isPending)
+  const pendingToolApproval = mutations.resolveToolApproval.isPending
+    ? mutations.resolveToolApproval.variables
+    : null
   const pendingReadOnly = viewModel.pending.loading || viewModel.pending.error !== null
   const documentReadOnly = documentQuery.isLoading || documentQuery.error !== null
   const queryError = queries.inbox.error ?? queries.memory.error ?? queries.overview.error ?? queries.documents.error
@@ -177,6 +181,16 @@ export function Knowledge() {
     )
   }
 
+  const handleToolApproval = (item: PendingKnowledgeView, callId: string, action: ToolApprovalAction) => {
+    if (pendingReadOnly || !item.allowedActions.value.includes(`${action}_tool`)) return
+    setDrawerTarget(null)
+    const actionLabel = action === 'approve' ? '批准' : '拒绝'
+    void run(
+      () => mutations.resolveToolApproval.mutateAsync({ itemId: item.id.value, callId, action }),
+      `已${actionLabel}工具调用 ${callId}。`,
+    )
+  }
+
   const openUsage = (event: (typeof viewModel.usage.data.items)[number]) => {
     const asset = viewModel.assets.data.items.find((item) => item.id.value === event.knowledgeId.value)
     setDrawerTarget({ kind: 'event', event, asset })
@@ -217,11 +231,13 @@ export function Knowledge() {
           <PendingCandidatePanel
             items={viewModel.pending.data.items}
             busy={busy}
+            pendingToolApproval={pendingToolApproval}
             readOnly={pendingReadOnly}
             onConfirm={openBrief}
             onSnooze={(item) => handlePendingAction(item, 'snooze')}
             onResolve={(item) => handlePendingAction(item, 'resolve')}
             onInjection={handlePendingAction}
+            onToolApproval={handleToolApproval}
             onAccept={(item) => handlePendingAction(item, 'accept')}
             onOpenDetail={(item) => setDrawerTarget({ kind: 'pending', item })}
           />

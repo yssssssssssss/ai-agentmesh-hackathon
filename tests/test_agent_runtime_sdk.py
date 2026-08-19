@@ -3,13 +3,14 @@ from __future__ import annotations
 import pytest
 from agents.testing import ScriptedModel, assistant_message
 
-from agentmesh.agent_runtime.model_factory import AgentMeshModelFactory
+from agentmesh.agent_runtime.model_factory import AgentMeshModelFactory, SelectedSDKModel
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agent_runtime.settings import strict_tools_enabled
 from agentmesh.agent_runtime.trace_processor import AgentMeshTraceProcessor
 from agentmesh.agents import PersonalAgent
-from agentmesh.models import SkillActivationPolicy, SkillDefinition, SkillSourceScope
+from agentmesh.models import AgentRun, AgentRunStatus, SkillActivationPolicy, SkillDefinition, SkillSourceScope
 from agentmesh.seed import USER
+from agentmesh.skill_runtime.resources import build_skill_resource_tool
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
 
@@ -73,8 +74,74 @@ def test_sdk_runtime_injects_activated_skill_instructions(tmp_path) -> None:
     model.assert_complete()
 
 
-def test_personal_agent_routes_general_and_catalog_skill_through_sdk(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENTMESH_WIKI_ROOT", str(tmp_path))
+def test_sdk_runtime_announces_registered_wiki_to_the_activated_skill(
+    tmp_path,
+    configure_pilot_wiki,
+) -> None:
+    configure_pilot_wiki(tmp_path / "wiki")
+    repository = SQLiteStore(tmp_path / "wiki-instructions.sqlite3")
+    catalog = SkillCatalogService(repository)
+    catalog.reload()
+    skill = catalog.get_by_name("generate-research-plan", USER.personal_agent_id)
+    assert skill is not None
+
+    instructions = AgentRuntimeService._instructions(skill)
+
+    assert "Registered Wiki subtree: available" in instructions
+    assert "call read_skill_resource directly" in instructions
+    assert str(tmp_path) not in instructions
+
+
+def test_skill_resource_tool_batches_reads_against_the_shared_tool_budget(tmp_path) -> None:
+    tool = build_skill_resource_tool(SQLiteStore(tmp_path / "batch-resource.sqlite3"), _skill())
+
+    paths = tool.params_json_schema["properties"]["paths"]
+    assert tool.params_json_schema["required"] == ["paths"]
+    assert paths["type"] == "array"
+    assert paths["minItems"] == 1
+    assert paths["maxItems"] == 12
+    assert "shared 24-call budget" in tool.description
+
+
+def test_orchestration_projection_preserves_real_model_provenance(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "orchestration-projection.sqlite3")
+    model = ScriptedModel([])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    run = AgentRun(
+        id="run_orchestration_projection",
+        thread_id="thread_orchestration_projection",
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        input_text="create a research plan and synthesize it",
+        status=AgentRunStatus.COMPLETED,
+        project_chat=True,
+    )
+
+    runtime.project_orchestration_output(
+        run,
+        "synthesized result",
+        selected=SelectedSDKModel(
+            model=model,
+            requested_model="gpt-primary",
+            actual_model="gpt-5.2",
+        ),
+    )
+
+    trace = repository.list_thread_messages(run.thread_id)[-1].workflow_trace
+    assert trace is not None
+    assert trace.source == "orchestration"
+    assert trace.selected_workflow == "skill_orchestration"
+    assert trace.llm_used is True
+    assert trace.requested_provider == "openai_agents_sdk"
+    assert trace.actual_provider == "openai_agents_sdk"
+    assert trace.requested_model == "gpt-primary"
+    assert trace.actual_model == "gpt-5.2"
+    assert trace.provider_mode == "real"
+
+
+def test_personal_agent_routes_general_and_catalog_skill_through_sdk(tmp_path, configure_pilot_wiki) -> None:
+    configure_pilot_wiki(tmp_path)
     repository = SQLiteStore(tmp_path / "agent.sqlite3")
     catalog = SkillCatalogService(repository)
     catalog.reload()

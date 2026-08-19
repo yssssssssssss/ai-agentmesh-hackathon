@@ -82,7 +82,14 @@ export interface PendingKnowledgeView {
   updatedAt: PresentedValue<string>
   documentId: PresentedValue<string | null>
   documentVersion: PresentedValue<number | null>
+  toolCalls: PresentedValue<ToolApprovalCall[]>
   allowedActions: PresentedValue<string[]>
+}
+
+export interface ToolApprovalCall {
+  callId: string
+  name: string
+  argumentKeys: string[]
 }
 
 export interface KnowledgeUsageView {
@@ -140,6 +147,34 @@ function timeValue(value: string | undefined, field: string): PresentedValue<str
 function projectLabel(projectId: string | null | undefined, input: KnowledgeViewModelInput) {
   if (projectId === input.projectId) return input.projectName
   return projectId || '未关联项目'
+}
+
+function toolApprovalCalls(item: InboxItem): ToolApprovalCall[] {
+  if (item.item_type !== 'sdk_tool_approval') return []
+  const raw = item.metadata?.interruptions
+  if (!raw) return []
+  try {
+    const interruptions: unknown = JSON.parse(raw)
+    if (!Array.isArray(interruptions)) return []
+    const seen = new Set<string>()
+    return interruptions.flatMap((interruption) => {
+      if (!interruption || typeof interruption !== 'object') return []
+      const callId = 'call_id' in interruption && typeof interruption.call_id === 'string'
+        ? interruption.call_id.trim()
+        : ''
+      if (!callId || seen.has(callId)) return []
+      seen.add(callId)
+      const name = 'name' in interruption && typeof interruption.name === 'string'
+        ? interruption.name.trim() || 'unknown_tool'
+        : 'unknown_tool'
+      const argumentKeys = 'argument_keys' in interruption && typeof interruption.argument_keys === 'string'
+        ? interruption.argument_keys.split(',').map((key: string) => key.trim()).filter(Boolean)
+        : []
+      return [{ callId, name, argumentKeys }]
+    })
+  } catch {
+    return []
+  }
 }
 
 function userMemoryAsset(item: UserMemoryItem, input: KnowledgeViewModelInput): KnowledgeAssetView {
@@ -237,6 +272,7 @@ function pendingInbox(
     updatedAt: timeValue(item.updated_at ?? item.created_at, '更新时间'),
     documentId: presentedValue(documentId, 'T'),
     documentVersion: presentedValue(documentVersion, 'T'),
+    toolCalls: presentedValue(toolApprovalCalls(item), 'T'),
     allowedActions: presentedValue([...item.allowed_actions], 'T'),
   }
 }
@@ -256,6 +292,7 @@ function pendingCandidate(item: MemoryItem, input: KnowledgeViewModelInput): Pen
     updatedAt: timeValue(item.created_at, '更新时间'),
     documentId: presentedValue(null, 'T'),
     documentVersion: presentedValue(null, 'T'),
+    toolCalls: presentedValue([], 'T'),
     allowedActions: presentedValue([...item.allowed_actions], 'T'),
   }
 }
@@ -364,6 +401,7 @@ function pendingValues(item: PendingKnowledgeView): PresentedValue<unknown>[] {
     item.updatedAt,
     item.documentId,
     item.documentVersion,
+    item.toolCalls,
     item.allowedActions,
   ]
 }

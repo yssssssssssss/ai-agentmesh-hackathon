@@ -103,6 +103,61 @@ The app UI shows a local login panel when no session exists. In explicit demo mo
 
 For frontend development, keep FastAPI on port `8010` and run `npm run dev` in `agentmesh-demo/`; Vite serves `http://127.0.0.1:5178/` and proxies `/api` to FastAPI. The retired single-file UI remains temporarily available at `/legacy/app.html` and `/app.html` for one release cycle.
 
+### Skill Matrix orchestration
+
+Multi-Skill orchestration is disabled by default and requires Agent Runtime v2 plus a configured model and Wiki corpus:
+
+```bash
+export AGENTMESH_AGENT_RUNTIME=v2
+export AGENTMESH_WIKI_ROOT=/absolute/path/to/approved/wiki
+export AGENTMESH_SKILL_ORCHESTRATION=preview
+```
+
+The server is the only configuration authority; the React app reads the effective mode from `/api/bootstrap` and does not use a Vite feature flag.
+
+| Mode | Natural-language request | Explicit `$skill` | Existing Legacy `$group.command` |
+| --- | --- | --- | --- |
+| `off` | Existing single Runtime v2 path | Single Skill Runtime v2 | Legacy chat path |
+| `preview` | Recommend and persist a plan; confirmation never executes its DAG | Single Skill Runtime v2 | Legacy chat path |
+| `execute` | Confirmed plans execute a bounded DAG | Single Skill Runtime v2 | Legacy chat path |
+
+Plans with two or more domain Skills always stop at the Plan Approval gate. Confirming a plan does not approve a Tool call: local or external writes still create a separate Inbox item and are approved once per `call_id`. The parent Run is the durable control record; refresh or SSE reconnect reads the same Run and Plan instead of starting work again.
+
+Roll out in order: `off` → `preview` → `execute`. To roll back without deleting Plans, node results, artifacts, events, or audits:
+
+```bash
+export AGENTMESH_SKILL_ORCHESTRATION=off
+```
+
+Open Tool approvals remain stopped after rollback and are never auto-resumed.
+
+The orchestration API surface is:
+
+- `POST /api/skills/recommendations`
+- `POST /api/agent/runs`
+- `GET|PATCH /api/agent/runs/{run_id}/plan`
+- `POST /api/agent/runs/{run_id}/plan/approve`
+- `POST /api/agent/runs/{run_id}/plan/reject`
+- `POST /api/agent/runs/{run_id}/retry`
+- `POST /api/agent/runs/{run_id}/cancel`
+- `GET /api/agent/runs/{run_id}/events`
+- `GET /api/agent/runs/{run_id}/events/stream`
+
+Run the deterministic release gates before moving beyond `preview`:
+
+```bash
+.venv/bin/python eval/run_skill_retrieval_eval.py
+.venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
+.venv/bin/python -m pytest
+.venv/bin/ruff check .
+npm --prefix agentmesh-demo test -- --run
+npm --prefix agentmesh-demo run api:types
+npm --prefix agentmesh-demo run build
+npm --prefix agentmesh-demo run test:e2e
+```
+
+On an approved release host with real credentials, run `scripts/agent_sdk_smoke.py --all-configured`. It is intentionally not a credential-free pull-request gate.
+
 ### Reference UI and data provenance
 
 The `feature/reference-ui-mt-data` branch restores the visual hierarchy of the reference Mock frontend for DigitalSelf, Knowledge, Collaboration, and Insights while keeping FastAPI and SQLite as the authority for identity, permissions, state, versions, and mutations.
@@ -304,7 +359,7 @@ Additional selectable models use `AGENTMESH_MODELS` plus per-model variables:
 
 ```bash
 export AGENTMESH_MODEL_DEFAULT=default
-export AGENTMESH_MODELS=gpt52,gpt54,gpt55,kimi_k26
+export AGENTMESH_MODELS=gpt52,gpt54,gpt55
 
 export AGENTMESH_MODEL_GPT52_BASE_URL=http://internal-llm-gateway/v1
 export AGENTMESH_MODEL_GPT52_MODEL=GPT-5.2-joybuilder
@@ -312,11 +367,13 @@ export AGENTMESH_MODEL_GPT52_LABEL="GPT-5.2 JoyBuilder"
 export AGENTMESH_MODEL_GPT52_API_KEY=your-api-key
 export AGENTMESH_MODEL_GPT52_API_STYLE=chat_completions
 
-# Repeat the same five variables for GPT54, GPT55, and KIMI_K26.
+# Repeat the same five variables for GPT54 and GPT55.
 # The complete secret-free template is in .env.example.
 ```
 
-`AGENTMESH_MODEL_DEFAULT=default` keeps the `AI_API_*` model as the default while exposing the four named models in the Agent model selector. Gateways that reject strict function declarations can set `AGENTMESH_SDK_STRICT_TOOLS=false`; AgentMesh still validates arguments locally through Pydantic and tool guardrails.
+`AGENTMESH_MODEL_DEFAULT=default` keeps the `AI_API_*` model as the default while exposing the four named models in the Agent model selector. JoyBuilder currently accepts JSON mode but rejects OpenAI Native Structured Outputs, so configure `AGENTMESH_SDK_STRUCTURED_OUTPUT_MODE=json_object`. Providers that implement `response_format=json_schema` can keep the default `json_schema`; mixed deployments can override one named model with `AGENTMESH_MODEL_<ID>_STRUCTURED_OUTPUT_MODE`. JSON-object mode injects the same schema into the system instructions and still validates the final value locally with the SDK and Pydantic.
+
+Gateways that reject strict function declarations can separately set `AGENTMESH_SDK_STRICT_TOOLS=false`; this does not change structured-output validation, and AgentMesh still validates arguments locally through Pydantic and tool guardrails.
 
 Configure one optional automatic fallback model with:
 

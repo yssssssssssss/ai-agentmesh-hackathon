@@ -9,10 +9,10 @@ from agents.strict_schema import ensure_strict_json_schema
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.agent_runtime.settings import strict_tools_enabled
-from agentmesh.models import Artifact, AuditEvent, SkillDefinition, ToolDefinition, User
+from agentmesh.models import AgentRunStatus, Artifact, AuditEvent, SkillDefinition, ToolDefinition, User
 from agentmesh.risk import RiskDecision, assess_tool_request
 from agentmesh.store import SQLiteStore
-from agentmesh.tool_runtime.gateway import ToolGateway, encode_tool_output
+from agentmesh.tool_runtime.gateway import ToolGateway, collect_source_ids, encode_tool_output
 from agentmesh.tool_runtime.guardrails import (
     quarantine_unsafe_output,
     reject_secret_arguments,
@@ -29,9 +29,33 @@ class AgentMeshToolFactory:
         self.repository = repository
         self.gateway = gateway or ToolGateway(repository)
 
-    def build(self, user: User, skill: SkillDefinition | None = None) -> list[FunctionTool]:
+    def _registered_source_ids(self, value: Any, context: AgentMeshRunContext) -> list[str]:
+        allowed: list[str] = []
+        for source_id in sorted(collect_source_ids(value)):
+            source = self.repository.get_source(source_id)
+            if source is None:
+                continue
+            if (
+                source.workspace_id == context.workspace_id
+                and source.project_id == context.project_id
+                and source.user_id == context.user_id
+                and source.run_id == context.run_id
+                and source.skill_id == context.skill_id
+            ):
+                allowed.append(source_id)
+        return allowed
+
+    def build(
+        self,
+        user: User,
+        skill: SkillDefinition | None = None,
+        *,
+        allowed_tool_names: set[str] | None = None,
+    ) -> list[FunctionTool]:
         handlers = self.gateway.handlers()
-        requested = set(skill.requested_tools) if skill and skill.requested_tools else None
+        requested = allowed_tool_names
+        if requested is None:
+            requested = set(skill.requested_tools) if skill and skill.requested_tools else None
         definitions = [
             definition
             for definition in list_agent_tools(self.repository, user.personal_agent_id)
@@ -52,6 +76,8 @@ class AgentMeshToolFactory:
                 return True
             if definition.name == "risk_review":
                 return False
+            if definition.approval_required:
+                return True
             if definition.side_effect != "read":
                 return True
             assessment = assess_tool_request(json.dumps(params, ensure_ascii=False, default=str))
@@ -60,6 +86,17 @@ class AgentMeshToolFactory:
         async def invoke(ctx, raw_arguments: str) -> str:  # noqa: ANN001
             if not isinstance(ctx.context, AgentMeshRunContext):
                 raise RuntimeError("AgentMesh run context is required")
+            if not self.repository.user_can_execute_agent_run(
+                ctx.context.user_id,
+                ctx.context.run_id,
+                allowed_statuses={AgentRunStatus.RUNNING},
+            ):
+                raise PermissionError("Agent run project access was revoked")
+            if not any(
+                tool.id == definition.id
+                for tool in list_agent_tools(self.repository, user.personal_agent_id)
+            ):
+                raise PermissionError("Agent tool grant was revoked")
             arguments = json.loads(raw_arguments)
             if not isinstance(arguments, dict):
                 raise ValueError("Tool arguments must be an object")
@@ -75,6 +112,9 @@ class AgentMeshToolFactory:
                 )
             )
             value = await asyncio.to_thread(handler, ctx.context, arguments)
+            ctx.context.source_ids = list(
+                dict.fromkeys([*ctx.context.source_ids, *self._registered_source_ids(value, ctx.context)])
+            )
             output = encode_tool_output(value)
             unsafe_reason = unsafe_tool_output_reason(output)
             if unsafe_reason is not None:
@@ -95,6 +135,8 @@ class AgentMeshToolFactory:
                 )
                 return "Tool output was withheld by AgentMesh policy."
             visible, artifact_id = self._bounded_output(ctx.context, definition, output)
+            if artifact_id:
+                ctx.context.artifact_ids = list(dict.fromkeys([*ctx.context.artifact_ids, artifact_id]))
             self.repository.add_audit_event(
                 AuditEvent(
                     actor=ctx.context.user_id,

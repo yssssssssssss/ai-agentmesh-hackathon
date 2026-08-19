@@ -8,9 +8,21 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from agentmesh.harness.skill_packages import SkillPackageError, SkillPackageService
-from agentmesh.models import ItemsResponse, SkillBinding, SkillBindingUpdateRequest, User, now_utc
+from agentmesh.models import (
+    ItemsResponse,
+    SkillBinding,
+    SkillBindingUpdateRequest,
+    SkillCatalogItemResponse,
+    SkillCatalogResponse,
+    SkillRecommendationRequest,
+    SkillRecommendationResponse,
+    User,
+    now_utc,
+)
 from agentmesh.permissions import ensure_admin
-from agentmesh.routes.deps import create_audit_event, current_user
+from agentmesh.routes.deps import create_audit_event, current_user, require_default_project
+from agentmesh.skill_runtime.planner import SkillIntentAnalyzer
+from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
 
@@ -19,16 +31,66 @@ _package_service = SkillPackageService(
     store,
     Path(os.getenv("AGENTMESH_SKILL_PACKAGE_DIR", Path(__file__).resolve().parents[2] / "data" / "skill_packages")),
 )
+_intent_analyzer = SkillIntentAnalyzer()
 
 
-@router.get("", response_model=ItemsResponse)
-def list_skills(user: User = Depends(current_user)) -> ItemsResponse:
+@router.get("", response_model=SkillCatalogResponse)
+def list_skills(user: User = Depends(current_user)) -> SkillCatalogResponse:
     catalog = catalog_service()
+    bindings = {
+        binding.skill_id: binding.enabled
+        for binding in store.list_agent_skill_bindings(user.personal_agent_id)
+    }
     items = [
-        catalog.to_chat_skill(skill, enabled=enabled)
+        catalog.to_chat_skill(
+            skill,
+            enabled=enabled,
+            binding_enabled=bindings.get(skill.id, True),
+        )
         for skill, enabled in catalog.list_for_agent(user.personal_agent_id)
     ]
-    return ItemsResponse(items=items)
+    return SkillCatalogResponse(items=items)
+
+
+@router.post("/recommendations", response_model=SkillRecommendationResponse)
+async def recommend_skills(
+    request: SkillRecommendationRequest,
+    user: User = Depends(current_user),
+) -> SkillRecommendationResponse:
+    from agentmesh.routes.chat import agent
+
+    project = require_default_project(user, store)
+    thread_summary = ""
+    if request.thread_id:
+        thread = store.get_chat_thread(request.thread_id)
+        if (
+            thread is None
+            or thread.user_id != user.id
+            or thread.workspace_id != user.workspace_id
+            or thread.project_id != user.default_project_id
+        ):
+            raise HTTPException(status_code=404, detail="Chat thread not found")
+        thread_summary = "\n".join(message.content[:500] for message in store.list_thread_messages(thread.id)[-6:])
+    selected = None
+    runtime = agent.agent_runtime
+    if runtime is not None and runtime.enabled:
+        try:
+            selected = runtime.select_model(user)
+        except ValueError:
+            selected = None
+    intent, intent_diagnostics = await _intent_analyzer.analyze(
+        request.content,
+        model=selected.model if selected is not None else None,
+        project_summary=project.goal,
+        thread_summary=thread_summary,
+    )
+    require_default_project(user, store)
+    candidates, retrieval_diagnostics = SkillCandidateRetriever(store, catalog_service()).recommend(user, intent)
+    return SkillRecommendationResponse(
+        intent=intent,
+        candidates=candidates,
+        diagnostics=list(dict.fromkeys([*intent_diagnostics, *retrieval_diagnostics])),
+    )
 
 
 @router.patch("/{skill_id}/binding")
@@ -36,7 +98,7 @@ def update_skill_binding(
     skill_id: str,
     request: SkillBindingUpdateRequest,
     user: User = Depends(current_user),
-) -> dict[str, object]:
+) -> SkillCatalogItemResponse:
     catalog = catalog_service()
     skill = next((item for item, _enabled in catalog.list_for_agent(user.personal_agent_id) if item.id == skill_id), None)
     if skill is None:
@@ -71,7 +133,14 @@ def update_skill_binding(
             {"skill_id": skill_id, "enabled": saved.enabled},
         )
     )
-    return {"item": catalog.to_chat_skill(skill, enabled=saved.enabled)}
+    effective_enabled = catalog.is_runtime_enabled(skill, binding_enabled=saved.enabled)
+    return SkillCatalogItemResponse(
+        item=catalog.to_chat_skill(
+            skill,
+            enabled=effective_enabled,
+            binding_enabled=saved.enabled,
+        )
+    )
 
 
 @router.get("/packages", response_model=ItemsResponse)
@@ -139,8 +208,8 @@ def skill_diagnostics(user: User = Depends(current_user)) -> ItemsResponse:
     return ItemsResponse(items=items)
 
 
-@router.post("/reload", response_model=ItemsResponse)
-def reload_skills(user: User = Depends(current_user)) -> ItemsResponse:
+@router.post("/reload", response_model=SkillCatalogResponse)
+def reload_skills(user: User = Depends(current_user)) -> SkillCatalogResponse:
     ensure_admin(user)
     catalog = catalog_service()
     skills = catalog.reload()
@@ -153,4 +222,4 @@ def reload_skills(user: User = Depends(current_user)) -> ItemsResponse:
             {"count": len(skills), "diagnostics": len(catalog.diagnostics)},
         )
     )
-    return ItemsResponse(items=[catalog.to_chat_skill(skill) for skill in skills])
+    return SkillCatalogResponse(items=[catalog.to_chat_skill(skill) for skill in skills])

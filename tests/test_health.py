@@ -1,13 +1,19 @@
 """Tests for provider health check endpoint."""
 
+import sqlite3
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from agentmesh.app import app
+from agentmesh.models import SkillCapabilityProfile, SkillCapabilityType, SkillLifecycleStage
 from agentmesh.provider_status import ProviderTelemetry
+from agentmesh.routes import health as health_routes
 from agentmesh.seed import ADMIN
+from agentmesh.store import SQLiteStore
 
 
 @pytest.fixture()
@@ -45,6 +51,161 @@ class TestProviderHealthCheck:
         canonical_fields = {"name", "configured", "ready", "mode", "last_error", "latency_ms"}
         assert all(canonical_fields <= set(item) for item in data["providers"])
         assert all("provider" not in item for item in data["providers"])
+        runtime = next(item for item in data["providers"] if item["name"] == "openai_agents_sdk")
+        assert runtime["profile_health"] in {"ready", "degraded"}
+        assert runtime["index_health"] in {"ready", "degraded"}
+        assert runtime["planner_health"] in {"disabled", "ready", "degraded"}
+        metrics = runtime["orchestration_metrics"]
+        assert metrics["cost"] is None
+        assert "candidate_retrieval_p95_ms" in metrics
+        assert "source_coverage_rate" in metrics
+
+    @pytest.mark.parametrize(
+        ("configured", "effective"),
+        [("off", "off"), ("preview", "preview"), ("execute", "execute"), ("invalid", "off")],
+    )
+    def test_bootstrap_and_health_expose_the_same_fail_closed_orchestration_mode(
+        self,
+        auth_client: TestClient,
+        configured: str,
+        effective: str,
+    ):
+        with patch.dict(
+            "os.environ",
+            {
+                "AGENTMESH_AGENT_RUNTIME": "v2",
+                "AGENTMESH_SKILL_ORCHESTRATION": configured,
+            },
+        ):
+            bootstrap = auth_client.get("/api/bootstrap")
+            health = auth_client.get("/api/health/providers")
+
+        assert bootstrap.status_code == 200
+        assert bootstrap.json()["agent_runtime_enabled"] is True
+        assert bootstrap.json()["skill_orchestration_mode"] == effective
+        runtime = next(item for item in health.json()["providers"] if item["name"] == "openai_agents_sdk")
+        assert runtime["runtime_enabled"] is True
+        assert runtime["skill_orchestration_mode"] == effective
+
+    def test_skill_profile_index_health_degrades_when_fts_is_missing(
+        self,
+        auth_client: TestClient,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        repository = SQLiteStore(tmp_path / "health-index.sqlite3")
+        profile = SkillCapabilityProfile(
+            id="skill_health_index",
+            skill_id="skill_health_index",
+            skill_name="health-index",
+            skill_version="1",
+            skill_content_hash="skill-hash",
+            profile_version="1",
+            profile_content_hash="profile-hash",
+            primary_stage=SkillLifecycleStage.PRE_DESIGN,
+            capability_type=SkillCapabilityType.ANALYSIS,
+        )
+        repository.save_skill_capability_profile(profile)
+        catalog = SimpleNamespace(diagnostics=[], list_enabled=lambda: [])
+        monkeypatch.setattr(health_routes, "store", repository)
+        monkeypatch.setattr(health_routes, "catalog_service", lambda: catalog)
+
+        ready_response = auth_client.get("/api/health/providers")
+        ready_runtime = next(
+            item for item in ready_response.json()["providers"] if item["name"] == "openai_agents_sdk"
+        )
+        assert ready_runtime["index_health"] == "ready"
+        assert ready_runtime["index_counts"] == {"records": 1, "indexed": 1, "missing": 0}
+
+        with sqlite3.connect(repository.db_path) as connection:
+            connection.execute(
+                "DELETE FROM records_fts WHERE collection = ? AND record_id = ?",
+                ("skill_capability_profiles", profile.id),
+            )
+
+        degraded_response = auth_client.get("/api/health/providers")
+        degraded_runtime = next(
+            item for item in degraded_response.json()["providers"] if item["name"] == "openai_agents_sdk"
+        )
+        assert degraded_runtime["index_health"] == "degraded"
+        assert degraded_runtime["index_counts"] == {"records": 1, "indexed": 0, "missing": 1}
+
+    def test_plan_modification_rate_counts_modified_plans_once(self, monkeypatch: pytest.MonkeyPatch):
+        created_at = datetime(2026, 8, 19, tzinfo=UTC)
+        run = SimpleNamespace(
+            id="run_modified_plan",
+            status=SimpleNamespace(value="completed"),
+            orchestration_mode="execute",
+            created_at=created_at,
+            updated_at=created_at,
+        )
+        plan = SimpleNamespace(
+            id="plan_modified_once",
+            status=SimpleNamespace(value="completed"),
+            nodes=[],
+        )
+        events = [
+            SimpleNamespace(event_type="plan_waiting_approval", payload={}, created_at=created_at),
+            SimpleNamespace(event_type="plan_updated", payload={}, created_at=created_at),
+            SimpleNamespace(event_type="plan_updated", payload={}, created_at=created_at),
+        ]
+        repository = SimpleNamespace(
+            get_skill_plan_for_run=lambda _run_id: plan,
+            list_skill_node_results=lambda _plan_id: [],
+            list_agent_run_events=lambda _run_id: events,
+        )
+        monkeypatch.setattr(health_routes, "store", repository)
+
+        metrics = health_routes._orchestration_metrics([run])
+
+        assert metrics["plan_modification_rate"] == 1.0
+
+    def test_three_node_latency_uses_execution_events_not_confirmation_wait(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        created_at = datetime(2026, 8, 19, tzinfo=UTC)
+        run = SimpleNamespace(
+            id="run_three_nodes",
+            status=SimpleNamespace(value="completed"),
+            orchestration_mode="execute",
+            created_at=created_at,
+            updated_at=created_at + timedelta(hours=2),
+        )
+        node = SimpleNamespace(started_at=None, completed_at=None)
+        plan = SimpleNamespace(
+            id="plan_three_nodes",
+            status=SimpleNamespace(value="completed"),
+            nodes=[node, node, node],
+        )
+        events = [
+            SimpleNamespace(event_type="plan_waiting_approval", payload={}, created_at=created_at),
+            SimpleNamespace(
+                event_type="plan_approved",
+                payload={},
+                created_at=created_at + timedelta(hours=1),
+            ),
+            SimpleNamespace(
+                event_type="plan_execution_started",
+                payload={},
+                created_at=created_at + timedelta(hours=1, seconds=1),
+            ),
+            SimpleNamespace(
+                event_type="run_completed",
+                payload={},
+                created_at=created_at + timedelta(hours=1, seconds=11),
+            ),
+        ]
+        repository = SimpleNamespace(
+            get_skill_plan_for_run=lambda _run_id: plan,
+            list_skill_node_results=lambda _plan_id: [],
+            list_agent_run_events=lambda _run_id: events,
+        )
+        monkeypatch.setattr(health_routes, "store", repository)
+
+        metrics = health_routes._orchestration_metrics([run])
+
+        assert metrics["three_node_run_p95_ms"] == 10_000.0
 
     def test_llm_not_configured(self, auth_client: TestClient):
         """LLM 未配置时返回 not_configured 状态。"""

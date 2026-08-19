@@ -24,6 +24,8 @@ jobs:
       - run: python -m venv .venv
       - run: .venv/bin/python -m pip install -e '.[dev]'
       - run: .venv/bin/ruff check .
+      - run: .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
+      - run: .venv/bin/python eval/run_skill_retrieval_eval.py
       - run: .venv/bin/python -m pytest --ignore=tests/test_frontend_routes.py
         env:
           AGENTMESH_EMBEDDING_ENABLED: "false"
@@ -48,6 +50,7 @@ jobs:
         working-directory: agentmesh-demo
       - run: npm run api:types
         working-directory: agentmesh-demo
+      - run: git diff --exit-code -- agentmesh-demo/src/api/generated/schema.ts
       - run: npm run test
         working-directory: agentmesh-demo
       - run: npm run build

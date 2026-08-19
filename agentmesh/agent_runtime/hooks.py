@@ -48,9 +48,10 @@ class AgentMeshRunHooks(RunHooksBase[AgentMeshRunContext, object]):
         del agent
         run_context = getattr(context, "context", None)
         if isinstance(run_context, AgentMeshRunContext):
-            if run_context.tool_call_count >= 24:
+            count = self.repository.consume_agent_run_tool_call(run_context.run_id)
+            if count is None:
                 raise RuntimeError("Agent run exceeded the 24 tool-call limit")
-            run_context.tool_call_count += 1
+            run_context.tool_call_count = count
         self._event(context, "sdk_tool_hook_started", {"tool_name": str(getattr(tool, "name", ""))})
 
     async def on_tool_end(self, context, agent, tool, result) -> None:  # noqa: ANN001

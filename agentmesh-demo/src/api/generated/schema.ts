@@ -313,6 +313,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/runs/{run_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Agent Run Plan */
+        get: operations["get_agent_run_plan_api_agent_runs__run_id__plan_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Agent Run Plan */
+        patch: operations["update_agent_run_plan_api_agent_runs__run_id__plan_patch"];
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/plan/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Agent Run Plan */
+        post: operations["approve_agent_run_plan_api_agent_runs__run_id__plan_approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/plan/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject Agent Run Plan */
+        post: operations["reject_agent_run_plan_api_agent_runs__run_id__plan_reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Agent Run */
+        post: operations["retry_agent_run_api_agent_runs__run_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/runs/{run_id}/events": {
         parameters: {
             query?: never;
@@ -1724,6 +1793,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skills/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recommend Skills */
+        post: operations["recommend_skills_api_skills_recommendations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/skills/{skill_id}/binding": {
         parameters: {
             query?: never;
@@ -2148,6 +2234,73 @@ export interface components {
             /** Model Id */
             model_id?: string | null;
         };
+        /** AgentRun */
+        AgentRun: {
+            /** Id */
+            id?: string;
+            /** Thread Id */
+            thread_id: string;
+            /** User Id */
+            user_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Input Text */
+            input_text: string;
+            /** Client Turn Id */
+            client_turn_id?: string | null;
+            /** @default created */
+            status: components["schemas"]["AgentRunStatus"];
+            /** Skill Id */
+            skill_id?: string | null;
+            /** Skill Name */
+            skill_name?: string | null;
+            /** Plan Id */
+            plan_id?: string | null;
+            /**
+             * Orchestration Mode
+             * @default off
+             * @enum {string}
+             */
+            orchestration_mode: "off" | "preview" | "execute";
+            requested_orchestration_mode?: components["schemas"]["SkillOrchestrationRequestMode"] | null;
+            /**
+             * Agent Definition Version
+             * @default 1
+             */
+            agent_definition_version: string;
+            /**
+             * Project Chat
+             * @default false
+             */
+            project_chat: boolean;
+            /**
+             * Tool Call Count
+             * @default 0
+             */
+            tool_call_count: number;
+            /** Deadline At */
+            deadline_at?: string | null;
+            /** Paused State */
+            paused_state?: {
+                [key: string]: unknown;
+            } | null;
+            /** Output Text */
+            output_text?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
         /** AgentRunCreateRequest */
         AgentRunCreateRequest: {
             /** Content */
@@ -2158,7 +2311,46 @@ export interface components {
             thread_id?: string | null;
             /** Skill Name */
             skill_name?: string | null;
+            /** Explicit Skill Name */
+            explicit_skill_name?: string | null;
+            /** @default auto */
+            orchestration_mode: components["schemas"]["SkillOrchestrationRequestMode"];
         };
+        /** AgentRunEvent */
+        AgentRunEvent: {
+            /** Id */
+            id?: string;
+            /** Run Id */
+            run_id: string;
+            /** Sequence */
+            sequence: number;
+            /** Event Type */
+            event_type: string;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+        };
+        /** AgentRunEventsResponse */
+        AgentRunEventsResponse: {
+            /** Items */
+            items: components["schemas"]["AgentRunEvent"][];
+        };
+        /** AgentRunRetryRequest */
+        AgentRunRetryRequest: {
+            /** Client Turn Id */
+            client_turn_id: string;
+        };
+        /**
+         * AgentRunStatus
+         * @enum {string}
+         */
+        AgentRunStatus: "created" | "planning" | "running" | "waiting_plan_approval" | "waiting_approval" | "completed" | "partial" | "failed" | "rejected" | "cancelled";
         /** AgentToolsUpdateRequest */
         AgentToolsUpdateRequest: {
             /** Tool Ids */
@@ -2526,6 +2718,17 @@ export interface components {
             metrics: components["schemas"]["BootstrapMetrics"];
             /** Capabilities */
             capabilities?: string[];
+            /**
+             * Agent Runtime Enabled
+             * @default false
+             */
+            agent_runtime_enabled: boolean;
+            /**
+             * Skill Orchestration Mode
+             * @default off
+             * @enum {string}
+             */
+            skill_orchestration_mode: "off" | "preview" | "execute";
         };
         /** BriefConfirmRequest */
         BriefConfirmRequest: {
@@ -3814,12 +4017,473 @@ export interface components {
             /** Team Id */
             team_id?: string | null;
         };
+        /**
+         * SkillActivationPolicy
+         * @enum {string}
+         */
+        SkillActivationPolicy: "explicit_only" | "model_allowed";
         /** SkillBindingUpdateRequest */
         SkillBindingUpdateRequest: {
             /** Enabled */
             enabled: boolean;
             /** Aliases */
             aliases?: string[] | null;
+        };
+        /** SkillCandidate */
+        SkillCandidate: {
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Name */
+            skill_name: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            profile: components["schemas"]["SkillCapabilityProfile"];
+            score: components["schemas"]["SkillCandidateScore"];
+            /** Reason */
+            reason: string;
+            /**
+             * Ready
+             * @default true
+             */
+            ready: boolean;
+            /** Diagnostics */
+            diagnostics?: string[];
+        };
+        /** SkillCandidateScore */
+        SkillCandidateScore: {
+            /**
+             * Fts
+             * @default 0
+             */
+            fts: number;
+            /**
+             * Embedding
+             * @default 0
+             */
+            embedding: number;
+            /**
+             * Stage
+             * @default 0
+             */
+            stage: number;
+            /**
+             * Inputs
+             * @default 0
+             */
+            inputs: number;
+            /**
+             * Outputs
+             * @default 0
+             */
+            outputs: number;
+            /**
+             * Examples
+             * @default 0
+             */
+            examples: number;
+            /**
+             * Recent Success
+             * @default 0
+             */
+            recent_success: number;
+            /**
+             * Negative
+             * @default 0
+             */
+            negative: number;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * SkillCapabilityProfile
+         * @description Planner-safe metadata. It never contains Skill instructions or credentials.
+         */
+        SkillCapabilityProfile: {
+            /** Id */
+            id: string;
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Name */
+            skill_name: string;
+            /** Skill Version */
+            skill_version: string;
+            /** Skill Content Hash */
+            skill_content_hash: string;
+            /** Profile Version */
+            profile_version: string;
+            /** Profile Content Hash */
+            profile_content_hash: string;
+            primary_stage: components["schemas"]["SkillLifecycleStage"];
+            /** Lifecycle Tags */
+            lifecycle_tags?: components["schemas"]["SkillLifecycleStage"][];
+            capability_type: components["schemas"]["SkillCapabilityType"];
+            /** Input Kinds */
+            input_kinds?: string[];
+            /** Output Kinds */
+            output_kinds?: string[];
+            /** Examples */
+            examples?: string[];
+            /** Negative Examples */
+            negative_examples?: string[];
+            /** Required Capabilities */
+            required_capabilities?: string[];
+            /** @default read */
+            side_effect: components["schemas"]["SkillSideEffect"];
+            /**
+             * Planner Eligible
+             * @default true
+             */
+            planner_eligible: boolean;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
+        /**
+         * SkillCapabilityType
+         * @enum {string}
+         */
+        SkillCapabilityType: "retrieval" | "research" | "analysis" | "synthesis" | "planning" | "generation" | "transformation" | "review" | "delivery" | "knowledge" | "platform";
+        /** SkillCatalogItem */
+        SkillCatalogItem: {
+            /** Id */
+            id: string;
+            /** Command */
+            command: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            /** Usage */
+            usage: string;
+            /** Placeholder */
+            placeholder: string;
+            /** Aliases */
+            aliases?: string[];
+            /**
+             * Requires Input
+             * @default true
+             */
+            requires_input: boolean;
+            source: components["schemas"]["SkillSourceScope"];
+            /** Version */
+            version: string;
+            activation_policy: components["schemas"]["SkillActivationPolicy"];
+            /** Enabled */
+            enabled: boolean;
+            /** Binding Enabled */
+            binding_enabled: boolean;
+            /** Planner Eligible */
+            planner_eligible: boolean;
+            /**
+             * Readiness
+             * @enum {string}
+             */
+            readiness: "ready" | "unavailable";
+            primary_stage?: components["schemas"]["SkillLifecycleStage"] | null;
+            capability_type?: components["schemas"]["SkillCapabilityType"] | null;
+            /** Input Kinds */
+            input_kinds?: string[];
+            /** Output Kinds */
+            output_kinds?: string[];
+            side_effect?: components["schemas"]["SkillSideEffect"] | null;
+        };
+        /** SkillCatalogItemResponse */
+        SkillCatalogItemResponse: {
+            item: components["schemas"]["SkillCatalogItem"];
+        };
+        /** SkillCatalogResponse */
+        SkillCatalogResponse: {
+            /** Items */
+            items: components["schemas"]["SkillCatalogItem"][];
+        };
+        /** SkillIntent */
+        SkillIntent: {
+            /** Goal */
+            goal: string;
+            /** @default pre_design */
+            primary_stage: components["schemas"]["SkillLifecycleStage"];
+            /** Input Kinds */
+            input_kinds?: string[];
+            /** Deliverables */
+            deliverables?: string[];
+            constraints?: components["schemas"]["SkillIntentConstraints"];
+            /** Explicit Skill Names */
+            explicit_skill_names?: string[];
+            /** @default direct */
+            complexity: components["schemas"]["SkillIntentComplexity"];
+        };
+        /**
+         * SkillIntentComplexity
+         * @enum {string}
+         */
+        SkillIntentComplexity: "direct" | "assisted" | "workflow";
+        /** SkillIntentConstraints */
+        SkillIntentConstraints: {
+            /**
+             * External Write
+             * @default false
+             */
+            external_write: boolean;
+            /**
+             * Project Scope
+             * @default current
+             * @constant
+             */
+            project_scope: "current";
+            /** Time Budget Seconds */
+            time_budget_seconds?: number | null;
+        };
+        /**
+         * SkillLifecycleStage
+         * @enum {string}
+         */
+        SkillLifecycleStage: "pre_design" | "during_design" | "post_design" | "platform";
+        /** SkillNodeResult */
+        SkillNodeResult: {
+            /** Id */
+            id?: string;
+            /** Node Id */
+            node_id: string;
+            /** Skill Id */
+            skill_id: string;
+            /** Summary */
+            summary: string;
+            /** Findings */
+            findings?: string[];
+            /** Recommendations */
+            recommendations?: string[];
+            /** Sources */
+            sources?: components["schemas"]["SkillResultSource"][];
+            /**
+             * Confidence
+             * @default 0.5
+             */
+            confidence: number;
+            /** Limitations */
+            limitations?: string[];
+            /** Artifact Ids */
+            artifact_ids?: string[];
+            usage?: components["schemas"]["SkillNodeUsage"];
+            /** Degradation */
+            degradation?: string | null;
+            /** Reused From Run Id */
+            reused_from_run_id?: string | null;
+            /** Reused From Result Id */
+            reused_from_result_id?: string | null;
+            /**
+             * Attempt
+             * @default 1
+             */
+            attempt: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+        };
+        /** SkillNodeUsage */
+        SkillNodeUsage: {
+            /**
+             * Total Tokens
+             * @default 0
+             */
+            total_tokens: number;
+        };
+        /**
+         * SkillOrchestrationRequestMode
+         * @enum {string}
+         */
+        SkillOrchestrationRequestMode: "auto" | "single";
+        /** SkillPlan */
+        SkillPlan: {
+            /** Id */
+            id?: string;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /** @default planning */
+            status: components["schemas"]["SkillPlanStatus"];
+            intent: components["schemas"]["SkillIntent"];
+            /** Candidate Skill Ids */
+            candidate_skill_ids?: string[];
+            /** Output Contract */
+            output_contract?: string[];
+            /** Preferred Order */
+            preferred_order?: string[];
+            /** Nodes */
+            nodes?: components["schemas"]["SkillPlanNode"][];
+            /** Degradation */
+            degradation?: string | null;
+            /** Synthesis */
+            synthesis?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
+        /** SkillPlanDetailResponse */
+        SkillPlanDetailResponse: {
+            plan: components["schemas"]["SkillPlan"];
+            /** Results */
+            results?: components["schemas"]["SkillNodeResult"][];
+            synthesis?: components["schemas"]["SkillSynthesisResult"] | null;
+        };
+        /** SkillPlanNode */
+        SkillPlanNode: {
+            /** Id */
+            id?: string;
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Version */
+            skill_version: string;
+            /** Skill Content Hash */
+            skill_content_hash: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
+            /** Depends On */
+            depends_on?: string[];
+            /** Parallel Group */
+            parallel_group?: string | null;
+            /** Input Bindings */
+            input_bindings?: string[];
+            /** Output Contract */
+            output_contract?: string[];
+            /** @default read */
+            side_effect: components["schemas"]["SkillSideEffect"];
+            /** @default pending */
+            status: components["schemas"]["SkillPlanNodeStatus"];
+            /**
+             * Attempt
+             * @default 0
+             */
+            attempt: number;
+            /** Error Code */
+            error_code?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
+        };
+        /**
+         * SkillPlanNodeStatus
+         * @enum {string}
+         */
+        SkillPlanNodeStatus: "pending" | "ready" | "running" | "waiting_tool_approval" | "completed" | "failed" | "skipped" | "cancelled";
+        /**
+         * SkillPlanStatus
+         * @enum {string}
+         */
+        SkillPlanStatus: "planning" | "waiting_approval" | "approved" | "running" | "completed" | "partial" | "failed" | "rejected" | "cancelled";
+        /** SkillPlanTransitionResponse */
+        SkillPlanTransitionResponse: {
+            plan: components["schemas"]["SkillPlan"];
+            run: components["schemas"]["AgentRun"];
+        };
+        /** SkillPlanUpdateRequest */
+        SkillPlanUpdateRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /** Selected Skill Ids */
+            selected_skill_ids: string[];
+            /** Preferred Order */
+            preferred_order?: string[];
+        };
+        /** SkillPlanVersionRequest */
+        SkillPlanVersionRequest: {
+            /** Expected Version */
+            expected_version: number;
+        };
+        /** SkillRecommendationRequest */
+        SkillRecommendationRequest: {
+            /** Content */
+            content: string;
+            /** Thread Id */
+            thread_id?: string | null;
+        };
+        /** SkillRecommendationResponse */
+        SkillRecommendationResponse: {
+            intent: components["schemas"]["SkillIntent"];
+            /** Candidates */
+            candidates: components["schemas"]["SkillCandidate"][];
+            /** Diagnostics */
+            diagnostics?: string[];
+        };
+        /** SkillResultSource */
+        SkillResultSource: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Source Type */
+            source_type: string;
+            /**
+             * Reference
+             * @default
+             */
+            reference: string;
+        };
+        /**
+         * SkillSideEffect
+         * @enum {string}
+         */
+        SkillSideEffect: "read" | "draft" | "local_write" | "external_write";
+        /**
+         * SkillSourceScope
+         * @enum {string}
+         */
+        SkillSourceScope: "builtin" | "workspace" | "project";
+        /** SkillSynthesisClaim */
+        SkillSynthesisClaim: {
+            /** Text */
+            text: string;
+            /** Node Result Ids */
+            node_result_ids: string[];
+            /** Source Ids */
+            source_ids?: string[];
+            /**
+             * Recommendation
+             * @default false
+             */
+            recommendation: boolean;
+        };
+        /** SkillSynthesisResult */
+        SkillSynthesisResult: {
+            /** Summary */
+            summary: string;
+            /** Sections */
+            sections?: string[];
+            /** Claims */
+            claims?: components["schemas"]["SkillSynthesisClaim"][];
+            /** Limitations */
+            limitations?: string[];
+            /** Next Actions */
+            next_actions?: string[];
+            /** Artifact Ids */
+            artifact_ids?: string[];
         };
         /** Source */
         Source: {
@@ -3831,6 +4495,16 @@ export interface components {
             source_type: string;
             /** Reference */
             reference: string;
+            /** Workspace Id */
+            workspace_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** User Id */
+            user_id?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Skill Id */
+            skill_id?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -4845,6 +5519,177 @@ export interface operations {
             };
         };
     };
+    get_agent_run_plan_api_agent_runs__run_id__plan_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillPlanDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_agent_run_plan_api_agent_runs__run_id__plan_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillPlanUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillPlanDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_agent_run_plan_api_agent_runs__run_id__plan_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillPlanVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillPlanTransitionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_agent_run_plan_api_agent_runs__run_id__plan_reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillPlanVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillPlanTransitionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_agent_run_api_agent_runs__run_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentRunRetryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_agent_run_events_api_agent_runs__run_id__events_get: {
         parameters: {
             query?: {
@@ -4864,7 +5709,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItemsResponse"];
+                    "application/json": components["schemas"]["AgentRunEventsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7519,7 +8364,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItemsResponse"];
+                    "application/json": components["schemas"]["SkillCatalogResponse"];
+                };
+            };
+        };
+    };
+    recommend_skills_api_skills_recommendations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillRecommendationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillRecommendationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -7545,9 +8423,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SkillCatalogItemResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7717,7 +8593,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItemsResponse"];
+                    "application/json": components["schemas"]["SkillCatalogResponse"];
                 };
             };
         };

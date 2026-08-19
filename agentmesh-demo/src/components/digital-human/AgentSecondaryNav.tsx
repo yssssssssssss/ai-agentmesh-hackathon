@@ -4,12 +4,12 @@ import { cn } from '../../lib/cn'
 
 export type SectionKey = 'profile' | 'understanding' | 'skills' | 'knowledge' | 'activity'
 
-export const SECTIONS: { key: SectionKey; label: string; icon: LucideIcon }[] = [
-  { key: 'profile', label: '数字员工档案', icon: IdCard },
-  { key: 'understanding', label: '对我的理解', icon: Sparkles },
-  { key: 'skills', label: '能力与 Skill', icon: Wrench },
-  { key: 'knowledge', label: '知识与权限', icon: ShieldCheck },
-  { key: 'activity', label: '活动记录', icon: History },
+export const SECTIONS: { key: SectionKey; label: string; mobileLabel: string; icon: LucideIcon }[] = [
+  { key: 'profile', label: '数字员工档案', mobileLabel: '档案', icon: IdCard },
+  { key: 'understanding', label: '对我的理解', mobileLabel: '理解', icon: Sparkles },
+  { key: 'skills', label: '能力与 Skill', mobileLabel: 'Skill', icon: Wrench },
+  { key: 'knowledge', label: '知识与权限', mobileLabel: '权限', icon: ShieldCheck },
+  { key: 'activity', label: '活动记录', mobileLabel: '活动', icon: History },
 ]
 
 interface Props {
@@ -24,9 +24,9 @@ interface Props {
  */
 export function AgentSecondaryNav({ section, onSelect }: Props) {
   return (
-    <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-white/[0.06] bg-base">
+    <aside className="flex w-full shrink-0 flex-col border-b border-white/[0.06] bg-base md:h-full md:w-[240px] md:border-b-0 md:border-r">
       {/* 品牌块 */}
-      <div className="flex items-center gap-3 border-b border-white/[0.06] px-5 py-5">
+      <div className="hidden items-center gap-3 border-b border-white/[0.06] px-5 py-5 md:flex">
         <DigitalHumanMark size={40} online={false} />
         <div className="min-w-0 leading-tight">
           <div className="truncate text-[15px] font-semibold text-white">数字员工管理</div>
@@ -34,7 +34,7 @@ export function AgentSecondaryNav({ section, onSelect }: Props) {
       </div>
 
       {/* 分区导航 */}
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
+      <nav aria-label="数字员工管理分区" className="flex justify-between gap-1 overflow-x-auto px-3 py-2 md:flex-1 md:flex-col md:justify-start md:overflow-y-auto md:py-3">
         {SECTIONS.map((s) => {
           const Icon = s.icon
           const active = s.key === section
@@ -42,19 +42,25 @@ export function AgentSecondaryNav({ section, onSelect }: Props) {
             <button
               key={s.key}
               type="button"
+              aria-current={active ? 'page' : undefined}
+              aria-label={s.label}
               onClick={() => onSelect(s.key)}
               className={cn(
-                'group relative flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-sm font-medium transition-all duration-150',
+                'group relative flex min-h-10 shrink-0 items-center gap-2 rounded-[10px] px-3 py-2 text-left text-sm font-medium transition-[transform,background-color,color] duration-150 active:scale-[0.98] md:w-full md:gap-3 md:py-2.5',
                 active
                   ? 'bg-surface-3 text-white'
                   : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200',
               )}
             >
               {active && (
-                <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-mint-400" />
+                <>
+                  <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-t-full bg-mint-400 md:hidden" />
+                  <span className="absolute left-0 top-1/2 hidden h-5 w-1 -translate-y-1/2 rounded-r-full bg-mint-400 md:block" />
+                </>
               )}
-              <Icon className={cn('h-[18px] w-[18px] shrink-0', active ? 'text-mint-300' : '')} />
-              <span className="flex-1">{s.label}</span>
+              <Icon className={cn('hidden h-[18px] w-[18px] shrink-0 md:block', active ? 'text-mint-300' : '')} />
+              <span className="whitespace-nowrap md:hidden">{s.mobileLabel}</span>
+              <span className="hidden whitespace-nowrap md:flex-1 md:block">{s.label}</span>
             </button>
           )
         })}

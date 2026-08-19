@@ -1,0 +1,18 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 2930e969b003ed7b3856b9101453a5a84e42b55de93a4a4fe720c6ea4421a103
+profile_version: "1"
+primary_stage: post_design
+lifecycle_tags: [during_design, post_design]
+capability_type: analysis
+input_kinds: [issue_list, usability_findings, research_findings]
+output_kinds: [prioritized_issues, action_plan]
+examples:
+  - 对评审发现的问题按影响和成本排优先级
+  - 把可用性问题整理成可执行的修复顺序
+negative_examples:
+  - 从零生成研究计划
+  - 查询历史 AB 实验
+required_capabilities: [wiki.corpus]
+side_effect: draft
+planner_eligible: true

@@ -48,7 +48,7 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center whitespace-nowrap transition-all duration-150 select-none',
+        'inline-flex items-center justify-center whitespace-nowrap transition-[transform,background-color,color,border-color,box-shadow] duration-150 active:scale-[0.96] select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50',
         'disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-inherit',
         VARIANTS[variant],

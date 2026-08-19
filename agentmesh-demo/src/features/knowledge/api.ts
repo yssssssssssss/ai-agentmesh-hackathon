@@ -23,6 +23,15 @@ export interface MemoryOverview {
   counts: Record<'short' | 'project' | 'archive' | 'team', number>
 }
 
+export type ToolApprovalAction = 'approve' | 'reject'
+
+export interface ToolApprovalResolution {
+  item: InboxItem
+  run_id: string
+  waiting_approval?: boolean
+  answer?: string
+}
+
 interface ItemResponse<T> {
   item: T
 }
@@ -60,6 +69,11 @@ export const knowledgeApi = {
   resolveInjection: (itemId: string, action: 'release' | 'discard') =>
     apiRequest<{ item: InboxItem }>(
       `/api/inbox/${encodeURIComponent(itemId)}/resolve-injection-review?action=${action}`,
+      { method: 'POST' },
+    ),
+  resolveToolApproval: (itemId: string, callId: string, action: ToolApprovalAction) =>
+    apiRequest<ToolApprovalResolution>(
+      `/api/inbox/${encodeURIComponent(itemId)}/resolve-tool-approval?action=${action}&call_id=${encodeURIComponent(callId)}`,
       { method: 'POST' },
     ),
   acceptMemory: (itemId: string) =>

@@ -3,10 +3,11 @@ from __future__ import annotations
 import re
 import threading
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ProviderMode = Literal["real", "fallback"]
 
@@ -27,6 +28,7 @@ class ProviderStatus(BaseModel):
     configured: bool
     ready: bool
     mode: ProviderMode
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_error: str | None = None
     latency_ms: float | None = None
 
@@ -82,6 +84,7 @@ def build_provider_status(
         configured=configured,
         ready=current_ready,
         mode=mode or ("real" if current_ready else "fallback"),
+        checked_at=datetime.now(UTC),
         last_error=last_error,
         latency_ms=observation.latency_ms,
     )

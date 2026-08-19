@@ -1,0 +1,18 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: c5bbfb771871aba1a142e6506ef2e0aeae152ce812a5c6ce612757e9aa71b7a7
+profile_version: "1"
+primary_stage: during_design
+lifecycle_tags: [during_design, post_design]
+capability_type: review
+input_kinds: [prototype, design_solution, design_requirement]
+output_kinds: [usability_test_plan, usability_review]
+examples:
+  - 为原型生成可执行的可用性测试方案和任务脚本
+  - 上线前规划用户任务观察和 SEQ SUS 度量
+negative_examples:
+  - 只用专家原则检查界面
+  - 生成市场调查问卷
+required_capabilities: [wiki.corpus]
+side_effect: draft
+planner_eligible: true

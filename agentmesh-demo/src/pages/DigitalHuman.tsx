@@ -31,10 +31,10 @@ export function DigitalHuman() {
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden md:flex-row">
       <AgentSecondaryNav section={section} onSelect={setSection} />
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1240px] px-8 py-8">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[1240px] px-4 py-5 sm:px-6 md:px-8 md:py-8">
           {section === 'profile' && <ProfileSection />}
           {section === 'understanding' && <UnderstandingSection />}
           {section === 'skills' && <SkillsSection />}

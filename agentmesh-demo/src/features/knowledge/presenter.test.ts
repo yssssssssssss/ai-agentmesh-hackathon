@@ -295,4 +295,48 @@ describe('buildKnowledgeViewModel', () => {
       source: 'T',
     })
   })
+
+  it('maps SDK tool interruptions into distinct call-scoped approvals', () => {
+    const toolApproval: InboxItem = {
+      ...openInbox,
+      id: 'inbox-tool-approval',
+      item_type: 'sdk_tool_approval',
+      metadata: {
+        run_id: 'run-1',
+        interruptions: JSON.stringify([
+          { call_id: 'call-a', name: 'web_research', argument_keys: 'query, locale' },
+          { call_id: 'call-b', name: 'save_draft', argument_keys: 'content' },
+          { call_id: 'call-a', name: 'duplicate', argument_keys: '' },
+          { name: 'missing_call_id', argument_keys: '' },
+        ]),
+      },
+      allowed_actions: ['snooze', 'approve_tool', 'reject_tool'],
+    }
+    const viewModel = buildKnowledgeViewModel(input({
+      inbox: resource('available', { items: [toolApproval] }),
+    }))
+
+    expect(viewModel.pending.data.items[0].toolCalls).toEqual({
+      source: 'T',
+      value: [
+        { callId: 'call-a', name: 'web_research', argumentKeys: ['query', 'locale'] },
+        { callId: 'call-b', name: 'save_draft', argumentKeys: ['content'] },
+      ],
+    })
+  })
+
+  it('fails closed when SDK tool interruption metadata is malformed', () => {
+    const viewModel = buildKnowledgeViewModel(input({
+      inbox: resource('available', {
+        items: [{
+          ...openInbox,
+          item_type: 'sdk_tool_approval',
+          metadata: { interruptions: '{not-json' },
+          allowed_actions: ['approve_tool', 'reject_tool'],
+        }],
+      }),
+    }))
+
+    expect(viewModel.pending.data.items[0].toolCalls).toEqual({ value: [], source: 'T' })
+  })
 })

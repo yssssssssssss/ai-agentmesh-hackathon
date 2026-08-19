@@ -226,12 +226,12 @@ def resolve_sdk_tool_approval(
         raise HTTPException(status_code=409, detail="Tool approval is no longer open")
     now = now_utc()
     if now - item.created_at > timedelta(hours=24):
-        item.status = "resolved"
-        item.acknowledged_at = item.acknowledged_at or now
-        item.resolved_at = now
-        item.updated_at = now
-        item.metadata["approval_failure"] = "expired"
-        store.save_inbox_item(item)
+        store.expire_agent_run_approval(
+            run_id=item.metadata.get("run_id", ""),
+            user_id=user.id,
+            inbox_id=item.id,
+            checked_at=now,
+        )
         raise HTTPException(status_code=409, detail="Tool approval has expired")
     if action not in {"approve", "reject"}:
         raise HTTPException(status_code=400, detail="action must be 'approve' or 'reject'")
@@ -251,6 +251,21 @@ def resolve_sdk_tool_approval(
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
     except RuntimeError as error:
+        failed_run = store.get_agent_run(run_id)
+        current_item = store.get_inbox_item(item.id)
+        if (
+            failed_run is not None
+            and failed_run.status in {"completed", "partial", "failed", "rejected", "cancelled"}
+            and current_item is not None
+            and current_item.status == "open"
+        ):
+            failed_at = now_utc()
+            current_item.status = "resolved"
+            current_item.acknowledged_at = current_item.acknowledged_at or failed_at
+            current_item.resolved_at = failed_at
+            current_item.updated_at = failed_at
+            current_item.metadata["approval_failure"] = failed_run.error_code or failed_run.status.value
+            store.save_inbox_item(current_item)
         raise HTTPException(status_code=409, detail=str(error)) from error
     except Exception as error:
         failed_run = store.get_agent_run(run_id)

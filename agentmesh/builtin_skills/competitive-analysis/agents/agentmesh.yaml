@@ -1,0 +1,29 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 4fc52941c57f92f8f869ca846c469b18b1dc91c43ee91071933e0a6c26778e1a
+profile_version: "1"
+primary_stage: pre_design
+lifecycle_tags: [pre_design, during_design]
+capability_type: research
+input_kinds: [design_requirement, competitive_material, product_context]
+output_kinds: [competitive_analysis, research_evidence]
+examples:
+  - 对比竞品功能和战略意图并给出应对建议
+  - 分析淘宝与拼多多首页方案的差异和威胁
+negative_examples:
+  - 用尼尔森原则逐条检查界面问题
+  - 给自己的产品建立长期体验指标
+required_capabilities: [wiki.corpus]
+task_types: [competitive_research]
+archetypes: [evidence_synthesis]
+required_tools: [tool_web_research]
+required_resources: [wiki.corpus]
+input_schema_ref: input.schema.json
+output_schema_ref: output.schema.json
+produces_factual_claims: true
+report_policy: default
+cost_level: medium
+risk_level: medium
+owner: research-platform
+side_effect: draft
+planner_eligible: true

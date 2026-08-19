@@ -8,14 +8,27 @@ from agents import ToolGuardrailFunctionOutput, tool_input_guardrail, tool_outpu
 from agentmesh.risk import RiskDecision, assess_external_content
 
 _CREDENTIAL_PATTERN = re.compile(
-    r"(?i)(?:authorization\s*:\s*bearer\s+[^\s,;}]+|"
-    r"(?:api[_ -]?key|access[_ -]?token|client[_ -]?secret|password|token|secret|credential)"
-    r"\s*[:=]\s*[^\s,;}]+)"
+    r"(?i)(?:"
+    r"authorization\s*:\s*bearer\s+[^\s,;}]+|"
+    r"bearer\s+[A-Za-z0-9._~+/=-]{8,}|"
+    r"(?:set-cookie|cookie)\s*:\s*[^\r\n]+|"
+    r"(?:api[_ -]?key|access[_ -]?token|client[_ -]?secret|password|credential|token|secret)"
+    r"[\"']?\s*[:=]\s*[\"']?[^\s\"',;}]+"
+    r")"
+)
+_LOCAL_PATH_PATTERN = re.compile(
+    r"(?<![\w:])(?:/(?:Users|home|private|tmp|var/folders)/[^\s,;]+|[A-Za-z]:\\[^\s,;]+)"
 )
 
 
 def contains_credential(text: str) -> bool:
     return bool(_CREDENTIAL_PATTERN.search(text))
+
+
+def redact_sensitive_text(text: str) -> str:
+    """Remove credential-like values and host-local paths before secondary persistence."""
+    redacted = _CREDENTIAL_PATTERN.sub("[REDACTED_CREDENTIAL]", text)
+    return _LOCAL_PATH_PATTERN.sub("[REDACTED_LOCAL_PATH]", redacted)
 
 
 def unsafe_tool_output_reason(text: str) -> str | None:
