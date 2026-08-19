@@ -407,6 +407,41 @@ def test_runtime_fails_attempt_that_crossed_its_frozen_deadline_before_restart(t
     asyncio.run(scenario())
 
 
+def test_recovery_scan_expires_attempt_while_tool_approval_is_still_open(tmp_path) -> None:
+    repository, service, execution, run = _ready_execution_service(
+        tmp_path / "approval-deadline.sqlite3",
+        approval_required=True,
+    )
+    attempt_id, inbox_item_id, _call_id = asyncio.run(_execute_with_approval(repository, service, run))
+    attempt = repository.get_research_attempt(attempt_id)
+    assert attempt is not None and attempt.status == AttemptStatus.PENDING
+    expired = attempt.model_copy(update={"deadline_at": attempt.created_at + timedelta(milliseconds=1)})
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute(
+            "UPDATE research_attempts SET payload = ? WHERE id = ?",
+            (expired.model_dump_json(), attempt.id),
+        )
+
+    assert service.recover_eligible_attempts() == 0
+
+    closed_attempt = repository.get_research_attempt(attempt_id)
+    closed_workflow = repository.get_research_workflow(run.id)
+    closed_run = repository.get_agent_run(run.id)
+    closed_inbox = repository.get_inbox_item(inbox_item_id)
+    assert execution.calls == []
+    assert closed_attempt is not None and closed_attempt.status == AttemptStatus.FAILED
+    assert all(
+        repository.get_research_step(attempt_id, number).status == StepStatus.FAILED
+        for number in (1, 2)
+    )
+    assert closed_workflow is not None and closed_workflow.phase == ResearchPhase.TERMINAL
+    assert closed_workflow.active_gate == ResearchGate.NONE
+    assert closed_run is not None and closed_run.status == AgentRunStatus.FAILED
+    assert closed_run.error_code == "research_execution_deadline_exceeded"
+    assert closed_inbox is not None and closed_inbox.status == "resolved"
+    assert closed_inbox.metadata["approval_failure"] == "research_execution_deadline_exceeded"
+
+
 class _HeartbeatRepository:
     def __init__(self) -> None:
         self.calls = 0

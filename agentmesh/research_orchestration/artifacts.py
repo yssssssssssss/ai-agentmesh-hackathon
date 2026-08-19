@@ -1323,6 +1323,7 @@ class ArtifactStore:
         *,
         reader_scope: ArtifactReaderScope,
         expected_reference: ArtifactRef | None = None,
+        invalidate_corrupt: bool = True,
     ) -> Artifact:
         if expected_reference is not None and expected_reference.artifact_id != artifact_id:
             raise ArtifactStoreError("artifact_reference_mismatch")
@@ -1330,6 +1331,7 @@ class ArtifactStore:
             artifact_id,
             reader_scope=reader_scope,
             expected_reference=expected_reference,
+            invalidate_corrupt=invalidate_corrupt,
         )
         if not verified:
             raise ArtifactStoreError("artifact_unverified")
@@ -1341,6 +1343,7 @@ class ArtifactStore:
         *,
         reader_scope: ArtifactReaderScope,
         expected_reference: ArtifactRef | None = None,
+        invalidate_corrupt: bool = True,
     ) -> tuple[Artifact, bool]:
         if expected_reference is not None and expected_reference.artifact_id != artifact_id:
             raise ArtifactStoreError("artifact_reference_mismatch")
@@ -1394,6 +1397,7 @@ class ArtifactStore:
             invalidation_run=run,
             expected_kind=None,
             expected_schema_version=None,
+            invalidate_corrupt=invalidate_corrupt,
         )
         return artifact, True
 
@@ -1436,7 +1440,11 @@ class ArtifactStore:
         for row in rows:
             kind = str(row["artifact_type"])
             try:
-                artifact, is_verified = self.read_for_owner(str(row["id"]), reader_scope=scoped_reader)
+                artifact, is_verified = self.read_for_owner(
+                    str(row["id"]),
+                    reader_scope=scoped_reader,
+                    invalidate_corrupt=False,
+                )
             except ArtifactStoreError as error:
                 errors.append(f"{kind}:{error.code}")
                 continue
@@ -1498,17 +1506,19 @@ class ArtifactStore:
         invalidation_run: AgentRun | None,
         expected_kind: str | None,
         expected_schema_version: str | None,
+        invalidate_corrupt: bool = True,
     ) -> Artifact:
         if row is None:
             raise ArtifactStoreError("artifact_not_found")
         reason, artifact = self._integrity_result(row)
         if reason is not None or artifact is None:
-            self._invalidate_if_corrupt(
-                row["id"],
-                reason or "artifact_payload_invalid",
-                fallback_lineage=scope,
-                fallback_run=invalidation_run,
-            )
+            if invalidate_corrupt:
+                self._invalidate_if_corrupt(
+                    row["id"],
+                    reason or "artifact_payload_invalid",
+                    fallback_lineage=scope,
+                    fallback_run=invalidation_run,
+                )
             raise ArtifactStoreError("artifact_integrity_failed")
         self._raise_for_unreadable_state(row["verification_state"])
         if scope is not None and not self._same_scope(artifact, scope):

@@ -419,11 +419,23 @@ def test_execution_engine_runs_tool_skill_delivery_and_strict_finish(tmp_path) -
             "UPDATE artifacts SET payload = ? WHERE id = ?",
             (tampered.model_dump_json(), tampered.id),
         )
+        artifact_before_read = connection.execute(
+            "SELECT payload, verification_state FROM artifacts WHERE id = ?",
+            (tampered.id,),
+        ).fetchone()
+    events_before_read = context.repository.list_agent_run_events(run.id)
 
     corrupted = service.get_projection(context.plan.run_id, owner=owner)
     assert corrupted.artifacts.evidence_manifest_id is None
     assert corrupted.artifacts.report_id is None
     assert "evidence_manifest:artifact_integrity_failed" in corrupted.integrity_errors
+    with sqlite3.connect(context.repository.db_path) as connection:
+        artifact_after_read = connection.execute(
+            "SELECT payload, verification_state FROM artifacts WHERE id = ?",
+            (tampered.id,),
+        ).fetchone()
+    assert artifact_after_read == artifact_before_read
+    assert context.repository.list_agent_run_events(run.id) == events_before_read
     assert len(
         [
             message

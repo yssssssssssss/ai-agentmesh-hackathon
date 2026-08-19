@@ -5517,7 +5517,7 @@ class SQLiteStore:
                 WHERE a.status IN (?, ?)
                   AND json_extract(a.payload, '$.deadline_at') <= ?
                   AND w.phase = ?
-                  AND w.active_gate = ?
+                  AND w.active_gate IN (?, ?)
                   AND w.active_attempt_id = a.id
                   AND r.orchestration_version = 'research-v2'
                 ORDER BY json_extract(a.payload, '$.deadline_at'), a.id
@@ -5528,6 +5528,7 @@ class SQLiteStore:
                     checked_at.isoformat(),
                     ResearchPhase.EXECUTION.value,
                     ResearchGate.NONE.value,
+                    ResearchGate.TOOL_APPROVAL.value,
                 ),
             ).fetchall()
             for row in rows:
@@ -5537,14 +5538,19 @@ class SQLiteStore:
                 workflow = context.workflow
                 run = context.run
                 attempt = context.active_attempt
+                gate_allows_deadline_closure = workflow.active_gate == ResearchGate.NONE or (
+                    workflow.active_gate == ResearchGate.TOOL_APPROVAL
+                    and attempt.status == AttemptStatus.PENDING
+                    and context.active_tool_approval is not None
+                )
                 if (
                     attempt.status not in {AttemptStatus.PENDING, AttemptStatus.RUNNING}
                     or attempt.deadline_at > checked_at
                     or workflow.phase != ResearchPhase.EXECUTION
-                    or workflow.active_gate != ResearchGate.NONE
+                    or not gate_allows_deadline_closure
                     or workflow.active_attempt_id != attempt.id
                     or workflow.active_plan_version_id != attempt.plan_version_id
-                    or run.status != AgentRunStatus.RUNNING
+                    or run.status != self._research_agent_run_status(workflow)
                     or run.orchestration_version != "research-v2"
                     or run.orchestration_mode != "execute"
                 ):

@@ -61,6 +61,7 @@ def _read_artifact(
             artifact_id,
             reader_scope=reader_scope,
             expected_reference=expected_reference,
+            invalidate_corrupt=False,
         )
     except ArtifactStoreError as error:
         raise _ResultProjectionError(error.code) from error
