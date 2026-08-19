@@ -19,6 +19,7 @@ from agentmesh.research_orchestration.api import (
     ResearchRecoverRequest,
     ResearchRevisePlanRequest,
 )
+from agentmesh.research_orchestration.artifacts import ArtifactReaderScope, ResearchResultSnapshot
 from agentmesh.research_orchestration.compiler import CompetitivePlanCompiler
 from agentmesh.research_orchestration.contracts import (
     AttemptStatus,
@@ -75,6 +76,7 @@ class FakeRepository:
         self.commit_count = 0
         self.retired_attempts: list[tuple[str, AttemptStatus]] = []
         self.invocations: dict[str, ToolInvocation] = {}
+        self.recoverable_attempt_ids: list[str] = []
 
     @staticmethod
     def _owns(context: WorkflowContext, owner: ResearchOwnerScope) -> bool:
@@ -201,6 +203,7 @@ class FakeRepository:
             active_recovery_invocation=(
                 None if mutation.recovery_invocation_id is not None else context.active_recovery_invocation
             ),
+            active_tool_approval=mutation.approval_inbox,
         )
         self.contexts[mutation.receipt.run_id] = next_context
         if mutation.recovery_invocation_id is not None:
@@ -256,6 +259,14 @@ class FakeRepository:
 
     def get_research_tool_invocation(self, invocation_id: str) -> ToolInvocation | None:
         return self.invocations.get(invocation_id)
+
+    def list_recoverable_research_attempt_ids(self, now: datetime) -> list[str]:
+        del now
+        return list(self.recoverable_attempt_ids)
+
+    def expire_research_attempt_deadlines(self, now: datetime) -> int:
+        del now
+        return 0
 
 
 class FakePlanning:
@@ -349,6 +360,16 @@ class FakePurger:
             created_at=now,
         )
         return self.last_receipt
+
+    def research_result_snapshot(
+        self,
+        *,
+        run_id: str,
+        attempt_id: str | None,
+        reader_scope: ArtifactReaderScope,
+    ) -> ResearchResultSnapshot:
+        del run_id, attempt_id, reader_scope
+        return ResearchResultSnapshot()
 
 
 @dataclass

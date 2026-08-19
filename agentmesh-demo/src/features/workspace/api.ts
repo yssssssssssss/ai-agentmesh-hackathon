@@ -8,6 +8,10 @@ import type {
   DocumentJobResponse,
   DocumentJobsResponse,
   DocumentResponse,
+  ResearchCommandResponse,
+  ResearchConfirmPlanRequest,
+  ResearchExecuteRequest,
+  ResearchRecoverRequest,
   ResearchRunProjection,
   SearchResponse,
   SkillPlanDetailResponse,
@@ -28,6 +32,27 @@ const RUN_EVENT_TYPES = [
   'intent_normalized',
   'run_started',
   'research_updated',
+  'research_attempt_claimed',
+  'research_attempt_completed',
+  'research_attempt_failed',
+  'research_attempt_cancelled',
+  'research_step_claimed',
+  'research_step_ready',
+  'research_step_running',
+  'research_step_completed',
+  'research_step_failed',
+  'research_step_skipped',
+  'research_step_cancelled',
+  'research_tool_invocation_prepared',
+  'research_tool_invocation_sent',
+  'research_tool_invocation_unknown',
+  'research_tool_invocation_retry_authorized',
+  'research_recovery_required',
+  'research_artifacts_sealed',
+  'research_model_call_settled',
+  'artifact_staged',
+  'artifact_invalidated',
+  'artifact_purged',
   'skill_candidates_ranked',
   'plan_created',
   'plan_waiting_approval',
@@ -141,6 +166,49 @@ export const workspaceApi = {
   agentRun: (runId: string) => apiRequest<AgentRunResponse>(`/api/agent/runs/${pathId(runId)}`),
   researchRun: (runId: string) =>
     apiRequest<ResearchRunProjection>(`/api/agent/runs/${pathId(runId)}/research`),
+  confirmResearchPlan: (
+    runId: string,
+    planVersionId: string,
+    request: ResearchConfirmPlanRequest,
+    idempotencyKey: string,
+  ) => apiRequest<ResearchCommandResponse>(
+    `/api/agent/runs/${pathId(runId)}/research/plans/${pathId(planVersionId)}/confirm`,
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify(request),
+    },
+  ),
+  executeResearch: (
+    runId: string,
+    request: ResearchExecuteRequest,
+    idempotencyKey: string,
+  ) => apiRequest<ResearchCommandResponse>(`/api/agent/runs/${pathId(runId)}/research/execute`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(request),
+  }),
+  recoverResearch: (
+    runId: string,
+    request: ResearchRecoverRequest,
+    idempotencyKey: string,
+  ) => apiRequest<ResearchCommandResponse>(`/api/agent/runs/${pathId(runId)}/research/recover`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(request),
+  }),
+  resolveResearchToolApproval: (
+    itemId: string,
+    callId: string,
+    action: 'approve' | 'reject',
+  ) => apiRequest<{
+    run_id: string
+    attempt_id?: string | null
+    scheduled: boolean
+  }>(
+    `/api/inbox/${pathId(itemId)}/resolve-tool-approval?action=${action}&call_id=${pathId(callId)}`,
+    { method: 'POST' },
+  ),
   agentRunEvents: (runId: string, afterSequence = 0) =>
     apiRequest<AgentRunEventsResponse>(
       `/api/agent/runs/${pathId(runId)}/events?after_sequence=${Math.max(0, afterSequence)}`,

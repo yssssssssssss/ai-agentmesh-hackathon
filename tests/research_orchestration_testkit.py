@@ -64,7 +64,11 @@ def _frozen_text(value: str) -> FrozenTextDocument:
     return FrozenTextDocument(content=value, content_hash=hashlib.sha256(value.encode()).hexdigest())
 
 
-def competitive_snapshot(now: datetime | None = None) -> CompetitiveCapabilitySnapshot:
+def competitive_snapshot(
+    now: datetime | None = None,
+    *,
+    approval_required: bool = False,
+) -> CompetitiveCapabilitySnapshot:
     effective_now = now or datetime.now(UTC)
     instructions = _frozen_text((SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8"))
     profile_text = (SKILL_ROOT / "agents" / "agentmesh.yaml").read_text(encoding="utf-8")
@@ -149,7 +153,7 @@ def competitive_snapshot(now: datetime | None = None) -> CompetitiveCapabilitySn
             health_ttl_seconds=60,
             side_effect="read",
             idempotency_support="none",
-            approval_required=False,
+            approval_required=approval_required,
             evidence_class="provider_summary",
             timeout_seconds=45,
             input_schema=_frozen(
@@ -179,6 +183,7 @@ def compiled_competitive_plan(
     run_id: str,
     *,
     now: datetime | None = None,
+    approval_required: bool = False,
 ) -> tuple[RequirementVersion, ExecutionPlanVersion]:
     effective_now = now or datetime.now(UTC)
     result = asyncio.run(
@@ -189,7 +194,7 @@ def compiled_competitive_plan(
     requirement = requirement_version_from_result(run_id, 1, result)
     plan = CompetitivePlanCompiler().compile(
         requirement,
-        competitive_snapshot(effective_now),
+        competitive_snapshot(effective_now, approval_required=approval_required),
         plan_version=1,
         now=effective_now,
     )

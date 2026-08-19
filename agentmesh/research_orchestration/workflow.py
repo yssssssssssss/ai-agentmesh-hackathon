@@ -7,9 +7,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Literal, Protocol
 
-from agentmesh.models import AgentRun, AgentRunStatus, new_id
+from agentmesh.models import AgentRun, AgentRunStatus, InboxItem, Scope, new_id
 from agentmesh.research_orchestration.api import (
-    ResearchArtifactProjection,
     ResearchAttemptProjection,
     ResearchClarificationProjection,
     ResearchClarifyRequest,
@@ -18,6 +17,7 @@ from agentmesh.research_orchestration.api import (
     ResearchConfirmPlanRequest,
     ResearchConflictError,
     ResearchExecuteRequest,
+    ResearchGapProjection,
     ResearchNotFoundError,
     ResearchOwnerScope,
     ResearchPlanProjection,
@@ -30,9 +30,14 @@ from agentmesh.research_orchestration.api import (
     ResearchRevisePlanRequest,
     ResearchRunProjection,
     ResearchStepProgressProjection,
+    ResearchToolApprovalProjection,
     ResearchWorkflowProjection,
 )
-from agentmesh.research_orchestration.artifacts import ArtifactStoreError
+from agentmesh.research_orchestration.artifacts import (
+    ArtifactReaderScope,
+    ArtifactStoreError,
+    ResearchResultSnapshot,
+)
 from agentmesh.research_orchestration.compiler import (
     PlanCompileError,
     validate_execution_plan_version,
@@ -53,6 +58,7 @@ from agentmesh.research_orchestration.contracts import (
     ToolInvocation,
     canonical_sha256,
 )
+from agentmesh.research_orchestration.result_projection import build_verified_research_result
 from agentmesh.store import ResearchStoreConflict
 
 
@@ -67,6 +73,7 @@ class WorkflowContext:
     requirements: tuple[RequirementVersion, ...]
     plans: tuple[ExecutionPlanVersion, ...]
     attempt_count: int
+    active_tool_approval: InboxItem | None = None
     active_recovery_invocation: ToolInvocation | None = None
 
 
@@ -88,6 +95,7 @@ class CommandMutation:
     workflow: ResearchWorkflow
     attempt: ExecutionAttempt | None = None
     steps: tuple[ResearchStep, ...] = ()
+    approval_inbox: InboxItem | None = None
     superseded_attempt_id: str | None = None
     superseded_attempt_status: AttemptStatus | None = None
     recovery_invocation_id: str | None = None
@@ -132,6 +140,10 @@ class ResearchWorkflowRepository(Protocol):
         now: Any,
     ) -> ToolInvocation | None: ...
 
+    def list_recoverable_research_attempt_ids(self, now: Any) -> list[str]: ...
+
+    def expire_research_attempt_deadlines(self, now: Any) -> int: ...
+
 
 class ResearchPlanning(Protocol):
     async def prepare_requirement(
@@ -156,7 +168,7 @@ class ResearchExecution(Protocol):
     async def claim_and_run(self, attempt_id: str, *, token: str | None = None) -> object: ...
 
 
-class ResearchPurger(Protocol):
+class ResearchArtifactAccess(Protocol):
     def purge_research_data_command(
         self,
         run_id: str,
@@ -168,6 +180,14 @@ class ResearchPurger(Protocol):
         request_hash: str,
         now: Any,
     ) -> ResearchCommandReceipt: ...
+
+    def research_result_snapshot(
+        self,
+        *,
+        run_id: str,
+        attempt_id: str | None,
+        reader_scope: ArtifactReaderScope,
+    ) -> ResearchResultSnapshot: ...
 
 
 class WorkflowClock(Protocol):
@@ -189,21 +209,24 @@ class ResearchWorkflowService:
         repository: ResearchWorkflowRepository,
         planning: ResearchPlanning,
         execution: ResearchExecution,
-        purger: ResearchPurger,
+        purger: ResearchArtifactAccess,
         *,
         clock: WorkflowClock | None = None,
         id_factory: Callable[[str], str] | None = None,
-        attempt_timeout: timedelta = timedelta(minutes=5),
+        settlement_grace: timedelta = timedelta(seconds=60),
+        execution_allowed: Callable[[], bool] | None = None,
     ):
-        if attempt_timeout <= timedelta(0):
-            raise ValueError("research attempt timeout must be positive")
+        if settlement_grace < timedelta(0):
+            raise ValueError("research settlement grace cannot be negative")
         self.repository = repository
         self.planning = planning
         self.execution = execution
         self.purger = purger
+        self.artifacts = purger
         self.clock = clock or _SystemClock()
         self.id_factory = id_factory or new_id
-        self.attempt_timeout = attempt_timeout
+        self.settlement_grace = settlement_grace
+        self.execution_allowed = execution_allowed or (lambda: True)
         self._background_tasks: dict[str, asyncio.Task[None]] = {}
         self._background_errors: list[BaseException] = []
 
@@ -422,7 +445,7 @@ class ResearchWorkflowService:
             return replay
         context = self._require_context(run_id, owner=owner)
         self._require_version(context, request.expected_state_version)
-        if context.run.orchestration_mode != "execute":
+        if context.run.orchestration_mode != "execute" or not self.execution_allowed():
             raise ResearchConflictError("research execution is disabled in preview mode")
         if (
             context.workflow.phase != ResearchPhase.PLANNING
@@ -432,6 +455,34 @@ class ResearchWorkflowService:
         ):
             raise ResearchConflictError("research workflow is not ready to execute")
         attempt, steps = self._new_attempt(context)
+        body = validate_execution_plan_version(context.active_plan)
+        tool_step = body.steps[0]
+        approval_inbox = None
+        next_gate = ResearchGate.NONE
+        if tool_step.approval_required:
+            next_gate = ResearchGate.TOOL_APPROVAL
+            call_id = f"research-tool:{attempt.id}:{tool_step.step_number}"
+            now = self.clock.now()
+            approval_inbox = InboxItem(
+                id=self.id_factory("inbox"),
+                title="批准研究工具调用",
+                summary="允许 web_research 检索并封存本次研究所需的外部证据。",
+                item_type="research_tool_approval",
+                scope=Scope.PRIVATE,
+                user_id=context.run.user_id,
+                workspace_id=context.run.workspace_id,
+                project_id=context.run.project_id,
+                metadata={
+                    "run_id": run_id,
+                    "attempt_id": attempt.id,
+                    "plan_version_id": context.active_plan.id,
+                    "step_number": str(tool_step.step_number),
+                    "tool_name": body.control_snapshot.tool.tool_name,
+                    "call_id": call_id,
+                },
+                created_at=now,
+                updated_at=now,
+            )
         result = self._commit(
             CommandMutation(
                 receipt=self._receipt(
@@ -445,15 +496,16 @@ class ResearchWorkflowService:
                 workflow=context.workflow.model_copy(
                     update={
                         "phase": ResearchPhase.EXECUTION,
-                        "active_gate": ResearchGate.NONE,
+                        "active_gate": next_gate,
                         "active_attempt_id": attempt.id,
                     }
                 ),
                 attempt=attempt,
                 steps=steps,
+                approval_inbox=approval_inbox,
             )
         )
-        if result.created:
+        if result.created and approval_inbox is None:
             self._schedule_execution(attempt.id)
         return self._command_response(result.receipt, replayed=not result.created)
 
@@ -493,6 +545,8 @@ class ResearchWorkflowService:
         ):
             raise ResearchConflictError("recovery invocation is not the active unknown operation")
         if request.action == "retry":
+            if not self.execution_allowed():
+                raise ResearchConflictError("research execution is disabled")
             attempt, steps = self._new_attempt(context, retry_of=context.active_attempt.id)
             workflow = context.workflow.model_copy(
                 update={"active_gate": ResearchGate.NONE, "active_attempt_id": attempt.id}
@@ -684,11 +738,33 @@ class ResearchWorkflowService:
     def _schedule_execution(self, attempt_id: str) -> None:
         self._schedule(f"execution:{attempt_id}", self._run_execution(attempt_id))
 
+    def resume_approved_attempt(self, attempt_id: str) -> bool:
+        """Schedule an atomically approved PENDING attempt exactly once per process."""
+
+        if not self.execution_allowed():
+            return False
+        self._schedule_execution(attempt_id)
+        return True
+
+    def recover_eligible_attempts(self) -> int:
+        """Schedule persisted PENDING or expired attempts; SQLite remains the claim arbiter."""
+
+        if not self.execution_allowed():
+            return 0
+        now = self.clock.now()
+        self.repository.expire_research_attempt_deadlines(now)
+        attempt_ids = self.repository.list_recoverable_research_attempt_ids(now)
+        for attempt_id in attempt_ids:
+            self._schedule_execution(attempt_id)
+        return len(attempt_ids)
+
     async def _run_execution(self, attempt_id: str) -> None:
         try:
             await self.execution.claim_and_run(attempt_id)
         except Exception as error:
             code = self._error_code(error)
+            if code == "execution_disabled":
+                return
             if code == "tool_result_unknown":
                 invocation = self.repository.enter_research_recovery_decision(
                     attempt_id,
@@ -727,17 +803,17 @@ class ResearchWorkflowService:
         if context.active_plan is None:
             raise ResearchConflictError("research execution plan is missing")
         now = self.clock.now()
+        body = validate_execution_plan_version(context.active_plan)
         attempt = ExecutionAttempt(
             id=self.id_factory("attempt"),
             run_id=context.run.id,
             plan_version_id=context.active_plan.id,
             attempt_number=context.attempt_count + 1,
             retry_of_attempt_id=retry_of,
-            deadline_at=now + self.attempt_timeout,
+            deadline_at=now + timedelta(seconds=body.execution_budget_seconds) + self.settlement_grace,
             created_at=now,
             updated_at=now,
         )
-        body = validate_execution_plan_version(context.active_plan)
         steps = tuple(
             ResearchStep(
                 attempt_id=attempt.id,
@@ -764,6 +840,28 @@ class ResearchWorkflowService:
                     for item in task.clarification_questions
                 ],
             )
+        result_snapshot = self.artifacts.research_result_snapshot(
+            run_id=context.run.id,
+            attempt_id=context.workflow.active_attempt_id,
+            reader_scope=ArtifactReaderScope(
+                user_id=context.run.user_id,
+                workspace_id=context.run.workspace_id,
+                project_id=context.run.project_id,
+                run_id=context.run.id,
+            ),
+        )
+        verified_result = build_verified_research_result(
+            self.artifacts,
+            result_snapshot,
+            run_id=context.run.id,
+            attempt_id=context.workflow.active_attempt_id,
+            reader_scope=ArtifactReaderScope(
+                user_id=context.run.user_id,
+                workspace_id=context.run.workspace_id,
+                project_id=context.run.project_id,
+                run_id=context.run.id,
+            ),
+        )
         plans: list[ResearchPlanProjection] = []
         provenance = ResearchProvenanceProjection()
         if context.active_plan is not None:
@@ -788,6 +886,7 @@ class ResearchWorkflowService:
             )
             provenance = ResearchProvenanceProjection(
                 requested_model=body.control_snapshot.model_policy.requested_model_id,
+                actual_model=result_snapshot.actual_model,
                 tool_implementation_id=body.control_snapshot.tool.implementation_id,
                 tool_execution_mode=body.control_snapshot.tool.execution_mode,
             )
@@ -815,6 +914,17 @@ class ResearchWorkflowService:
                 send_count=context.active_recovery_invocation.send_count,
                 error_code=context.active_recovery_invocation.error_code,
             )
+        tool_approval_projection = None
+        if context.active_tool_approval is not None:
+            call_id = context.active_tool_approval.metadata.get("call_id")
+            tool_name = context.active_tool_approval.metadata.get("tool_name")
+            if not call_id or not tool_name:
+                raise ResearchConflictError("research Tool approval failed integrity verification")
+            tool_approval_projection = ResearchToolApprovalProjection(
+                inbox_item_id=context.active_tool_approval.id,
+                call_id=call_id,
+                tool_name=tool_name,
+            )
         return ResearchRunProjection(
             run_id=context.run.id,
             workflow=ResearchWorkflowProjection(
@@ -829,9 +939,20 @@ class ResearchWorkflowService:
             requirement=requirement_projection,
             plans=plans,
             attempt=attempt_projection,
-            artifacts=ResearchArtifactProjection(),
+            gaps=[
+                ResearchGapProjection(
+                    code=code,
+                    message=code.replace("_", " "),
+                    question_ids=[],
+                )
+                for code in result_snapshot.gap_codes
+            ],
+            artifacts=verified_result.artifacts,
+            result=verified_result.result,
             provenance=provenance,
+            tool_approval=tool_approval_projection,
             recovery=recovery_projection,
+            integrity_errors=list(verified_result.integrity_errors),
         )
 
     def _require_context(self, run_id: str, *, owner: ResearchOwnerScope) -> WorkflowContext:

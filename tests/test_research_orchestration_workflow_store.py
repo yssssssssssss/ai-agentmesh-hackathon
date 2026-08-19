@@ -7,7 +7,12 @@ import pytest
 
 from agentmesh.models import AgentRun, AgentRunStatus
 from agentmesh.research_orchestration.api import ResearchOwnerScope
-from agentmesh.research_orchestration.artifacts import ArtifactDraft, ArtifactLineage, ArtifactStore
+from agentmesh.research_orchestration.artifacts import (
+    ArtifactDraft,
+    ArtifactLineage,
+    ArtifactStore,
+    ArtifactStoreError,
+)
 from agentmesh.research_orchestration.contracts import (
     AttemptStatus,
     ExecutionAttempt,
@@ -22,6 +27,7 @@ from agentmesh.research_orchestration.contracts import (
     ResearchWorkflow,
     StepStatus,
     ToolInvocation,
+    ToolReceipt,
     canonical_sha256,
 )
 from agentmesh.research_orchestration.workflow import CommandMutation, PlanningMutation
@@ -590,6 +596,67 @@ def test_recover_retry_atomically_retires_old_attempt_and_creates_new_attempt(tm
         )
         == second_send
     )
+    artifacts = ArtifactStore(repository)
+    retry_lineage = ArtifactLineage(
+        run_id="run_recover",
+        user_id="user_1",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        requirement_version_id=recovery_workflow.active_requirement_version_id,
+        plan_version_id=plan.id,
+        attempt_id=retry.id,
+        step_number=1,
+    )
+    old_receipt = ToolReceipt(
+        provider="test",
+        implementation_id="test.web_research",
+        mode="real",
+        send_sequence=1,
+        status_code=200,
+        latency_ms=1,
+        result_count=1,
+    )
+    late_result = ArtifactDraft(
+        artifact_id="artifact_run_recover_late_sequence_1",
+        kind="tool_result",
+        schema_version="web-research-output-v1",
+        content={"content": "late sequence one", "sources": []},
+    )
+    with pytest.raises(ArtifactStoreError, match="artifact_invocation_invalid"):
+        artifacts.settle_sent_tool_invocation(
+            retry_lineage,
+            late_result,
+            lease=retry_lease,
+            invocation_id=invocation.id,
+            receipt=old_receipt,
+        )
+    assert repository.get_artifact(late_result.artifact_id) is None
+
+    current_result = ArtifactDraft(
+        artifact_id="artifact_run_recover_sequence_2",
+        kind="tool_result",
+        schema_version="web-research-output-v1",
+        content={"content": "accepted sequence two", "sources": []},
+    )
+    current_receipt = old_receipt.model_copy(update={"send_sequence": 2})
+    reference, acknowledged = artifacts.settle_sent_tool_invocation(
+        retry_lineage,
+        current_result,
+        lease=retry_lease,
+        invocation_id=invocation.id,
+        receipt=current_receipt,
+    )
+    assert acknowledged.state == InvocationState.ACKNOWLEDGED
+    assert acknowledged.artifact_id == reference.artifact_id
+    with pytest.raises(ArtifactStoreError, match="artifact_invocation_conflict"):
+        artifacts.settle_sent_tool_invocation(
+            retry_lineage,
+            late_result,
+            lease=retry_lease,
+            invocation_id=invocation.id,
+            receipt=old_receipt,
+        )
+    assert repository.get_artifact(late_result.artifact_id) is None
 
 
 def test_recover_abort_atomically_retires_attempt_and_terminates_run(tmp_path) -> None:

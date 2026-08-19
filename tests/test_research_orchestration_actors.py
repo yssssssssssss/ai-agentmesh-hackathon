@@ -4,6 +4,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, Literal
 
 import pytest
@@ -35,9 +36,13 @@ from agentmesh.research_orchestration.actors import (
 from agentmesh.research_orchestration.artifacts import ArtifactDraft
 from agentmesh.research_orchestration.capabilities import MODEL_ADAPTER_COMPATIBILITY_IDS
 from agentmesh.research_orchestration.compiler import PlanStepContract, validate_execution_plan_version
-from agentmesh.research_orchestration.contracts import InvocationState, ModelCallReceipt, canonical_sha256
+from agentmesh.research_orchestration.contracts import (
+    InvocationState,
+    ModelCallReceipt,
+    canonical_sha256,
+)
 from agentmesh.research_orchestration.delivery import SKILL_RESULT_KIND, SKILL_RESULT_SCHEMA
-from agentmesh.research_orchestration.ports import SkillModelResult, ToolPortResult
+from agentmesh.research_orchestration.ports import SkillGenerationContract, SkillModelResult, ToolPortResult
 from agentmesh.tool_runtime.gateway import ToolRuntimeDescriptor
 from tests.research_orchestration_testkit import ResearchExecutionContext, research_execution_context
 
@@ -85,8 +90,10 @@ class RecordingToolPort:
         context,
         tool_name: str,
         arguments: dict[str, Any],
+        operation_key: str,
     ) -> ToolPortResult:
         del tool_name, arguments
+        assert len(operation_key) == 64
         self.calls += 1
         invocation = self.repository.get_research_tool_invocation(self.expected_invocation_id)
         assert invocation is not None
@@ -131,6 +138,7 @@ class RecordingSkillModelPort:
         self.payload = payload
         self.calls = 0
         self.evidence: list[dict[str, Any]] | None = None
+        self.generation_contract: SkillGenerationContract | None = None
 
     async def generate(
         self,
@@ -138,6 +146,7 @@ class RecordingSkillModelPort:
         run: AgentRun,
         frozen_skill,
         model_policy,
+        generation_contract: SkillGenerationContract,
         resolved_input: dict[str, Any],
         evidence: list[dict[str, Any]],
         resources: list[dict[str, str]],
@@ -146,6 +155,7 @@ class RecordingSkillModelPort:
         del run, frozen_skill, model_policy, resolved_input, resources, timeout_seconds
         self.calls += 1
         self.evidence = evidence
+        self.generation_contract = generation_contract
         return SkillModelResult(
             payload=self.payload,
             requested_provider="openai_agents_sdk",
@@ -442,6 +452,71 @@ def test_skill_model_receives_only_verified_quote_view(tmp_path) -> None:
     ]
     assert "permission" not in json.dumps(model_port.evidence)
     assert "request_provider_1" not in json.dumps(model_port.evidence)
+    body = validate_execution_plan_version(context.plan)
+    assert model_port.generation_contract == SkillGenerationContract(
+        problem_contract=body.problem_contract,
+        evidence_policy=body.control_snapshot.evidence_policy,
+        review_rubric=body.control_snapshot.review_rubric,
+    )
+
+
+def test_sdk_model_input_contains_the_frozen_problem_contract(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = research_execution_context(tmp_path / "model-coverage-contract.sqlite3", run_id="run_model_coverage")
+    run = _authorize_runtime(context)
+    body = validate_execution_plan_version(context.plan)
+    policy = body.control_snapshot.model_policy
+    factory = DriftedModelFactory(
+        SelectedSDKModel(
+            model=object.__new__(OpenAIChatCompletionsModel),
+            requested_model=policy.requested_model_id,
+            actual_model="provider-model",
+            structured_output_mode=SDKStructuredOutputMode(policy.structured_output_mode),
+        )
+    )
+    captured: dict[str, Any] = {}
+
+    async def provider_call(agent, model_input, **kwargs):  # noqa: ANN001, ANN003, ANN202
+        del kwargs
+        captured["instructions"] = agent.instructions
+        captured["model_input"] = json.loads(model_input)
+        return SimpleNamespace(
+            final_output=_empty_skill_output(),
+            context_wrapper=None,
+            raw_responses=[],
+        )
+
+    monkeypatch.setattr("agentmesh.research_orchestration.actors.Runner.run", provider_call)
+    model_port = AgentsSdkSkillModelPort(context.repository, factory)
+    generation_contract = SkillGenerationContract(
+        problem_contract=body.problem_contract,
+        evidence_policy=body.control_snapshot.evidence_policy,
+        review_rubric=body.control_snapshot.review_rubric,
+    )
+
+    asyncio.run(
+        model_port.generate(
+            run=run,
+            frozen_skill=body.control_snapshot.skill,
+            model_policy=policy,
+            generation_contract=generation_contract,
+            resolved_input={"brief": "compare"},
+            evidence=[],
+            resources=[],
+            timeout_seconds=30,
+        )
+    )
+
+    assert captured["model_input"]["frozen_problem_contract"] == body.problem_contract.model_dump(mode="json")
+    assert captured["model_input"]["frozen_output_governance"] == {
+        "evidence_policy": body.control_snapshot.evidence_policy.content,
+        "review_rubric": body.control_snapshot.review_rubric.content,
+    }
+    assert "question_ids and success_criterion_ids" in captured["instructions"]
+    assert "maximum_confidence" in captured["instructions"]
+    assert "possible or conflicting" in captured["instructions"]
 
 
 def test_skill_rejects_model_output_with_forged_evidence_id(tmp_path) -> None:

@@ -242,7 +242,13 @@ class ToolGateway:
             "metadata": result.metadata,
         }
 
-    def web_research(self, context: AgentMeshRunContext, arguments: dict[str, Any]) -> dict[str, Any]:
+    def web_research(
+        self,
+        context: AgentMeshRunContext,
+        arguments: dict[str, Any],
+        *,
+        operation_key: str | None = None,
+    ) -> dict[str, Any]:
         query = str(arguments.get("query") or "").strip()
         if not query:
             raise ValueError("query is required")
@@ -254,7 +260,11 @@ class ToolGateway:
                 project_id=context.project_id,
                 user_id=context.user_id,
                 task_id=context.run_id,
-                request_post_id=new_id("runtime_request"),
+                request_post_id=(
+                    f"research_operation_{operation_key}"
+                    if operation_key is not None
+                    else new_id("runtime_request")
+                ),
             )
         )
         sources = [
@@ -276,7 +286,10 @@ class ToolGateway:
             "content": result.content,
             "sources": [source.model_dump(mode="json") for source in sources],
             "permission": result.permission,
-            "metadata": result.metadata,
+            "metadata": {
+                **result.metadata,
+                **({"operation_key": operation_key} if operation_key is not None else {}),
+            },
         }
 
     def risk_review(self, context: AgentMeshRunContext, arguments: dict[str, Any]) -> dict[str, Any]:

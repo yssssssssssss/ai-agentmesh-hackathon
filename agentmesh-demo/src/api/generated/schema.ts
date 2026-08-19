@@ -3996,6 +3996,32 @@ export interface components {
             /** Steps */
             steps?: components["schemas"]["ResearchStepProgressProjection"][];
         };
+        /** ResearchClaimProjection */
+        ResearchClaimProjection: {
+            /** Claim Id */
+            claim_id: string;
+            /**
+             * Claim Type
+             * @enum {string}
+             */
+            claim_type: "fact" | "inference" | "recommendation";
+            /** Statement */
+            statement: string;
+            /** Evidence Ids */
+            evidence_ids?: string[];
+            /** Parent Claim Ids */
+            parent_claim_ids?: string[];
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "low" | "medium" | "high";
+            /**
+             * Conflict Status
+             * @enum {string}
+             */
+            conflict_status: "unknown" | "none" | "possible" | "conflicting";
+        };
         /** ResearchClarificationAnswer */
         ResearchClarificationAnswer: {
             /** Question Id */
@@ -4047,6 +4073,35 @@ export interface components {
         ResearchConfirmPlanRequest: {
             /** Expected State Version */
             expected_state_version: number;
+        };
+        /** ResearchDeliverableProjection */
+        ResearchDeliverableProjection: {
+            /** Summary */
+            summary: string;
+            /** Summary Claim Ids */
+            summary_claim_ids?: string[];
+            /** Comparison */
+            comparison?: components["schemas"]["ResearchClaimProjection"][];
+            /** Recommendations */
+            recommendations?: components["schemas"]["ResearchClaimProjection"][];
+            /** Limitations */
+            limitations?: string[];
+        };
+        /** ResearchEvidenceProjection */
+        ResearchEvidenceProjection: {
+            /** Evidence Id */
+            evidence_id: string;
+            /** Quote */
+            quote: string;
+            /** Sources */
+            sources?: components["schemas"]["ResearchSourceLinkProjection"][];
+            /**
+             * Conflict Status
+             * @enum {string}
+             */
+            conflict_status: "unknown" | "none" | "possible" | "conflicting";
+            /** Risk Flags */
+            risk_flags?: string[];
         };
         /** ResearchExecuteRequest */
         ResearchExecuteRequest: {
@@ -4150,6 +4205,13 @@ export interface components {
             /** Error Code */
             error_code?: string | null;
         };
+        /** ResearchReportProjection */
+        ResearchReportProjection: {
+            /** Title */
+            title: string;
+            /** Markdown */
+            markdown: string;
+        };
         /** ResearchRequirementProjection */
         ResearchRequirementProjection: {
             /** Requirement Version Id */
@@ -4167,6 +4229,33 @@ export interface components {
             blocking: boolean;
             /** Clarification Questions */
             clarification_questions?: components["schemas"]["ResearchClarificationProjection"][];
+        };
+        /** ResearchResultProjection */
+        ResearchResultProjection: {
+            /** Evidence */
+            evidence?: components["schemas"]["ResearchEvidenceProjection"][];
+            /** Claims */
+            claims?: components["schemas"]["ResearchClaimProjection"][];
+            deliverable?: components["schemas"]["ResearchDeliverableProjection"] | null;
+            review?: components["schemas"]["ResearchReviewProjection"] | null;
+            report?: components["schemas"]["ResearchReportProjection"] | null;
+        };
+        /** ResearchReviewCheckProjection */
+        ResearchReviewCheckProjection: {
+            /** Code */
+            code: string;
+            /** Passed */
+            passed: boolean;
+        };
+        /** ResearchReviewProjection */
+        ResearchReviewProjection: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pass" | "block";
+            /** Checks */
+            checks?: components["schemas"]["ResearchReviewCheckProjection"][];
         };
         /** ResearchRevisePlanRequest */
         ResearchRevisePlanRequest: {
@@ -4201,8 +4290,26 @@ export interface components {
             /** Gaps */
             gaps?: components["schemas"]["ResearchGapProjection"][];
             artifacts?: components["schemas"]["ResearchArtifactProjection"];
+            result?: components["schemas"]["ResearchResultProjection"];
             provenance?: components["schemas"]["ResearchProvenanceProjection"];
+            tool_approval?: components["schemas"]["ResearchToolApprovalProjection"] | null;
             recovery?: components["schemas"]["ResearchRecoveryProjection"] | null;
+            /** Integrity Errors */
+            integrity_errors?: string[];
+        };
+        /** ResearchSourceLinkProjection */
+        ResearchSourceLinkProjection: {
+            /** Source Id */
+            source_id: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            /**
+             * Retrieved At
+             * Format: date-time
+             */
+            retrieved_at: string;
         };
         /** ResearchStepProgressProjection */
         ResearchStepProgressProjection: {
@@ -4219,6 +4326,15 @@ export interface components {
             result_artifact_id?: string | null;
             /** Error Code */
             error_code?: string | null;
+        };
+        /** ResearchToolApprovalProjection */
+        ResearchToolApprovalProjection: {
+            /** Inbox Item Id */
+            inbox_item_id: string;
+            /** Call Id */
+            call_id: string;
+            /** Tool Name */
+            tool_name: string;
         };
         /** ResearchWorkflowProjection */
         ResearchWorkflowProjection: {

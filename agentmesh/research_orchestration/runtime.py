@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
+from collections.abc import Callable
 from datetime import timedelta
 
 from agentmesh.agent_runtime.model_factory import AgentMeshModelFactory
-from agentmesh.agent_runtime.settings import SkillOrchestrationMode
+from agentmesh.agent_runtime.settings import (
+    SkillOrchestrationMode,
+    skill_orchestration_mode,
+)
 from agentmesh.models import (
     AgentRun,
     AgentRunStatus,
@@ -17,11 +24,21 @@ from agentmesh.models import (
     User,
     now_utc,
 )
+from agentmesh.research_orchestration.actors import (
+    AgentsSdkSkillModelPort,
+    SkillActor,
+    StoreToolCapabilityGuard,
+    ToolActor,
+    ToolGatewayPort,
+    VerifiedResourceLoader,
+)
 from agentmesh.research_orchestration.api import ResearchRevisePlanRequest
 from agentmesh.research_orchestration.artifacts import ArtifactStore
 from agentmesh.research_orchestration.capabilities import CompetitiveCapabilityResolver
 from agentmesh.research_orchestration.compiler import CompetitivePlanCompiler, PlanCompileError
 from agentmesh.research_orchestration.contracts import ExecutionPlanVersion, RequirementVersion
+from agentmesh.research_orchestration.delivery import ResultPipeline
+from agentmesh.research_orchestration.execution import ExecutionEngine
 from agentmesh.research_orchestration.planning import (
     CompetitiveRequirementPlanner,
     is_competitive_research_request,
@@ -34,6 +51,7 @@ from agentmesh.store import SQLiteStore
 from agentmesh.tool_runtime.gateway import ToolGateway
 
 _COMPETITIVE_RESOURCE_PATHS = ("methods/toolbox/analysis/competitive-analysis.md",)
+_LOGGER = logging.getLogger(__name__)
 
 
 class CompetitiveResearchPlanning:
@@ -127,12 +145,6 @@ class CompetitiveResearchPlanning:
         )
 
 
-class _PreviewOnlyExecution:
-    async def claim_and_run(self, attempt_id: str, *, token: str | None = None) -> object:
-        del attempt_id, token
-        raise RuntimeError("research_execution_not_enabled")
-
-
 class ResearchRuntime:
     """Own process-local research services while SQLite remains authoritative."""
 
@@ -142,24 +154,53 @@ class ResearchRuntime:
         workflow_service: ResearchWorkflowService,
         *,
         execution_enabled: bool = False,
+        mode_provider: Callable[[], SkillOrchestrationMode] = skill_orchestration_mode,
+        reconcile_interval: timedelta = timedelta(seconds=30),
     ):
-        if workflow_service.repository is not repository:
+        if workflow_service.repository is not repository or reconcile_interval <= timedelta(0):
             raise ValueError("ResearchRuntime dependencies must share one repository")
         self.repository = repository
         self.workflow_service = workflow_service
         self.execution_enabled = execution_enabled
+        self.mode_provider = mode_provider
+        self.reconcile_interval = reconcile_interval
         self._started = False
+        self._supervisor_task: asyncio.Task[None] | None = None
 
     @property
     def started(self) -> bool:
         return self._started
 
     async def start(self) -> None:
+        if self._started:
+            return
         self._started = True
+        if not self.execution_enabled:
+            return
+        if self.mode_provider() == SkillOrchestrationMode.EXECUTE:
+            self.workflow_service.recover_eligible_attempts()
+        self._supervisor_task = asyncio.create_task(
+            self._supervise(),
+            name="research-runtime-supervisor",
+        )
 
     async def shutdown(self) -> None:
+        supervisor = self._supervisor_task
+        self._supervisor_task = None
+        if supervisor is not None:
+            supervisor.cancel()
+            await asyncio.gather(supervisor, return_exceptions=True)
         self._started = False
         await self.workflow_service.wait_for_idle()
+
+    async def _supervise(self) -> None:
+        while True:
+            await asyncio.sleep(self.reconcile_interval.total_seconds())
+            try:
+                if self.mode_provider() == SkillOrchestrationMode.EXECUTE:
+                    self.workflow_service.recover_eligible_attempts()
+            except Exception:
+                _LOGGER.exception("research runtime reconciliation failed")
 
     async def start_run(
         self,
@@ -219,7 +260,7 @@ def build_research_runtime(
     repository: SQLiteStore,
     catalog: SkillCatalogService,
 ) -> ResearchRuntime:
-    """Assemble the production Web Preview runtime without execution side effects."""
+    """Assemble the production planning and execution graph behind one Runtime."""
 
     artifacts = ArtifactStore(repository)
     tool_gateway = ToolGateway(repository)
@@ -231,10 +272,36 @@ def build_research_runtime(
         tool_gateway,
         model_factory=model_factory,
     )
+    def execution_allowed() -> bool:
+        return skill_orchestration_mode() == SkillOrchestrationMode.EXECUTE
+
+    tool_port = ToolGatewayPort(tool_gateway)
+    engine = ExecutionEngine(
+        repository,
+        artifacts,
+        ToolActor(
+            repository,
+            artifacts,
+            tool_port,
+            StoreToolCapabilityGuard(repository, tool_port),
+        ),
+        SkillActor(
+            repository,
+            artifacts,
+            AgentsSdkSkillModelPort(repository, model_factory),
+            VerifiedResourceLoader(repository, artifacts),
+        ),
+        ResultPipeline(artifacts),
+        worker_id=f"research-worker-{os.getpid()}",
+        lease_ttl=timedelta(seconds=60),
+        heartbeat_interval=timedelta(seconds=15),
+        execution_allowed=execution_allowed,
+    )
     service = ResearchWorkflowService(
         repository,
         planning,
-        _PreviewOnlyExecution(),
+        engine,
         artifacts,
+        execution_allowed=execution_allowed,
     )
-    return ResearchRuntime(repository, service, execution_enabled=False)
+    return ResearchRuntime(repository, service, execution_enabled=True)

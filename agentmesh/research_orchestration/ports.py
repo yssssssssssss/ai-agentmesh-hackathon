@@ -7,8 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.models import AgentRun, AgentRunStatus
-from agentmesh.research_orchestration.compiler import FrozenModelPolicy, FrozenSkillActor, FrozenToolActor
-from agentmesh.research_orchestration.contracts import ResearchCommandReceipt, ResearchWorkflow
+from agentmesh.research_orchestration.compiler import (
+    FrozenDocument,
+    FrozenModelPolicy,
+    FrozenSkillActor,
+    FrozenToolActor,
+)
+from agentmesh.research_orchestration.contracts import ProblemContract, ResearchCommandReceipt, ResearchWorkflow
 from agentmesh.tool_runtime.gateway import ToolRuntimeDescriptor
 
 
@@ -46,6 +51,14 @@ class SkillModelResult(BaseModel):
     provider_receipt_id: str | None = Field(default=None, max_length=240)
 
 
+class SkillGenerationContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    problem_contract: ProblemContract
+    evidence_policy: FrozenDocument
+    review_rubric: FrozenDocument
+
+
 class ToolPort(Protocol):
     def describe(self, tool_name: str) -> ToolRuntimeDescriptor | None: ...
 
@@ -55,6 +68,7 @@ class ToolPort(Protocol):
         context: AgentMeshRunContext,
         tool_name: str,
         arguments: dict[str, Any],
+        operation_key: str,
     ) -> ToolPortResult: ...
 
     async def reconcile(
@@ -72,6 +86,7 @@ class SkillModelPort(Protocol):
         run: AgentRun,
         frozen_skill: FrozenSkillActor,
         model_policy: FrozenModelPolicy,
+        generation_contract: SkillGenerationContract,
         resolved_input: dict[str, Any],
         evidence: list[dict[str, Any]],
         resources: list[dict[str, str]],

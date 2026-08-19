@@ -42,6 +42,13 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
   const steps = plan?.steps ?? []
   const questions = requirement?.clarification_questions?.slice(0, 3) ?? []
   const hasStartedExecution = projection.attempt !== null && projection.attempt !== undefined
+  const statusTitle = workflow.phase === 'terminal'
+    ? projection.attempt?.status === 'completed'
+      ? '研究结果已就绪'
+      : projection.attempt?.status === 'cancelled'
+        ? '研究已安全终止'
+        : '研究已结束'
+    : GATE_LABELS[workflow.active_gate]
 
   return (
     <section aria-label="研究任务预览" className="mt-6 overflow-hidden rounded-[16px] border border-mint-400/15 bg-surface-1 shadow-card">
@@ -53,14 +60,14 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
               竞品研究预览
             </div>
             <h2 className="mt-2 text-lg font-semibold text-slate-100">
-              {GATE_LABELS[workflow.active_gate]}
+              {statusTitle}
             </h2>
             <p className="mt-1 text-xs text-slate-500">
               {PHASE_LABELS[workflow.phase]} · 状态版本 {workflow.state_version}
             </p>
           </div>
           <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs font-semibold text-amber-200">
-            仅预览
+            {hasStartedExecution ? '执行视图' : '计划预览'}
           </span>
         </div>
       </div>
@@ -131,7 +138,7 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
               ))}
             </ol>
           </section>
-        ) : questions.length === 0 && requirement ? (
+        ) : workflow.phase === 'planning' && questions.length === 0 && requirement ? (
           <div role="status" className="flex items-center gap-2 rounded-[10px] bg-base/60 px-4 py-3 text-sm text-slate-400">
             <Search className="h-4 w-4 text-mint-300" aria-hidden="true" />
             正在生成推荐研究计划…

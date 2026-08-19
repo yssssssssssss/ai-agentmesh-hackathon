@@ -98,4 +98,21 @@ describe('ResearchPreview', () => {
     expect(html).not.toContain('这条不应出现')
     expect(html).not.toContain('推荐执行计划')
   })
+
+  it('does not claim that a plan is still being generated after fail-closed termination', () => {
+    const failed = projection()
+    failed.workflow = {
+      ...failed.workflow,
+      phase: 'terminal',
+      active_gate: 'none',
+      active_plan_version_id: null,
+      state_version: 3,
+    }
+    failed.plans = []
+
+    const html = renderToStaticMarkup(<ResearchPreview projection={failed} />)
+
+    expect(html).toContain('研究已结束')
+    expect(html).not.toContain('正在生成推荐研究计划')
+  })
 })

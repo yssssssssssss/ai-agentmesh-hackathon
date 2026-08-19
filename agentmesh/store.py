@@ -32,15 +32,18 @@ from agentmesh.models import (
     BlackboardPostType,
     ChatMessage,
     ChatResponse,
+    ChatRole,
     ChatThread,
     ChatTurnReceipt,
     ChatTurnReceiptStatus,
     ChatTurnTrace,
+    ChatWorkflowTrace,
     ConsentGrant,
     ContributionPoint,
     DocumentParseJob,
     DocumentRecord,
     InboxItem,
+    Intent,
     LearnedSkill,
     MarketParticipation,
     MemoryItem,
@@ -120,11 +123,26 @@ class ResearchStoreConflict(RuntimeError):
     """A durable research invariant or compare-and-swap precondition failed."""
 
 
+class ResearchToolApprovalError(RuntimeError):
+    def __init__(self, code: str, detail: str):
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+
+
 @dataclass(slots=True)
 class BriefConfirmationResult:
     inbox_item: InboxItem
     document: DocumentRecord
     memory_item: MemoryItem
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchToolApprovalResult:
+    inbox_item: InboxItem
+    run: AgentRun
+    attempt_id: str | None
+    expired: bool = False
 
 
 # --- FTS5 infrastructure ---
@@ -1680,13 +1698,15 @@ class SQLiteStore:
         expiries.extend(InboxItem.model_validate_json(row["payload"]).created_at + timedelta(hours=24) for row in rows)
         return bool(expiries) and checked_at >= min(expiries)
 
-    def _close_research_execution_for_cancel(
+    def _close_unsettled_research_execution(
         self,
         connection: sqlite3.Connection,
         run_id: str,
         *,
         cancelled_at: datetime,
         reason: str,
+        attempt_status: AttemptStatus = AttemptStatus.CANCELLED,
+        step_status: StepStatus = StepStatus.CANCELLED,
     ) -> None:
         invocation_rows = connection.execute(
             """
@@ -1770,9 +1790,9 @@ class SQLiteStore:
                     StepStatus.CANCELLED,
                 }:
                     continue
-                cancelled_step = step.model_copy(
+                closed_step = step.model_copy(
                     update={
-                        "status": StepStatus.CANCELLED,
+                        "status": step_status,
                         "result_artifact_id": None,
                         "error_code": reason,
                         "completed_at": cancelled_at,
@@ -1787,9 +1807,9 @@ class SQLiteStore:
                       AND claim_epoch = ? AND updated_at = ?
                     """,
                     (
-                        cancelled_step.status.value,
-                        cancelled_step.result_artifact_id,
-                        cancelled_step.model_dump_json(),
+                        closed_step.status.value,
+                        closed_step.result_artifact_id,
+                        closed_step.model_dump_json(),
                         cancelled_at.isoformat(),
                         step.attempt_id,
                         step.step_number,
@@ -1798,9 +1818,9 @@ class SQLiteStore:
                         step.updated_at.isoformat(),
                     ),
                 )
-            cancelled_attempt = attempt.model_copy(
+            closed_attempt = attempt.model_copy(
                 update={
-                    "status": AttemptStatus.CANCELLED,
+                    "status": attempt_status,
                     "lease_owner": None,
                     "lease_token": None,
                     "lease_expires_at": None,
@@ -1816,8 +1836,8 @@ class SQLiteStore:
                 WHERE id = ? AND status = ? AND fencing_epoch = ? AND updated_at = ?
                 """,
                 (
-                    cancelled_attempt.status.value,
-                    cancelled_attempt.model_dump_json(),
+                    closed_attempt.status.value,
+                    closed_attempt.model_dump_json(),
                     cancelled_at.isoformat(),
                     attempt.id,
                     attempt.status.value,
@@ -1857,7 +1877,7 @@ class SQLiteStore:
             plan.updated_at = cancelled_at
             self._write_skill_plan(connection, plan)
         if run.orchestration_version == "research-v2":
-            self._close_research_execution_for_cancel(
+            self._close_unsettled_research_execution(
                 connection,
                 run.id,
                 cancelled_at=cancelled_at,
@@ -3208,6 +3228,36 @@ class SQLiteStore:
                 raise ResearchStoreConflict("research step failed integrity verification")
             steps.append(step)
 
+        active_tool_approval: InboxItem | None = None
+        if workflow.active_gate == ResearchGate.TOOL_APPROVAL:
+            if active_attempt is None:
+                raise ResearchStoreConflict("research Tool approval gate has no active attempt")
+            inbox_rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'inbox_items'
+                  AND json_extract(payload, '$.item_type') = 'research_tool_approval'
+                  AND json_extract(payload, '$.status') = 'open'
+                  AND json_extract(payload, '$.metadata.run_id') = ?
+                  AND json_extract(payload, '$.metadata.attempt_id') = ?
+                ORDER BY id
+                """,
+                (run.id, active_attempt.id),
+            ).fetchall()
+            if len(inbox_rows) != 1:
+                raise ResearchStoreConflict("research Tool approval gate has no unique Inbox item")
+            try:
+                active_tool_approval = InboxItem.model_validate_json(inbox_rows[0]["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research Tool approval failed integrity verification") from None
+            if (
+                active_tool_approval.user_id != run.user_id
+                or active_tool_approval.workspace_id != run.workspace_id
+                or active_tool_approval.project_id != run.project_id
+                or active_tool_approval.metadata.get("plan_version_id") != workflow.active_plan_version_id
+            ):
+                raise ResearchStoreConflict("research Tool approval failed integrity verification")
+
         active_recovery_invocation: ToolInvocation | None = None
         if workflow.active_gate == ResearchGate.RECOVERY_DECISION:
             if active_attempt is None:
@@ -3256,6 +3306,7 @@ class SQLiteStore:
             requirements=tuple(requirements),
             plans=tuple(plans),
             attempt_count=len(attempts),
+            active_tool_approval=active_tool_approval,
             active_recovery_invocation=active_recovery_invocation,
         )
 
@@ -3581,6 +3632,8 @@ class SQLiteStore:
                 ):
                     raise ResearchStoreConflict("execute command mutation is invalid")
             elif receipt.command_type == "recover":
+                if mutation.approval_inbox is not None:
+                    raise ResearchStoreConflict("recover command cannot create a Tool approval")
                 if mutation.superseded_attempt_id is None or mutation.recovery_invocation_id is None:
                     raise ResearchStoreConflict("recover command mutation is invalid")
                 if mutation.recovery_action == "retry" and (
@@ -3595,6 +3648,7 @@ class SQLiteStore:
                 (
                     mutation.attempt is not None,
                     bool(mutation.steps),
+                    mutation.approval_inbox is not None,
                     mutation.superseded_attempt_id is not None,
                     mutation.recovery_invocation_id is not None,
                     mutation.terminal_status is not None,
@@ -3603,6 +3657,7 @@ class SQLiteStore:
                 raise ResearchStoreConflict("research command type does not match its mutation")
 
             completed_at = now_utc()
+            approval_event: tuple[str, dict[str, object]] | None = None
             recovery_invocation: ToolInvocation | None = None
             if mutation.recovery_invocation_id is not None:
                 invocation_row = connection.execute(
@@ -3732,9 +3787,50 @@ class SQLiteStore:
                 expected_statuses = [StepStatus.READY, *([StepStatus.PENDING] * (len(mutation.steps) - 1))]
                 if [step.status for step in mutation.steps] != expected_statuses:
                     raise ResearchStoreConflict("research command step readiness is invalid")
+                if receipt.command_type == "execute":
+                    tool_step = plan_steps[0] if plan_steps and isinstance(plan_steps[0], dict) else None
+                    approval_required = bool(tool_step and tool_step.get("approval_required"))
+                    if approval_required != (mutation.workflow.active_gate == ResearchGate.TOOL_APPROVAL):
+                        raise ResearchStoreConflict("research Tool approval gate does not match the frozen plan")
+                    if approval_required != (mutation.approval_inbox is not None):
+                        raise ResearchStoreConflict("research Tool approval Inbox does not match the frozen plan")
+                    if mutation.approval_inbox is not None:
+                        item = mutation.approval_inbox
+                        expected_call_id = f"research-tool:{attempt.id}:{mutation.steps[0].step_number}"
+                        if (
+                            item.item_type != "research_tool_approval"
+                            or item.status != "open"
+                            or item.scope != Scope.PRIVATE
+                            or item.user_id != context.run.user_id
+                            or item.workspace_id != context.run.workspace_id
+                            or item.project_id != context.run.project_id
+                            or item.metadata.get("run_id") != receipt.run_id
+                            or item.metadata.get("attempt_id") != attempt.id
+                            or item.metadata.get("plan_version_id") != context.active_plan.id
+                            or item.metadata.get("step_number") != str(mutation.steps[0].step_number)
+                            or item.metadata.get("call_id") != expected_call_id
+                        ):
+                            raise ResearchStoreConflict("research Tool approval Inbox is invalid")
                 self._insert_research_attempt(connection, attempt)
                 for step in mutation.steps:
                     self._insert_research_step(connection, step)
+                if mutation.approval_inbox is not None:
+                    try:
+                        connection.execute(
+                            "INSERT INTO records(collection, id, payload) VALUES ('inbox_items', ?, ?)",
+                            (mutation.approval_inbox.id, mutation.approval_inbox.model_dump_json()),
+                        )
+                    except sqlite3.IntegrityError as error:
+                        raise ResearchStoreConflict("research Tool approval Inbox already exists") from error
+                    approval_event = (
+                        "approval_requested",
+                        {
+                            "inbox_item_id": mutation.approval_inbox.id,
+                            "attempt_id": attempt.id,
+                            "call_id": mutation.approval_inbox.metadata["call_id"],
+                            "tool_name": mutation.approval_inbox.metadata["tool_name"],
+                        },
+                    )
                 if recovery_invocation is not None:
                     rebound = ToolInvocation.model_validate(
                         recovery_invocation.model_copy(
@@ -3879,6 +3975,7 @@ class SQLiteStore:
                             "active_gate": updated.active_gate.value,
                         },
                     ),
+                    *([approval_event] if approval_event is not None else []),
                     *(
                         [(f"run_{next_status.value}", {"error_code": mutation.error_code})]
                         if updated.phase == ResearchPhase.TERMINAL
@@ -4344,6 +4441,66 @@ class SQLiteStore:
         )
         if run_cursor.rowcount != 1:
             raise ResearchStoreConflict("Agent run finish lost its compare-and-swap")
+        if run_status in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL} and output_text:
+            receipt_row = connection.execute(
+                """
+                SELECT payload FROM research_model_call_receipts
+                WHERE run_id = ? AND owner_kind = 'attempt' AND owner_id = ?
+                  AND stage = 'competitive-analysis'
+                ORDER BY created_at DESC, id DESC LIMIT 1
+                """,
+                (run.id, attempt.id),
+            ).fetchone()
+            receipt = (
+                ModelCallReceipt.model_validate_json(receipt_row["payload"])
+                if receipt_row is not None
+                else None
+            )
+            message = ChatMessage(
+                id=f"msg_research_{hashlib.sha256(run.id.encode()).hexdigest()[:24]}",
+                thread_id=run.thread_id,
+                role=ChatRole.ASSISTANT,
+                content=output_text,
+                scope=Scope.PRIVATE,
+                workflow_trace=ChatWorkflowTrace(
+                    intent=Intent.REQUEST_EXTERNAL_RESEARCH,
+                    confidence=1.0,
+                    source="skill",
+                    selected_workflow="$competitive-analysis",
+                    persisted=True,
+                    llm_used=True,
+                    requested_provider=receipt.requested_provider if receipt is not None else None,
+                    actual_provider=receipt.actual_provider if receipt is not None else None,
+                    requested_model=receipt.requested_model if receipt is not None else None,
+                    actual_model=receipt.actual_model if receipt is not None else None,
+                    provider_mode="real",
+                ),
+                created_at=completed_at,
+            )
+            existing_message = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'chat_messages' AND id = ?",
+                (message.id,),
+            ).fetchone()
+            if existing_message is not None:
+                if ChatMessage.model_validate_json(existing_message["payload"]) != message:
+                    raise ResearchStoreConflict("research chat projection identity conflicts")
+            else:
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES ('chat_messages', ?, ?)",
+                    (message.id, message.model_dump_json()),
+                )
+                self._sync_fts(connection, "chat_messages", message)
+            thread_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'chat_threads' AND id = ?",
+                (run.thread_id,),
+            ).fetchone()
+            if thread_row is not None:
+                thread = ChatThread.model_validate_json(thread_row["payload"])
+                thread.updated_at = completed_at
+                connection.execute(
+                    "UPDATE records SET payload = ? WHERE collection = 'chat_threads' AND id = ?",
+                    (thread.model_dump_json(), thread.id),
+                )
         self._resolve_open_run_inboxes(
             connection,
             run.id,
@@ -5281,6 +5438,207 @@ class SQLiteStore:
                     continue
                 expired.append(attempt.id)
         return expired
+
+    def list_recoverable_research_attempt_ids(self, now: datetime) -> list[str]:
+        """List PENDING and lease-expired attempts that may be claimed safely."""
+
+        checked_at = self._aware_research_time(now)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT a.*, w.payload AS workflow_payload, r.payload AS run_payload,
+                       w.phase AS workflow_phase, w.active_gate AS workflow_gate,
+                       w.active_attempt_id AS workflow_attempt_id,
+                       r.orchestration_version AS run_orchestration_version
+                FROM research_attempts a
+                JOIN research_workflows w ON w.run_id = a.run_id
+                JOIN agent_runs r ON r.id = a.run_id
+                WHERE a.status IN (?, ?)
+                ORDER BY a.created_at, a.id
+                """,
+                (AttemptStatus.PENDING.value, AttemptStatus.RUNNING.value),
+            ).fetchall()
+        eligible: list[str] = []
+        for row in rows:
+            try:
+                attempt = ExecutionAttempt.model_validate_json(row["payload"])
+                workflow = ResearchWorkflow.model_validate_json(row["workflow_payload"])
+                run = AgentRun.model_validate_json(row["run_payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchStoreConflict("research execution state failed integrity verification") from None
+            if (
+                not self._research_attempt_projection_matches(row, attempt)
+                or workflow.phase.value != row["workflow_phase"]
+                or workflow.active_gate.value != row["workflow_gate"]
+                or workflow.active_attempt_id != row["workflow_attempt_id"]
+                or run.orchestration_version != row["run_orchestration_version"]
+            ):
+                raise ResearchStoreConflict("research execution state failed integrity verification")
+            pending = attempt.status == AttemptStatus.PENDING
+            expired = (
+                attempt.status == AttemptStatus.RUNNING
+                and attempt.lease_expires_at is not None
+                and attempt.lease_expires_at <= checked_at
+            )
+            if (
+                not (pending or expired)
+                or attempt.deadline_at <= checked_at
+                or workflow.phase != ResearchPhase.EXECUTION
+                or workflow.active_gate != ResearchGate.NONE
+                or workflow.active_attempt_id != attempt.id
+                or workflow.active_plan_version_id != attempt.plan_version_id
+                or run.id != attempt.run_id
+                or run.status != AgentRunStatus.RUNNING
+                or run.orchestration_version != "research-v2"
+                or run.orchestration_mode != "execute"
+            ):
+                continue
+            eligible.append(attempt.id)
+        return eligible
+
+    def expire_research_attempt_deadlines(
+        self,
+        now: datetime,
+        *,
+        error_code: str = "research_execution_deadline_exceeded",
+    ) -> int:
+        """Fail active executions that can no longer be claimed within their frozen budget."""
+
+        checked_at = self._aware_research_time(now)
+        expired_count = 0
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """
+                SELECT a.run_id
+                FROM research_attempts a
+                JOIN research_workflows w ON w.run_id = a.run_id
+                JOIN agent_runs r ON r.id = a.run_id
+                WHERE a.status IN (?, ?)
+                  AND json_extract(a.payload, '$.deadline_at') <= ?
+                  AND w.phase = ?
+                  AND w.active_gate = ?
+                  AND w.active_attempt_id = a.id
+                  AND r.orchestration_version = 'research-v2'
+                ORDER BY json_extract(a.payload, '$.deadline_at'), a.id
+                """,
+                (
+                    AttemptStatus.PENDING.value,
+                    AttemptStatus.RUNNING.value,
+                    checked_at.isoformat(),
+                    ResearchPhase.EXECUTION.value,
+                    ResearchGate.NONE.value,
+                ),
+            ).fetchall()
+            for row in rows:
+                context = self._load_research_workflow_context(connection, str(row["run_id"]))
+                if context is None or context.active_attempt is None:
+                    continue
+                workflow = context.workflow
+                run = context.run
+                attempt = context.active_attempt
+                if (
+                    attempt.status not in {AttemptStatus.PENDING, AttemptStatus.RUNNING}
+                    or attempt.deadline_at > checked_at
+                    or workflow.phase != ResearchPhase.EXECUTION
+                    or workflow.active_gate != ResearchGate.NONE
+                    or workflow.active_attempt_id != attempt.id
+                    or workflow.active_plan_version_id != attempt.plan_version_id
+                    or run.status != AgentRunStatus.RUNNING
+                    or run.orchestration_version != "research-v2"
+                    or run.orchestration_mode != "execute"
+                ):
+                    continue
+
+                self._close_unsettled_research_execution(
+                    connection,
+                    run.id,
+                    cancelled_at=checked_at,
+                    reason=error_code,
+                    attempt_status=AttemptStatus.FAILED,
+                    step_status=StepStatus.FAILED,
+                )
+                closed_workflow = workflow.model_copy(
+                    update={
+                        "phase": ResearchPhase.TERMINAL,
+                        "active_gate": ResearchGate.NONE,
+                        "state_version": workflow.state_version + 1,
+                        "updated_at": checked_at,
+                    }
+                )
+                workflow_cursor = connection.execute(
+                    """
+                    UPDATE research_workflows
+                    SET phase = ?, active_gate = ?, state_version = ?, payload = ?, updated_at = ?
+                    WHERE run_id = ? AND state_version = ? AND updated_at = ?
+                    """,
+                    (
+                        closed_workflow.phase.value,
+                        closed_workflow.active_gate.value,
+                        closed_workflow.state_version,
+                        closed_workflow.model_dump_json(),
+                        checked_at.isoformat(),
+                        run.id,
+                        workflow.state_version,
+                        workflow.updated_at.isoformat(),
+                    ),
+                )
+                if workflow_cursor.rowcount != 1:
+                    raise ResearchStoreConflict("research deadline closure lost its workflow compare-and-swap")
+                closed_run = run.model_copy(
+                    update={
+                        "status": AgentRunStatus.FAILED,
+                        "error_code": error_code,
+                        "paused_state": None,
+                        "updated_at": checked_at,
+                    }
+                )
+                run_cursor = connection.execute(
+                    """
+                    UPDATE agent_runs SET payload = ?, updated_at = ?
+                    WHERE id = ? AND orchestration_version = ? AND updated_at = ?
+                    """,
+                    (
+                        closed_run.model_dump_json(),
+                        checked_at.isoformat(),
+                        run.id,
+                        run.orchestration_version,
+                        run.updated_at.isoformat(),
+                    ),
+                )
+                if run_cursor.rowcount != 1:
+                    raise ResearchStoreConflict("research deadline closure lost its run compare-and-swap")
+                self._resolve_open_run_inboxes(
+                    connection,
+                    run.id,
+                    reason=error_code,
+                    resolved_at=checked_at,
+                )
+                self._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [
+                        (
+                            "research_attempt_failed",
+                            {
+                                "attempt_id": attempt.id,
+                                "fencing_epoch": attempt.fencing_epoch,
+                                "error_code": error_code,
+                            },
+                        ),
+                        (
+                            "research_updated",
+                            {
+                                "state_version": closed_workflow.state_version,
+                                "phase": closed_workflow.phase.value,
+                                "active_gate": closed_workflow.active_gate.value,
+                            },
+                        ),
+                        ("run_failed", {"error_code": error_code}),
+                    ],
+                )
+                expired_count += 1
+        return expired_count
 
     def add_research_step(self, step: ResearchStep) -> ResearchStep:
         with self._connect() as connection:
@@ -6440,6 +6798,159 @@ class SQLiteStore:
     def save_team_membership(self, membership: TeamMembership) -> TeamMembership:
         self._upsert("team_memberships", membership)
         return membership
+
+    def resolve_research_tool_approval(
+        self,
+        item_id: str,
+        *,
+        owner_user_id: str,
+        action: str,
+        call_id: str,
+        resolved_at: datetime | None = None,
+    ) -> ResearchToolApprovalResult:
+        """Atomically approve one research attempt or reject its whole workflow."""
+
+        if action not in {"approve", "reject"}:
+            raise ResearchToolApprovalError("invalid", "action must be 'approve' or 'reject'")
+        now = self._aware_research_time(resolved_at or now_utc())
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            item_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'inbox_items' AND id = ?",
+                (item_id,),
+            ).fetchone()
+            if item_row is None:
+                raise ResearchToolApprovalError("not_found", "Inbox item not found")
+            try:
+                item = InboxItem.model_validate_json(item_row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise ResearchToolApprovalError("conflict", "Tool approval failed integrity verification") from None
+            if item.user_id != owner_user_id:
+                raise ResearchToolApprovalError("forbidden", "Only the research owner can resolve this approval")
+            if item.item_type != "research_tool_approval":
+                raise ResearchToolApprovalError("invalid", "Inbox item is not a research Tool approval")
+            if item.status != "open":
+                raise ResearchToolApprovalError("conflict", "Tool approval is no longer open")
+            if not call_id or item.metadata.get("call_id") != call_id:
+                raise ResearchToolApprovalError("conflict", "Tool approval call identity does not match")
+            run_id = item.metadata.get("run_id", "")
+            context = self._load_research_workflow_context(connection, run_id)
+            if context is None:
+                raise ResearchToolApprovalError("not_found", "Research run not found")
+            if (
+                context.run.user_id != owner_user_id
+                or context.workflow.phase != ResearchPhase.EXECUTION
+                or context.workflow.active_gate != ResearchGate.TOOL_APPROVAL
+                or context.active_attempt is None
+                or context.active_attempt.status != AttemptStatus.PENDING
+                or context.active_tool_approval is None
+                or context.active_tool_approval.id != item.id
+                or item.metadata.get("attempt_id") != context.active_attempt.id
+                or item.metadata.get("plan_version_id") != context.workflow.active_plan_version_id
+            ):
+                raise ResearchToolApprovalError("conflict", "Research Tool approval is stale")
+
+            expired = now - item.created_at > timedelta(hours=24) or context.active_attempt.deadline_at <= now
+            effective_action = "reject" if expired else action
+            reason = "tool_approval_expired" if expired else "tool_approval_rejected"
+            workflow = context.workflow.model_copy(
+                update={
+                    "phase": (
+                        ResearchPhase.TERMINAL
+                        if effective_action == "reject"
+                        else context.workflow.phase
+                    ),
+                    "active_gate": ResearchGate.NONE,
+                    "state_version": context.workflow.state_version + 1,
+                    "updated_at": now,
+                }
+            )
+            if effective_action == "reject":
+                self._close_unsettled_research_execution(
+                    connection,
+                    context.run.id,
+                    cancelled_at=now,
+                    reason=reason,
+                )
+            workflow_cursor = connection.execute(
+                """
+                UPDATE research_workflows
+                SET phase = ?, active_gate = ?, state_version = ?, payload = ?, updated_at = ?
+                WHERE run_id = ? AND state_version = ? AND active_gate = ?
+                """,
+                (
+                    workflow.phase.value,
+                    workflow.active_gate.value,
+                    workflow.state_version,
+                    workflow.model_dump_json(),
+                    now.isoformat(),
+                    workflow.run_id,
+                    context.workflow.state_version,
+                    ResearchGate.TOOL_APPROVAL.value,
+                ),
+            )
+            if workflow_cursor.rowcount != 1:
+                raise ResearchToolApprovalError("conflict", "Research Tool approval changed concurrently")
+
+            next_status = AgentRunStatus.RUNNING if effective_action == "approve" else AgentRunStatus.REJECTED
+            run = context.run.model_copy(
+                update={
+                    "status": next_status,
+                    "error_code": None if effective_action == "approve" else reason,
+                    "updated_at": now,
+                }
+            )
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            item.status = "resolved"
+            item.acknowledged_at = item.acknowledged_at or now
+            item.resolved_at = now
+            item.updated_at = now
+            item.metadata["approval_action"] = effective_action
+            if expired:
+                item.metadata["approval_failure"] = reason
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = 'inbox_items' AND id = ?",
+                (item.model_dump_json(), item.id),
+            )
+            if effective_action == "reject":
+                self._resolve_open_run_inboxes(connection, run.id, reason=reason, resolved_at=now)
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "approval_resolved",
+                        {
+                            "inbox_item_id": item.id,
+                            "attempt_id": context.active_attempt.id,
+                            "call_id": call_id,
+                            "action": effective_action,
+                        },
+                    ),
+                    (
+                        "research_updated",
+                        {
+                            "state_version": workflow.state_version,
+                            "phase": workflow.phase.value,
+                            "active_gate": workflow.active_gate.value,
+                        },
+                    ),
+                    *(
+                        [("run_rejected", {"error_code": reason})]
+                        if effective_action == "reject"
+                        else []
+                    ),
+                ],
+            )
+        return ResearchToolApprovalResult(
+            inbox_item=item,
+            run=run,
+            attempt_id=context.active_attempt.id if effective_action == "approve" else None,
+            expired=expired,
+        )
 
     def add_inbox_item(self, item: InboxItem) -> InboxItem:
         self._upsert("inbox_items", item)

@@ -113,6 +113,21 @@ class ArtifactReaderScope(BaseModel):
     run_id: str | None = Field(default=None, max_length=120)
 
 
+class ResearchResultSnapshot(BaseModel):
+    """Verified IDs and provenance used by the read-only research projection."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    evidence_manifest_id: str | None = None
+    claim_ledger_id: str | None = None
+    deliverable_id: str | None = None
+    review_id: str | None = None
+    report_id: str | None = None
+    gap_codes: list[str] = Field(default_factory=list, max_length=100)
+    actual_model: str | None = Field(default=None, max_length=120)
+    integrity_errors: list[str] = Field(default_factory=list, max_length=20)
+
+
 ArtifactLease = ExecutionLease
 
 
@@ -1381,6 +1396,97 @@ class ArtifactStore:
             expected_schema_version=None,
         )
         return artifact, True
+
+    def research_result_snapshot(
+        self,
+        *,
+        run_id: str,
+        attempt_id: str | None,
+        reader_scope: ArtifactReaderScope,
+    ) -> ResearchResultSnapshot:
+        """Return only result Artifacts that still pass owner and hash verification."""
+
+        if attempt_id is None:
+            return ResearchResultSnapshot()
+        kinds = ("evidence_manifest", "claim_ledger", "deliverable", "review", "report")
+        placeholders = ",".join("?" for _ in kinds)
+        with self.repository._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, artifact_type FROM artifacts
+                WHERE run_id = ? AND attempt_id = ?
+                  AND artifact_type IN ({placeholders})
+                ORDER BY created_at, id
+                """,
+                (run_id, attempt_id, *kinds),
+            ).fetchall()
+            receipt_rows = connection.execute(
+                """
+                SELECT payload FROM research_model_call_receipts
+                WHERE run_id = ? AND owner_kind = 'attempt' AND owner_id = ?
+                  AND stage = 'competitive-analysis'
+                ORDER BY created_at, id
+                """,
+                (run_id, attempt_id),
+            ).fetchall()
+
+        verified: dict[str, Artifact] = {}
+        errors: list[str] = []
+        scoped_reader = reader_scope.model_copy(update={"run_id": run_id})
+        for row in rows:
+            kind = str(row["artifact_type"])
+            try:
+                artifact, is_verified = self.read_for_owner(str(row["id"]), reader_scope=scoped_reader)
+            except ArtifactStoreError as error:
+                errors.append(f"{kind}:{error.code}")
+                continue
+            if not is_verified or artifact.attempt_id != attempt_id or artifact.artifact_type != kind:
+                errors.append(f"{kind}:artifact_reference_mismatch")
+                continue
+            if kind in verified:
+                errors.append(f"{kind}:artifact_duplicate")
+                continue
+            verified[kind] = artifact
+
+        gap_codes: list[str] = []
+        manifest = verified.get("evidence_manifest")
+        if manifest is not None:
+            from agentmesh.research_orchestration.evidence import EvidenceManifest
+
+            try:
+                parsed_manifest = EvidenceManifest.model_validate_json(manifest.content)
+            except (RecursionError, TypeError, ValueError):
+                errors.append("evidence_manifest:artifact_payload_invalid")
+                verified.pop("evidence_manifest", None)
+            else:
+                gap_codes = [item.value for item in parsed_manifest.gap_codes]
+
+        actual_model = None
+        for row in receipt_rows:
+            try:
+                receipt = ModelCallReceipt.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                errors.append("model_receipt:payload_invalid")
+                continue
+            if receipt.run_id != run_id or receipt.owner_id != attempt_id:
+                errors.append("model_receipt:lineage_invalid")
+                continue
+            actual_model = receipt.actual_model
+
+        # A corrupted upstream result invalidates every derived presentation.
+        if any(kind not in verified for kind in ("evidence_manifest", "claim_ledger", "deliverable", "review")):
+            verified.pop("report", None)
+
+        return ResearchResultSnapshot(
+            evidence_manifest_id=verified.get("evidence_manifest").id if verified.get("evidence_manifest") else None,
+            claim_ledger_id=verified.get("claim_ledger").id if verified.get("claim_ledger") else None,
+            deliverable_id=verified.get("deliverable").id if verified.get("deliverable") else None,
+            review_id=verified.get("review").id if verified.get("review") else None,
+            report_id=verified.get("report").id if verified.get("report") else None,
+            gap_codes=list(dict.fromkeys(gap_codes)),
+            actual_model=actual_model,
+            integrity_errors=list(dict.fromkeys(errors)),
+        )
 
     def _verify_row(
         self,

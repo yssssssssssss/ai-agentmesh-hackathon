@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Protocol
 
@@ -184,10 +186,17 @@ class ExecutionEngine:
         *,
         clock: ExecutionClock | None = None,
         worker_id: str = "research-inline-worker",
-        lease_ttl: timedelta = timedelta(minutes=5),
+        lease_ttl: timedelta = timedelta(seconds=60),
+        heartbeat_interval: timedelta = timedelta(seconds=15),
+        execution_allowed: Callable[[], bool] | None = None,
     ):
-        if not worker_id or lease_ttl <= timedelta(0):
-            raise ValueError("execution worker and lease TTL are required")
+        if (
+            not worker_id
+            or lease_ttl <= timedelta(0)
+            or heartbeat_interval <= timedelta(0)
+            or heartbeat_interval >= lease_ttl
+        ):
+            raise ValueError("execution worker, lease TTL, and heartbeat interval are invalid")
         self.repository = repository
         self.artifacts = artifacts
         self.tool_actor = tool_actor
@@ -196,8 +205,12 @@ class ExecutionEngine:
         self.clock = clock or SystemExecutionClock()
         self.worker_id = worker_id
         self.lease_ttl = lease_ttl
+        self.heartbeat_interval = heartbeat_interval
+        self.execution_allowed = execution_allowed or (lambda: True)
 
     def claim(self, attempt_id: str, *, token: str) -> ExecutionLease:
+        if not self.execution_allowed():
+            raise ExecutionError("execution_disabled")
         now = self.clock.now()
         claimed = self.repository.claim_research_attempt(
             attempt_id,
@@ -216,7 +229,36 @@ class ExecutionEngine:
 
     async def claim_and_run(self, attempt_id: str, *, token: str | None = None) -> ExecutionOutcome:
         token = token or new_id("research_lease")
-        return await self.run(attempt_id, self.claim(attempt_id, token=token))
+        lease = self.claim(attempt_id, token=token)
+        run_task = asyncio.create_task(self.run(attempt_id, lease), name=f"research-run:{attempt_id}")
+        heartbeat_task = asyncio.create_task(
+            self._heartbeat(attempt_id, lease),
+            name=f"research-heartbeat:{attempt_id}",
+        )
+        done, _pending = await asyncio.wait(
+            {run_task, heartbeat_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if run_task in done:
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
+            return await run_task
+        run_task.cancel()
+        await asyncio.gather(run_task, return_exceptions=True)
+        await heartbeat_task
+        raise ExecutionError("execution_heartbeat_stopped")
+
+    async def _heartbeat(self, attempt_id: str, lease: ExecutionLease) -> None:
+        while True:
+            await asyncio.sleep(self.heartbeat_interval.total_seconds())
+            renewed = self.repository.heartbeat_research_attempt(
+                attempt_id,
+                lease=lease,
+                now=self.clock.now(),
+                lease_ttl=self.lease_ttl,
+            )
+            if renewed is None:
+                raise ExecutionError("execution_lease_lost")
 
     async def recover_expired(self) -> list[RecoveryOutcome]:
         recovered: list[RecoveryOutcome] = []
@@ -236,6 +278,7 @@ class ExecutionEngine:
 
     async def run(self, attempt_id: str, lease: ExecutionLease) -> ExecutionOutcome:
         context = self._load_context(attempt_id, lease)
+        self._stop_if_disabled(context)
         tool_step = self._claim_step(context.attempt, context.tool_step, lease)
         if tool_step.status != StepStatus.COMPLETED:
             tool_input = resolve_step_input(
@@ -273,6 +316,7 @@ class ExecutionEngine:
             )
         _tool_ref, tool_output = self._read_tool_output(tool_step, context.tool_lineage)
 
+        self._stop_if_disabled(context)
         self._ready_skill_step(context.attempt, context.skill_step, lease)
         skill_step = self._claim_step(context.attempt, context.skill_step, lease)
         body = validate_execution_plan_version(context.plan)
@@ -381,6 +425,14 @@ class ExecutionEngine:
             delivery=delivery,
             gap_codes=gaps,
         )
+
+    def _stop_if_disabled(self, context: _ExecutionContext) -> None:
+        if self.execution_allowed():
+            return
+        cancelled = self.repository.cancel_agent_run_tree(context.run.id, user_id=context.run.user_id)
+        if cancelled is None:
+            raise ExecutionError("execution_disable_conflict")
+        raise ExecutionError("execution_disabled")
 
     def _load_context(self, attempt_id: str, lease: ExecutionLease) -> _ExecutionContext:
         now = self.clock.now()

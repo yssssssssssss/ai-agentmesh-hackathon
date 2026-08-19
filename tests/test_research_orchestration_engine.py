@@ -14,6 +14,7 @@ from agentmesh.models import (
     AgentRun,
     AgentRunStatus,
     AgentToolGrant,
+    ChatRole,
     Project,
     ToolDefinition,
     User,
@@ -26,10 +27,16 @@ from agentmesh.research_orchestration.actors import (
 )
 from agentmesh.research_orchestration.api import ResearchOwnerScope, ResearchRecoverRequest
 from agentmesh.research_orchestration.compiler import FrozenModelPolicy, validate_execution_plan_version
-from agentmesh.research_orchestration.contracts import AttemptStatus, InvocationState, ResearchGate, ResearchPhase
+from agentmesh.research_orchestration.contracts import (
+    AttemptStatus,
+    InvocationState,
+    ResearchGate,
+    ResearchPhase,
+)
 from agentmesh.research_orchestration.delivery import ResultPipeline
+from agentmesh.research_orchestration.evidence import EvidenceManifest
 from agentmesh.research_orchestration.execution import ExecutionEngine, ExecutionError, resolve_step_input
-from agentmesh.research_orchestration.ports import SkillModelResult, ToolPortResult
+from agentmesh.research_orchestration.ports import SkillGenerationContract, SkillModelResult, ToolPortResult
 from agentmesh.research_orchestration.workflow import ResearchWorkflowService
 from agentmesh.tool_runtime.gateway import ToolRuntimeDescriptor
 
@@ -47,6 +54,7 @@ class _ToolPort:
         self.clock = clock
         self.calls = 0
         self.fail_calls = fail_calls
+        self.operation_keys: list[str] = []
 
     def describe(self, tool_name: str) -> ToolRuntimeDescriptor | None:
         if tool_name != "web_research":
@@ -65,9 +73,11 @@ class _ToolPort:
         context,
         tool_name: str,
         arguments: dict[str, Any],
+        operation_key: str,
     ) -> ToolPortResult:
         del tool_name, arguments
         self.calls += 1
+        self.operation_keys.append(operation_key)
         if self.calls <= self.fail_calls:
             raise TimeoutError("provider response was lost")
         return ToolPortResult(
@@ -120,12 +130,13 @@ class _ModelPort:
         run: AgentRun,
         frozen_skill,
         model_policy: FrozenModelPolicy,
+        generation_contract: SkillGenerationContract,
         resolved_input: dict[str, Any],
         evidence: list[dict[str, Any]],
         resources: list[dict[str, str]],
         timeout_seconds: int,
     ) -> SkillModelResult:
-        del run, frozen_skill, resolved_input, resources, timeout_seconds
+        del run, frozen_skill, generation_contract, resolved_input, resources, timeout_seconds
         self.calls += 1
         evidence_id = evidence[0]["evidence_id"]
         if self.forge_evidence:
@@ -356,12 +367,110 @@ def test_execution_engine_runs_tool_skill_delivery_and_strict_finish(tmp_path) -
     assert outcome.delivery.report_ref is not None
     assert outcome.gap_codes == []
     assert tool_port.calls == model_port.calls == 1
+    assert len(tool_port.operation_keys) == 1
+    assert len(tool_port.operation_keys[0]) == 64
     run = context.repository.get_agent_run(context.plan.run_id)
     workflow = context.repository.get_research_workflow(context.plan.run_id)
     attempt = context.repository.get_research_attempt(context.lineage_step_1.attempt_id or "")
     assert run is not None and run.status == AgentRunStatus.COMPLETED and run.output_text
     assert workflow is not None and workflow.phase.value == "terminal"
     assert attempt is not None and attempt.status.value == "completed" and attempt.lease_owner is None
+    service = ResearchWorkflowService(
+        context.repository,
+        planning=None,  # type: ignore[arg-type]
+        execution=engine,
+        purger=context.artifacts,
+        clock=clock,
+    )
+    owner = ResearchOwnerScope(
+        user_id="user_1",
+        workspace_id="workspace_1",
+        project_id="project_1",
+    )
+    projection = service.get_projection(context.plan.run_id, owner=owner)
+    assert projection.artifacts.evidence_manifest_id is not None
+    assert projection.artifacts.claim_ledger_id is not None
+    assert projection.artifacts.deliverable_id is not None
+    assert projection.artifacts.review_id is not None
+    assert projection.artifacts.report_id is not None
+    assert projection.result.report is not None
+    assert projection.result.deliverable is not None
+    assert projection.result.review is not None and projection.result.review.status == "pass"
+    assert projection.result.evidence
+    assert projection.result.claims
+    assert all(
+        evidence_id in {evidence.evidence_id for evidence in projection.result.evidence}
+        for claim in projection.result.claims
+        for evidence_id in claim.evidence_ids
+    )
+    assert projection.provenance.actual_model == "gpt-test"
+    messages = [
+        message
+        for message in context.repository.list_thread_messages(run.thread_id)
+        if message.role == ChatRole.ASSISTANT and message.content == run.output_text
+    ]
+    assert len(messages) == 1
+
+    manifest = context.repository.get_artifact(projection.artifacts.evidence_manifest_id)
+    assert manifest is not None
+    tampered = manifest.model_copy(update={"content": f"{manifest.content} "})
+    with sqlite3.connect(context.repository.db_path) as connection:
+        connection.execute(
+            "UPDATE artifacts SET payload = ? WHERE id = ?",
+            (tampered.model_dump_json(), tampered.id),
+        )
+
+    corrupted = service.get_projection(context.plan.run_id, owner=owner)
+    assert corrupted.artifacts.evidence_manifest_id is None
+    assert corrupted.artifacts.report_id is None
+    assert "evidence_manifest:artifact_integrity_failed" in corrupted.integrity_errors
+    assert len(
+        [
+            message
+            for message in context.repository.list_thread_messages(run.thread_id)
+            if message.role == ChatRole.ASSISTANT and message.content == run.output_text
+        ]
+    ) == 1
+
+
+def test_result_projection_hides_report_when_referenced_evidence_source_is_tampered(tmp_path) -> None:
+    context = research_execution_context(tmp_path / "engine-source-tamper.sqlite3", run_id="run_source_tamper")
+    _authorize_execution(context)
+    clock = _FixedClock(datetime.now(UTC))
+    engine, _tool_port, _model_port = _engine(context, clock)
+    asyncio.run(engine.run(context.lineage_step_1.attempt_id or "", context.lease))
+    service = ResearchWorkflowService(
+        context.repository,
+        planning=None,  # type: ignore[arg-type]
+        execution=engine,
+        purger=context.artifacts,
+        clock=clock,
+    )
+    owner = ResearchOwnerScope(
+        user_id="user_1",
+        workspace_id="workspace_1",
+        project_id="project_1",
+    )
+    projection = service.get_projection(context.plan.run_id, owner=owner)
+    manifest_artifact = context.repository.get_artifact(projection.artifacts.evidence_manifest_id or "")
+    assert manifest_artifact is not None
+    manifest = EvidenceManifest.model_validate_json(manifest_artifact.content)
+    assert manifest.entries
+    source_artifact = context.repository.get_artifact(manifest.entries[0].artifact_id)
+    assert source_artifact is not None
+    tampered = source_artifact.model_copy(update={"content": f"{source_artifact.content} "})
+    with sqlite3.connect(context.repository.db_path) as connection:
+        connection.execute(
+            "UPDATE artifacts SET payload = ? WHERE id = ?",
+            (tampered.model_dump_json(), tampered.id),
+        )
+
+    corrupted = service.get_projection(context.plan.run_id, owner=owner)
+
+    assert corrupted.artifacts.report_id is None
+    assert corrupted.result.report is None
+    assert corrupted.result.evidence == []
+    assert "evidence:artifact_integrity_failed" in corrupted.integrity_errors
 
 
 def test_execution_engine_fails_closed_on_forged_model_evidence(tmp_path) -> None:
@@ -474,3 +583,147 @@ def test_manual_retry_reuses_request_and_real_engine_completes_new_attempt(tmp_p
     assert context.repository.get_artifact(retried.artifact_id).attempt_id == new_attempt.id
     assert tool_port.calls == 2
     assert model_port.calls == 1
+
+
+def test_retry_authorization_survives_restart_before_the_second_send(tmp_path) -> None:
+    context = research_execution_context(
+        tmp_path / "engine-retry-restart.sqlite3",
+        run_id="run_engine_retry_restart",
+    )
+    _authorize_execution(context)
+    clock = _FixedClock(datetime.now(UTC))
+    engine, tool_port, model_port = _engine(context, clock, fail_tool_calls=1)
+    old_attempt_id = context.lineage_step_1.attempt_id or ""
+
+    with pytest.raises(ExecutionError, match="tool_result_unknown"):
+        asyncio.run(engine.run(old_attempt_id, context.lease))
+    unknown = context.repository.enter_research_recovery_decision(
+        old_attempt_id,
+        error_code="tool_result_unknown",
+        now=clock.now(),
+    )
+    recovery_workflow = context.repository.get_research_workflow(context.plan.run_id)
+    assert unknown is not None and recovery_workflow is not None
+
+    class _CrashBeforeClaim:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+
+        async def claim_and_run(self, attempt_id: str, *, token: str | None = None) -> None:
+            del attempt_id, token
+            self.started.set()
+            await asyncio.Event().wait()
+
+    crash = _CrashBeforeClaim()
+    first_process = ResearchWorkflowService(
+        context.repository,
+        planning=None,  # type: ignore[arg-type]
+        execution=crash,
+        purger=context.artifacts,
+        clock=clock,
+    )
+
+    async def authorize_then_crash() -> None:
+        await first_process.recover(
+            context.plan.run_id,
+            ResearchRecoverRequest(
+                expected_state_version=recovery_workflow.state_version,
+                invocation_id=unknown.id,
+                action="retry",
+            ),
+            owner=ResearchOwnerScope(
+                user_id="user_1",
+                workspace_id="workspace_1",
+                project_id="project_1",
+            ),
+            idempotency_key="retry-before-restart",
+        )
+        await crash.started.wait()
+
+    asyncio.run(authorize_then_crash())
+    prepared = context.repository.get_research_tool_invocation(unknown.id)
+    workflow = context.repository.get_research_workflow(context.plan.run_id)
+    assert prepared is not None and prepared.state == InvocationState.PREPARED
+    assert prepared.send_count == 1
+    assert workflow is not None and workflow.active_attempt_id is not None
+    pending = context.repository.get_research_attempt(workflow.active_attempt_id)
+    assert pending is not None and pending.status == AttemptStatus.PENDING
+
+    restarted = ResearchWorkflowService(
+        context.repository,
+        planning=None,  # type: ignore[arg-type]
+        execution=engine,
+        purger=context.artifacts,
+        clock=clock,
+    )
+
+    async def resume_after_restart() -> None:
+        assert restarted.recover_eligible_attempts() == 1
+        await restarted.wait_for_idle()
+
+    asyncio.run(resume_after_restart())
+
+    acknowledged = context.repository.get_research_tool_invocation(unknown.id)
+    assert acknowledged is not None and acknowledged.state == InvocationState.ACKNOWLEDGED
+    assert acknowledged.send_count == acknowledged.active_send_sequence == 2
+    assert tool_port.calls == 2
+    assert model_port.calls == 1
+
+
+def test_retry_fails_closed_before_provider_call_when_origin_request_is_tampered(tmp_path) -> None:
+    context = research_execution_context(
+        tmp_path / "engine-retry-tamper.sqlite3",
+        run_id="run_engine_retry_tamper",
+    )
+    _authorize_execution(context)
+    clock = _FixedClock(datetime.now(UTC))
+    engine, tool_port, model_port = _engine(context, clock, fail_tool_calls=1)
+    old_attempt_id = context.lineage_step_1.attempt_id or ""
+
+    with pytest.raises(ExecutionError, match="tool_result_unknown"):
+        asyncio.run(engine.run(old_attempt_id, context.lease))
+    unknown = context.repository.enter_research_recovery_decision(
+        old_attempt_id,
+        error_code="tool_result_unknown",
+        now=clock.now(),
+    )
+    recovery_workflow = context.repository.get_research_workflow(context.plan.run_id)
+    assert unknown is not None and recovery_workflow is not None
+    request_artifact = context.repository.get_artifact(unknown.request_artifact_id)
+    assert request_artifact is not None
+    tampered = request_artifact.model_copy(update={"content": f"{request_artifact.content} "})
+    with sqlite3.connect(context.repository.db_path) as connection:
+        connection.execute(
+            "UPDATE artifacts SET payload = ? WHERE id = ?",
+            (tampered.model_dump_json(), tampered.id),
+        )
+
+    service = ResearchWorkflowService(
+        context.repository,
+        planning=None,  # type: ignore[arg-type]
+        execution=engine,
+        purger=context.artifacts,
+        clock=clock,
+    )
+
+    async def retry() -> None:
+        await service.recover(
+            context.plan.run_id,
+            ResearchRecoverRequest(
+                expected_state_version=recovery_workflow.state_version,
+                invocation_id=unknown.id,
+                action="retry",
+            ),
+            owner=ResearchOwnerScope(
+                user_id="user_1",
+                workspace_id="workspace_1",
+                project_id="project_1",
+            ),
+            idempotency_key="retry-tampered-request",
+        )
+        await service.wait_for_idle()
+
+    with pytest.raises(ExecutionError):
+        asyncio.run(retry())
+    assert tool_port.calls == 1
+    assert model_port.calls == 0

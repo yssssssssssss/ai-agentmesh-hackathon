@@ -609,6 +609,8 @@ def test_unledgered_skill_summary_never_enters_deliverable_or_report(tmp_path) -
         ("recommendation_without_parent", "delivery_recommendation_parent_missing"),
         ("unknown_parent", "delivery_claim_graph_invalid"),
         ("unknown_question", "delivery_claim_coverage_invalid"),
+        ("unknown_success_criterion", "delivery_claim_coverage_invalid"),
+        ("mismatched_question_criterion", "delivery_claim_coverage_invalid"),
     ],
 )
 def test_invalid_claim_references_are_rejected_before_deliverable(
@@ -630,8 +632,13 @@ def test_invalid_claim_references_are_rejected_before_deliverable(
         payload["recommendations"][0]["parent_claim_ids"] = []
     elif mutation == "unknown_parent":
         payload["inferences"][0]["parent_claim_ids"] = ["claim_unknown"]
-    else:
+    elif mutation == "unknown_question":
         payload["facts"][0]["question_ids"] = ["q_unknown"]
+    elif mutation == "unknown_success_criterion":
+        payload["facts"][0]["success_criterion_ids"] = ["sc_unknown"]
+    else:
+        payload["facts"][0]["question_ids"] = ["q_evidence_comparison"]
+        payload["facts"][0]["success_criterion_ids"] = ["sc_scenarios"]
 
     with pytest.raises(DeliveryError) as caught:
         _finalize(context, prepared, payload)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -216,6 +217,86 @@ class ResearchArtifactProjection(BaseModel):
     report_id: str | None = Field(default=None, max_length=120)
 
 
+class ResearchSourceLinkProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_id: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=500)
+    url: str = Field(min_length=1, max_length=2000)
+    retrieved_at: datetime
+
+    @field_validator("url")
+    @classmethod
+    def require_public_http_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("research source URL must be public HTTP(S)")
+        return value
+
+
+class ResearchEvidenceProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    evidence_id: str = Field(min_length=1, max_length=120)
+    quote: str = Field(min_length=1, max_length=8192)
+    sources: list[ResearchSourceLinkProjection] = Field(default_factory=list, max_length=20)
+    conflict_status: Literal["unknown", "none", "possible", "conflicting"]
+    risk_flags: list[str] = Field(default_factory=list, max_length=10)
+
+
+class ResearchClaimProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    claim_id: str = Field(min_length=1, max_length=120)
+    claim_type: Literal["fact", "inference", "recommendation"]
+    statement: str = Field(min_length=1, max_length=8000)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=40)
+    parent_claim_ids: list[str] = Field(default_factory=list, max_length=40)
+    confidence: Literal["low", "medium", "high"]
+    conflict_status: Literal["unknown", "none", "possible", "conflicting"]
+
+
+class ResearchDeliverableProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    summary: str = Field(min_length=1, max_length=12000)
+    summary_claim_ids: list[str] = Field(default_factory=list, max_length=20)
+    comparison: list[ResearchClaimProjection] = Field(default_factory=list, max_length=200)
+    recommendations: list[ResearchClaimProjection] = Field(default_factory=list, max_length=100)
+    limitations: list[str] = Field(default_factory=list, max_length=200)
+
+
+class ResearchReviewCheckProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: str = Field(min_length=1, max_length=120)
+    passed: bool
+
+
+class ResearchReviewProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["pass", "block"]
+    checks: list[ResearchReviewCheckProjection] = Field(default_factory=list, max_length=40)
+
+
+class ResearchReportProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    title: str = Field(min_length=1, max_length=500)
+    markdown: str = Field(min_length=1)
+
+
+class ResearchResultProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    evidence: list[ResearchEvidenceProjection] = Field(default_factory=list, max_length=20)
+    claims: list[ResearchClaimProjection] = Field(default_factory=list, max_length=300)
+    deliverable: ResearchDeliverableProjection | None = None
+    review: ResearchReviewProjection | None = None
+    report: ResearchReportProjection | None = None
+
+
 class ResearchProvenanceProjection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -234,6 +315,14 @@ class ResearchRecoveryProjection(BaseModel):
     error_code: str | None = Field(default=None, max_length=120)
 
 
+class ResearchToolApprovalProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    inbox_item_id: str = Field(min_length=1, max_length=120)
+    call_id: str = Field(min_length=1, max_length=240)
+    tool_name: str = Field(min_length=1, max_length=120)
+
+
 class ResearchRunProjection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -245,8 +334,11 @@ class ResearchRunProjection(BaseModel):
     attempt: ResearchAttemptProjection | None = None
     gaps: list[ResearchGapProjection] = Field(default_factory=list, max_length=100)
     artifacts: ResearchArtifactProjection = Field(default_factory=ResearchArtifactProjection)
+    result: ResearchResultProjection = Field(default_factory=ResearchResultProjection)
     provenance: ResearchProvenanceProjection = Field(default_factory=ResearchProvenanceProjection)
+    tool_approval: ResearchToolApprovalProjection | None = None
     recovery: ResearchRecoveryProjection | None = None
+    integrity_errors: list[str] = Field(default_factory=list, max_length=20)
 
 
 class ResearchCommandResponse(BaseModel):

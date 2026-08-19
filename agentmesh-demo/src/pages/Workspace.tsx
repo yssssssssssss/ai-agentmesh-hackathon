@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Composer } from '../components/workspace/Composer'
 import { ConversationThread } from '../components/workspace/ConversationThread'
 import { DetailPanel } from '../components/workspace/DetailPanel'
+import { ResearchExecution, type ResearchPendingAction } from '../components/workspace/ResearchExecution'
 import { ResearchPreview } from '../components/workspace/ResearchPreview'
 import { SkillPlanPreview } from '../components/workspace/SkillPlanPreview'
 import { SkillPlanProgress } from '../components/workspace/SkillPlanProgress'
@@ -20,6 +21,7 @@ import {
   useAgentRunQuery,
   useCancelAgentRunMutation,
   useRetryAgentRunMutation,
+  useResearchMutations,
   useResearchRunQuery,
   useSearchQuery,
   useSendAgentRunMutation,
@@ -69,6 +71,7 @@ export function Workspace() {
   const currentRun = runQuery.data?.item
   const isResearchRun = currentRun?.orchestration_version === 'research-v2'
   const researchQuery = useResearchRunQuery(scope, currentRun)
+  const researchMutations = useResearchMutations(scope, currentRun)
   const planQuery = useSkillPlanQuery(scope, runId, isResearchRun ? null : currentRun?.plan_id)
   const planMutations = useSkillPlanMutations(scope, runId)
   const cancelRun = useCancelAgentRunMutation(scope)
@@ -176,6 +179,22 @@ export function Workspace() {
     ?? planMutations.approve.error
     ?? planMutations.reject.error
   const planError = planMutationError ? workspaceErrorMessage(planMutationError) : null
+  const researchPendingAction: ResearchPendingAction = researchMutations.confirm.isPending
+    ? 'confirm'
+    : researchMutations.execute.isPending
+      ? 'execute'
+      : researchMutations.resolveTool.isPending
+        ? researchMutations.resolveTool.variables?.action === 'reject' ? 'reject-tool' : 'approve-tool'
+        : researchMutations.recover.isPending
+          ? researchMutations.recover.variables?.action === 'abort' ? 'abort' : 'retry'
+          : cancelRun.isPending && isResearchRun
+            ? 'cancel'
+            : null
+  const researchMutationError = researchMutations.confirm.error
+    ?? researchMutations.execute.error
+    ?? researchMutations.resolveTool.error
+    ?? researchMutations.recover.error
+  const researchError = researchMutationError ? workspaceErrorMessage(researchMutationError) : null
   const canRetryRun = Boolean(currentRun && ['partial', 'failed', 'rejected', 'cancelled'].includes(currentRun.status))
 
   const openSkillSource = (source: SkillResultSource) => {
@@ -272,7 +291,26 @@ export function Workspace() {
                 </p>
               ) : null}
               {isResearchRun && researchQuery.data ? (
-                <ResearchPreview projection={researchQuery.data} />
+                <>
+                  <ResearchPreview projection={researchQuery.data} />
+                  <ResearchExecution
+                    projection={researchQuery.data}
+                    pendingAction={researchPendingAction}
+                    executionEnabled={currentRun?.orchestration_mode === 'execute' && orchestrationMode === 'execute'}
+                    error={researchError}
+                    onConfirmPlan={(planVersionId, stateVersion) => {
+                      researchMutations.confirm.mutate({ planVersionId, stateVersion })
+                    }}
+                    onExecute={(stateVersion) => researchMutations.execute.mutate({ stateVersion })}
+                    onResolveTool={(itemId, callId, action) => {
+                      researchMutations.resolveTool.mutate({ itemId, callId, action })
+                    }}
+                    onRecover={(invocationId, stateVersion, action) => {
+                      researchMutations.recover.mutate({ invocationId, stateVersion, action })
+                    }}
+                    onCancel={cancelCurrentRun}
+                  />
+                </>
               ) : null}
               {!isResearchRun && currentRun?.plan_id && planQuery.isLoading ? (
                 <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
