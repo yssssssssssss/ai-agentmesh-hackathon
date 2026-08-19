@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Composer } from '../components/workspace/Composer'
 import { ConversationThread } from '../components/workspace/ConversationThread'
 import { DetailPanel } from '../components/workspace/DetailPanel'
+import { ResearchPreview } from '../components/workspace/ResearchPreview'
 import { SkillPlanPreview } from '../components/workspace/SkillPlanPreview'
 import { SkillPlanProgress } from '../components/workspace/SkillPlanProgress'
 import { SkillSynthesisView } from '../components/workspace/SkillSynthesisView'
@@ -19,6 +20,7 @@ import {
   useAgentRunQuery,
   useCancelAgentRunMutation,
   useRetryAgentRunMutation,
+  useResearchRunQuery,
   useSearchQuery,
   useSendAgentRunMutation,
   useSendMessageMutation,
@@ -65,7 +67,9 @@ export function Workspace() {
   const sendAgentRun = useSendAgentRunMutation(scope)
   const runQuery = useAgentRunQuery(scope, runId)
   const currentRun = runQuery.data?.item
-  const planQuery = useSkillPlanQuery(scope, runId, currentRun?.plan_id)
+  const isResearchRun = currentRun?.orchestration_version === 'research-v2'
+  const researchQuery = useResearchRunQuery(scope, currentRun)
+  const planQuery = useSkillPlanQuery(scope, runId, isResearchRun ? null : currentRun?.plan_id)
   const planMutations = useSkillPlanMutations(scope, runId)
   const cancelRun = useCancelAgentRunMutation(scope)
   const retryRun = useRetryAgentRunMutation(scope)
@@ -213,6 +217,7 @@ export function Workspace() {
     pending?.content,
     pending?.status,
     planDetail?.plan.updated_at,
+    researchQuery.data?.workflow.state_version,
     thread.isLoading,
   ])
   const uploadFileName = upload.variables?.name
@@ -256,17 +261,30 @@ export function Workspace() {
                   {workspaceErrorMessage(runQuery.error)}
                 </p>
               ) : null}
-              {currentRun?.plan_id && planQuery.isLoading ? (
+              {isResearchRun && researchQuery.isLoading ? (
+                <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
+                  正在恢复研究预览…
+                </section>
+              ) : null}
+              {isResearchRun && researchQuery.isError ? (
+                <p role="alert" className="mt-6 rounded-[12px] bg-rose/10 px-4 py-3 text-sm text-rose">
+                  {workspaceErrorMessage(researchQuery.error)}
+                </p>
+              ) : null}
+              {isResearchRun && researchQuery.data ? (
+                <ResearchPreview projection={researchQuery.data} />
+              ) : null}
+              {!isResearchRun && currentRun?.plan_id && planQuery.isLoading ? (
                 <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
                   正在加载 Skill Plan…
                 </section>
               ) : null}
-              {planQuery.isError ? (
+              {!isResearchRun && planQuery.isError ? (
                 <p role="alert" className="mt-6 rounded-[12px] bg-rose/10 px-4 py-3 text-sm text-rose">
                   {workspaceErrorMessage(planQuery.error)}
                 </p>
               ) : null}
-              {currentRun && !currentRun.plan_id ? (
+              {currentRun && currentRun.orchestration_version === 'v1' && !currentRun.plan_id ? (
                 <section aria-label="单 Skill 运行状态" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[14px] bg-surface-1 px-5 py-4 shadow-card">
                   <div>
                     <p className="text-xs font-semibold text-mint-300">{currentRun.skill_name ? `$${currentRun.skill_name}` : 'Agent Runtime v2'}</p>
@@ -279,7 +297,7 @@ export function Workspace() {
                   </div>
                 </section>
               ) : null}
-              {currentRun?.status === 'waiting_plan_approval' && planDetail ? (
+              {!isResearchRun && currentRun?.status === 'waiting_plan_approval' && planDetail ? (
                 <SkillPlanPreview
                   key={`${planDetail.plan.id}-${planDetail.plan.version}`}
                   detail={planDetail}
@@ -292,7 +310,7 @@ export function Workspace() {
                   onReject={(request) => planMutations.reject.mutate(request)}
                 />
               ) : null}
-              {currentRun?.plan_id && planDetail && currentRun.status !== 'waiting_plan_approval' ? (
+              {!isResearchRun && currentRun?.plan_id && planDetail && currentRun.status !== 'waiting_plan_approval' ? (
                 <SkillPlanProgress
                   run={currentRun}
                   detail={planDetail}
@@ -302,7 +320,7 @@ export function Workspace() {
                   onOpenToolApproval={() => navigate('/knowledge?tab=pending')}
                 />
               ) : null}
-              {currentRun && planDetail?.synthesis ? (
+              {!isResearchRun && currentRun && planDetail?.synthesis ? (
                 <SkillSynthesisView
                   synthesis={planDetail.synthesis}
                   results={planDetail.results ?? []}
@@ -312,7 +330,7 @@ export function Workspace() {
                   onOpenArtifact={(artifactId) => window.open(`/api/artifacts/${encodeURIComponent(artifactId)}`, '_blank', 'noopener,noreferrer')}
                 />
               ) : null}
-              {currentRun?.plan_id && canRetryRun ? (
+              {!isResearchRun && currentRun?.plan_id && canRetryRun ? (
                 <div className="mt-4 flex justify-end">
                   <Button variant="secondary" size="sm" loading={retryRun.isPending} onClick={retryCurrentRun}>
                     以新 Run 重试

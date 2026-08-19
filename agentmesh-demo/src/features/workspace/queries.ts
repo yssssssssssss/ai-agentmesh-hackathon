@@ -89,6 +89,15 @@ export function useAgentRunQuery(scope: WorkspaceScope, runId: string | null) {
   })
 }
 
+export function useResearchRunQuery(scope: WorkspaceScope, run: AgentRun | null | undefined) {
+  const runId = run?.orchestration_version === 'research-v2' ? run.id : null
+  return useQuery({
+    queryKey: workspaceKeys.research(scope, runId ?? 'none'),
+    queryFn: () => workspaceApi.researchRun(runId ?? ''),
+    enabled: Boolean(runId),
+  })
+}
+
 export function useSkillPlanQuery(scope: WorkspaceScope, runId: string | null, planId: string | null | undefined) {
   return useQuery({
     queryKey: workspaceKeys.plan(scope, runId ?? 'none'),
@@ -347,6 +356,39 @@ export function useRetryAgentRunMutation(scope: WorkspaceScope) {
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'partial', 'failed', 'rejected', 'cancelled'])
 const PLAN_EVENT_PREFIXES = ['plan_', 'node_', 'synthesis_']
 
+type AgentRunEventTarget = Pick<AgentRun, 'id' | 'thread_id' | 'orchestration_version'>
+
+export async function invalidateAgentRunEvent(
+  queryClient: QueryClient,
+  scope: WorkspaceScope,
+  run: AgentRunEventTarget,
+  eventType: string,
+  refreshBootstrap: () => Promise<void>,
+) {
+  if (run.orchestration_version === 'research-v2') {
+    await queryClient.invalidateQueries({ queryKey: workspaceKeys.research(scope, run.id), exact: true })
+    return
+  }
+
+  const work = [
+    queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, run.id), exact: true }),
+  ]
+  if (PLAN_EVENT_PREFIXES.some((prefix) => eventType.startsWith(prefix))) {
+    work.push(queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, run.id), exact: true }))
+  }
+  if (eventType === 'approval_requested' || eventType === 'approval_resolved') {
+    work.push(queryClient.invalidateQueries({ queryKey: queryRoots.inbox }))
+  }
+  if (eventType.startsWith('run_') && TERMINAL_RUN_STATUSES.has(eventType.slice(4))) {
+    work.push(
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, run.id), exact: true }),
+      invalidateCanonicalThread(queryClient, scope, run.thread_id),
+      refreshBootstrap(),
+    )
+  }
+  await Promise.all(work)
+}
+
 export function useAgentRunEventSubscription(
   scope: WorkspaceScope,
   run: AgentRun | null | undefined,
@@ -356,36 +398,29 @@ export function useAgentRunEventSubscription(
   const runId = run?.id
   const runStatus = run?.status
   const threadId = run?.thread_id
+  const orchestrationVersion = run?.orchestration_version
   useEffect(() => {
-    if (!runId || !threadId || !runStatus || TERMINAL_RUN_STATUSES.has(runStatus)) return
+    if (!runId || !threadId || !runStatus || !orchestrationVersion || TERMINAL_RUN_STATUSES.has(runStatus)) return
+    const target: AgentRunEventTarget = {
+      id: runId,
+      thread_id: threadId,
+      orchestration_version: orchestrationVersion,
+    }
     return subscribeAgentRunEvents(runId, {
       onEvent: (event) => {
-        const eventType = event.event_type
-        const work = [
-          queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true }),
-        ]
-        if (PLAN_EVENT_PREFIXES.some((prefix) => eventType.startsWith(prefix))) {
-          work.push(queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, runId), exact: true }))
-        }
-        if (eventType === 'approval_requested' || eventType === 'approval_resolved') {
-          work.push(queryClient.invalidateQueries({ queryKey: queryRoots.inbox }))
-        }
-        if (eventType.startsWith('run_') && TERMINAL_RUN_STATUSES.has(eventType.slice(4))) {
-          work.push(
-            queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, runId), exact: true }),
-            invalidateCanonicalThread(queryClient, scope, threadId),
-            refreshBootstrap(),
-          )
-        }
-        void Promise.all(work)
+        void invalidateAgentRunEvent(queryClient, scope, target, event.event_type, refreshBootstrap)
       },
       onError: () => {
-        void queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true })
+        const queryKey = orchestrationVersion === 'research-v2'
+          ? workspaceKeys.research(scope, runId)
+          : workspaceKeys.run(scope, runId)
+        void queryClient.invalidateQueries({ queryKey, exact: true })
       },
     })
   }, [
     queryClient,
     refreshBootstrap,
+    orchestrationVersion,
     runId,
     runStatus,
     scope.projectId,

@@ -59,9 +59,10 @@ describe('Agent Run event stream', () => {
     stream.emit('node_started', { run_id: 'run-1', sequence: 1, event_type: 'node_started', payload: {} })
     stream.emit('node_started', { run_id: 'run-1', sequence: 1, event_type: 'node_started', payload: {} })
     stream.emit('node_completed', { run_id: 'run-1', sequence: 2, event_type: 'node_completed', payload: {} })
-    stream.emit('node_completed', { run_id: 'another-run', sequence: 3, event_type: 'node_completed', payload: {} })
+    stream.emit('research_updated', { run_id: 'run-1', sequence: 3, event_type: 'research_updated', payload: {} })
+    stream.emit('node_completed', { run_id: 'another-run', sequence: 4, event_type: 'node_completed', payload: {} })
 
-    expect(received).toEqual([1, 2])
+    expect(received).toEqual([1, 2, 3])
     expect(stream.url).toContain('after_sequence=0')
     close()
     expect(stream.closed).toBe(true)

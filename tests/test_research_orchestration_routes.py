@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 import agentmesh.routes.chat as chat_routes
-import agentmesh.routes.research as research_routes
 from agentmesh.app import app
 from agentmesh.models import AgentRun, AgentRunStatus
 from agentmesh.research_orchestration.api import (
@@ -85,7 +85,12 @@ class FakeResearchWorkflowService:
 @pytest.fixture
 def service(monkeypatch: pytest.MonkeyPatch) -> FakeResearchWorkflowService:
     fake = FakeResearchWorkflowService()
-    monkeypatch.setattr(research_routes, "research_workflow_service", fake)
+    monkeypatch.setattr(
+        app.state,
+        "research_runtime",
+        SimpleNamespace(workflow_service=fake),
+        raising=False,
+    )
     return fake
 
 
@@ -271,7 +276,7 @@ def test_research_routes_require_authentication_and_configured_service(
     monkeypatch: pytest.MonkeyPatch,
     service: FakeResearchWorkflowService,
 ) -> None:
-    monkeypatch.setattr(research_routes, "research_workflow_service", None)
+    monkeypatch.delattr(app.state, "research_runtime", raising=False)
     anonymous = TestClient(app).get("/api/agent/runs/run_research_http/research")
     assert anonymous.status_code == 401
     assert service.calls == []

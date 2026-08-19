@@ -6,7 +6,7 @@ import inspect
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Protocol
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
 from agentmesh.models import User
 from agentmesh.research_orchestration.api import (
@@ -92,13 +92,12 @@ class ResearchWorkflowService(Protocol):
     ) -> ResearchCommandResponse | Awaitable[ResearchCommandResponse]: ...
 
 
-research_workflow_service: ResearchWorkflowService | None = None
-
-
-def get_research_workflow_service() -> ResearchWorkflowService:
-    if research_workflow_service is None:
+def get_research_workflow_service(request: Request) -> ResearchWorkflowService:
+    runtime = getattr(request.app.state, "research_runtime", None)
+    service = getattr(runtime, "workflow_service", None)
+    if service is None:
         raise HTTPException(status_code=503, detail="Research workflow service is unavailable")
-    return research_workflow_service
+    return service
 
 
 def _required_idempotency_key(

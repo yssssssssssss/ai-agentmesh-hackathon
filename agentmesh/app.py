@@ -18,6 +18,7 @@ from agentmesh.marketplace import (
 )
 from agentmesh.model_registry import ensure_model_seed_data
 from agentmesh.permissions import ensure_permission_policy_seed_data
+from agentmesh.research_orchestration.runtime import build_research_runtime
 from agentmesh.risk import ensure_risk_policy_seed_data
 from agentmesh.routes.agent_runs import router as agent_runs_router
 from agentmesh.routes.agents import router as agents_router
@@ -52,7 +53,7 @@ from agentmesh.seed import (
     ensure_graph_demo_data,
     ensure_initial_blackboard_data,
 )
-from agentmesh.skill_runtime.service import ensure_skill_catalog
+from agentmesh.skill_runtime.service import catalog_service, ensure_skill_catalog
 from agentmesh.store import SQLiteStore, store
 from agentmesh.tools import ensure_tool_seed_data
 
@@ -80,6 +81,9 @@ def initialize_application_data(repository: SQLiteStore) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_application_data(store)
+    research_runtime = build_research_runtime(store, catalog_service())
+    await research_runtime.start()
+    app.state.research_runtime = research_runtime
     try:
         await start_auto_post_worker()
         await start_daily_memory_worker()
@@ -95,7 +99,12 @@ async def lifespan(app: FastAPI):
             await stop_daily_memory_worker()
             await stop_auto_post_worker()
         finally:
-            await asyncio.to_thread(ingestion_service.shutdown)
+            try:
+                await research_runtime.shutdown()
+            finally:
+                if getattr(app.state, "research_runtime", None) is research_runtime:
+                    del app.state.research_runtime
+                await asyncio.to_thread(ingestion_service.shutdown)
 
 
 app = FastAPI(title="AgentMesh", version="0.1.0", lifespan=lifespan)

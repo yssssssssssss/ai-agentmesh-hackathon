@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from agentmesh.agent_runtime.settings import SkillOrchestrationMode, skill_orchestration_mode
@@ -26,6 +26,7 @@ from agentmesh.models import (
     new_id,
     now_utc,
 )
+from agentmesh.research_orchestration.planning import is_competitive_research_request
 from agentmesh.routes.deps import current_user, require_default_project
 from agentmesh.skill_runtime.plan_validation import PlanValidationError, adjust_plan, validate_draft
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
@@ -102,16 +103,16 @@ def _thread(request: AgentRunCreateRequest, user: User) -> ChatThread:
 @router.post("", response_model=ItemResponse, status_code=status.HTTP_202_ACCEPTED)
 async def start_agent_run(
     request: AgentRunCreateRequest,
+    http_request: Request,
     user: User = Depends(current_user),
 ) -> ItemResponse:
     from agentmesh.routes.chat import agent
 
-    runtime = agent.agent_runtime
-    if runtime is None or not runtime.enabled:
-        raise HTTPException(status_code=409, detail="Agent Runtime v2 is disabled")
-    if request.skill_name and request.explicit_skill_name and request.skill_name != request.explicit_skill_name:
+    skill_name = (request.skill_name or "").removeprefix("$").strip() or None
+    explicit_name = (request.explicit_skill_name or "").removeprefix("$").strip() or None
+    if skill_name and explicit_name and skill_name != explicit_name:
         raise HTTPException(status_code=400, detail="skill_name and explicit_skill_name disagree")
-    explicit_skill_name = request.explicit_skill_name or request.skill_name
+    explicit_skill_name = explicit_name or skill_name
     prior = store.get_agent_run_by_client_turn(user.id, request.client_turn_id)
     if prior is not None:
         prior = _visible_run(prior.id, user)
@@ -126,13 +127,36 @@ async def start_agent_run(
         ):
             raise HTTPException(status_code=409, detail="client_turn_id was already used for another Agent run")
         return ItemResponse(item=prior)
-    thread = _thread(request, user)
     skill = catalog_service().get_by_name(explicit_skill_name, user.personal_agent_id) if explicit_skill_name else None
     if explicit_skill_name and skill is None:
         raise HTTPException(status_code=404, detail="Skill not found")
+    mode = skill_orchestration_mode()
+    research_eligible = mode != SkillOrchestrationMode.OFF and is_competitive_research_request(
+        request.content,
+        explicit_skill_name=explicit_skill_name,
+    )
+    research_runtime = None
+    if research_eligible:
+        research_runtime = getattr(http_request.app.state, "research_runtime", None)
+        if research_runtime is None or not callable(getattr(research_runtime, "start_run", None)):
+            raise HTTPException(status_code=503, detail="Research Runtime is unavailable")
+    else:
+        runtime = agent.agent_runtime
+        if runtime is None or not runtime.enabled:
+            raise HTTPException(status_code=409, detail="Agent Runtime v2 is disabled")
+    thread = _thread(request, user)
     try:
-        mode = skill_orchestration_mode()
-        if skill is None and request.orchestration_mode == "auto" and mode != SkillOrchestrationMode.OFF:
+        if research_runtime is not None:
+            run = await research_runtime.start_run(
+                content=request.content,
+                user=user,
+                thread_id=thread.id,
+                client_turn_id=request.client_turn_id,
+                mode=mode,
+                requested_orchestration_mode=request.orchestration_mode,
+                explicit_skill=skill,
+            )
+        elif skill is None and request.orchestration_mode == "auto" and mode != SkillOrchestrationMode.OFF:
             run = await runtime.start_orchestrated(
                 content=request.content,
                 user=user,

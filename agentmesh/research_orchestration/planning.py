@@ -123,7 +123,7 @@ def _extract_competitor_scope(text: str, *, clarification_answer: bool = False) 
         candidates.insert(0, after_verb.group(1))
     for candidate in candidates:
         if _looks_like_named_list(candidate):
-            return re.split(r"的|，|,|。|；|;|重点", candidate.strip(), maxsplit=1)[0]
+            return re.split(r"的|，|,|。|；|;|重点", candidate.strip(), maxsplit=1)[0].strip()
 
     for competitor in _KNOWN_COMPETITORS:
         if competitor.lower() in value.lower():

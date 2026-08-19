@@ -8,6 +8,7 @@ import type {
   DocumentJobResponse,
   DocumentJobsResponse,
   DocumentResponse,
+  ResearchRunProjection,
   SearchResponse,
   SkillPlanDetailResponse,
   SkillPlanTransitionResponse,
@@ -25,6 +26,8 @@ const pathId = (value: string) => encodeURIComponent(value)
 
 const RUN_EVENT_TYPES = [
   'intent_normalized',
+  'run_started',
+  'research_updated',
   'skill_candidates_ranked',
   'plan_created',
   'plan_waiting_approval',
@@ -136,6 +139,8 @@ export const workspaceApi = {
       }),
     }),
   agentRun: (runId: string) => apiRequest<AgentRunResponse>(`/api/agent/runs/${pathId(runId)}`),
+  researchRun: (runId: string) =>
+    apiRequest<ResearchRunProjection>(`/api/agent/runs/${pathId(runId)}/research`),
   agentRunEvents: (runId: string, afterSequence = 0) =>
     apiRequest<AgentRunEventsResponse>(
       `/api/agent/runs/${pathId(runId)}/events?after_sequence=${Math.max(0, afterSequence)}`,
