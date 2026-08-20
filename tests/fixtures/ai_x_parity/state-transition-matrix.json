@@ -1,0 +1,296 @@
+{
+  "fixture_id": "state-transition-matrix-v1",
+  "fixture_version": "ai-x-agentmesh-gate0-characterization-v1",
+  "normalization_profile": "gate0-semantic-normalization-v1",
+  "semantic_differences": [
+    "Source awaiting_selection has no target research-v2 equivalent.",
+    "Source has reviewing and composing_report states; target closes directly from execution to terminal.",
+    "Target declares result phase but observed v2 execution does not transition through it.",
+    "Source paused supports retry/skip/abort; target recovery_decision is only for UNKNOWN and supports retry/abort.",
+    "Source completed_with_gaps is a workflow state; target uses terminal plus AgentRun partial.",
+    "Source review can revise once; target deterministic review blocks and terminates."
+  ],
+  "source": {
+    "artifact_states": [
+      "FAILED",
+      "SEALED",
+      "STAGING"
+    ],
+    "command_rules": {
+      "expected_state_version": true,
+      "idempotency_key": true,
+      "request_hash": true
+    },
+    "state_type": "ControlTaskState",
+    "states": [
+      "awaiting_approval",
+      "awaiting_clarification",
+      "awaiting_confirmation",
+      "awaiting_selection",
+      "cancelled",
+      "completed",
+      "completed_with_gaps",
+      "composing_report",
+      "executing",
+      "failed",
+      "paused",
+      "ready",
+      "rejected",
+      "reviewing"
+    ],
+    "transitions": [
+      {
+        "event": "requirement_blocking",
+        "from": "@new",
+        "to": "awaiting_clarification"
+      },
+      {
+        "event": "requirement_ready_and_candidates_compiled",
+        "from": "@new",
+        "to": "awaiting_selection"
+      },
+      {
+        "event": "clarify_still_blocked",
+        "from": "awaiting_clarification",
+        "to": "awaiting_clarification"
+      },
+      {
+        "event": "clarify_ready_and_candidates_compiled",
+        "from": "awaiting_clarification",
+        "to": "awaiting_selection"
+      },
+      {
+        "event": "select_depth_or_speed",
+        "from": "awaiting_selection",
+        "to": "awaiting_confirmation"
+      },
+      {
+        "event": "confirm_no_approval_required",
+        "from": "awaiting_confirmation",
+        "to": "ready"
+      },
+      {
+        "event": "confirm_approval_required",
+        "from": "awaiting_confirmation",
+        "to": "awaiting_approval"
+      },
+      {
+        "event": "approve_partial",
+        "from": "awaiting_approval",
+        "to": "awaiting_approval"
+      },
+      {
+        "event": "approve_all",
+        "from": "awaiting_approval",
+        "to": "ready"
+      },
+      {
+        "event": "reject",
+        "from": "awaiting_approval",
+        "to": "rejected"
+      },
+      {
+        "event": "revise",
+        "from": "awaiting_confirmation|awaiting_approval|ready",
+        "to": "awaiting_confirmation"
+      },
+      {
+        "event": "execute_claim",
+        "from": "ready",
+        "to": "executing"
+      },
+      {
+        "event": "delivery_ready_for_review",
+        "from": "executing",
+        "to": "reviewing"
+      },
+      {
+        "event": "review_pass",
+        "from": "reviewing",
+        "to": "composing_report"
+      },
+      {
+        "event": "review_pause_or_execution_failure",
+        "from": "reviewing",
+        "to": "paused"
+      },
+      {
+        "event": "finish_no_gaps",
+        "from": "composing_report",
+        "to": "completed"
+      },
+      {
+        "event": "finish_with_gaps",
+        "from": "composing_report",
+        "to": "completed_with_gaps"
+      },
+      {
+        "event": "failure_requiring_decision",
+        "from": "executing",
+        "to": "paused"
+      },
+      {
+        "event": "resume_retry",
+        "from": "paused",
+        "to": "ready"
+      },
+      {
+        "event": "resume_skip_optional_and_revise_plan",
+        "from": "paused",
+        "to": "awaiting_confirmation"
+      },
+      {
+        "event": "resume_abort",
+        "from": "paused",
+        "to": "cancelled"
+      }
+    ]
+  },
+  "source_ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+  "target": {
+    "agent_run_terminal_status_projection": [
+      "cancelled",
+      "completed",
+      "failed",
+      "partial",
+      "rejected"
+    ],
+    "artifact_states": [
+      "FAILED",
+      "SEALED",
+      "STAGING"
+    ],
+    "attempt_states": [
+      "cancelled",
+      "completed",
+      "failed",
+      "pending",
+      "recovery_required",
+      "running"
+    ],
+    "command_rules": {
+      "expected_state_version": true,
+      "idempotency_key": true,
+      "request_hash": true
+    },
+    "gates": [
+      "clarification",
+      "none",
+      "plan_confirmation",
+      "recovery_decision",
+      "tool_approval"
+    ],
+    "invocation_states": [
+      "acknowledged",
+      "cancelled",
+      "prepared",
+      "sent",
+      "unknown"
+    ],
+    "phases": [
+      "execution",
+      "planning",
+      "requirement",
+      "result",
+      "terminal"
+    ],
+    "step_states": [
+      "cancelled",
+      "completed",
+      "failed",
+      "pending",
+      "ready",
+      "running",
+      "skipped"
+    ],
+    "transitions": [
+      {
+        "event": "requirement_blocking",
+        "from": "requirement/none",
+        "to": "requirement/clarification"
+      },
+      {
+        "event": "requirement_ready",
+        "from": "requirement/none",
+        "to": "planning/none"
+      },
+      {
+        "event": "compile_recommended_plan",
+        "from": "planning/none",
+        "to": "planning/plan_confirmation"
+      },
+      {
+        "event": "clarify_accept",
+        "from": "requirement/clarification",
+        "to": "requirement/none"
+      },
+      {
+        "event": "confirm_plan",
+        "from": "planning/plan_confirmation",
+        "to": "planning/none"
+      },
+      {
+        "event": "revise",
+        "from": "planning/plan_confirmation",
+        "to": "planning/none_then_replan"
+      },
+      {
+        "event": "execute_no_tool_approval",
+        "from": "planning/none",
+        "to": "execution/none"
+      },
+      {
+        "event": "execute_tool_approval_required",
+        "from": "planning/none",
+        "to": "execution/tool_approval"
+      },
+      {
+        "event": "approve",
+        "from": "execution/tool_approval",
+        "to": "execution/none"
+      },
+      {
+        "event": "reject_or_expire",
+        "from": "execution/tool_approval",
+        "to": "terminal/none"
+      },
+      {
+        "event": "tool_result_unknown",
+        "from": "execution/none",
+        "to": "execution/recovery_decision"
+      },
+      {
+        "event": "retry_new_attempt",
+        "from": "execution/recovery_decision",
+        "to": "execution/none"
+      },
+      {
+        "event": "abort",
+        "from": "execution/recovery_decision",
+        "to": "terminal/none"
+      },
+      {
+        "event": "finish_pass_no_gaps",
+        "from": "execution/none",
+        "to": "terminal/none"
+      },
+      {
+        "event": "finish_pass_with_gaps",
+        "from": "execution/none",
+        "to": "terminal/none"
+      },
+      {
+        "event": "review_block_or_non_unknown_failure",
+        "from": "execution/none",
+        "to": "terminal/none"
+      },
+      {
+        "event": "cancel",
+        "from": "@any_nonterminal",
+        "to": "terminal/none"
+      }
+    ],
+    "workflow_identity": "ResearchWorkflow phase + active_gate"
+  },
+  "target_ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3"
+}

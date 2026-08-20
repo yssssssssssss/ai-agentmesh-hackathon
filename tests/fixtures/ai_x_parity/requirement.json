@@ -1,0 +1,187 @@
+{
+  "field_mapping": [
+    {
+      "mapping": "rename",
+      "source": "version",
+      "target": "schema_version"
+    },
+    {
+      "mapping": "source five-value enum narrows to competitive_research only",
+      "source": "task_type",
+      "target": "task_type"
+    },
+    {
+      "mapping": "target constant evidence_synthesis",
+      "source": null,
+      "target": "task_archetype"
+    },
+    {
+      "mapping": "lossy decomposition",
+      "source": "scope",
+      "target": "competitor_scope + exclusions"
+    },
+    {
+      "mapping": "rename",
+      "source": "comparison_dimensions",
+      "target": "analysis_dimensions"
+    },
+    {
+      "mapping": "rename",
+      "source": "constraints[].id/statement/source",
+      "target": "constraints[].key/value/source"
+    },
+    {
+      "mapping": "semantic conversion",
+      "source": "assumptions[].key/value/editable",
+      "target": "assumptions[].id/statement/accepted_by_user"
+    },
+    {
+      "mapping": "target closed code enum",
+      "source": "ambiguities[].id/statement/blocking",
+      "target": "ambiguities[].code/rationale/blocking"
+    },
+    {
+      "mapping": "target binds blocking ambiguity codes",
+      "source": "clarification_questions[].key/question/rationale",
+      "target": "clarification_questions[].id/prompt/ambiguity_code"
+    },
+    {
+      "mapping": "no direct target payload field",
+      "source": "blocking_issues",
+      "target": "ambiguities plus capability gate/error"
+    },
+    {
+      "mapping": "enum translation",
+      "source": "sensitivity=confidential",
+      "target": "sensitivity=private"
+    },
+    {
+      "mapping": "identity",
+      "source": "pii_detected",
+      "target": "pii_detected"
+    }
+  ],
+  "fixture_id": "requirement-mapping-v1",
+  "fixture_version": "ai-x-agentmesh-gate0-characterization-v1",
+  "invariants": {
+    "source": [
+      "Core arrays are present; comparison_dimensions is optional.",
+      "Requirement versions are immutable records.",
+      "The JSON Schema does not encode one-to-one ambiguity/question binding."
+    ],
+    "target": [
+      "Only competitive_research/evidence_synthesis is valid.",
+      "Every blocking ambiguity code matches a clarification question.",
+      "Missing competitor_scope is an explicit blocking ambiguity.",
+      "At most three clarification questions.",
+      "RequirementVersion payload includes requirement and problem_contract and is content-hashed."
+    ]
+  },
+  "normalization_profile": "gate0-semantic-normalization-v1",
+  "schema_ids": {
+    "source": "research-task-v2.schema.json (payload version research-task-v2)",
+    "target": "research-task-v2"
+  },
+  "semantic_differences": [
+    "The same ResearchTaskV2/research-task-v2 name identifies incompatible broad-source and competitive-only target contracts.",
+    "Source scope is an array; target competitor_scope is a nullable string plus exclusions.",
+    "Source blocking_issues has no one-field target mapping.",
+    "Source editable assumptions and target accepted_by_user assumptions model different decisions.",
+    "Source confidential and target private are not identical labels.",
+    "Deliverable identities differ: competitive_analysis_report versus competitive_analysis plus renderer outputs."
+  ],
+  "source_normalized_example": {
+    "ambiguities": [],
+    "assumptions": [
+      {
+        "editable": true,
+        "key": "market",
+        "value": "global"
+      }
+    ],
+    "blocking_issues": [],
+    "business_domain": "productivity_software",
+    "clarification_questions": [],
+    "comparison_dimensions": [
+      "capabilities",
+      "applicable_scenarios",
+      "limitations"
+    ],
+    "constraints": [
+      {
+        "id": "constraint_public_sources",
+        "source": "user",
+        "statement": "Use public evidence."
+      }
+    ],
+    "expected_deliverables": [
+      "competitive_analysis_report"
+    ],
+    "pii_detected": false,
+    "research_goal": "Compare Product Alpha and Product Beta for team adoption.",
+    "scope": [
+      "Product Alpha",
+      "Product Beta"
+    ],
+    "sensitivity": "public",
+    "success_criteria": [
+      {
+        "id": "criterion_traceable",
+        "statement": "Material differences are traceable to evidence."
+      }
+    ],
+    "target_audience": [
+      "product_team"
+    ],
+    "task_type": "competitive_research",
+    "version": "research-task-v2"
+  },
+  "source_ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+  "target_normalized_example": {
+    "ambiguities": [],
+    "analysis_dimensions": [
+      "capabilities",
+      "applicable_scenarios",
+      "limitations"
+    ],
+    "assumptions": [
+      {
+        "accepted_by_user": false,
+        "id": "assumption_market",
+        "statement": "The market is global."
+      }
+    ],
+    "business_domain": "productivity_software",
+    "clarification_questions": [],
+    "competitor_scope": "Product Alpha and Product Beta",
+    "constraints": [
+      {
+        "key": "constraint_public_sources",
+        "source": "user",
+        "value": "Use public evidence."
+      }
+    ],
+    "exclusions": [],
+    "expected_deliverables": [
+      "competitive_analysis",
+      "markdown_report",
+      "html_report"
+    ],
+    "pii_detected": false,
+    "research_goal": "Compare Product Alpha and Product Beta for team adoption.",
+    "schema_version": "research-task-v2",
+    "sensitivity": "public",
+    "success_criteria": [
+      {
+        "id": "sc_traceable",
+        "statement": "Material differences are traceable to evidence."
+      }
+    ],
+    "target_audience": [
+      "product_team"
+    ],
+    "task_archetype": "evidence_synthesis",
+    "task_type": "competitive_research"
+  },
+  "target_ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3"
+}

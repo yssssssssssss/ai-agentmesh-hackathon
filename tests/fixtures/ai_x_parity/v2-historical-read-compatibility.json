@@ -1,0 +1,204 @@
+{
+  "compatibility_limitations_at_target_base": [
+    "GET returns only ResearchRunProjection with fixed research-v2 discriminator; no v2/current union exists.",
+    "research-v2 is still a live implementation, not a historical-only adapter.",
+    "off blocks new v2 routing and execute/retry work but does not remove every existing-v2 mutation path.",
+    "This fixture freezes read semantics; it does not authorize rewriting rows or reinterpreting schema IDs."
+  ],
+  "exact_historical_identities_to_preserve": [
+    "competitive-analysis-output-v1",
+    "competitive-analysis-review-v1",
+    "deliverable-document-v1",
+    "deterministic-review-v1",
+    "evidence-manifest-v1",
+    "evidence-policy-v1",
+    "evidence-source-v1",
+    "execution-plan-v2",
+    "problem-contract-v1",
+    "report-document-v1",
+    "research-task-v2",
+    "research-v2"
+  ],
+  "fixture_id": "research-v2-historical-read-compatibility-v1",
+  "fixture_version": "ai-x-agentmesh-gate0-characterization-v1",
+  "normalization_profile": "gate0-semantic-normalization-v1",
+  "normalized_terminal_projection": {
+    "artifacts": {
+      "claim_ledger_id": "@id:claim-ledger",
+      "deliverable_id": "@id:deliverable",
+      "evidence_manifest_id": "@id:evidence-manifest",
+      "report_id": "@id:report",
+      "review_id": "@id:review"
+    },
+    "attempt": {
+      "attempt_id": "@id:attempt",
+      "attempt_number": 1,
+      "status": "completed",
+      "steps": [
+        {
+          "attempt_count": 1,
+          "error_code": null,
+          "result_artifact_id": "@id:tool-result",
+          "status": "completed",
+          "step_number": 1
+        },
+        {
+          "attempt_count": 1,
+          "error_code": null,
+          "result_artifact_id": "@id:skill-result",
+          "status": "completed",
+          "step_number": 2
+        }
+      ]
+    },
+    "gaps": [],
+    "integrity_errors": [],
+    "orchestration_version": "research-v2",
+    "plans": [
+      {
+        "plan_hash": "@hash:plan",
+        "plan_version_id": "@id:plan",
+        "recommended": true,
+        "steps": [
+          {
+            "actor_id": "tool_web_research",
+            "actor_type": "tool",
+            "name": "Research external evidence",
+            "required": true,
+            "step_number": 1
+          },
+          {
+            "actor_id": "@id:competitive-analysis-skill",
+            "actor_type": "skill",
+            "name": "Build competitive analysis",
+            "required": true,
+            "step_number": 2
+          }
+        ],
+        "version": 1
+      }
+    ],
+    "provenance": {
+      "actual_model": null,
+      "requested_model": null,
+      "tool_execution_mode": "real",
+      "tool_implementation_id": null
+    },
+    "recovery": null,
+    "requirement": {
+      "blocking": false,
+      "clarification_questions": [],
+      "competitor_scope": "Product Alpha and Product Beta",
+      "requirement_version_id": "@id:requirement",
+      "research_goal": "Compare Product Alpha and Product Beta.",
+      "version": 1
+    },
+    "result": {
+      "claims": [
+        {
+          "claim_id": "@id:claim",
+          "claim_type": "fact",
+          "confidence": "medium",
+          "conflict_status": "none",
+          "evidence_ids": [
+            "@id:evidence"
+          ],
+          "parent_claim_ids": [],
+          "statement": "Normalized finding."
+        }
+      ],
+      "deliverable": {
+        "comparison": [],
+        "limitations": [],
+        "recommendations": [],
+        "summary": "Normalized summary.",
+        "summary_claim_ids": [
+          "@id:claim"
+        ]
+      },
+      "evidence": [
+        {
+          "conflict_status": "none",
+          "evidence_id": "@id:evidence",
+          "quote": "Normalized evidence excerpt.",
+          "risk_flags": [],
+          "sources": []
+        }
+      ],
+      "report": {
+        "markdown": "# Competitive Analysis Report\n",
+        "title": "Competitive Analysis Report"
+      },
+      "review": {
+        "checks": [
+          {
+            "code": "schema_valid",
+            "passed": true
+          }
+        ],
+        "status": "pass"
+      }
+    },
+    "run_id": "@id:run",
+    "tool_approval": null,
+    "workflow": {
+      "active_attempt_id": "@id:attempt",
+      "active_gate": "none",
+      "active_plan_version_id": "@id:plan",
+      "active_requirement_version_id": "@id:requirement",
+      "phase": "terminal",
+      "state_version": 7
+    }
+  },
+  "read_cases": [
+    {
+      "case": "owned-valid-v2",
+      "expected": "200 research-v2 projection",
+      "mode": "off|preview|execute"
+    },
+    {
+      "case": "outside-owner-scope",
+      "expected": "404 without existence disclosure"
+    },
+    {
+      "case": "missing-v2-workflow",
+      "expected": "404"
+    },
+    {
+      "case": "workflow-row-or-link-corrupt",
+      "expected": "409 integrity conflict"
+    },
+    {
+      "case": "artifact-or-lineage-corrupt",
+      "expected": "200 with integrity_errors and empty result chain"
+    },
+    {
+      "case": "refresh-or-SSE-reconnect",
+      "expected": "read/invalidation only; no scheduling"
+    }
+  ],
+  "scope": "Observed target compatibility contract at the frozen base; ai-x has no AgentMesh research-v2 history type.",
+  "source_equivalent": null,
+  "source_ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+  "target_read_contract": {
+    "artifact_chain_integrity_behavior": "fail closed in projection",
+    "endpoint": "GET /api/agent/runs/{run_id}/research",
+    "historical_only_writer_fence_present_at_target_base": false,
+    "missing_or_outside_owner_scope_http_status": 404,
+    "mode_off_readable": true,
+    "owner_scope": [
+      "project_id",
+      "user_id",
+      "workspace_id"
+    ],
+    "pure_read": true,
+    "response_discriminator": {
+      "orchestration_version": "research-v2"
+    },
+    "response_type": "ResearchRunProjection",
+    "schedules_work": false,
+    "versioned_union_present_at_target_base": false,
+    "workflow_store_integrity_failure_http_status": 409
+  },
+  "target_ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3"
+}
