@@ -210,6 +210,38 @@ def test_rollout_decision_never_uses_allowlist_to_select_a_generation(
     assert (decision.target, decision.mode, decision.reason) == expected
 
 
+def test_database_trigger_fences_a_stale_v2_writer_after_generation_advance(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "writer-trigger.sqlite3")
+    store.compare_and_swap_research_writer_control(
+        expected_generation=ResearchWriterGeneration.V2,
+        expected_generation_epoch=1,
+        target_generation=ResearchWriterGeneration.V3,
+        decision_receipt_hash="9" * 64,
+        changed_at=NOW,
+    )
+    stale_v2 = _run(
+        run_id="run_stale_v2_trigger",
+        client_turn_id="turn_stale_v2_trigger",
+        thread_id="thread_stale_v2_trigger",
+    ).model_copy(
+        update={
+            "orchestration_version": "research-v2",
+            "orchestration_mode": "preview",
+            "writer_generation_epoch": 1,
+        }
+    )
+
+    with pytest.raises(sqlite3.IntegrityError, match="research writer generation fenced"):
+        store.save_agent_run(stale_v2)
+
+    ordinary = _run(
+        run_id="run_v1_after_cutover",
+        client_turn_id="turn_v1_after_cutover",
+        thread_id="thread_v1_after_cutover",
+    )
+    assert store.save_agent_run(ordinary).orchestration_version == "v1"
+
+
 def test_research_run_creation_is_atomic_and_replay_precedes_generation_change(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "atomic-create.sqlite3")
     coordinator = ResearchRunCreationCoordinator(store)

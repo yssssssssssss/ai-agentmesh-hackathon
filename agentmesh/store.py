@@ -486,6 +486,19 @@ class SQLiteStore:
         )
         connection.execute(
             """
+            CREATE TRIGGER IF NOT EXISTS research_writer_generation_fence
+            BEFORE INSERT ON agent_runs
+            WHEN NEW.orchestration_version IN ('research-v2', 'research-v3')
+              AND NEW.orchestration_version <> (
+                  SELECT active_generation FROM research_writer_control WHERE control_key = 'global'
+              )
+            BEGIN
+                SELECT RAISE(ABORT, 'research writer generation fenced');
+            END
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS agent_run_events (
                 run_id TEXT NOT NULL,
                 sequence INTEGER NOT NULL,
@@ -3530,6 +3543,12 @@ class SQLiteStore:
                     raise ResearchStoreConflict("research workflow identity conflicts with an existing run")
                 return context
 
+            writer_control = self._read_research_writer_control(connection)
+            if writer_control.active_generation != ResearchWriterGeneration.V2 or (
+                run.writer_generation_epoch is not None
+                and run.writer_generation_epoch != writer_control.generation_epoch
+            ):
+                raise ResearchStoreConflict("research-v2 writer generation is fenced")
             effective_workflow = workflow.model_copy(
                 update={"created_at": workflow.created_at, "updated_at": workflow.updated_at}
             )

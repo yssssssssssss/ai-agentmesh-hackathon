@@ -19,6 +19,7 @@ from agentmesh.research_orchestration.v3.actor_adapters import (
 )
 from agentmesh.research_orchestration.v3.api import (
     ResearchV3AggregateReadRequest,
+    ResearchV3CancelRequest,
     ResearchV3CandidateSelectRequest,
     ResearchV3ClarificationAnswer,
     ResearchV3ClarifyRequest,
@@ -274,6 +275,34 @@ def test_preview_candidate_replay_and_declarative_revision_are_idempotent(tmp_pa
         "preview_only",
         "revision_note",
     }
+
+
+def test_preview_cancel_records_command_and_closes_the_agent_run(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "preview-cancel.sqlite3")
+    _activate_v3(store)
+    composition = ResearchV3PreviewComposition(store)
+    run = asyncio.run(
+        _start(
+            composition,
+            content="Compare Alpha and Beta.",
+            client_turn_id="turn_preview_cancel",
+        )
+    )
+    client = _client(composition)
+    cancel = ResearchV3CancelRequest(
+        expected_state_version=1,
+        request_hash="0" * 64,
+        reason="User stopped the preview.",
+    )
+
+    response = client.post(
+        f"/api/agent/runs/{run.id}/research/cancel",
+        headers={"Idempotency-Key": "cancel.preview.1"},
+        json=_body("cancel", run.id, cancel),
+    )
+
+    assert response.status_code == 202
+    assert store.get_agent_run(run.id).status == "cancelled"
 
 
 def test_main_agent_run_route_selects_v3_preview_and_stored_version_reader(

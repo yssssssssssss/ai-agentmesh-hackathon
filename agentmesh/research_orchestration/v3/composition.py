@@ -935,7 +935,7 @@ class ResearchV3PreviewComposition:
     ) -> ResearchV3MutationReceipt:
         repository = self._repository(owner)
         try:
-            return await self._workflow(owner, repository).apply(
+            receipt = await self._workflow(owner, repository).apply(
                 run_id,
                 command_type,
                 request,
@@ -944,6 +944,9 @@ class ResearchV3PreviewComposition:
             )
         finally:
             repository.close()
+        if command_type in {"cancel", "purge"}:
+            self._store.cancel_agent_run_tree(run_id, user_id=owner.user_id)
+        return receipt
 
     def project_authoritative(self, request: ResearchV3AggregateReadRequest):  # noqa: ANN201
         repository = self._repository(request.owner)
