@@ -9,7 +9,11 @@ from math import ceil
 import agents as openai_agents
 from fastapi import APIRouter, Depends
 
-from agentmesh.agent_runtime.settings import agent_runtime_enabled, skill_orchestration_mode
+from agentmesh.agent_runtime.settings import (
+    agent_runtime_enabled,
+    research_preview_allowlist,
+    skill_orchestration_mode,
+)
 from agentmesh.datasources import data_api_provider_status, default_data_source_registry
 from agentmesh.documents import CompositeDocumentParser
 from agentmesh.embedding import embedding_provider_status
@@ -18,6 +22,7 @@ from agentmesh.models import ProviderHealthCheckResponse, User
 from agentmesh.o2 import O2CommandRunner, maybe_register_o2_data_connector, o2_research_provider_status
 from agentmesh.permissions import ACTION_VIEW_PROVIDER_HEALTH
 from agentmesh.provider_status import ProviderStatus, build_provider_status
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.routes.deps import require_permission
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
@@ -231,6 +236,8 @@ def _agent_runtime_status() -> dict[str, object]:
     index_counts = store.skill_profile_index_counts()
     index_ready = index_counts["records"] == index_counts["indexed"] and index_counts["missing"] == 0
     orchestration_mode = skill_orchestration_mode()
+    preview_allowlist = research_preview_allowlist()
+    writer_control = store.get_research_writer_control()
     runtime_status = (
         "ready"
         if ready
@@ -249,6 +256,10 @@ def _agent_runtime_status() -> dict[str, object]:
         "sdk_version": getattr(openai_agents, "__version__", "unknown"),
         "runtime_enabled": runtime_enabled,
         "skill_orchestration_mode": orchestration_mode.value,
+        "research_writer_generation": writer_control.active_generation.value,
+        "research_writer_generation_epoch": writer_control.generation_epoch,
+        "research_preview_allowlist_count": len(preview_allowlist),
+        "research_preview_allowlist_digest": canonical_json_v3_sha256(sorted(preview_allowlist)),
         "skills": len(catalog.list_enabled()),
         "planner_profiles": len(planner_profiles),
         "profile_health": "ready" if profile_ready else "degraded",
