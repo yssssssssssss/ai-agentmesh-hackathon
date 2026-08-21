@@ -24,3 +24,9 @@ def skill_orchestration_mode() -> SkillOrchestrationMode:
         return SkillOrchestrationMode(raw)
     except ValueError:
         return SkillOrchestrationMode.OFF
+
+
+def research_preview_allowlist() -> frozenset[str]:
+    from agentmesh.research_orchestration.current import parse_research_preview_allowlist
+
+    return parse_research_preview_allowlist(os.getenv("AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST", ""))
