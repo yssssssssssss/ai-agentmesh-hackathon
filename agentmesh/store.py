@@ -1989,6 +1989,31 @@ class SQLiteStore:
                             },
                         )
                     )
+        elif run.orchestration_version == "research-v3":
+            preview_row = connection.execute(
+                """SELECT state_version, preview_status FROM research_v3_runs
+                WHERE run_id = ? AND tombstoned_at IS NULL""",
+                (run.id,),
+            ).fetchone()
+            if preview_row is not None and preview_row["preview_status"] == "active":
+                cursor = connection.execute(
+                    """UPDATE research_v3_runs
+                    SET preview_status = 'cancelled', state_version = state_version + 1
+                    WHERE run_id = ? AND state_version = ?
+                      AND preview_status = 'active' AND tombstoned_at IS NULL""",
+                    (run.id, preview_row["state_version"]),
+                )
+                if cursor.rowcount != 1:
+                    raise ResearchStoreConflict("research-v3 preview cancellation conflict")
+                events.append(
+                    (
+                        "research_updated",
+                        {
+                            "state_version": preview_row["state_version"] + 1,
+                            "preview_status": "cancelled",
+                        },
+                    )
+                )
         run.status = AgentRunStatus.CANCELLED
         run.paused_state = None
         run.error_code = None
@@ -3533,6 +3558,26 @@ class SQLiteStore:
             raise ResearchStoreConflict("new research workflows must start at state_version 1")
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if run.client_turn_id is not None:
+                receipt = connection.execute(
+                    """SELECT run_id FROM agent_run_receipts
+                    WHERE user_id = ? AND client_turn_id = ?""",
+                    (run.user_id, run.client_turn_id),
+                ).fetchone()
+                if receipt is not None:
+                    context = self._load_research_workflow_context(
+                        connection,
+                        receipt["run_id"],
+                    )
+                    replay_request = run.model_copy(update={"id": receipt["run_id"]})
+                    if context is None or not self._research_run_identity_matches(
+                        context.run,
+                        replay_request,
+                    ):
+                        raise ResearchStoreConflict(
+                            "research workflow identity conflicts with an existing receipt"
+                        )
+                    return context
             run_row = connection.execute("SELECT * FROM agent_runs WHERE id = ?", (run.id,)).fetchone()
             workflow_row = connection.execute(
                 "SELECT 1 FROM research_workflows WHERE run_id = ?",

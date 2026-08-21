@@ -551,6 +551,26 @@ class SQLiteResearchV3Repository:
                 ADD COLUMN preview_status TEXT NOT NULL DEFAULT 'active'
                 CHECK(preview_status IN ('active', 'confirmed', 'cancelled'))"""
             )
+        connection.execute(
+            """UPDATE research_v3_runs AS runs
+            SET preview_status = (
+                SELECT CASE receipts.command_type
+                    WHEN 'confirm_plan' THEN 'confirmed'
+                    WHEN 'cancel' THEN 'cancelled'
+                END
+                FROM research_v3_command_receipts AS receipts
+                WHERE receipts.run_id = runs.run_id
+                  AND receipts.command_type IN ('confirm_plan', 'cancel')
+                ORDER BY receipts.committed_state_version DESC
+                LIMIT 1
+            )
+            WHERE runs.preview_status = 'active'
+              AND EXISTS (
+                SELECT 1 FROM research_v3_command_receipts AS receipts
+                WHERE receipts.run_id = runs.run_id
+                  AND receipts.command_type IN ('confirm_plan', 'cancel')
+              )"""
+        )
 
     def initialize_schema(self) -> None:
         """Create the private v3 namespace; never called by production startup."""

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from threading import Barrier
 from types import SimpleNamespace
 
@@ -11,7 +12,16 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from agentmesh.agent_runtime.settings import SkillOrchestrationMode
-from agentmesh.models import ChatThread, SkillOrchestrationRequestMode, User
+from agentmesh.models import (
+    AgentRun,
+    AgentRunStatus,
+    ChatThread,
+    SkillOrchestrationRequestMode,
+    User,
+    new_id,
+    now_utc,
+)
+from agentmesh.research_orchestration.contracts import ResearchWorkflow
 from agentmesh.research_orchestration.current import ResearchWriterGeneration
 from agentmesh.research_orchestration.v3.actor_adapters import (
     AgentSdkSkillAdapterV3,
@@ -28,6 +38,7 @@ from agentmesh.research_orchestration.v3.api import (
     ResearchV3ConfirmRequest,
     ResearchV3ExecuteRequest,
     ResearchV3OwnerScope,
+    ResearchV3PurgeRequest,
     ResearchV3ReviseRequest,
     create_research_v3_router,
     research_v3_request_hash,
@@ -342,6 +353,110 @@ def test_preview_cancel_records_command_and_closes_the_agent_run(tmp_path) -> No
     assert denied.status_code == 409
     assert "already cancelled" in denied.json()["detail"]
 
+    purge = ResearchV3PurgeRequest(
+        expected_state_version=2,
+        request_hash="0" * 64,
+        confirmation="PURGE",
+    )
+    purged = client.request(
+        "DELETE",
+        f"/api/agent/runs/{run.id}/research-data",
+        headers={"Idempotency-Key": "purge.after.cancel"},
+        json=_body("purge", run.id, purge),
+    )
+    assert purged.status_code == 202
+    assert purged.json()["purged_artifact_count"] >= 0
+    assert client.get(f"/api/agent/runs/{run.id}/research").status_code == 404
+
+
+def test_startup_reconciliation_cancels_expired_v3_lifecycle_atomically(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "preview-expired-restart.sqlite3")
+    _activate_v3(store)
+    composition = ResearchV3PreviewComposition(store)
+    run = asyncio.run(
+        _start(
+            composition,
+            content="Compare Alpha and Beta.",
+            client_turn_id="turn_preview_expired",
+        )
+    )
+    store.save_agent_run(
+        run.model_copy(update={"deadline_at": datetime.now(UTC) - timedelta(seconds=1)})
+    )
+
+    assert store.reconcile_orphaned_agent_runs() == 1
+    cancelled = store.get_agent_run(run.id)
+    assert cancelled is not None and cancelled.status == "cancelled"
+    restarted = ResearchV3PreviewComposition(
+        SQLiteStore(tmp_path / "preview-expired-restart.sqlite3")
+    )
+    aggregate = restarted.project_authoritative(
+        ResearchV3AggregateReadRequest(run_id=run.id, owner=OWNER)
+    )
+    assert aggregate.workflow.gate.status == "blocked"
+    assert aggregate.workflow.state_version == 2
+
+    client = _client(restarted)
+    select = ResearchV3CandidateSelectRequest(
+        expected_state_version=2,
+        request_hash="0" * 64,
+        candidate_id="speed",
+    )
+    denied = client.post(
+        f"/api/agent/runs/{run.id}/research/candidates/select",
+        headers={"Idempotency-Key": "select.after.expiry"},
+        json=_body("select_candidate", run.id, select),
+    )
+    assert denied.status_code == 409
+    assert "already cancelled" in denied.json()["detail"]
+
+
+def test_schema_initialization_backfills_terminal_preview_status_from_receipts(tmp_path) -> None:
+    database = tmp_path / "preview-lifecycle-backfill.sqlite3"
+    store = SQLiteStore(database)
+    _activate_v3(store)
+    composition = ResearchV3PreviewComposition(store)
+    run = asyncio.run(
+        _start(
+            composition,
+            content="Compare Alpha and Beta.",
+            client_turn_id="turn_preview_backfill",
+        )
+    )
+    client = _client(composition)
+    select = ResearchV3CandidateSelectRequest(
+        expected_state_version=1,
+        request_hash="0" * 64,
+        candidate_id="depth",
+    )
+    assert client.post(
+        f"/api/agent/runs/{run.id}/research/candidates/select",
+        headers={"Idempotency-Key": "select.preview.backfill"},
+        json=_body("select_candidate", run.id, select),
+    ).status_code == 202
+    plan_id = client.get(f"/api/agent/runs/{run.id}/research").json()["selected_plan"]["id"]
+    confirm = ResearchV3ConfirmRequest(
+        expected_state_version=2,
+        request_hash="0" * 64,
+        plan_version_id=plan_id,
+    )
+    assert client.post(
+        f"/api/agent/runs/{run.id}/research/plans/confirm",
+        headers={"Idempotency-Key": "confirm.preview.backfill"},
+        json=_body("confirm_plan", run.id, confirm),
+    ).status_code == 202
+
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE research_v3_runs SET preview_status = 'active' WHERE run_id = ?",
+            (run.id,),
+        )
+    restarted = ResearchV3PreviewComposition(SQLiteStore(database))
+    aggregate = restarted.project_authoritative(
+        ResearchV3AggregateReadRequest(run_id=run.id, owner=OWNER)
+    )
+    assert aggregate.workflow.gate.status == "satisfied"
+
 
 def test_main_agent_run_route_selects_v3_preview_and_stored_version_reader(
     tmp_path,
@@ -457,6 +572,87 @@ def test_concurrent_identical_client_turn_replays_one_generated_thread(
     assert runs[0]["thread_id"] == runs[1]["thread_id"]
     assert len([thread for thread in store.chat_threads if thread.id == runs[0]["thread_id"]]) == 1
     assert len(store.list_agent_runs(USER.id)) == 1
+
+
+def test_concurrent_identical_v2_client_turn_replays_one_run_and_thread(
+    tmp_path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    import agentmesh.routes.agent_runs as agent_run_routes
+
+    store = SQLiteStore(tmp_path / "v2-concurrent-replay.sqlite3")
+
+    class V2Runtime:
+        async def start_run(
+            self,
+            *,
+            content,
+            user,
+            thread_id,
+            client_turn_id,
+            mode,
+            requested_orchestration_mode,
+            explicit_skill=None,
+        ):  # noqa: ANN001, ANN202
+            control = store.get_research_writer_control()
+            proposed = AgentRun(
+                id=new_id("run"),
+                thread_id=thread_id,
+                user_id=user.id,
+                workspace_id=user.workspace_id,
+                project_id=user.default_project_id,
+                input_text=content,
+                client_turn_id=client_turn_id,
+                status=AgentRunStatus.PLANNING,
+                skill_id=explicit_skill.id if explicit_skill is not None else None,
+                skill_name=explicit_skill.name if explicit_skill is not None else None,
+                orchestration_version="research-v2",
+                orchestration_mode=mode.value,
+                writer_generation_epoch=control.generation_epoch,
+                requested_orchestration_mode=requested_orchestration_mode,
+                project_chat=True,
+                created_at=now_utc(),
+                updated_at=now_utc(),
+            )
+            return store.ensure_workflow(
+                proposed,
+                ResearchWorkflow(run_id=proposed.id),
+            ).run
+
+    isolated = FastAPI()
+    isolated.state.research_runtime = V2Runtime()
+    isolated.include_router(agent_run_routes.router)
+    isolated.dependency_overrides[current_user] = lambda: USER
+    monkeypatch.setattr(agent_run_routes, "store", store)
+    monkeypatch.setattr(
+        agent_run_routes,
+        "_visible_run",
+        lambda run_id, _user: store.get_agent_run(run_id),
+    )
+    monkeypatch.setattr(agent_run_routes, "require_default_project", lambda _user, _store: None)
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "preview")
+    monkeypatch.setenv("AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST", "")
+    payload = {
+        "content": "对比 Alpha 与 Beta，分析能力差异。",
+        "client_turn_id": "turn_v2_concurrent",
+    }
+    barrier = Barrier(2)
+
+    def post_once() -> tuple[int, dict[str, object]]:
+        with TestClient(isolated) as client:
+            barrier.wait()
+            response = client.post("/api/agent/runs", json=payload)
+            return response.status_code, response.json()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(lambda _index: post_once(), range(2)))
+
+    assert [status for status, _body_value in responses] == [202, 202]
+    runs = [body["item"] for _status, body in responses]
+    assert runs[0]["id"] == runs[1]["id"]
+    assert runs[0]["thread_id"] == runs[1]["thread_id"]
+    assert len(store.list_agent_runs(USER.id)) == 1
+    assert len([thread for thread in store.chat_threads if thread.id == runs[0]["thread_id"]]) == 1
 
 
 def test_preview_owner_scope_is_hidden(tmp_path) -> None:

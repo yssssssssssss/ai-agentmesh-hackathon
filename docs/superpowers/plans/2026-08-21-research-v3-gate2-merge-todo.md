@@ -21,7 +21,7 @@ Date: 2026-08-21
 - [x] Classify every review finding as blocker or recorded non-blocking debt.
 - [x] Fix the four confirmed code blockers without reopening Gate 0/Foundation.
 - [x] Re-run only the directly affected focused verification after blocker fixes.
-- [ ] Resume the same independent reviewer against the corrected exact HEAD and obtain final sign-off.
+- [ ] Resume the independent reviewer against the latest corrected exact HEAD and obtain final sign-off.
 - [ ] Reconcile the conflicting untracked main-Worktree file:
   `docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md`.
 - [ ] Confirm the main Worktree has no tracked modification and no untracked path that the integration branch would overwrite.
@@ -50,10 +50,18 @@ The first independent review rejected `8d3d5511ce811f21905089318d885686e8dc3565`
 
 Focused evidence after the fixes:
 
-- backend: 90 passed;
+- first blocker batch backend: 90 passed;
+- second blocker batch backend: 46 passed;
 - changed-file Ruff: passed;
 - frontend: 42 passed;
 - TypeScript/Vite build and bundle check: passed.
+
+The fallback follow-up review closed the original four findings but found two additional blockers. The second correction batch now:
+
+1. replays concurrent research-v2 creation by `(user_id, client_turn_id)` inside `ensure_workflow` before proposed Run insertion;
+2. atomically changes an expired/reconciled v3 preview root to `cancelled` with its coarse AgentRun;
+3. backfills `confirmed` or `cancelled` lifecycle status from durable command receipts when opening the rejected pre-fix schema;
+4. permits owner-authorized purge after confirmation or cancellation.
 
 ## Out of scope
 

@@ -193,6 +193,16 @@ class ResearchV3PreviewWorkflow:
             snapshot = self._repository.projection_snapshot(run_id)
             if snapshot is None:
                 raise ApiNotFoundError
+            if command_type == "purge":
+                if not isinstance(request, ResearchV3PurgeRequest):
+                    raise ApiConflictError("purge request is invalid")
+                receipt, replayed = self._repository.purge_run(
+                    run_id=run_id,
+                    idempotency_key=idempotency_key,
+                    request_hash=request.request_hash,
+                    expected_state_version=request.expected_state_version,
+                )
+                return self._api_receipt(receipt, replayed=replayed)
             if snapshot.run.preview_status != "active":
                 raise ApiConflictError(
                     f"research-v3 preview is already {snapshot.run.preview_status}"
@@ -249,16 +259,6 @@ class ResearchV3PreviewWorkflow:
                     records=(),
                     response_payload={"accepted": True, "cancelled": True},
                 )
-            elif command_type == "purge":
-                if not isinstance(request, ResearchV3PurgeRequest):
-                    raise ApiConflictError("purge request is invalid")
-                receipt, replayed = self._repository.purge_run(
-                    run_id=run_id,
-                    idempotency_key=idempotency_key,
-                    request_hash=request.request_hash,
-                    expected_state_version=request.expected_state_version,
-                )
-                return self._api_receipt(receipt, replayed=replayed)
             else:
                 request_types = (
                     ResearchV3ApprovalRequest,
