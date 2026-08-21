@@ -2,12 +2,6 @@ from __future__ import annotations
 
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.catalog import CompetitiveTextCatalog
-from agentmesh.research_orchestration.v3.problem_graph import (
-    ProblemGraphProvenanceV1,
-    ProblemGraphV1,
-    ProblemQuestionV1,
-)
-from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3
 from agentmesh.research_orchestration.v3.planning.models import (
     PlanningArtifactPort,
     PlanningModelCallReceiptV3,
@@ -19,6 +13,12 @@ from agentmesh.research_orchestration.v3.planning.validation import (
     competitive_text_evidence_requirements,
     validate_competitive_problem_graph,
 )
+from agentmesh.research_orchestration.v3.problem_graph import (
+    ProblemGraphProvenanceV1,
+    ProblemGraphV1,
+    ProblemQuestionV1,
+)
+from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3
 
 
 class ProblemGraphPlanningError(ValueError):

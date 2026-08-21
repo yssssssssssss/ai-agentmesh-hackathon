@@ -17,6 +17,14 @@ from agentmesh.research_orchestration.v3.execution_plan import (
     CapabilityResolutionV3,
     OptionalToolDecisionV3,
 )
+from agentmesh.research_orchestration.v3.planning.models import (
+    ActorDescriptorPort,
+    ActorRuntimeDescriptorV3,
+    ApprovalAvailabilityPort,
+    CapabilityResolutionResultV3,
+    PlanningArtifactPort,
+)
+from agentmesh.research_orchestration.v3.planning.validation import validate_competitive_problem_graph
 from agentmesh.research_orchestration.v3.ports import ClockPort
 from agentmesh.research_orchestration.v3.problem_graph import ProblemGraphV1
 from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3
@@ -26,14 +34,6 @@ from agentmesh.research_orchestration.v3.snapshots import (
     FrozenModelPolicyV3,
     ResearchControlSnapshotV3,
 )
-from agentmesh.research_orchestration.v3.planning.models import (
-    ActorDescriptorPort,
-    ActorRuntimeDescriptorV3,
-    ApprovalAvailabilityPort,
-    CapabilityResolutionResultV3,
-    PlanningArtifactPort,
-)
-from agentmesh.research_orchestration.v3.planning.validation import validate_competitive_problem_graph
 
 
 class CapabilityResolutionError(ValueError):

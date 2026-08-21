@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
-from agentmesh.research_orchestration.v3.ports import ClockPort, IdGeneratorPort
-from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3, ResearchTaskV3
 from agentmesh.research_orchestration.v3.planning.models import (
     PlanningModelCallReceiptV3,
     RequirementPlanningResultV3,
@@ -10,6 +8,8 @@ from agentmesh.research_orchestration.v3.planning.models import (
     RequirementProposalV3,
     RequirementStructuredProposalPort,
 )
+from agentmesh.research_orchestration.v3.ports import ClockPort, IdGeneratorPort
+from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3, ResearchTaskV3
 
 
 class RequirementPlanningError(ValueError):
