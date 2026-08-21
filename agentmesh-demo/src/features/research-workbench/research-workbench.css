@@ -7,7 +7,8 @@
   --border-soft: rgba(255, 255, 255, 0.06);
   --text: #e6e9f0;
   --text-dim: #a5adbf;
-  --text-faint: #6b7488;
+  /* 5.85:1 on cards and 6.54:1 on the base background at normal text sizes. */
+  --text-faint: #8d96aa;
   --primary: #7c7cf0;
   --primary-strong: #9ea0ff;
   --primary-dim: #4b4fd6;
@@ -16,20 +17,25 @@
   --button-primary-bg: #5f60d9;
   --button-primary-bg-hover: #5556bd;
   --button-primary-text: #ffffff;
+  --stage-number-bg: #5f60d9;
+  --stage-number-bg-hover: #5556bd;
   --ok: #34d399;
   --running: #6366f1;
   --warn: #fbbf24;
   --danger: #f87171;
-  --muted: #6b7488;
+  --muted: #8d96aa;
   --skill-bg: rgba(124, 124, 240, 0.16);
   --skill-fg: #b6b9ff;
   --tool-bg: rgba(251, 191, 36, 0.14);
   --tool-fg: #fcd34d;
+  --llm-fg: #c4b5fd;
+  --reviewer-fg: #cbd5e1;
   --report-paper: #f6f4ee;
   --report-ink: #1c2230;
   --report-accent: #5f60d9;
   --report-muted: #626a78;
   --report-rule: #d7d3c8;
+  --report-ok: #087a55;
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 18px;
@@ -125,8 +131,8 @@
   flex: 0 0 24px;
   place-items: center;
   border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
+  background: var(--stage-number-bg);
+  color: var(--button-primary-text);
   font-size: 12px;
   font-weight: 700;
 }
@@ -579,12 +585,12 @@
 
 .research-workbench-current .rw-actor-badge.actor-llm {
   background: rgba(167, 139, 250, 0.15);
-  color: #c4b5fd;
+  color: var(--llm-fg);
 }
 
 .research-workbench-current .rw-actor-badge.actor-reviewer {
   background: rgba(148, 163, 184, 0.15);
-  color: #cbd5e1;
+  color: var(--reviewer-fg);
 }
 
 .research-workbench-current .rw-plan-summary {
@@ -970,7 +976,7 @@
   padding: 5px 10px;
   border: 1px solid rgba(52, 211, 153, 0.52);
   border-radius: 999px;
-  color: #087a55;
+  color: var(--report-ok);
   font-size: 11px;
   font-weight: 700;
 }
@@ -1292,6 +1298,10 @@
 @media (hover: hover) {
   .research-workbench-current .rw-button-primary:hover:not(:disabled) {
     background: var(--button-primary-bg-hover);
+  }
+
+  .research-workbench-current .rw-stage-card:hover .rw-stage-number {
+    background: var(--stage-number-bg-hover);
   }
 
   .research-workbench-current .rw-button-ghost:hover:not(:disabled),

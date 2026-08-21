@@ -1,3 +1,7 @@
+import { sha256 } from '@noble/hashes/sha256'
+import { bytesToHex } from '@noble/hashes/utils'
+
+import { validateCanonicalWorkbenchSchema } from './canonicalValidation'
 import type {
   ActorExecutionResultV3,
   ActorType,
@@ -15,6 +19,7 @@ import type {
   ResearchAssumption,
   ResearchDeliverableV3,
   ResearchTaskV3,
+  ResearchWorkbenchRenderV1,
   ResearchV2HistoryWorkbenchAggregateV1,
   ResearchV3WorkbenchAggregateV1,
   RequirementVersionV3,
@@ -63,6 +68,44 @@ const FIELD_MATRIX: Record<WorkbenchState, ReadonlySet<string>> = {
 const PROJECTED_FIELDS = [
   'requirement', 'candidates', 'selected_plan', 'attempt', 'recovery', 'evidence', 'deliverable', 'review', 'report',
 ] as const
+
+function canonicalJson(value: unknown): string {
+  if (value === null) return 'null'
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new TypeError('canonical JSON forbids non-finite numbers')
+    return Object.is(value, -0) ? '0' : String(value)
+  }
+  if (typeof value === 'string') return JSON.stringify(value.normalize('NFC'))
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (typeof value === 'object') {
+    const normalized = new Map<string, unknown>()
+    for (const [key, item] of Object.entries(value)) {
+      const normalizedKey = key.normalize('NFC')
+      if (normalized.has(normalizedKey)) throw new TypeError('canonical JSON contains duplicate normalized keys')
+      normalized.set(normalizedKey, item)
+    }
+    const encoder = new TextEncoder()
+    const keys = [...normalized.keys()].sort((left, right) => {
+      const a = encoder.encode(left)
+      const b = encoder.encode(right)
+      for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+        if (a[index] !== b[index]) return a[index] - b[index]
+      }
+      return a.length - b.length
+    })
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(normalized.get(key))}`).join(',')}}`
+  }
+  throw new TypeError(`unsupported canonical JSON value: ${typeof value}`)
+}
+
+function canonicalSha256(value: unknown): string {
+  return bytesToHex(sha256(new TextEncoder().encode(canonicalJson(value))))
+}
+
+function requireCanonicalHash(content: unknown, expected: unknown, label: string): void {
+  if (canonicalSha256(content) !== expected) throw new TypeError(`${label} does not match canonical content`)
+}
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -307,6 +350,7 @@ function parseTask(value: unknown): ResearchTaskV3 {
 
 function parseRequirement(value: unknown): RequirementVersionV3 {
   const item = record(value, 'requirement')
+  requireCanonicalHash(item.payload, item.content_hash, 'requirement.content_hash')
   return {
     id: requireString(item.id, 'requirement.id'),
     run_id: requireString(item.run_id, 'requirement.run_id'),
@@ -389,6 +433,7 @@ function parseCandidates(value: unknown): PlanCandidateSetV3 {
 
 function parsePlan(value: unknown): ExecutionPlanVersionV3 {
   const item = record(value, 'selected_plan')
+  requireCanonicalHash(item.payload, item.plan_hash, 'selected_plan.plan_hash')
   requireLiteral(item.schema_version, 'execution-plan-v3', 'selected_plan.schema_version')
   const payload = record(item.payload, 'selected_plan.payload')
   return {
@@ -423,6 +468,8 @@ function parsePlan(value: unknown): ExecutionPlanVersionV3 {
       }),
       steps: requireArray(payload.steps, 'selected_plan.payload.steps').map((raw, index) => {
         const step = record(raw, `selected_plan.payload.steps[${index}]`)
+        const contract = Object.fromEntries(Object.entries(step).filter(([key]) => key !== 'contract_hash'))
+        requireCanonicalHash(contract, step.contract_hash, `selected_plan.payload.steps[${index}].contract_hash`)
         return {
           step_number: requireInteger(step.step_number, `selected_plan.payload.steps[${index}].step_number`, 1),
           name: requireString(step.name, `selected_plan.payload.steps[${index}].name`),
@@ -587,6 +634,7 @@ function parseEvidence(value: unknown): WorkbenchEvidenceV1 {
 
 function parseDeliverable(value: unknown): { content: ResearchDeliverableV3; artifact: SealedArtifactRefV3 } {
   const item = record(value, 'deliverable')
+  requireCanonicalHash(item.content, record(item.artifact, 'deliverable.artifact').content_hash, 'deliverable artifact hash')
   const content = record(item.content, 'deliverable.content')
   return {
     artifact: parseArtifact(item.artifact, 'deliverable.artifact'),
@@ -621,6 +669,7 @@ function parseDeliverable(value: unknown): { content: ResearchDeliverableV3; art
 
 function parseReview(value: unknown): { content: ReportReviewV3; artifact: SealedArtifactRefV3 } {
   const item = record(value, 'review')
+  requireCanonicalHash(item.content, record(item.artifact, 'review.artifact').content_hash, 'review artifact hash')
   const content = record(item.content, 'review.content')
   return {
     artifact: parseArtifact(item.artifact, 'review.artifact'),
@@ -653,6 +702,7 @@ function parseReportBlock(value: unknown, label: string): ReportBlockV3 {
 
 function parseReport(value: unknown): { content: ReportDocumentV3; artifact: SealedArtifactRefV3 } {
   const item = record(value, 'report')
+  requireCanonicalHash(item.content, record(item.artifact, 'report.artifact').content_hash, 'report artifact hash')
   const content = record(item.content, 'report.content')
   return {
     artifact: parseArtifact(item.artifact, 'report.artifact'),
@@ -767,6 +817,16 @@ function validateReportLineage(
   if (!sameArtifact(report.content.deliverable_artifact, deliverable.artifact)
     || !sameArtifact(report.content.review_artifact, review.artifact)) {
     throw new TypeError('Workbench report references different reviewed Artifacts')
+  }
+
+  const evidenceIds = new Set(evidence.evidence.map((item) => item.evidence_id))
+  for (const section of report.content.sections) {
+    for (const block of section.blocks) {
+      if ((block.type === 'fact' || block.type === 'metric')
+        && block.evidence_ids.some((evidenceId) => !evidenceIds.has(evidenceId))) {
+        throw new TypeError('Workbench report block references unknown Evidence')
+      }
+    }
   }
 
   const successfulResults = attempt.steps.flatMap((step) => step.status === 'succeeded' && step.result ? [step.result] : [])
@@ -944,15 +1004,54 @@ function validateHistory(root: Record<string, unknown>): ResearchV2HistoryWorkbe
   }
 }
 
+declare const trustedValidatedAggregate: unique symbol
+type TrustedValidatedWorkbenchAggregate = WorkbenchAggregateV1 & {
+  readonly [trustedValidatedAggregate]: true
+}
+
+function validateTrustedAggregate(root: Record<string, unknown>): TrustedValidatedWorkbenchAggregate {
+  if (root.projection_kind === 'research-v3-current') {
+    return validateCurrent(root) as TrustedValidatedWorkbenchAggregate
+  }
+  if (root.projection_kind === 'research-v2-history') {
+    return validateHistory(root) as TrustedValidatedWorkbenchAggregate
+  }
+  throw new TypeError('Unsupported workbench projection kind')
+}
+
+const CANONICAL_IDENTITY_KEYS = new Set([
+  'schema_version', 'projection_kind', 'orchestration_version', 'content_hash', 'plan_hash', 'contract_hash',
+  'step_contract_hash', 'artifact', 'result_artifact', 'deliverable_artifact', 'review_artifact',
+  'evidence_manifest_artifact',
+])
+
+function stripCanonicalIdentities(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripCanonicalIdentities)
+  if (value === null || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !CANONICAL_IDENTITY_KEYS.has(key))
+      .map(([key, item]) => [key, stripCanonicalIdentities(item)]),
+  )
+}
+
+function projectForRender(aggregate: TrustedValidatedWorkbenchAggregate): ResearchWorkbenchRenderV1 {
+  const projected = stripCanonicalIdentities(aggregate) as Record<string, unknown>
+  return {
+    ...projected,
+    render_schema_version: 'research-workbench-render-v1',
+    source_schema_version: 'research-workbench-aggregate-v1',
+    render_kind: aggregate.projection_kind === 'research-v3-current' ? 'current' : 'history',
+  } as ResearchWorkbenchRenderV1
+}
+
 /**
- * Builds the feature's sanitized render projection from untrusted JSON. Validation fails closed on
- * the frozen discriminator, state/field/gate matrix and run/plan/attempt/report lineage; the
- * renderer never receives an asserted arbitrary input object.
+ * Validates unknown JSON at the frozen canonical boundary, applies semantic integrity checks, then
+ * returns a distinct render-only model with every sealed/canonical identity removed.
  */
-export function adaptWorkbenchAggregate(input: unknown): WorkbenchAggregateV1 {
+export function adaptWorkbenchAggregate(input: unknown): ResearchWorkbenchRenderV1 {
+  validateCanonicalWorkbenchSchema(input)
   const root = record(input, 'workbench aggregate')
   requireLiteral(root.schema_version, 'research-workbench-aggregate-v1', 'schema_version')
-  if (root.projection_kind === 'research-v3-current') return validateCurrent(root)
-  if (root.projection_kind === 'research-v2-history') return validateHistory(root)
-  throw new TypeError('Unsupported workbench projection kind')
+  return projectForRender(validateTrustedAggregate(root))
 }

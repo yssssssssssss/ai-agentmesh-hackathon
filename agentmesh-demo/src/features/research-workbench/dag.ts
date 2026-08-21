@@ -1,10 +1,10 @@
-import type { PlanStepV3, StepStatus, WorkbenchStepV1 } from './types'
+import type { PlanStepRenderV1, StepStatus, WorkbenchStepRenderV1 } from './types'
 
 export interface DagNode {
   id: string
   stepNumber: number
   name: string
-  actorType: PlanStepV3['actor_type']
+  actorType: PlanStepRenderV1['actor_type']
   actorId: string
   dependsOn: number[]
   status: StepStatus
@@ -25,7 +25,7 @@ export interface ResearchDag {
   layers: number[][]
 }
 
-function statusFor(stepNumber: number, attempts: readonly WorkbenchStepV1[]): Pick<DagNode, 'status' | 'failureCode'> {
+function statusFor(stepNumber: number, attempts: readonly WorkbenchStepRenderV1[]): Pick<DagNode, 'status' | 'failureCode'> {
   const attempt = attempts.find((item) => item.step_number === stepNumber)
   return {
     status: attempt?.status ?? 'pending',
@@ -35,8 +35,8 @@ function statusFor(stepNumber: number, attempts: readonly WorkbenchStepV1[]): Pi
 
 /** Builds a deterministic, visual-only DAG model from the sealed plan and public step statuses. */
 export function buildResearchDag(
-  steps: readonly PlanStepV3[],
-  attempts: readonly WorkbenchStepV1[] = [],
+  steps: readonly PlanStepRenderV1[],
+  attempts: readonly WorkbenchStepRenderV1[] = [],
 ): ResearchDag {
   const known = new Set(steps.map((step) => step.step_number))
   const layerByStep = new Map<number, number>()

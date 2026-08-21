@@ -1,7 +1,7 @@
 import type {
-  ResearchV2HistoryWorkbenchAggregateV1,
-  ResearchV3WorkbenchAggregateV1,
-  WorkbenchAggregateV1,
+  ResearchV2HistoryWorkbenchRenderV1,
+  ResearchV3WorkbenchRenderV1,
+  ResearchWorkbenchRenderV1,
   WorkbenchState,
 } from './types'
 
@@ -9,7 +9,7 @@ export interface CurrentWorkbenchPresentation {
   kind: 'current'
   state: WorkbenchState
   stateLabel: string
-  aggregate: ResearchV3WorkbenchAggregateV1
+  aggregate: ResearchV3WorkbenchRenderV1
   showWelcome: boolean
   showRequirement: boolean
   showClarification: boolean
@@ -23,7 +23,7 @@ export interface CurrentWorkbenchPresentation {
 
 export interface HistoryWorkbenchPresentation {
   kind: 'history'
-  aggregate: ResearchV2HistoryWorkbenchAggregateV1
+  aggregate: ResearchV2HistoryWorkbenchRenderV1
   title: string
   status: string | null
   request: string | null
@@ -51,7 +51,7 @@ function firstString(payload: Record<string, unknown>, keys: readonly string[]):
   return null
 }
 
-function presentHistory(aggregate: ResearchV2HistoryWorkbenchAggregateV1): HistoryWorkbenchPresentation {
+function presentHistory(aggregate: ResearchV2HistoryWorkbenchRenderV1): HistoryWorkbenchPresentation {
   const payload = aggregate.history_payload
   return {
     kind: 'history',
@@ -64,8 +64,8 @@ function presentHistory(aggregate: ResearchV2HistoryWorkbenchAggregateV1): Histo
   }
 }
 
-export function presentWorkbench(aggregate: WorkbenchAggregateV1): WorkbenchPresentation {
-  if (aggregate.projection_kind === 'research-v2-history') return presentHistory(aggregate)
+export function presentWorkbench(aggregate: ResearchWorkbenchRenderV1): WorkbenchPresentation {
+  if (aggregate.render_kind === 'history') return presentHistory(aggregate)
 
   const state = aggregate.workflow.state
   return {
