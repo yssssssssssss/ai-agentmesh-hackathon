@@ -44,6 +44,7 @@ from agentmesh.research_orchestration.v3.delivery_service import (
 from agentmesh.research_orchestration.v3.evidence import EvidenceManifestV3, VerifiedArtifactContentV3
 from agentmesh.research_orchestration.v3.evidence_materializer import EvidenceManifestMaterializer
 from agentmesh.research_orchestration.v3.execution import (
+    ActorAdapterRegistrationV3,
     ExecutionOutcome,
     ExecutionRecoveryState,
     ExecutionRecoveryStateMachine,
@@ -84,9 +85,14 @@ from agentmesh.research_orchestration.v3.problem_graph import ProblemGraphV1
 from agentmesh.research_orchestration.v3.report_composition import CompetitiveTextReportCompositionService
 from agentmesh.research_orchestration.v3.report_document import ReportDocumentV3
 from agentmesh.research_orchestration.v3.requirement import ResearchTaskV3
-from agentmesh.research_orchestration.v3.review import PassedReportReviewV3, REVIEW_DIMENSIONS, ReviewDimensionV3
+from agentmesh.research_orchestration.v3.review import REVIEW_DIMENSIONS, PassedReportReviewV3, ReviewDimensionV3
 from agentmesh.research_orchestration.v3.review_service import ReportReviewService, SemanticReviewResultV3
-from agentmesh.research_orchestration.v3.snapshots import FrozenDocumentV3, FrozenModelPolicyV3, ResearchControlSnapshotV3
+from agentmesh.research_orchestration.v3.snapshots import (
+    FrozenActorV3,
+    FrozenDocumentV3,
+    FrozenModelPolicyV3,
+    ResearchControlSnapshotV3,
+)
 from agentmesh.research_orchestration.v3.web_projection import (
     ResearchV3WorkbenchAggregateV1,
     WorkbenchAggregateV1,
@@ -445,10 +451,12 @@ class _DeterministicActorFake:
     def __init__(
         self,
         artifacts: InMemoryArtifactReadAdapter,
+        frozen_actors: dict[tuple[str, str], FrozenActorV3],
         *,
         fail_actor_id: str | None = None,
     ) -> None:
         self._artifacts = artifacts
+        self._frozen_actors = frozen_actors
         self._fail_actor_id = fail_actor_id
         self.calls: list[tuple[str, int]] = []
 
@@ -456,6 +464,7 @@ class _DeterministicActorFake:
         self.calls.append((request.step.actor_id, request.step.step_number))
         if request.step.actor_id == self._fail_actor_id:
             raise RuntimeError(f"synthetic failure for {request.step.actor_id}")
+        frozen_actor = self._frozen_actors[(request.step.actor_type, request.step.actor_id)]
         content = self._content(request)
         artifact = SealedArtifactRefV3(
             artifact_id=f"artifact_actor_{request.attempt_id}_{request.step.step_number}",
@@ -463,7 +472,6 @@ class _DeterministicActorFake:
             schema_version="actor-result-v1",
             content_hash=canonical_json_v3_sha256(content),
         )
-        mode = "real" if request.step.actor_type == "tool" else "deterministic"
         result = ActorExecutionResultV3(
             run_id=request.run_id,
             plan_version_id=request.plan_version_id,
@@ -474,8 +482,8 @@ class _DeterministicActorFake:
             step_contract_hash=request.step.contract_hash,
             result_artifact=artifact,
             receipt_id=f"receipt_actor_{request.attempt_id}_{request.step.step_number}",
-            implementation_id=f"integration_{request.step.actor_id}",
-            execution_mode=mode,
+            implementation_id=frozen_actor.implementation_id,
+            execution_mode=frozen_actor.execution_mode,
         )
         self._artifacts.append_verified_json(
             VerifiedArtifactContentV3(
@@ -809,12 +817,32 @@ class CompetitiveTextIntegrationHarness:
         plan: ExecutionPlanVersionV3 | None = None,
     ) -> ExecutedCompetitiveTextRun:
         selected_plan = plan or prepared.selected_plan
-        actor = _DeterministicActorFake(prepared.artifacts, fail_actor_id=fail_actor_id)
+        snapshot = prepared.repository.read_control_snapshot(
+            selected_plan.payload.control_snapshot_artifact
+        )
+        if snapshot is None:
+            raise ValueError("selected Plan control snapshot failed verified readback")
+        frozen_actors = {
+            (frozen.actor_type, frozen.actor_id): frozen for frozen in snapshot.actors
+        }
+        actor = _DeterministicActorFake(
+            prepared.artifacts,
+            frozen_actors,
+            fail_actor_id=fail_actor_id,
+        )
         dispatcher = HeterogeneousActorDispatcher(
-            tool=actor,
-            skill=actor,
-            llm=actor,
-            reviewer=actor,
+            registrations=tuple(
+                ActorAdapterRegistrationV3(
+                    actor_type=frozen.actor_type,
+                    actor_id=frozen.actor_id,
+                    implementation_id=frozen.implementation_id,
+                    implementation_version=frozen.implementation_version,
+                    execution_mode=frozen.execution_mode,
+                    adapter=actor,
+                )
+                for frozen in snapshot.actors
+            ),
+            control_snapshots=prepared.repository,
         )
         proofs = (
             tuple(
@@ -985,11 +1013,11 @@ class CompetitiveTextIntegrationHarness:
                 content=report,
             ),
             provenance=WorkbenchProjectionProvenanceV1(
-                source_kind="repository_projection",
+                source_kind="isolated_fixture",
                 projection_schema_version="research-workbench-aggregate-v1",
                 projected_at=_FIXED_TIME,
                 source_state_version=state_version,
-                baseline_state_id=None,
+                baseline_state_id="text_report",
             ),
         )
         workbench = WorkbenchAggregateV1.model_validate(aggregate.model_dump(mode="python"))

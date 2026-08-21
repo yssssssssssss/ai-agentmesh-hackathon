@@ -36,7 +36,7 @@ from agentmesh.research_orchestration.v3.problem_graph import ProblemGraphV1, va
 from agentmesh.research_orchestration.v3.report_document import ReportDocumentV3
 from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3, ResearchTaskV3
 from agentmesh.research_orchestration.v3.review import PassedReportReviewV3, ReportReviewV3
-from agentmesh.research_orchestration.v3.snapshots import ResearchControlSnapshotV3
+from agentmesh.research_orchestration.v3.snapshots import FrozenActorV3, ResearchControlSnapshotV3
 
 
 class ClockPort(Protocol):
@@ -113,6 +113,7 @@ class ActorExecutionRequestV3(StrictFrozenModel):
     run_id: Identifier
     plan_version_id: Identifier
     attempt_id: Identifier
+    control_snapshot_artifact: SealedArtifactRefV3
     step: PlanStepV3
     resolved_input: FrozenJsonObject
 
@@ -136,6 +137,8 @@ class ActorExecutionResultV3(StrictFrozenModel):
 def validate_actor_result_for_request(
     request: ActorExecutionRequestV3,
     result: ActorExecutionResultV3,
+    *,
+    frozen_actor: FrozenActorV3 | None = None,
 ) -> None:
     if (
         result.run_id,
@@ -155,6 +158,14 @@ def validate_actor_result_for_request(
         request.step.contract_hash,
     ):
         raise ValueError("Actor execution result does not match its request lineage and step contract")
+    if frozen_actor is not None and (
+        result.implementation_id,
+        result.execution_mode,
+    ) != (
+        frozen_actor.implementation_id,
+        frozen_actor.execution_mode,
+    ):
+        raise ValueError("Actor execution receipt does not match the frozen implementation identity")
 
 
 def _validate_plan_requirement_lineage(
@@ -510,6 +521,15 @@ class ResearchV3RepositoryPort(Protocol):
         *,
         expected_state_version: int,
     ) -> SealedArtifactRefV3: ...
+
+
+class ControlSnapshotReadPort(Protocol):
+    """Read back the exact sealed control snapshot selected by an Execution Plan."""
+
+    def read_control_snapshot(
+        self,
+        artifact: SealedArtifactRefV3,
+    ) -> ResearchControlSnapshotV3 | None: ...
 
 
 class ArtifactReadPort(Protocol):

@@ -7,7 +7,7 @@ from typing import Literal, cast
 
 import pytest
 
-from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_bytes
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_bytes, canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.competitive_text_integration import (
     CompetitiveTextIntegrationHarness,
 )
@@ -66,6 +66,22 @@ def test_harness_completes_depth_and_speed_as_pass_reviewed_text_aggregates(
 
     assert completed.executed.execution.outcome == ExecutionOutcome.SUCCEEDED
     assert len(completed.executed.execution.actor_results) == step_count
+    snapshot_artifact = completed.prepared.selected_plan.payload.control_snapshot_artifact
+    snapshot = completed.prepared.repository.read_control_snapshot(snapshot_artifact)
+    assert snapshot is not None
+    assert canonical_json_v3_sha256(snapshot) == snapshot_artifact.content_hash
+    frozen_actors = {(actor.actor_type, actor.actor_id): actor for actor in snapshot.actors}
+    for step, result in zip(
+        completed.prepared.selected_plan.payload.steps,
+        completed.executed.execution.actor_results,
+        strict=True,
+    ):
+        frozen_actor = frozen_actors[(step.actor_type, step.actor_id)]
+        assert canonical_json_v3_sha256(frozen_actor) == step.actor_snapshot_hash
+        assert (result.implementation_id, result.execution_mode) == (
+            frozen_actor.implementation_id,
+            frozen_actor.execution_mode,
+        )
     assert len(completed.evidence_manifest.evidence) == 2
     assert completed.review.verdict == "pass"
     assert all(check.passed for check in completed.review.deterministic_checks)
@@ -85,6 +101,8 @@ def test_harness_completes_depth_and_speed_as_pass_reviewed_text_aggregates(
     assert reparsed.root.selected_plan.payload.candidate_id == candidate_id
     assert reparsed.root.attempt is not None
     assert reparsed.root.attempt.status == "completed"
+    assert reparsed.root.provenance.source_kind == "isolated_fixture"
+    assert reparsed.root.provenance.baseline_state_id == "text_report"
 
     if candidate_id == "depth":
         assert serialized == json.loads(_FIXTURE.read_text(encoding="utf-8"))

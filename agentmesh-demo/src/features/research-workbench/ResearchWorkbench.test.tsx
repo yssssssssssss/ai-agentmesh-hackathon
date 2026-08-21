@@ -145,7 +145,8 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
 
     expect(aggregate.render_kind).toBe('current')
     if (aggregate.render_kind !== 'current') throw new Error('expected current render projection')
-    expect(aggregate.provenance.source_kind).toBe('repository_projection')
+    expect(aggregate.provenance.source_kind).toBe('isolated_fixture')
+    expect(aggregate.provenance.baseline_state_id).toBe('text_report')
     expect(aggregate.workflow.state).toBe('text_report')
     expect(aggregate.selected_plan?.payload.candidate_id).toBe('depth')
     expect(aggregate.attempt?.steps).toHaveLength(4)

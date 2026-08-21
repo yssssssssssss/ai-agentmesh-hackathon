@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_bytes, canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.catalog import load_competitive_text_catalog
 from agentmesh.research_orchestration.v3.common import SealedArtifactRefV3
 from agentmesh.research_orchestration.v3.delivery_service import (
@@ -19,6 +19,7 @@ from agentmesh.research_orchestration.v3.evidence_materializer import (
     EvidenceMaterializationError,
 )
 from agentmesh.research_orchestration.v3.execution import (
+    ActorAdapterRegistrationV3,
     ActorInvocationTimedOut,
     ExecutionOutcome,
     ExecutionRecoveryStateMachine,
@@ -54,6 +55,12 @@ from agentmesh.research_orchestration.v3.review_service import (
     ReportReviewService,
     SemanticReviewResultV3,
 )
+from agentmesh.research_orchestration.v3.snapshots import (
+    FrozenActorV3,
+    FrozenDocumentV3,
+    FrozenModelPolicyV3,
+    ResearchControlSnapshotV3,
+)
 from tests.research_v3_contract_samples import (
     HASH,
     deliverable_body,
@@ -66,8 +73,83 @@ from tests.research_v3_contract_samples import (
 NOW = datetime(2026, 8, 21, 0, 10, tzinfo=UTC)
 
 
+def _actor_implementation_id(actor_type: str) -> str:
+    return f"implementation_{actor_type}"
+
+
+def _actor_execution_mode(actor_type: str) -> str:
+    return "real" if actor_type == "tool" else "model"
+
+
+def _snapshot_for_steps(steps: list[dict] | tuple) -> ResearchControlSnapshotV3:
+    schema_content = {"type": "object"}
+    schema_bytes = canonical_json_v3_bytes(schema_content)
+    document = FrozenDocumentV3(
+        document_id="execution-test-schema",
+        kind="json_schema",
+        media_type="application/json",
+        content_hash=canonical_json_v3_sha256(schema_content),
+        size_bytes=len(schema_bytes),
+        content=schema_content,
+    )
+    actor_keys = sorted({(step["actor_type"], step["actor_id"]) for step in steps})
+    actors = tuple(
+        FrozenActorV3(
+            actor_type=actor_type,
+            actor_id=actor_id,
+            implementation_id=_actor_implementation_id(actor_type),
+            implementation_version="1",
+            execution_mode=_actor_execution_mode(actor_type),
+            enabled=True,
+            eligible=True,
+            required_tool_ids=(),
+            optional_tool_ids=(),
+            input_schema_document_id=document.document_id,
+            output_schema_document_id=document.document_id,
+        )
+        for actor_type, actor_id in actor_keys
+    )
+    return ResearchControlSnapshotV3(
+        schema_version="research-control-snapshot-v3",
+        catalog_id="competitive-text-v1",
+        catalog_hash=HASH,
+        resolved_for_agent_id="execution_test",
+        resolved_at=NOW,
+        model_policy=FrozenModelPolicyV3(
+            requested_provider="test",
+            requested_model="test-model",
+            structured_output_mode="json_schema",
+            adapter_compatibility_id="execution-test-v1",
+        ),
+        actors=actors,
+        documents=(document,),
+    )
+
+
+def _prepare_control_snapshot(body: dict) -> ResearchControlSnapshotV3:
+    snapshot = _snapshot_for_steps(body["steps"])
+    actors = {(actor.actor_type, actor.actor_id): actor for actor in snapshot.actors}
+    for step in body["steps"]:
+        step["actor_snapshot_hash"] = canonical_json_v3_sha256(
+            actors[(step["actor_type"], step["actor_id"])]
+        )
+        step["contract_hash"] = canonical_json_v3_sha256(
+            {key: value for key, value in step.items() if key != "contract_hash"}
+        )
+    snapshot_hash = canonical_json_v3_sha256(snapshot)
+    body["control_snapshot_artifact"] = {
+        "artifact_id": f"artifact_control_{snapshot_hash[:24]}",
+        "kind": "research_control_snapshot",
+        "schema_version": "research-control-snapshot-v3",
+        "content_hash": snapshot_hash,
+    }
+    return snapshot
+
+
 def _plan_version(body: dict | None = None) -> ExecutionPlanVersionV3:
-    payload = ExecutionPlanV3.model_validate(body or plan_body())
+    body = deepcopy(body or plan_body())
+    _prepare_control_snapshot(body)
+    payload = ExecutionPlanV3.model_validate(body)
     return ExecutionPlanVersionV3.model_validate(
         {
             "id": "plan_1",
@@ -163,6 +245,47 @@ def _actor_result(
     )
 
 
+class _StaticControlSnapshotReader:
+    def __init__(
+        self,
+        artifact: SealedArtifactRefV3,
+        snapshot: ResearchControlSnapshotV3,
+    ) -> None:
+        self.artifact = artifact
+        self.snapshot = snapshot
+
+    def read_control_snapshot(
+        self,
+        artifact: SealedArtifactRefV3,
+    ) -> ResearchControlSnapshotV3 | None:
+        return self.snapshot if artifact == self.artifact else None
+
+
+def _control_snapshot_reader(
+    plan: ExecutionPlanVersionV3,
+) -> tuple[_StaticControlSnapshotReader, ResearchControlSnapshotV3]:
+    snapshot = _snapshot_for_steps(
+        [step.model_dump(mode="python") for step in plan.payload.steps]
+    )
+    return _StaticControlSnapshotReader(plan.payload.control_snapshot_artifact, snapshot), snapshot
+
+
+def _request_for_step(
+    plan: ExecutionPlanVersionV3,
+    *,
+    step_number: int = 1,
+) -> ActorExecutionRequestV3:
+    step = plan.payload.steps[step_number - 1]
+    return ActorExecutionRequestV3(
+        run_id=plan.run_id,
+        plan_version_id=plan.id,
+        attempt_id="attempt_1",
+        control_snapshot_artifact=plan.payload.control_snapshot_artifact,
+        step=step,
+        resolved_input=step.input,
+    )
+
+
 class _TrackingActor:
     def __init__(self, actor_type: str, tracker: dict, failures: set[int]) -> None:
         self.actor_type = actor_type
@@ -182,14 +305,40 @@ class _TrackingActor:
         return _actor_result(request, execution_mode=mode)
 
 
-def _dispatcher(failures: set[int]) -> tuple[HeterogeneousActorDispatcher, dict]:
+def _registration(
+    frozen_actor: FrozenActorV3,
+    adapter,
+    **updates,
+) -> ActorAdapterRegistrationV3:
+    values = {
+        "actor_type": frozen_actor.actor_type,
+        "actor_id": frozen_actor.actor_id,
+        "implementation_id": frozen_actor.implementation_id,
+        "implementation_version": frozen_actor.implementation_version,
+        "execution_mode": frozen_actor.execution_mode,
+        "adapter": adapter,
+    }
+    values.update(updates)
+    return ActorAdapterRegistrationV3(**values)
+
+
+def _dispatcher(
+    plan: ExecutionPlanVersionV3,
+    failures: set[int],
+) -> tuple[HeterogeneousActorDispatcher, dict]:
     tracker = {"calls": [], "active": 0, "max_active": 0}
+    adapters = {
+        actor_type: _TrackingActor(actor_type, tracker, failures)
+        for actor_type in ("tool", "skill", "llm", "reviewer")
+    }
+    control_snapshots, snapshot = _control_snapshot_reader(plan)
     return (
         HeterogeneousActorDispatcher(
-            tool=_TrackingActor("tool", tracker, failures),
-            skill=_TrackingActor("skill", tracker, failures),
-            llm=_TrackingActor("llm", tracker, failures),
-            reviewer=_TrackingActor("reviewer", tracker, failures),
+            registrations=tuple(
+                _registration(actor, adapters[actor.actor_type])
+                for actor in snapshot.actors
+            ),
+            control_snapshots=control_snapshots,
         ),
         tracker,
     )
@@ -197,7 +346,7 @@ def _dispatcher(failures: set[int]) -> tuple[HeterogeneousActorDispatcher, dict]
 
 def test_wave_execution_dispatches_all_actor_types_and_propagates_failures() -> None:
     plan = _heterogeneous_plan()
-    successful_dispatcher, successful_tracker = _dispatcher(set())
+    successful_dispatcher, successful_tracker = _dispatcher(plan, set())
     successful = asyncio.run(
         WaveExecutionEngine(successful_dispatcher).execute(
             plan=plan,
@@ -214,7 +363,7 @@ def test_wave_execution_dispatches_all_actor_types_and_propagates_failures() -> 
     }
     assert successful.require_delivery_results() == successful.actor_results
 
-    optional_dispatcher, optional_tracker = _dispatcher({2})
+    optional_dispatcher, optional_tracker = _dispatcher(plan, {2})
     optional = asyncio.run(
         WaveExecutionEngine(optional_dispatcher).execute(plan=plan, attempt_id="attempt_optional")
     )
@@ -232,7 +381,7 @@ def test_wave_execution_dispatches_all_actor_types_and_propagates_failures() -> 
     with pytest.raises(ValueError, match="every selected Plan Step"):
         optional.require_delivery_results()
 
-    core_dispatcher, core_tracker = _dispatcher({1})
+    core_dispatcher, core_tracker = _dispatcher(plan, {1})
     core = asyncio.run(
         WaveExecutionEngine(core_dispatcher).execute(plan=plan, attempt_id="attempt_core")
     )
@@ -288,7 +437,7 @@ def test_execution_requires_approval_before_dispatch() -> None:
         )
     ]
     plan = _plan_version(body)
-    dispatcher, tracker = _dispatcher(set())
+    dispatcher, tracker = _dispatcher(plan, set())
     engine = WaveExecutionEngine(dispatcher)
 
     with pytest.raises(ValueError, match="approval proofs"):
@@ -328,7 +477,7 @@ def test_execution_enforces_max_sends_and_does_not_retry_unknown_timeouts() -> N
         )
     ]
     retry_plan = _plan_version(retry_body)
-    retry_dispatcher, retry_tracker = _dispatcher({1})
+    retry_dispatcher, retry_tracker = _dispatcher(retry_plan, {1})
     retried = asyncio.run(
         WaveExecutionEngine(retry_dispatcher).execute(
             plan=retry_plan,
@@ -339,7 +488,7 @@ def test_execution_enforces_max_sends_and_does_not_retry_unknown_timeouts() -> N
     assert retried.steps[0].send_count == 2
     assert retried.outcome == ExecutionOutcome.FAILED
 
-    timeout_dispatcher, timeout_tracker = _dispatcher(set())
+    timeout_dispatcher, timeout_tracker = _dispatcher(retry_plan, set())
     cancellation = _TimeoutCancellation()
     timed_out = asyncio.run(
         WaveExecutionEngine(
@@ -374,7 +523,7 @@ def test_execution_caps_each_step_by_timeout_and_remaining_plan_budget() -> None
         ),
     ]
     plan = _plan_version(body)
-    dispatcher, _ = _dispatcher(set())
+    dispatcher, _ = _dispatcher(plan, set())
     clock = _FakeClock()
     cancellation = _RecordingCancellation(clock, [250, 1])
     result = asyncio.run(
@@ -401,13 +550,15 @@ def test_execution_caps_each_step_by_timeout_and_remaining_plan_budget() -> None
             timeout_seconds=300,
         )
     ]
+    single_step_plan = _plan_version(single_step_body)
+    single_step_dispatcher, _ = _dispatcher(single_step_plan, set())
     expired = asyncio.run(
         WaveExecutionEngine(
-            dispatcher,
+            single_step_dispatcher,
             clock=expired_clock,
             cancellation=expired_cancellation,
         ).execute(
-            plan=_plan_version(single_step_body),
+            plan=single_step_plan,
             attempt_id="attempt_expired_budget",
         )
     )
@@ -423,23 +574,162 @@ class _WrongLineageActor:
 
 def test_dispatcher_rejects_actor_result_lineage_drift() -> None:
     plan = _heterogeneous_plan()
-    dispatcher, _ = _dispatcher(set())
+    control_snapshots, snapshot = _control_snapshot_reader(plan)
+    frozen_tool = next(actor for actor in snapshot.actors if actor.actor_type == "tool")
     dispatcher = HeterogeneousActorDispatcher(
-        tool=_WrongLineageActor(),
-        skill=dispatcher._ports["skill"],
-        llm=dispatcher._ports["llm"],
-        reviewer=dispatcher._ports["reviewer"],
+        registrations=(
+            ActorAdapterRegistrationV3(
+                actor_type=frozen_tool.actor_type,
+                actor_id=frozen_tool.actor_id,
+                implementation_id=frozen_tool.implementation_id,
+                implementation_version=frozen_tool.implementation_version,
+                execution_mode=frozen_tool.execution_mode,
+                adapter=_WrongLineageActor(),
+            ),
+        ),
+        control_snapshots=control_snapshots,
     )
     request = ActorExecutionRequestV3(
         run_id=plan.run_id,
         plan_version_id=plan.id,
         attempt_id="attempt_1",
+        control_snapshot_artifact=plan.payload.control_snapshot_artifact,
         step=plan.payload.steps[0],
         resolved_input=plan.payload.steps[0].input,
     )
 
     with pytest.raises(ValueError, match="lineage"):
         asyncio.run(dispatcher.execute(request))
+
+
+@pytest.mark.parametrize(
+    ("registration_update", "error"),
+    (
+        ({"actor_id": "tool_forged"}, "No Actor adapter"),
+        ({"implementation_id": "implementation_stale"}, "registration"),
+        ({"implementation_version": "0"}, "registration"),
+        ({"execution_mode": "deterministic"}, "registration"),
+    ),
+)
+def test_dispatcher_rejects_adapter_identity_drift_before_invocation(
+    registration_update: dict[str, str],
+    error: str,
+) -> None:
+    plan = _heterogeneous_plan()
+    control_snapshots, snapshot = _control_snapshot_reader(plan)
+    frozen_tool = next(actor for actor in snapshot.actors if actor.actor_type == "tool")
+    tracker = {"calls": [], "active": 0, "max_active": 0}
+    adapter = _TrackingActor("tool", tracker, set())
+    dispatcher = HeterogeneousActorDispatcher(
+        registrations=(_registration(frozen_tool, adapter, **registration_update),),
+        control_snapshots=control_snapshots,
+    )
+
+    with pytest.raises(ValueError, match=error):
+        asyncio.run(dispatcher.execute(_request_for_step(plan)))
+    assert tracker["calls"] == []
+
+
+def test_dispatcher_rejects_missing_adapter_before_invocation() -> None:
+    plan = _heterogeneous_plan()
+    control_snapshots, _ = _control_snapshot_reader(plan)
+    dispatcher = HeterogeneousActorDispatcher(
+        registrations=(),
+        control_snapshots=control_snapshots,
+    )
+
+    with pytest.raises(ValueError, match="No Actor adapter"):
+        asyncio.run(dispatcher.execute(_request_for_step(plan)))
+
+
+@pytest.mark.parametrize("snapshot_failure", ("forged_artifact", "stale_body"))
+def test_dispatcher_rejects_forged_or_stale_control_snapshot_before_invocation(
+    snapshot_failure: str,
+) -> None:
+    plan = _heterogeneous_plan()
+    control_snapshots, snapshot = _control_snapshot_reader(plan)
+    tracker = {"calls": [], "active": 0, "max_active": 0}
+    frozen_tool = next(actor for actor in snapshot.actors if actor.actor_type == "tool")
+    request = _request_for_step(plan)
+    if snapshot_failure == "forged_artifact":
+        request = request.model_copy(
+            update={
+                "control_snapshot_artifact": request.control_snapshot_artifact.model_copy(
+                    update={"artifact_id": "artifact_control_forged"}
+                )
+            }
+        )
+    else:
+        stale = snapshot.model_copy(update={"resolved_for_agent_id": "stale_agent"})
+        control_snapshots = _StaticControlSnapshotReader(
+            plan.payload.control_snapshot_artifact,
+            stale,
+        )
+    dispatcher = HeterogeneousActorDispatcher(
+        registrations=(
+            _registration(frozen_tool, _TrackingActor("tool", tracker, set())),
+        ),
+        control_snapshots=control_snapshots,
+    )
+
+    with pytest.raises(ValueError, match="control snapshot"):
+        asyncio.run(dispatcher.execute(request))
+    assert tracker["calls"] == []
+
+
+def test_dispatcher_rejects_mismatched_actor_snapshot_hash_before_invocation() -> None:
+    plan = _heterogeneous_plan()
+    control_snapshots, snapshot = _control_snapshot_reader(plan)
+    frozen_tool = next(actor for actor in snapshot.actors if actor.actor_type == "tool")
+    tracker = {"calls": [], "active": 0, "max_active": 0}
+    step_values = plan.payload.steps[0].model_dump(mode="python", exclude={"contract_hash"})
+    step_values["actor_snapshot_hash"] = "0" * 64
+    step_values["contract_hash"] = canonical_json_v3_sha256(step_values)
+    request = _request_for_step(plan).model_copy(
+        update={"step": type(plan.payload.steps[0]).model_validate(step_values)}
+    )
+    dispatcher = HeterogeneousActorDispatcher(
+        registrations=(
+            _registration(frozen_tool, _TrackingActor("tool", tracker, set())),
+        ),
+        control_snapshots=control_snapshots,
+    )
+
+    with pytest.raises(ValueError, match="actor snapshot hash"):
+        asyncio.run(dispatcher.execute(request))
+    assert tracker["calls"] == []
+
+
+class _ReceiptDriftActor:
+    def __init__(self, update: dict[str, str]) -> None:
+        self.update = update
+        self.calls = 0
+
+    async def execute(self, request: ActorExecutionRequestV3) -> ActorExecutionResultV3:
+        self.calls += 1
+        return _actor_result(request, execution_mode="real").model_copy(update=self.update)
+
+
+@pytest.mark.parametrize(
+    "result_update",
+    (
+        {"implementation_id": "implementation_forged"},
+        {"execution_mode": "deterministic"},
+    ),
+)
+def test_dispatcher_rejects_result_receipt_identity_drift(result_update: dict[str, str]) -> None:
+    plan = _heterogeneous_plan()
+    control_snapshots, snapshot = _control_snapshot_reader(plan)
+    frozen_tool = next(actor for actor in snapshot.actors if actor.actor_type == "tool")
+    adapter = _ReceiptDriftActor(result_update)
+    dispatcher = HeterogeneousActorDispatcher(
+        registrations=(_registration(frozen_tool, adapter),),
+        control_snapshots=control_snapshots,
+    )
+
+    with pytest.raises(ValueError, match="receipt"):
+        asyncio.run(dispatcher.execute(_request_for_step(plan)))
+    assert adapter.calls == 1
 
 
 def _verified_tool_execution(
@@ -450,6 +740,7 @@ def _verified_tool_execution(
         run_id=plan.run_id,
         plan_version_id=plan.id,
         attempt_id="attempt_1",
+        control_snapshot_artifact=plan.payload.control_snapshot_artifact,
         step=step,
         resolved_input=step.input,
     )
@@ -491,6 +782,7 @@ def _skill_execution(
         run_id=plan.run_id,
         plan_version_id=plan.id,
         attempt_id="attempt_1",
+        control_snapshot_artifact=plan.payload.control_snapshot_artifact,
         step=step,
         resolved_input=step.input,
     )

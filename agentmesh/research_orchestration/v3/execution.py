@@ -9,11 +9,14 @@ from typing import Annotated, Literal, Protocol, TypeVar
 
 from pydantic import Field
 
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.common import (
+    ActorType,
     ApprovalRole,
     FrozenJson,
     FrozenJsonObject,
     Identifier,
+    SealedArtifactRefV3,
     StrictFrozenModel,
     freeze_json_object,
     thaw_json_value,
@@ -23,8 +26,10 @@ from agentmesh.research_orchestration.v3.ports import (
     ActorExecutionRequestV3,
     ActorExecutionResultV3,
     ArtifactReadPort,
+    ControlSnapshotReadPort,
     validate_actor_result_for_request,
 )
+from agentmesh.research_orchestration.v3.snapshots import FrozenActorV3
 
 MAX_WAVE_CONCURRENCY = 3
 _MISSING = object()
@@ -71,46 +76,99 @@ class StepApprovalProofV3(StrictFrozenModel):
     receipt_id: Identifier
 
 
-class ToolActorPort(Protocol):
+class ActorExecutionAdapter(Protocol):
     async def execute(self, request: ActorExecutionRequestV3) -> ActorExecutionResultV3: ...
 
 
-class SkillActorPort(Protocol):
-    async def execute(self, request: ActorExecutionRequestV3) -> ActorExecutionResultV3: ...
+@dataclass(frozen=True, slots=True)
+class ActorAdapterRegistrationV3:
+    """Declared runtime identity for one injected Actor adapter."""
 
+    actor_type: ActorType
+    actor_id: Identifier
+    implementation_id: str
+    implementation_version: str
+    execution_mode: Literal["real", "model", "deterministic"]
+    adapter: ActorExecutionAdapter
 
-class LlmActorPort(Protocol):
-    async def execute(self, request: ActorExecutionRequestV3) -> ActorExecutionResultV3: ...
-
-
-class ReviewerActorPort(Protocol):
-    async def execute(self, request: ActorExecutionRequestV3) -> ActorExecutionResultV3: ...
+    def __post_init__(self) -> None:
+        if not self.implementation_id.strip() or len(self.implementation_id) > 240:
+            raise ValueError("Actor adapter implementation_id must be non-blank and at most 240 characters")
+        if not self.implementation_version.strip() or len(self.implementation_version) > 120:
+            raise ValueError("Actor adapter implementation_version must be non-blank and at most 120 characters")
 
 
 class HeterogeneousActorDispatcher:
-    """Dispatch one frozen step to its injected actor port and verify its completion envelope."""
+    """Bind every dispatch and completion to one sealed frozen Actor identity."""
 
     def __init__(
         self,
         *,
-        tool: ToolActorPort,
-        skill: SkillActorPort,
-        llm: LlmActorPort,
-        reviewer: ReviewerActorPort,
+        registrations: tuple[ActorAdapterRegistrationV3, ...],
+        control_snapshots: ControlSnapshotReadPort,
     ) -> None:
-        self._ports = {
-            "tool": tool,
-            "skill": skill,
-            "llm": llm,
-            "reviewer": reviewer,
-        }
+        self._control_snapshots = control_snapshots
+        self._registrations: dict[tuple[str, str], ActorAdapterRegistrationV3] = {}
+        for registration in registrations:
+            key = (registration.actor_type, registration.actor_id)
+            if key in self._registrations:
+                raise ValueError("Actor adapter registrations must have unique actor type and ID")
+            self._registrations[key] = registration
 
     async def execute(self, request: ActorExecutionRequestV3) -> ActorExecutionResultV3:
-        result = await self._ports[request.step.actor_type].execute(request)
-        validate_actor_result_for_request(request, result)
-        if request.step.actor_type == "tool" and result.execution_mode != "real":
-            raise ValueError("Slice 1 Tool execution results must come from a real implementation")
+        frozen_actor = self._resolve_frozen_actor(request)
+        registration = self._registrations.get((request.step.actor_type, request.step.actor_id))
+        if registration is None:
+            raise ValueError("No Actor adapter is registered for the frozen Plan Step")
+        if (
+            registration.actor_type,
+            registration.actor_id,
+            registration.implementation_id,
+            registration.implementation_version,
+            registration.execution_mode,
+        ) != (
+            frozen_actor.actor_type,
+            frozen_actor.actor_id,
+            frozen_actor.implementation_id,
+            frozen_actor.implementation_version,
+            frozen_actor.execution_mode,
+        ):
+            raise ValueError("Actor adapter registration does not match the frozen Actor identity")
+
+        result = await registration.adapter.execute(request)
+        validate_actor_result_for_request(request, result, frozen_actor=frozen_actor)
         return result
+
+    def _resolve_frozen_actor(self, request: ActorExecutionRequestV3) -> FrozenActorV3:
+        artifact = request.control_snapshot_artifact
+        if (
+            artifact.kind != "research_control_snapshot"
+            or artifact.schema_version != "research-control-snapshot-v3"
+        ):
+            raise ValueError("Plan Step does not reference a sealed research-v3 control snapshot")
+        snapshot = self._control_snapshots.read_control_snapshot(artifact)
+        if snapshot is None:
+            raise ValueError("sealed control snapshot Artifact failed verified readback")
+        if (
+            snapshot.schema_version != artifact.schema_version
+            or canonical_json_v3_sha256(snapshot) != artifact.content_hash
+        ):
+            raise ValueError("control snapshot body does not match its sealed Artifact hash")
+
+        matches = tuple(
+            actor
+            for actor in snapshot.actors
+            if (actor.actor_type, actor.actor_id)
+            == (request.step.actor_type, request.step.actor_id)
+        )
+        if len(matches) != 1:
+            raise ValueError("Plan Step does not resolve to exactly one frozen Actor")
+        frozen_actor = matches[0]
+        if not frozen_actor.enabled or not frozen_actor.eligible:
+            raise ValueError("Plan Step resolved to an unavailable frozen Actor")
+        if canonical_json_v3_sha256(frozen_actor) != request.step.actor_snapshot_hash:
+            raise ValueError("Plan Step actor snapshot hash does not match the frozen Actor")
+        return frozen_actor
 
 
 class StepExecutionStatus(StrEnum):
@@ -425,6 +483,7 @@ class WaveExecutionEngine:
                         run_id=plan.run_id,
                         plan_version_id=plan.id,
                         attempt_id=attempt_id,
+                        control_snapshot_artifact=plan.payload.control_snapshot_artifact,
                         step=step,
                         successful_results=successful_results,
                         plan_started_at=plan_started_at,
@@ -484,6 +543,7 @@ class WaveExecutionEngine:
         run_id: Identifier,
         plan_version_id: Identifier,
         attempt_id: Identifier,
+        control_snapshot_artifact: SealedArtifactRefV3,
         step: PlanStepV3,
         successful_results: Mapping[int, ActorExecutionResultV3],
         plan_started_at: float,
@@ -497,6 +557,7 @@ class WaveExecutionEngine:
             run_id=run_id,
             plan_version_id=plan_version_id,
             attempt_id=attempt_id,
+            control_snapshot_artifact=control_snapshot_artifact,
             step=step,
             resolved_input=resolved_input,
         )

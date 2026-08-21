@@ -212,6 +212,7 @@ def test_canonical_json_fields_are_transitively_immutable_and_defensively_serial
         run_id="run_1",
         plan_version_id="plan_1",
         attempt_id="attempt_1",
+        control_snapshot_artifact=plan.control_snapshot_artifact,
         step=plan.steps[0],
         resolved_input={"nested": [{"value": "sealed"}]},
     )

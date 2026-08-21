@@ -124,6 +124,7 @@ class EvidenceManifestMaterializer:
                 run_id=plan.run_id,
                 plan_version_id=plan.id,
                 attempt_id=attempt_id,
+                control_snapshot_artifact=plan.payload.control_snapshot_artifact,
                 step=step,
                 resolved_input=step.input,
             )

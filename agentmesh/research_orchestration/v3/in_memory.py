@@ -203,6 +203,14 @@ class InMemoryResearchV3Repository:
                 return None
             return _copy_model(stored[1])
 
+    def read_control_snapshot(
+        self,
+        artifact: SealedArtifactRefV3,
+    ) -> ResearchControlSnapshotV3 | None:
+        """Execution-facing verified read seam for a sealed control snapshot."""
+
+        return self.get_control_snapshot(artifact)
+
     def append_control_snapshot(
         self,
         run_id: Identifier,

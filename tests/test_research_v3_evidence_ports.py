@@ -146,6 +146,7 @@ def test_actor_results_retain_request_lineage_when_parallel_completion_is_reorde
             run_id="run_1",
             plan_version_id="plan_1",
             attempt_id="attempt_1",
+            control_snapshot_artifact=plan.control_snapshot_artifact,
             step=step,
             resolved_input=step.input,
         )
