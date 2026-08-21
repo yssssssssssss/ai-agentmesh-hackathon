@@ -284,16 +284,39 @@ def test_scope_cas_one_active_attempt_and_implementation_id_boundary(
         )
     assert isinstance(renewed, AttemptLeaseV3)
 
-    foreign = _repository(
-        database,
-        owner_id="owner_foreign",
-        workspace_id="workspace_alpha",
-        project_id="project_alpha",
+    foreign_scopes = (
+        {
+            "owner_id": "owner_foreign",
+            "workspace_id": "workspace_alpha",
+            "project_id": "project_alpha",
+        },
+        {
+            "owner_id": "owner_alpha",
+            "workspace_id": "workspace_foreign",
+            "project_id": "project_alpha",
+        },
+        {
+            "owner_id": "owner_alpha",
+            "workspace_id": "workspace_alpha",
+            "project_id": "project_foreign",
+        },
     )
-    assert foreign.get_requirement(prepared.run_id, prepared.ready.requirement.id) is None
-    assert ResearchV3RepositoryProjector(foreign, clock=lambda: NOW).project(prepared.run_id) is None
-    with pytest.raises(ResearchV3NotFoundError):
-        foreign.state_version(prepared.run_id)
+    for foreign_scope in foreign_scopes:
+        foreign = _repository(database, **foreign_scope)
+        assert foreign.get_requirement(prepared.run_id, prepared.ready.requirement.id) is None
+        assert foreign.get_attempt("attempt_primary") is None
+        assert foreign.list_recoverable_attempts(now=NOW + timedelta(minutes=10)) == ()
+        assert ResearchV3RepositoryProjector(foreign, clock=lambda: NOW).project(prepared.run_id) is None
+        with pytest.raises(ResearchV3NotFoundError):
+            foreign.state_version(prepared.run_id)
+        with pytest.raises(ResearchV3NotFoundError):
+            foreign.purge_run(
+                run_id=prepared.run_id,
+                idempotency_key="foreign_purge",
+                request_hash="f" * 64,
+                expected_state_version=repository.state_version(prepared.run_id),
+            )
+        foreign.close()
 
     snapshot = prepared.repository.get_control_snapshot(
         prepared.selected_plan.payload.control_snapshot_artifact
@@ -485,3 +508,340 @@ def test_exact_codec_corruption_idempotent_receipt_and_purge_tombstone(
     dispatch._connection.commit()
     with pytest.raises(ResearchV3IntegrityError, match="exactly research-v3"):
         ResearchV3RepositoryProjector(dispatch, clock=lambda: NOW).project("run_dispatch")
+
+
+def test_purge_reserves_receipt_identity_before_destructive_writes(tmp_path: Path) -> None:
+    database = tmp_path / "purge_receipts.sqlite3"
+    prepared = asyncio.run(
+        CompetitiveTextIntegrationHarness().prepare(
+            run_id="run_purge_receipts",
+            candidate_id="speed",
+        )
+    )
+    repository = _repository(database)
+    repository.initialize_schema()
+    _append_planning(repository, prepared)
+
+    conflicting, _ = repository.record_command_receipt(
+        run_id=prepared.run_id,
+        idempotency_key="shared_key",
+        command_type="confirm",
+        request_hash="a" * 64,
+        response_payload={"accepted": True},
+        expected_state_version=repository.state_version(prepared.run_id),
+        created_at=NOW,
+    )
+    version_after_conflicting_receipt = repository.state_version(prepared.run_id)
+    with pytest.raises(ResearchV3ConflictError, match="different command"):
+        repository.purge_run(
+            run_id=prepared.run_id,
+            idempotency_key="shared_key",
+            request_hash=conflicting.request_hash,
+            expected_state_version=version_after_conflicting_receipt,
+            purged_at=NOW,
+        )
+    assert repository.get_command_receipt(prepared.run_id, "shared_key") == conflicting
+    assert repository.get_run_record(prepared.run_id) is not None
+    assert repository.get_requirement(prepared.run_id, prepared.ready.requirement.id) is not None
+    assert repository.state_version(prepared.run_id) == version_after_conflicting_receipt
+
+    wrong_hash, _ = repository.record_command_receipt(
+        run_id=prepared.run_id,
+        idempotency_key="purge_hash_collision",
+        command_type="purge",
+        request_hash="b" * 64,
+        response_payload={"purged": False},
+        expected_state_version=repository.state_version(prepared.run_id),
+        created_at=NOW,
+    )
+    with pytest.raises(ResearchV3ConflictError, match="different command"):
+        repository.purge_run(
+            run_id=prepared.run_id,
+            idempotency_key="purge_hash_collision",
+            request_hash="c" * 64,
+            expected_state_version=repository.state_version(prepared.run_id),
+            purged_at=NOW,
+        )
+    assert repository.get_command_receipt(prepared.run_id, "purge_hash_collision") == wrong_hash
+
+    purge_receipt, replayed = repository.purge_run(
+        run_id=prepared.run_id,
+        idempotency_key="actual_purge",
+        request_hash="d" * 64,
+        expected_state_version=repository.state_version(prepared.run_id),
+        purged_at=NOW,
+    )
+    assert replayed is False
+    with pytest.raises(ResearchV3ConflictError, match="different command"):
+        repository.purge_run(
+            run_id=prepared.run_id,
+            idempotency_key="actual_purge",
+            request_hash="e" * 64,
+            expected_state_version=0,
+            purged_at=NOW,
+        )
+    assert repository.get_command_receipt(prepared.run_id, "actual_purge") == purge_receipt
+
+
+def test_deadline_terminally_aborts_attempt_accounts_invocations_and_releases_slot(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "deadline.sqlite3"
+    prepared = asyncio.run(
+        CompetitiveTextIntegrationHarness().prepare(
+            run_id="run_deadline",
+            candidate_id="speed",
+        )
+    )
+    repository = _repository(database)
+    repository.initialize_schema()
+    _append_planning(repository, prepared)
+    deadline = NOW + timedelta(seconds=10)
+    repository.create_attempt(
+        run_id=prepared.run_id,
+        plan_version_id=prepared.selected_plan.id,
+        attempt_id="attempt_deadline",
+        deadline_at=deadline,
+        expected_state_version=repository.state_version(prepared.run_id),
+        created_at=NOW,
+    )
+    lease = repository.claim_attempt(
+        "attempt_deadline",
+        owner="deadline_worker",
+        token="deadline_token",
+        now=NOW,
+        lease_ttl=timedelta(minutes=5),
+        expected_state_version=repository.state_version(prepared.run_id),
+    )
+    assert lease is not None and lease.expires_at == deadline
+    repository.prepare_invocation(
+        invocation_id="invocation_sent_at_deadline",
+        run_id=prepared.run_id,
+        plan_version_id=prepared.selected_plan.id,
+        attempt_id="attempt_deadline",
+        step_number=1,
+        lease=lease,
+        now=NOW,
+        expected_state_version=repository.state_version(prepared.run_id),
+    )
+    repository.mark_invocation_sent(
+        "invocation_sent_at_deadline",
+        lease=lease,
+        now=NOW,
+        expected_state_version=repository.state_version(prepared.run_id),
+    )
+    repository.prepare_invocation(
+        invocation_id="invocation_prepared_at_deadline",
+        run_id=prepared.run_id,
+        plan_version_id=prepared.selected_plan.id,
+        attempt_id="attempt_deadline",
+        step_number=2,
+        lease=lease,
+        now=NOW,
+        expected_state_version=repository.state_version(prepared.run_id),
+    )
+    version_before_deadline = repository.state_version(prepared.run_id)
+
+    assert repository.list_recoverable_attempts(now=deadline) == ()
+    assert repository.state_version(prepared.run_id) == version_before_deadline + 1
+    expired = repository.get_attempt("attempt_deadline")
+    assert expired is not None
+    assert expired.status == "aborted"
+    assert expired.lease_owner is None and expired.lease_token is None
+    assert expired.lease_expires_at is None
+    assert expired.fencing_epoch == lease.fencing_epoch + 1
+    assert expired.updated_at == deadline
+    sent = repository.get_invocation("invocation_sent_at_deadline")
+    assert sent is not None
+    assert sent.state == "unknown"
+    assert sent.unknown_at == deadline
+    assert sent.error_code == "attempt_deadline_exceeded"
+    prepared_invocation = repository.get_invocation("invocation_prepared_at_deadline")
+    assert prepared_invocation is not None
+    assert prepared_invocation.state == "cancelled"
+    assert prepared_invocation.send_count == 0
+    assert prepared_invocation.error_code == "attempt_deadline_exceeded"
+
+    with pytest.raises(ResearchV3ConflictError, match="stale"):
+        repository.heartbeat_attempt(
+            lease,
+            now=deadline + timedelta(seconds=1),
+            lease_ttl=timedelta(minutes=1),
+            expected_state_version=repository.state_version(prepared.run_id),
+        )
+    replacement = repository.create_attempt(
+        run_id=prepared.run_id,
+        plan_version_id=prepared.selected_plan.id,
+        attempt_id="attempt_after_deadline",
+        deadline_at=deadline + timedelta(hours=1),
+        expected_state_version=repository.state_version(prepared.run_id),
+        created_at=deadline + timedelta(seconds=1),
+    )
+    assert replacement.attempt_number == 2
+    assert replacement.status == "pending"
+
+
+def test_acknowledgement_verifies_typed_artifact_receipt_and_indexed_columns(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "acknowledgement.sqlite3"
+    completed = asyncio.run(
+        CompetitiveTextIntegrationHarness().run_success(
+            run_id="run_acknowledgement",
+            candidate_id="speed",
+        )
+    )
+    repository = _repository(database)
+    repository.initialize_schema()
+    _append_planning(repository, completed.prepared)
+    result = completed.executed.execution.require_delivery_results()[0]
+    repository.create_attempt(
+        run_id=result.run_id,
+        plan_version_id=result.plan_version_id,
+        attempt_id=result.attempt_id,
+        deadline_at=NOW + timedelta(hours=1),
+        expected_state_version=repository.state_version(result.run_id),
+        created_at=NOW,
+    )
+    lease = repository.claim_attempt(
+        result.attempt_id,
+        owner="ack_worker",
+        token="ack_token",
+        now=NOW,
+        lease_ttl=timedelta(minutes=30),
+        expected_state_version=repository.state_version(result.run_id),
+    )
+    assert lease is not None
+    repository.prepare_invocation(
+        invocation_id="invocation_ack",
+        run_id=result.run_id,
+        plan_version_id=result.plan_version_id,
+        attempt_id=result.attempt_id,
+        step_number=result.step_number,
+        lease=lease,
+        now=NOW,
+        expected_state_version=repository.state_version(result.run_id),
+    )
+    repository.mark_invocation_sent(
+        "invocation_ack",
+        lease=lease,
+        now=NOW,
+        expected_state_version=repository.state_version(result.run_id),
+    )
+    verified = completed.prepared.artifacts.read_verified_json(
+        run_id=result.run_id,
+        plan_version_id=result.plan_version_id,
+        attempt_id=result.attempt_id,
+        step_number=result.step_number,
+        artifact=result.result_artifact,
+    )
+    assert verified is not None
+    repository.append_verified_json(
+        verified,
+        lease=lease,
+        expected_state_version=repository.state_version(result.run_id),
+    )
+    version_before_ack = repository.state_version(result.run_id)
+    with pytest.raises(ResearchV3ConflictError, match="Step and receipt"):
+        repository.acknowledge_invocation(
+            "invocation_ack",
+            receipt_id="wrong_receipt",
+            result_artifact=result.result_artifact,
+            lease=lease,
+            now=NOW,
+            expected_state_version=version_before_ack,
+        )
+    assert repository.state_version(result.run_id) == version_before_ack
+    assert repository.get_invocation("invocation_ack").state == "sent"
+
+    repository._connection.execute(
+        """UPDATE research_v3_verified_artifacts SET artifact_kind = 'corrupt_kind'
+        WHERE artifact_id = ?""",
+        (result.result_artifact.artifact_id,),
+    )
+    repository._connection.commit()
+    with pytest.raises(ResearchV3IntegrityError, match="columns"):
+        repository.acknowledge_invocation(
+            "invocation_ack",
+            receipt_id=result.receipt_id,
+            result_artifact=result.result_artifact,
+            lease=lease,
+            now=NOW,
+            expected_state_version=version_before_ack,
+        )
+    assert repository.get_invocation("invocation_ack").state == "sent"
+
+
+def test_pause_rejects_step_outside_selected_plan(tmp_path: Path) -> None:
+    database = tmp_path / "pause_step.sqlite3"
+    prepared = asyncio.run(
+        CompetitiveTextIntegrationHarness().prepare(
+            run_id="run_pause_step",
+            candidate_id="speed",
+        )
+    )
+    repository = _repository(database)
+    repository.initialize_schema()
+    _append_planning(repository, prepared)
+    repository.create_attempt(
+        run_id=prepared.run_id,
+        plan_version_id=prepared.selected_plan.id,
+        attempt_id="attempt_pause_step",
+        deadline_at=NOW + timedelta(hours=1),
+        expected_state_version=repository.state_version(prepared.run_id),
+        created_at=NOW,
+    )
+    lease = repository.claim_attempt(
+        "attempt_pause_step",
+        owner="pause_worker",
+        token="pause_token",
+        now=NOW,
+        lease_ttl=timedelta(minutes=5),
+        expected_state_version=repository.state_version(prepared.run_id),
+    )
+    assert lease is not None
+    version_before_pause = repository.state_version(prepared.run_id)
+    with pytest.raises(ResearchV3ConflictError, match="selected Plan"):
+        repository.pause_attempt(
+            lease,
+            failed_step_number=8,
+            failure_code="unexpected_failure",
+            reason="failed",
+            now=NOW,
+            expected_state_version=version_before_pause,
+        )
+    assert repository.state_version(prepared.run_id) == version_before_pause
+    attempt = repository.get_attempt("attempt_pause_step")
+    assert attempt is not None and attempt.status == "running"
+
+
+@pytest.mark.parametrize(
+    "corruption_sql",
+    (
+        """UPDATE research_v3_records SET natural_key = 'corrupt_requirement_key'
+        WHERE record_kind = 'requirement' AND sequence_number = 2""",
+        """UPDATE research_v3_records SET sequence_number = 99
+        WHERE record_kind = 'requirement' AND sequence_number = 1""",
+        """UPDATE research_v3_records SET attempt_id = 'corrupt_attempt'
+        WHERE record_kind = 'actor_result' AND step_number = 1""",
+        """UPDATE research_v3_records SET artifact_kind = 'corrupt_artifact_kind'
+        WHERE record_kind = 'deliverable'""",
+        """UPDATE research_v3_records SET schema_version = 'corrupt-schema-v1'
+        WHERE record_kind = 'plan'""",
+        """UPDATE research_v3_records SET record_kind = 'corrupt_record_kind'
+        WHERE record_kind = 'plan'""",
+    ),
+)
+def test_projector_rejects_generic_index_corruption_before_latest_selection(
+    tmp_path: Path,
+    corruption_sql: str,
+) -> None:
+    database = tmp_path / "indexed_corruption.sqlite3"
+    persisted = asyncio.run(_persist_success(database, run_id="run_indexed_corruption"))
+    persisted.repository._connection.execute(corruption_sql)
+    persisted.repository._connection.commit()
+
+    with pytest.raises(ResearchV3IntegrityError):
+        ResearchV3RepositoryProjector(persisted.repository, clock=lambda: NOW).project(
+            "run_indexed_corruption"
+        )
