@@ -28,6 +28,7 @@ def evidence_artifact_content() -> dict:
     output = {
         "results": [
             {
+                "source_id": "source_alpha",
                 "title": "Alpha product documentation",
                 "url": "https://example.test/alpha",
                 "snippet": "Alpha documents the compared capability.",
@@ -64,8 +65,19 @@ def evidence_body() -> dict:
                     ),
                     "json_pointer": "/output/results/0",
                 },
+                "quote_pointer": {
+                    "artifact": artifact_ref(
+                        "artifact_tool_1",
+                        "actor_result",
+                        "tool-result-v1",
+                        canonical_json_v3_sha256(content),
+                    ),
+                    "json_pointer": "/output/results/0/snippet",
+                },
                 "source": {
                     "source_kind": "public_web",
+                    "source_id": "source_alpha",
+                    "title": "Alpha product documentation",
                     "url": "https://example.test/alpha",
                     "quote": "Alpha documents the compared capability.",
                     "retrieved_at": "2026-08-21T00:09:00Z",
@@ -353,6 +365,7 @@ def review_body() -> dict:
     return {
         "schema_version": "report-review-v3",
         "run_id": "run_1",
+        "requirement_version_id": "requirement_1",
         "plan_version_id": "plan_1",
         "attempt_id": "attempt_1",
         "deliverable_artifact": artifact_ref(
@@ -380,6 +393,7 @@ def report_body() -> dict:
     return {
         "schema_version": "report-document-v3",
         "presentation_mode": "text",
+        "review_verdict": "pass",
         "run_id": "run_1",
         "requirement_version_id": "requirement_1",
         "plan_version_id": "plan_1",

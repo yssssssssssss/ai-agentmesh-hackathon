@@ -7,7 +7,11 @@ import jsonschema
 import pytest
 from pydantic import ValidationError
 
-from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_bytes, strict_json_v3_loads
+from agentmesh.research_orchestration.v3.canonical import (
+    canonical_json_v3_bytes,
+    canonical_json_v3_sha256,
+    strict_json_v3_loads,
+)
 from agentmesh.research_orchestration.v3.web_projection import (
     ResearchV2HistoryWorkbenchAggregateV1,
     ResearchV3WorkbenchAggregateV1,
@@ -29,6 +33,9 @@ def test_eight_workbench_fixtures_are_exact_canonical_schema_valid_aggregates() 
     fixture_paths = sorted(FIXTURE_ROOT.glob("*.json"))
     assert tuple(path.stem for path in fixture_paths) == tuple(sorted(WORKBENCH_STATES))
     schema = strict_json_v3_loads(SCHEMA_PATH.read_bytes())
+    assert isinstance(schema, dict)
+    assert "VerifiedArtifactContentV3" not in schema.get("$defs", {})
+    assert "EvidenceManifestV3" not in schema.get("$defs", {})
 
     for state in WORKBENCH_STATES:
         path = FIXTURE_ROOT / f"{state}.json"
@@ -82,6 +89,28 @@ def test_workbench_state_fixtures_freeze_the_full_progressive_projection() -> No
     assert report.attempt is not None
     assert tuple(step.result.step_number for step in report.attempt.steps if step.result is not None) == (1, 2)
     assert report.evidence is not None
+    evidence_dump = report.evidence.model_dump(mode="json")
+    assert set(evidence_dump) == {
+        "artifact",
+        "presentation_mode",
+        "run_id",
+        "plan_version_id",
+        "attempt_id",
+        "evidence",
+    }
+    assert "manifest" not in evidence_dump
+    assert "verified_artifacts" not in evidence_dump
+    assert set(evidence_dump["evidence"][0]) == {
+        "evidence_id",
+        "source_id",
+        "title",
+        "url",
+        "quote",
+        "gap_metadata",
+        "provenance",
+    }
+    assert evidence_dump["evidence"][0]["source_id"] == "source_alpha"
+    assert evidence_dump["evidence"][0]["title"] == "Alpha product documentation"
     assert report.deliverable is not None
     assert report.review is not None
     assert report.report is not None
@@ -97,6 +126,82 @@ def test_workbench_projection_rejects_unknown_fields_and_cross_attempt_report_li
     report["report"]["content"]["attempt_id"] = "attempt_other"
     with pytest.raises(ValidationError):
         WorkbenchAggregateV1.model_validate(report)
+
+
+def test_workbench_projection_rejects_selected_plan_and_result_artifact_drift() -> None:
+    selected_plan_drift = deepcopy(_fixture("text_report"))
+    selected_plan_drift["attempt"]["steps"][0]["expected_outputs"][0]["description"] = "Altered output"
+    with pytest.raises(ValidationError, match="selected Plan contracts"):
+        WorkbenchAggregateV1.model_validate(selected_plan_drift)
+
+    evidence_drift = deepcopy(_fixture("text_report"))
+    evidence_drift["evidence"]["evidence"][0]["provenance"]["artifact"]["artifact_id"] = "artifact_other"
+    with pytest.raises(ValidationError, match="successful attempt result"):
+        WorkbenchAggregateV1.model_validate(evidence_drift)
+
+
+def _reseal_report_chain(body: dict) -> None:
+    deliverable_artifact = body["deliverable"]["artifact"]
+    deliverable_artifact["content_hash"] = canonical_json_v3_sha256(body["deliverable"]["content"])
+    body["review"]["content"]["deliverable_artifact"] = deepcopy(deliverable_artifact)
+    review_artifact = body["review"]["artifact"]
+    review_artifact["content_hash"] = canonical_json_v3_sha256(body["review"]["content"])
+    body["report"]["content"]["deliverable_artifact"] = deepcopy(deliverable_artifact)
+    body["report"]["content"]["review_artifact"] = deepcopy(review_artifact)
+    body["report"]["artifact"]["content_hash"] = canonical_json_v3_sha256(body["report"]["content"])
+
+
+def test_workbench_projection_rejects_capability_requirement_and_verdict_drift() -> None:
+    capability_drift = deepcopy(_fixture("text_report"))
+    capability_drift["deliverable"]["content"]["capability_provenance"][0]["result_artifact"][
+        "artifact_id"
+    ] = "artifact_other"
+    _reseal_report_chain(capability_drift)
+    with pytest.raises(ValidationError, match="capability Artifact"):
+        WorkbenchAggregateV1.model_validate(capability_drift)
+
+    plan_requirement_drift = deepcopy(_fixture("text_report"))
+    plan_requirement_drift["selected_plan"]["requirement_version_id"] = "requirement_other"
+    plan_requirement_drift["selected_plan"]["payload"]["requirement_version_id"] = "requirement_other"
+    plan_requirement_drift["selected_plan"]["plan_hash"] = canonical_json_v3_sha256(
+        plan_requirement_drift["selected_plan"]["payload"]
+    )
+    with pytest.raises(ValidationError, match="selected plan requirement lineage"):
+        WorkbenchAggregateV1.model_validate(plan_requirement_drift)
+
+    plan_content_drift = deepcopy(_fixture("text_report"))
+    plan_content_drift["selected_plan"]["payload"]["requirement_content_hash"] = "f" * 64
+    plan_content_drift["selected_plan"]["plan_hash"] = canonical_json_v3_sha256(
+        plan_content_drift["selected_plan"]["payload"]
+    )
+    with pytest.raises(ValidationError, match="selected plan requirement lineage"):
+        WorkbenchAggregateV1.model_validate(plan_content_drift)
+
+    deliverable_requirement_drift = deepcopy(_fixture("text_report"))
+    deliverable_requirement_drift["deliverable"]["content"]["requirement_version_id"] = "requirement_other"
+    _reseal_report_chain(deliverable_requirement_drift)
+    with pytest.raises(ValidationError, match="deliverable requirement lineage"):
+        WorkbenchAggregateV1.model_validate(deliverable_requirement_drift)
+
+    review_requirement_drift = deepcopy(_fixture("text_report"))
+    review_requirement_drift["review"]["content"]["requirement_version_id"] = "requirement_other"
+    _reseal_report_chain(review_requirement_drift)
+    with pytest.raises(ValidationError, match="review requirement lineage"):
+        WorkbenchAggregateV1.model_validate(review_requirement_drift)
+
+    report_requirement_drift = deepcopy(_fixture("text_report"))
+    report_requirement_drift["report"]["content"]["requirement_version_id"] = "requirement_other"
+    report_requirement_drift["report"]["artifact"]["content_hash"] = canonical_json_v3_sha256(
+        report_requirement_drift["report"]["content"]
+    )
+    with pytest.raises(ValidationError, match="report requirement lineage"):
+        WorkbenchAggregateV1.model_validate(report_requirement_drift)
+
+    revise = deepcopy(_fixture("text_report"))
+    revise["review"]["content"]["verdict"] = "revise"
+    _reseal_report_chain(revise)
+    with pytest.raises(ValidationError, match="pass review"):
+        WorkbenchAggregateV1.model_validate(revise)
 
 
 def test_v2_history_has_an_explicit_read_only_discriminator() -> None:

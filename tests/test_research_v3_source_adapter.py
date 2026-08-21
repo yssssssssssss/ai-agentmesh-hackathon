@@ -8,7 +8,8 @@ import jsonschema
 import pytest
 from pydantic import ValidationError
 
-from agentmesh.research_orchestration.v3.review import DeterministicReviewCheckV3
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
+from agentmesh.research_orchestration.v3.review import DeterministicReviewCheckV3, PassedReportReviewV3
 from agentmesh.research_orchestration.v3.source_adapter import (
     translate_ai_x_current_execution_plan,
     translate_ai_x_problem_graph_v1,
@@ -386,6 +387,7 @@ def test_source_review_adapter_requires_exact_sealed_deliverable(
     )
     translated = translate_ai_x_report_review_v1(
         source_review_fixture,
+        requirement_version_id="requirement_1",
         deliverable_artifact=artifact_ref(
             "artifact_deliverable", "research_deliverable", "research-deliverable-v3"
         ),
@@ -401,6 +403,7 @@ def test_source_review_adapter_requires_exact_sealed_deliverable(
     with pytest.raises(ValidationError, match="pass verdict"):
         translate_ai_x_report_review_v1(
             malformed,
+            requirement_version_id="requirement_1",
             deliverable_artifact=artifact_ref(
                 "artifact_deliverable", "research_deliverable", "research-deliverable-v3"
             ),
@@ -451,6 +454,12 @@ def test_source_optional_properties_reject_explicit_null() -> None:
 
 
 def _translate_source_report(source: dict, *, presentation_mode: str = "text"):
+    deliverable_artifact = artifact_ref(
+        "artifact_deliverable", "research_deliverable", "research-deliverable-v3"
+    )
+    review_value = review_body()
+    review_value["deliverable_artifact"] = deliverable_artifact
+    review = PassedReportReviewV3.model_validate(review_value)
     return translate_ai_x_report_document_v1(
         source,
         presentation_mode=presentation_mode,  # type: ignore[arg-type]
@@ -458,10 +467,14 @@ def _translate_source_report(source: dict, *, presentation_mode: str = "text"):
         requirement_version_id="requirement_1",
         plan_version_id="plan_1",
         attempt_id="attempt_1",
-        deliverable_artifact=artifact_ref(
-            "artifact_deliverable", "research_deliverable", "research-deliverable-v3"
+        deliverable_artifact=deliverable_artifact,
+        review=review,
+        review_artifact=artifact_ref(
+            "artifact_review",
+            "report_review",
+            "report-review-v3",
+            canonical_json_v3_sha256(review),
         ),
-        review_artifact=artifact_ref("artifact_review", "report_review", "report-review-v3"),
         template_snapshot_hash=HASH,
     )
 

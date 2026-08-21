@@ -39,8 +39,9 @@ therefore does not claim visual acceptance.
   it is deliberately not aliased or described as the active/current production generation.
 - Strict target contracts cover `research-task-v3`, `execution-plan-v3`,
   `evidence-manifest-v3`, `research-deliverable-v3`, `report-review-v3`, and `report-document-v3`.
-  The Evidence Manifest binds every public text source and verified Artifact pointer to one Run, Plan,
-  Attempt, Step contract, real Tool identity, and receipt.
+  The Evidence Manifest binds every public text source and exact quote pointer to one Run, Plan,
+  Attempt, Step contract, real Tool implementation/mode, and receipt. Report composition accepts only a
+  pass-typed Review and produces only a text Report Document.
 - Supporting `problem-graph-v1`, candidate, control-snapshot, and Competitive Text payload contracts.
 - A generation-specific canonical JSON/hash algorithm that does not modify research-v2 hashing.
   Arbitrary JSON fields use recursively frozen mappings/tuples and defensive serialization; frozen
@@ -57,10 +58,16 @@ therefore does not claim visual acceptance.
   and compilation (with the sealed ProblemGraph reference supplied alongside its verified body),
   heterogeneous actor execution, delivery, review, report composition, typed repository reads, verified
   Artifact readback, clock, and IDs. Actor completion envelopes retain Run/Plan/Attempt/Step/actor/contract
-  lineage independent of parallel completion order; Review receives the verified Manifest and Artifact
-  contents explicitly.
+  lineage independent of parallel completion order; Delivery receives the typed Evidence Manifest and
+  sealed ref, while Review receives the Requirement, selected Plan, ProblemGraph coverage inputs,
+  Deliverable/Manifest refs, and verified Artifact contents explicitly. Typed reads are paired with append
+  operations for candidates, control snapshots, actor results, evidence, deliverables, reviews, and reports.
 - A non-production `research-workbench-aggregate-v1` DTO/schema and eight canonical fixtures freeze the
   idle, clarify, candidates, plan, approval, executing DAG, paused recovery, and text-report projections.
+  Every projected step is bound to the selected Plan contract and expected outputs; final Requirement,
+  Artifact, and pass-review lineage is checked end to end. Web evidence contains only sanitized source,
+  redaction/gap, and safe provenance fields; complete verified Tool output remains a server-side input to
+  the projection function.
   The aggregate includes an explicit read-only `research-v2-history` discriminator and is not connected to
   the production research-v2 API.
 

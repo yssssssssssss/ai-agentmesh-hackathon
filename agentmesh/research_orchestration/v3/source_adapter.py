@@ -5,6 +5,7 @@ import re
 from collections.abc import Mapping
 from typing import Any, Literal, cast
 
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.common import (
     ActorType,
     EvidenceManifestArtifactRefV3,
@@ -64,6 +65,7 @@ from agentmesh.research_orchestration.v3.requirement import (
 )
 from agentmesh.research_orchestration.v3.review import (
     DeterministicReviewCheckV3,
+    PassedReportReviewV3,
     ReportReviewV3,
     ReviewDimensionV3,
 )
@@ -527,6 +529,7 @@ def translate_ai_x_research_deliverable_v1(
 def translate_ai_x_report_review_v1(
     source: AiXReportReviewV1 | Mapping[str, Any],
     *,
+    requirement_version_id: str,
     deliverable_artifact: SealedArtifactRefV3 | Mapping[str, Any],
     rubric_snapshot_hash: str,
     deterministic_checks: tuple[DeterministicReviewCheckV3, ...],
@@ -543,6 +546,7 @@ def translate_ai_x_report_review_v1(
     return ReportReviewV3(
         schema_version="report-review-v3",
         run_id=_identifier(item.taskId, "run"),
+        requirement_version_id=requirement_version_id,
         plan_version_id=_identifier(item.planVersionId, "plan"),
         attempt_id=_identifier(item.attemptId, "attempt"),
         deliverable_artifact=artifact,
@@ -586,35 +590,55 @@ def _translate_report_block(value: AiXReportBlockV1) -> ReportBlockV3:
 def translate_ai_x_report_document_v1(
     source: AiXReportDocumentV1 | Mapping[str, Any],
     *,
-    presentation_mode: Literal["text", "multimodal"],
+    presentation_mode: Literal["text"],
     run_id: str,
     requirement_version_id: str,
     plan_version_id: str,
     attempt_id: str,
     deliverable_artifact: SealedArtifactRefV3 | Mapping[str, Any],
+    review: PassedReportReviewV3,
     review_artifact: SealedArtifactRefV3 | Mapping[str, Any],
     template_snapshot_hash: str,
 ) -> ReportDocumentV3:
     if presentation_mode != "text":
         raise ValueError("Slice 1 source report translation supports text presentation only")
+    deliverable_ref = _artifact_ref(
+        deliverable_artifact,
+        kind="research_deliverable",
+        schema_version="research-deliverable-v3",
+    )
+    review_ref = _artifact_ref(
+        review_artifact,
+        kind="report_review",
+        schema_version="report-review-v3",
+    )
+    if review_ref.content_hash != canonical_json_v3_sha256(review):
+        raise ValueError("source report Review does not match its sealed Artifact")
+    if (
+        review.run_id,
+        review.requirement_version_id,
+        review.plan_version_id,
+        review.attempt_id,
+        review.deliverable_artifact,
+    ) != (
+        run_id,
+        requirement_version_id,
+        plan_version_id,
+        attempt_id,
+        deliverable_ref,
+    ):
+        raise ValueError("source report Review lineage does not match its composition inputs")
     item = _source(source, AiXReportDocumentV1)
     return ReportDocumentV3(
         schema_version="report-document-v3",
         presentation_mode=presentation_mode,
+        review_verdict=review.verdict,
         run_id=run_id,
         requirement_version_id=requirement_version_id,
         plan_version_id=plan_version_id,
         attempt_id=attempt_id,
-        deliverable_artifact=_artifact_ref(
-            deliverable_artifact,
-            kind="research_deliverable",
-            schema_version="research-deliverable-v3",
-        ),
-        review_artifact=_artifact_ref(
-            review_artifact,
-            kind="report_review",
-            schema_version="report-review-v3",
-        ),
+        deliverable_artifact=deliverable_ref,
+        review_artifact=review_ref,
         template_snapshot_hash=template_snapshot_hash,
         title=item.title,
         subtitle=item.subtitle,

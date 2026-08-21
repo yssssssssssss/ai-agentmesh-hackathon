@@ -439,6 +439,11 @@
       "title": "Plan Version Id",
       "type": "string"
     },
+    "requirement_version_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+      "title": "Requirement Version Id",
+      "type": "string"
+    },
     "revision_round": {
       "enum": [
         0,
@@ -487,6 +492,7 @@
   "required": [
     "schema_version",
     "run_id",
+    "requirement_version_id",
     "plan_version_id",
     "attempt_id",
     "deliverable_artifact",

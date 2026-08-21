@@ -37,6 +37,8 @@ class EvidenceSourceV3(StrictFrozenModel):
     """The human-auditable public source represented by one text evidence item."""
 
     source_kind: Literal["public_web"]
+    source_id: Identifier
+    title: Annotated[NonBlankString, Field(max_length=500)]
     url: HttpsUrl
     quote: EvidenceText
     retrieved_at: datetime
@@ -77,11 +79,16 @@ class VerifiedArtifactPointerV3(StrictFrozenModel):
     json_pointer: JsonPointer
 
 
+class VerifiedQuotePointerV3(VerifiedArtifactPointerV3):
+    """A typed pointer to the exact quoted text within the same verified Artifact."""
+
+
 class EvidenceItemV3(StrictFrozenModel):
     id: Identifier
     kind: Literal["tool_output"]
     evidence_class: Literal["public_source"]
     pointer: VerifiedArtifactPointerV3
+    quote_pointer: VerifiedQuotePointerV3
     source: EvidenceSourceV3
     proof: EvidenceProofV3
     sensitivity: Literal["public"]
@@ -112,8 +119,14 @@ class EvidenceManifestV3(StrictFrozenModel):
             (item.pointer.artifact.artifact_id, item.pointer.json_pointer) for item in self.evidence
         )
         require_unique(pointer_keys, "Evidence Manifest Artifact pointers")
+        source_ids = tuple(item.source.source_id for item in self.evidence)
+        require_unique(source_ids, "Evidence Manifest source IDs")
         expected_lineage = (self.run_id, self.plan_version_id, self.attempt_id)
         for item in self.evidence:
+            if item.quote_pointer.artifact != item.pointer.artifact:
+                raise ValueError("Evidence quote pointer must use the source pointer Artifact")
+            if not item.quote_pointer.json_pointer.startswith(f"{item.pointer.json_pointer}/"):
+                raise ValueError("Evidence quote pointer must resolve within its source pointer")
             proof_lineage = (item.proof.run_id, item.proof.plan_version_id, item.proof.attempt_id)
             if proof_lineage != expected_lineage:
                 raise ValueError("every Evidence proof must belong to the Manifest run, plan, and attempt")
@@ -131,6 +144,8 @@ class VerifiedArtifactContentV3(StrictFrozenModel):
     actor_id: Identifier
     step_contract_hash: Sha256Hex
     receipt_id: Identifier
+    implementation_id: Identifier
+    execution_mode: Literal["real", "model", "deterministic"]
     artifact: SealedArtifactRefV3
     content: FrozenJson
 
@@ -161,11 +176,11 @@ def _resolve_json_pointer(value: FrozenJson, pointer: str) -> FrozenJson | None:
     return current
 
 
-def _resolved_source_url(value: FrozenJson) -> str | None:
+def _resolved_source_field(value: FrozenJson, field: str) -> str | None:
     if not isinstance(value, Mapping):
         return None
-    url = value.get("url")
-    return url if isinstance(url, str) else None
+    resolved = value.get(field)
+    return resolved if isinstance(resolved, str) else None
 
 
 def verify_evidence_manifest_artifacts(
@@ -195,19 +210,30 @@ def verify_evidence_manifest_artifacts(
             verified.actor_id,
             verified.step_contract_hash,
             verified.receipt_id,
+            verified.implementation_id,
+            verified.execution_mode,
         ) != (
             proof.step_number,
             proof.actor_type,
             proof.actor_id,
             proof.step_contract_hash,
             proof.receipt_id,
+            proof.implementation_id,
+            proof.execution_mode,
         ):
-            raise ValueError("Evidence proof does not match verified Artifact execution lineage")
+            raise ValueError("Evidence proof does not match verified Artifact execution identity and mode")
         resolved = _resolve_json_pointer(verified.content, evidence.pointer.json_pointer)
         if resolved is None:
             raise ValueError("Evidence pointer does not resolve in the verified Artifact")
-        if _resolved_source_url(resolved) != evidence.source.url:
+        if _resolved_source_field(resolved, "source_id") != evidence.source.source_id:
+            raise ValueError("Evidence source ID does not match its verified Artifact pointer")
+        if _resolved_source_field(resolved, "title") != evidence.source.title:
+            raise ValueError("Evidence source title does not match its verified Artifact pointer")
+        if _resolved_source_field(resolved, "url") != evidence.source.url:
             raise ValueError("Evidence source URL does not match its verified Artifact pointer")
+        resolved_quote = _resolve_json_pointer(verified.content, evidence.quote_pointer.json_pointer)
+        if resolved_quote != evidence.source.quote:
+            raise ValueError("Evidence quote does not exactly match its verified Artifact pointer")
         if not isinstance(verified.content, Mapping):
             raise ValueError("public Evidence Artifact content must be an object")
         output = verified.content.get("output")

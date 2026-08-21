@@ -185,6 +185,33 @@ def _assert_model_and_schema_reject(model_type, filename: str, sample: dict) -> 
         jsonschema.Draft202012Validator(_schema(filename)).validate(sample)
 
 
+def test_nested_persisted_and_transport_discriminators_are_required() -> None:
+    cases = []
+
+    evidence = evidence_body()
+    evidence["evidence"][0].pop("kind")
+    cases.append((EvidenceManifestV3, "evidence-manifest-v3.schema.json", evidence))
+
+    deliverable = deliverable_body()
+    deliverable["evidence_manifest_artifact"].pop("kind")
+    cases.append((ResearchDeliverableV3, "research-deliverable-v3.schema.json", deliverable))
+
+    deliverable = deliverable_body()
+    deliverable["evidence_manifest_artifact"].pop("schema_version")
+    cases.append((ResearchDeliverableV3, "research-deliverable-v3.schema.json", deliverable))
+
+    workbench = workbench_idle_body()
+    workbench.pop("projection_kind")
+    cases.append((WorkbenchAggregateV1, "research-workbench-aggregate-v1.schema.json", workbench))
+
+    workbench = workbench_idle_body()
+    workbench.pop("orchestration_version")
+    cases.append((WorkbenchAggregateV1, "research-workbench-aggregate-v1.schema.json", workbench))
+
+    for model_type, filename, body in cases:
+        _assert_model_and_schema_reject(model_type, filename, body)
+
+
 def test_unique_items_are_enforced_by_models_and_supporting_schemas() -> None:
     requirement = requirement_body()
     requirement["comparison_dimensions"] = ["capabilities", "capabilities"]

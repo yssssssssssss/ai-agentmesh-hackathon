@@ -24,6 +24,9 @@
         "proof": {
           "$ref": "#/$defs/EvidenceProofV3"
         },
+        "quote_pointer": {
+          "$ref": "#/$defs/VerifiedQuotePointerV3"
+        },
         "redaction": {
           "enum": [
             "none",
@@ -46,6 +49,7 @@
         "kind",
         "evidence_class",
         "pointer",
+        "quote_pointer",
         "source",
         "proof",
         "sensitivity",
@@ -175,9 +179,20 @@
           "type": "array",
           "uniqueItems": true
         },
+        "source_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Source Id",
+          "type": "string"
+        },
         "source_kind": {
           "const": "public_web",
           "title": "Source Kind",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "pattern": "\\S",
+          "title": "Title",
           "type": "string"
         },
         "truncated": {
@@ -193,6 +208,8 @@
       },
       "required": [
         "source_kind",
+        "source_id",
+        "title",
         "url",
         "quote",
         "retrieved_at",
@@ -257,6 +274,27 @@
         "json_pointer"
       ],
       "title": "VerifiedArtifactPointerV3",
+      "type": "object"
+    },
+    "VerifiedQuotePointerV3": {
+      "additionalProperties": false,
+      "description": "A typed pointer to the exact quoted text within the same verified Artifact.",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/SealedArtifactRefV3"
+        },
+        "json_pointer": {
+          "maxLength": 1000,
+          "pattern": "^(?:/(?:[^~/]|~[01])*)+$",
+          "title": "Json Pointer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "json_pointer"
+      ],
+      "title": "VerifiedQuotePointerV3",
       "type": "object"
     }
   },

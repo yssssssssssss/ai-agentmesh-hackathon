@@ -12,6 +12,7 @@ from agentmesh.research_orchestration.v3.common import (
     EvidenceManifestArtifactRefV3,
     FrozenJsonObject,
     Identifier,
+    NonBlankString,
     SealedArtifactRefV3,
     Sha256Hex,
     StrictFrozenModel,
@@ -19,11 +20,18 @@ from agentmesh.research_orchestration.v3.common import (
 )
 from agentmesh.research_orchestration.v3.deliverable import ResearchDeliverableV3
 from agentmesh.research_orchestration.v3.evidence import (
+    DomainName,
     EvidenceManifestV3,
+    EvidenceText,
+    HttpsUrl,
     VerifiedArtifactContentV3,
     verify_evidence_manifest_artifacts,
 )
-from agentmesh.research_orchestration.v3.execution_plan import ExecutionPlanVersionV3, PlanCandidateSetV3
+from agentmesh.research_orchestration.v3.execution_plan import (
+    ExecutionPlanVersionV3,
+    ExpectedOutputV3,
+    PlanCandidateSetV3,
+)
 from agentmesh.research_orchestration.v3.ports import ActorExecutionResultV3
 from agentmesh.research_orchestration.v3.report_document import ReportDocumentV3
 from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3
@@ -90,6 +98,7 @@ class WorkbenchStepV1(StrictFrozenModel):
     actor_type: ActorType
     actor_id: Identifier
     step_contract_hash: Sha256Hex
+    expected_outputs: tuple[ExpectedOutputV3, ...] = Field(min_length=1)
     status: Literal["pending", "running", "succeeded", "failed", "skipped"]
     result: ActorExecutionResultV3 | None = None
     failure_code: Identifier | None = None
@@ -154,17 +163,121 @@ class WorkbenchRecoveryV1(StrictFrozenModel):
         return self
 
 
+class WorkbenchEvidenceGapMetadataV1(StrictFrozenModel):
+    redaction: Literal["none", "masked"]
+    truncated: bool
+    conflict_status: Literal["none", "corroborated", "conflicting"]
+    risk_flags: tuple[Identifier, ...]
+
+    @model_validator(mode="after")
+    def validate_risk_flags(self) -> WorkbenchEvidenceGapMetadataV1:
+        require_unique(self.risk_flags, "Workbench evidence risk flags")
+        return self
+
+
+class WorkbenchEvidenceProvenanceV1(StrictFrozenModel):
+    source_kind: Literal["public_web"]
+    retrieved_at: datetime
+    registrable_domain: DomainName
+    independence_group: Identifier
+    artifact: SealedArtifactRefV3
+    run_id: Identifier
+    plan_version_id: Identifier
+    attempt_id: Identifier
+    step_number: Annotated[int, Field(ge=1, le=8)]
+    actor_type: Literal["tool"]
+    actor_id: Identifier
+    step_contract_hash: Sha256Hex
+    receipt_id: Identifier
+
+    @model_validator(mode="after")
+    def validate_retrieved_at(self) -> WorkbenchEvidenceProvenanceV1:
+        if self.retrieved_at.tzinfo is None or self.retrieved_at.utcoffset() is None:
+            raise ValueError("Workbench evidence retrieval timestamp must include a timezone")
+        return self
+
+
+class WorkbenchEvidenceItemV1(StrictFrozenModel):
+    evidence_id: Identifier
+    source_id: Identifier
+    title: Annotated[NonBlankString, Field(max_length=500)]
+    url: HttpsUrl
+    quote: EvidenceText
+    gap_metadata: WorkbenchEvidenceGapMetadataV1
+    provenance: WorkbenchEvidenceProvenanceV1
+
+
 class WorkbenchEvidenceV1(StrictFrozenModel):
     artifact: EvidenceManifestArtifactRefV3
-    manifest: EvidenceManifestV3
-    verified_artifacts: tuple[VerifiedArtifactContentV3, ...]
+    presentation_mode: Literal["text"]
+    run_id: Identifier
+    plan_version_id: Identifier
+    attempt_id: Identifier
+    evidence: tuple[WorkbenchEvidenceItemV1, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_evidence(self) -> WorkbenchEvidenceV1:
-        if canonical_json_v3_sha256(self.manifest) != self.artifact.content_hash:
-            raise ValueError("Workbench Evidence Manifest does not match its sealed Artifact")
-        verify_evidence_manifest_artifacts(self.manifest, self.verified_artifacts)
+        evidence_ids = tuple(item.evidence_id for item in self.evidence)
+        require_unique(evidence_ids, "Workbench evidence IDs")
+        if evidence_ids != tuple(sorted(evidence_ids)):
+            raise ValueError("Workbench evidence entries must be sorted by ID")
+        lineage = (self.run_id, self.plan_version_id, self.attempt_id)
+        for item in self.evidence:
+            provenance = item.provenance
+            if (provenance.run_id, provenance.plan_version_id, provenance.attempt_id) != lineage:
+                raise ValueError("Workbench evidence provenance does not match its projection lineage")
         return self
+
+
+def project_verified_evidence_for_workbench(
+    *,
+    artifact: EvidenceManifestArtifactRefV3,
+    manifest: EvidenceManifestV3,
+    verified_artifacts: tuple[VerifiedArtifactContentV3, ...],
+) -> WorkbenchEvidenceV1:
+    """Verify complete server-side Tool output and return only the safe Web projection."""
+
+    if canonical_json_v3_sha256(manifest) != artifact.content_hash:
+        raise ValueError("Workbench Evidence Manifest does not match its sealed Artifact")
+    verify_evidence_manifest_artifacts(manifest, verified_artifacts)
+    return WorkbenchEvidenceV1(
+        artifact=artifact,
+        presentation_mode=manifest.presentation_mode,
+        run_id=manifest.run_id,
+        plan_version_id=manifest.plan_version_id,
+        attempt_id=manifest.attempt_id,
+        evidence=tuple(
+            WorkbenchEvidenceItemV1(
+                evidence_id=item.id,
+                source_id=item.source.source_id,
+                title=item.source.title,
+                url=item.source.url,
+                quote=item.source.quote,
+                gap_metadata=WorkbenchEvidenceGapMetadataV1(
+                    redaction=item.redaction,
+                    truncated=item.source.truncated,
+                    conflict_status=item.source.conflict_status,
+                    risk_flags=item.source.risk_flags,
+                ),
+                provenance=WorkbenchEvidenceProvenanceV1(
+                    source_kind=item.source.source_kind,
+                    retrieved_at=item.source.retrieved_at,
+                    registrable_domain=item.source.registrable_domain,
+                    independence_group=item.source.independence_group,
+                    artifact=item.pointer.artifact,
+                    run_id=item.proof.run_id,
+                    plan_version_id=item.proof.plan_version_id,
+                    attempt_id=item.proof.attempt_id,
+                    step_number=item.proof.step_number,
+                    actor_type=item.proof.actor_type,
+                    actor_id=item.proof.actor_id,
+                    step_contract_hash=item.proof.step_contract_hash,
+                    receipt_id=item.proof.receipt_id,
+                ),
+            )
+            for item in manifest.evidence
+        ),
+    )
 
 
 class WorkbenchDeliverableV1(StrictFrozenModel):
@@ -308,8 +421,10 @@ class ResearchV3WorkbenchAggregateV1(StrictFrozenModel):
             if (
                 self.selected_plan.run_id != self.run_id
                 or self.selected_plan.requirement_version_id != self.requirement.id
+                or self.selected_plan.payload.requirement_version_id != self.requirement.id
+                or self.selected_plan.payload.requirement_content_hash != self.requirement.content_hash
             ):
-                raise ValueError("Workbench selected plan lineage is invalid")
+                raise ValueError("Workbench selected plan requirement lineage is invalid")
         if self.workflow.state in {"clarify", "candidates", "plan"} and self.approvals:
             raise ValueError("pre-approval Workbench states cannot contain approvals")
         if self.workflow.state == "approval":
@@ -326,6 +441,7 @@ class ResearchV3WorkbenchAggregateV1(StrictFrozenModel):
                 self.attempt.plan_version_id,
             ) != (self.run_id, self.selected_plan.id):
                 raise ValueError("Workbench attempt does not belong to the selected plan")
+            self._validate_attempt_plan_binding()
         if self.workflow.state == "dag_or_executing" and self.attempt is not None and self.attempt.status != "running":
             raise ValueError("executing Workbench state requires a running attempt")
         if self.workflow.state == "paused" and self.attempt is not None:
@@ -337,6 +453,32 @@ class ResearchV3WorkbenchAggregateV1(StrictFrozenModel):
         if self.workflow.state == "text_report":
             self._validate_report_lineage()
         return self
+
+    def _validate_attempt_plan_binding(self) -> None:
+        assert self.attempt is not None
+        assert self.selected_plan is not None
+        projected_steps = tuple(
+            (
+                step.step_number,
+                step.actor_type,
+                step.actor_id,
+                step.step_contract_hash,
+                step.expected_outputs,
+            )
+            for step in self.attempt.steps
+        )
+        selected_steps = tuple(
+            (
+                step.step_number,
+                step.actor_type,
+                step.actor_id,
+                step.contract_hash,
+                step.expected_outputs,
+            )
+            for step in self.selected_plan.payload.steps
+        )
+        if projected_steps != selected_steps:
+            raise ValueError("Workbench steps do not exactly match the selected Plan contracts")
 
     def _validate_report_lineage(self) -> None:
         if not all((self.attempt, self.selected_plan, self.evidence, self.deliverable, self.review, self.report)):
@@ -350,28 +492,90 @@ class ResearchV3WorkbenchAggregateV1(StrictFrozenModel):
         if self.attempt.status != "completed":
             raise ValueError("text report projection requires a completed attempt")
         lineage = (self.run_id, self.selected_plan.id, self.attempt.attempt_id)
+        requirement_id = self.requirement.id if self.requirement is not None else None
         evidence_lineage = (
-            self.evidence.manifest.run_id,
-            self.evidence.manifest.plan_version_id,
-            self.evidence.manifest.attempt_id,
+            self.evidence.run_id,
+            self.evidence.plan_version_id,
+            self.evidence.attempt_id,
         )
         if evidence_lineage != lineage:
             raise ValueError("Workbench Evidence Manifest lineage is invalid")
         deliverable = self.deliverable.content
-        if (deliverable.run_id, deliverable.plan_version_id, deliverable.attempt_id) != lineage:
-            raise ValueError("Workbench deliverable lineage is invalid")
+        if (
+            deliverable.run_id,
+            deliverable.requirement_version_id,
+            deliverable.plan_version_id,
+            deliverable.attempt_id,
+        ) != (self.run_id, requirement_id, self.selected_plan.id, self.attempt.attempt_id):
+            raise ValueError("Workbench deliverable requirement lineage is invalid")
         if deliverable.evidence_manifest_artifact != self.evidence.artifact:
             raise ValueError("Workbench deliverable references a different Evidence Manifest")
         review = self.review.content
-        if (review.run_id, review.plan_version_id, review.attempt_id) != lineage:
-            raise ValueError("Workbench review lineage is invalid")
+        if (
+            review.run_id,
+            review.requirement_version_id,
+            review.plan_version_id,
+            review.attempt_id,
+        ) != (self.run_id, requirement_id, self.selected_plan.id, self.attempt.attempt_id):
+            raise ValueError("Workbench review requirement lineage is invalid")
+        if review.verdict != "pass":
+            raise ValueError("Workbench report projection requires a pass review")
         if review.deliverable_artifact != self.deliverable.artifact:
             raise ValueError("Workbench review references a different deliverable")
         report = self.report.content
-        if (report.run_id, report.plan_version_id, report.attempt_id) != lineage:
-            raise ValueError("Workbench report lineage is invalid")
+        if (
+            report.run_id,
+            report.requirement_version_id,
+            report.plan_version_id,
+            report.attempt_id,
+        ) != (self.run_id, requirement_id, self.selected_plan.id, self.attempt.attempt_id):
+            raise ValueError("Workbench report requirement lineage is invalid")
+        if report.presentation_mode != "text" or report.review_verdict != "pass":
+            raise ValueError("Workbench report projection requires a pass-reviewed text report")
         if report.deliverable_artifact != self.deliverable.artifact or report.review_artifact != self.review.artifact:
             raise ValueError("Workbench report references different reviewed Artifacts")
+
+        successful_results = tuple(
+            step.result
+            for step in self.attempt.steps
+            if step.status == "succeeded" and step.result is not None
+        )
+        for evidence in self.evidence.evidence:
+            provenance = evidence.provenance
+            if not any(
+                (
+                    result.result_artifact,
+                    result.run_id,
+                    result.plan_version_id,
+                    result.attempt_id,
+                    result.step_number,
+                    result.actor_type,
+                    result.actor_id,
+                    result.step_contract_hash,
+                    result.receipt_id,
+                )
+                == (
+                    provenance.artifact,
+                    provenance.run_id,
+                    provenance.plan_version_id,
+                    provenance.attempt_id,
+                    provenance.step_number,
+                    provenance.actor_type,
+                    provenance.actor_id,
+                    provenance.step_contract_hash,
+                    provenance.receipt_id,
+                )
+                for result in successful_results
+            ):
+                raise ValueError("Workbench Evidence Artifact is not bound to a successful attempt result")
+        for capability in deliverable.capability_provenance:
+            if not any(
+                result.result_artifact == capability.result_artifact
+                and result.actor_type == capability.actor_type
+                and result.actor_id == capability.actor_id
+                for result in successful_results
+            ):
+                raise ValueError("Workbench capability Artifact is not bound to a successful attempt result")
 
 
 class ResearchV2HistoryWorkbenchAggregateV1(StrictFrozenModel):

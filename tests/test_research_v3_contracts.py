@@ -38,7 +38,7 @@ from agentmesh.research_orchestration.v3.problem_graph import (
 )
 from agentmesh.research_orchestration.v3.report_document import ReportDocumentV3
 from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3, ResearchTaskV3
-from agentmesh.research_orchestration.v3.review import ReportReviewV3
+from agentmesh.research_orchestration.v3.review import PassedReportReviewV3, ReportReviewV3
 from agentmesh.research_orchestration.v3.schema_registry import (
     SOURCE_ONLY_IDENTITIES,
     V2_HISTORICAL_IDENTITIES,
@@ -140,6 +140,28 @@ def test_all_requested_target_discriminators_validate() -> None:
     assert ResearchDeliverableV3.model_validate(deliverable_body()).schema_version == "research-deliverable-v3"
     assert ReportReviewV3.model_validate(review_body()).schema_version == "report-review-v3"
     assert ReportDocumentV3.model_validate(report_body()).schema_version == "report-document-v3"
+
+
+def test_report_composition_contract_is_pass_only_and_text_only() -> None:
+    passed = PassedReportReviewV3.model_validate(review_body())
+    assert passed.verdict == "pass"
+
+    for verdict in ("revise", "block"):
+        nonpassing = review_body()
+        nonpassing["verdict"] = verdict
+        with pytest.raises(ValidationError):
+            PassedReportReviewV3.model_validate(nonpassing)
+
+    report = report_body()
+    report["presentation_mode"] = "multimodal"
+    with pytest.raises(ValidationError):
+        ReportDocumentV3.model_validate(report)
+
+    for verdict in ("revise", "block"):
+        report = report_body()
+        report["review_verdict"] = verdict
+        with pytest.raises(ValidationError):
+            ReportDocumentV3.model_validate(report)
 
 
 def test_v2_identifiers_remain_disjoint_and_no_source_alias_is_registered() -> None:

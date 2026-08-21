@@ -484,10 +484,7 @@
       "type": "string"
     },
     "presentation_mode": {
-      "enum": [
-        "text",
-        "multimodal"
-      ],
+      "const": "text",
       "title": "Presentation Mode",
       "type": "string"
     },
@@ -498,6 +495,11 @@
     },
     "review_artifact": {
       "$ref": "#/$defs/SealedArtifactRefV3"
+    },
+    "review_verdict": {
+      "const": "pass",
+      "title": "Review Verdict",
+      "type": "string"
     },
     "run_id": {
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -538,6 +540,7 @@
   "required": [
     "schema_version",
     "presentation_mode",
+    "review_verdict",
     "run_id",
     "requirement_version_id",
     "plan_version_id",

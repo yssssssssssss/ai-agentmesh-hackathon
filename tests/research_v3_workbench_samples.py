@@ -3,7 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
+from agentmesh.research_orchestration.v3.common import EvidenceManifestArtifactRefV3
+from agentmesh.research_orchestration.v3.evidence import EvidenceManifestV3, VerifiedArtifactContentV3
 from agentmesh.research_orchestration.v3.execution_plan import ExecutionPlanV3
+from agentmesh.research_orchestration.v3.web_projection import project_verified_evidence_for_workbench
 from research_v3_contract_samples import (
     artifact_ref,
     candidate_set_body,
@@ -94,9 +97,16 @@ def workbench_fixture_bodies() -> dict[str, dict]:
         "actor_id": "tavily-web-search",
         "step_contract_hash": step_1["contract_hash"],
         "receipt_id": "receipt_tool_1",
+        "implementation_id": "tavily-v1",
+        "execution_mode": "real",
         "artifact": artifact_1,
         "content": artifact_1_content,
     }
+    evidence_projection = project_verified_evidence_for_workbench(
+        artifact=EvidenceManifestArtifactRefV3.model_validate(manifest_artifact),
+        manifest=EvidenceManifestV3.model_validate(manifest),
+        verified_artifacts=(VerifiedArtifactContentV3.model_validate(verified),),
+    ).model_dump(mode="python")
 
     deliverable = deliverable_body()
     deliverable["evidence_manifest_artifact"] = manifest_artifact
@@ -217,11 +227,7 @@ def workbench_fixture_bodies() -> dict[str, dict]:
             selected_plan=plan,
             approvals=approved,
             attempt=_attempt(step_1, step_2, result_1, result_2, "completed", "succeeded"),
-            evidence={
-                "artifact": manifest_artifact,
-                "manifest": manifest,
-                "verified_artifacts": [verified],
-            },
+            evidence=evidence_projection,
             deliverable={"artifact": deliverable_artifact, "content": deliverable},
             review={"artifact": review_artifact, "content": review},
             report={"artifact": report_artifact, "content": report},
@@ -262,6 +268,7 @@ def _attempt(
                 "actor_type": step_1["actor_type"],
                 "actor_id": step_1["actor_id"],
                 "step_contract_hash": step_1["contract_hash"],
+                "expected_outputs": step_1["expected_outputs"],
                 "status": "succeeded",
                 "result": result_1,
                 "failure_code": None,
@@ -271,6 +278,7 @@ def _attempt(
                 "actor_type": step_2["actor_type"],
                 "actor_id": step_2["actor_id"],
                 "step_contract_hash": step_2["contract_hash"],
+                "expected_outputs": step_2["expected_outputs"],
                 "status": second_status,
                 "result": result_2 if second_status == "succeeded" else None,
                 "failure_code": "worker_loss" if second_status == "failed" else None,

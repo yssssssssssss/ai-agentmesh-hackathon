@@ -160,7 +160,8 @@ class ReportSectionV3(StrictFrozenModel):
 
 class ReportDocumentV3(StrictFrozenModel):
     schema_version: Literal["report-document-v3"]
-    presentation_mode: Literal["text", "multimodal"]
+    presentation_mode: Literal["text"]
+    review_verdict: Literal["pass"]
     run_id: Identifier
     requirement_version_id: Identifier
     plan_version_id: Identifier
@@ -185,10 +186,11 @@ class ReportDocumentV3(StrictFrozenModel):
         require_unique(section_ids, "report section IDs")
         block_ids = tuple(block.id for section in self.sections for block in section.blocks)
         require_unique(block_ids, "report block IDs")
-        if self.presentation_mode == "text":
-            if section_ids != COMPETITIVE_TEXT_SECTION_ORDER:
-                raise ValueError("Competitive Text report sections must follow the frozen template order")
-            visual_types = (ImageBlockV3, ImageComparisonBlockV3, ChartBlockV3)
-            if any(isinstance(block, visual_types) for section in self.sections for block in section.blocks):
-                raise ValueError("Competitive Text reports cannot contain visual blocks")
+        if self.presentation_mode != "text":
+            raise ValueError("Competitive Text reports require text presentation")
+        if section_ids != COMPETITIVE_TEXT_SECTION_ORDER:
+            raise ValueError("Competitive Text report sections must follow the frozen template order")
+        visual_types = (ImageBlockV3, ImageComparisonBlockV3, ChartBlockV3)
+        if any(isinstance(block, visual_types) for section in self.sections for block in section.blocks):
+            raise ValueError("Competitive Text reports cannot contain visual blocks")
         return self

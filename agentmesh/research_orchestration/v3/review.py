@@ -119,6 +119,7 @@ class ReviewDimensionV3(StrictFrozenModel):
 class ReportReviewV3(StrictFrozenModel):
     schema_version: Literal["report-review-v3"]
     run_id: Identifier
+    requirement_version_id: Identifier
     plan_version_id: Identifier
     attempt_id: Identifier
     deliverable_artifact: SealedArtifactRefV3
@@ -163,3 +164,9 @@ class ReportReviewV3(StrictFrozenModel):
         if self.revision_round == 1 and self.verdict == "revise":
             raise ValueError("a nonpassing round-one review must block")
         return self
+
+
+class PassedReportReviewV3(ReportReviewV3):
+    """A review narrowed to the only verdict accepted by report composition."""
+
+    verdict: Literal["pass"]

@@ -27,7 +27,7 @@ from agentmesh.research_orchestration.v3.execution_plan import (
 from agentmesh.research_orchestration.v3.problem_graph import ProblemGraphV1
 from agentmesh.research_orchestration.v3.report_document import ReportDocumentV3
 from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3, ResearchTaskV3
-from agentmesh.research_orchestration.v3.review import ReportReviewV3
+from agentmesh.research_orchestration.v3.review import PassedReportReviewV3, ReportReviewV3
 from agentmesh.research_orchestration.v3.schema_registry import (
     V2_HISTORICAL_IDENTITIES,
     V3_GENERATION_IDENTITIES,
@@ -37,7 +37,10 @@ from agentmesh.research_orchestration.v3.schema_registry import (
     V3_WEB_SCHEMA_IDENTITIES,
 )
 from agentmesh.research_orchestration.v3.snapshots import ResearchControlSnapshotV3
-from agentmesh.research_orchestration.v3.web_projection import WorkbenchAggregateV1
+from agentmesh.research_orchestration.v3.web_projection import (
+    WorkbenchAggregateV1,
+    project_verified_evidence_for_workbench,
+)
 
 __all__ = [
     "CANONICAL_JSON_V3_ALGORITHM",
@@ -51,6 +54,7 @@ __all__ = [
     "PlanCandidateV3",
     "ProblemGraphArtifactRefV3",
     "ProblemGraphV1",
+    "PassedReportReviewV3",
     "ReportDocumentV3",
     "ReportReviewV3",
     "RequirementVersionV3",
@@ -67,5 +71,6 @@ __all__ = [
     "canonical_json_v3_bytes",
     "canonical_json_v3_sha256",
     "load_competitive_text_catalog",
+    "project_verified_evidence_for_workbench",
     "strict_json_v3_loads",
 ]
