@@ -1013,6 +1013,27 @@
     },
     "ExecutionPlanV3": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "candidate_id": {
+                "const": "speed"
+              }
+            },
+            "required": [
+              "candidate_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "steps": {
+                "maxItems": 4
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "activated_nodes": {
           "items": {
@@ -3561,7 +3582,7 @@
           "items": {
             "$ref": "#/$defs/PlanStepProposalV3"
           },
-          "maxItems": 8,
+          "maxItems": 4,
           "minItems": 1,
           "title": "Proposed Steps",
           "type": "array"

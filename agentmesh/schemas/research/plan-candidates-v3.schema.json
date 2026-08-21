@@ -265,7 +265,7 @@
           "items": {
             "$ref": "#/$defs/PlanStepProposalV3"
           },
-          "maxItems": 8,
+          "maxItems": 4,
           "minItems": 1,
           "title": "Proposed Steps",
           "type": "array"

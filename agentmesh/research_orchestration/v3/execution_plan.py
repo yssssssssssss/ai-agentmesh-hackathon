@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.common import (
@@ -160,6 +160,7 @@ class DepthPlanCandidateV3(PlanCandidateV3):
 
 class SpeedPlanCandidateV3(PlanCandidateV3):
     candidate_id: Literal["speed"]
+    proposed_steps: tuple[PlanStepProposalV3, ...] = Field(min_length=1, max_length=4)
 
 
 class PlanCandidateSetV3(StrictFrozenModel):
@@ -222,7 +223,21 @@ class PlanStepV3(StrictFrozenModel):
         return self
 
 
+def _add_speed_plan_step_limit_to_schema(schema: dict[str, Any]) -> None:
+    schema["allOf"] = [
+        {
+            "if": {
+                "properties": {"candidate_id": {"const": "speed"}},
+                "required": ["candidate_id"],
+            },
+            "then": {"properties": {"steps": {"maxItems": 4}}},
+        }
+    ]
+
+
 class ExecutionPlanV3(StrictFrozenModel):
+    model_config = ConfigDict(json_schema_extra=_add_speed_plan_step_limit_to_schema)
+
     schema_version: Literal["execution-plan-v3"]
     task_type: Literal["competitive_research"]
     requirement_version_id: Identifier

@@ -8,6 +8,7 @@ import jsonschema
 import pytest
 from pydantic import ValidationError
 
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.deliverable import (
     CompetitiveAnalysisTextPayloadV1,
     ResearchDeliverableV3,
@@ -90,6 +91,40 @@ CASES = (
 
 def _schema(filename: str) -> dict:
     return json.loads(Path("agentmesh/schemas/research", filename).read_text(encoding="utf-8"))
+
+
+def _candidate_set_with_steps(candidate_id: str, step_count: int) -> dict:
+    body = candidate_set_body()
+    candidate = next(item for item in body["candidates"] if item["candidate_id"] == candidate_id)
+    template = candidate["proposed_steps"][0]
+    candidate["proposed_steps"] = []
+    for step_number in range(1, step_count + 1):
+        step = deepcopy(template)
+        step["proposed_step_number"] = step_number
+        step["depends_on"] = [] if step_number <= 3 else [step_number - 3]
+        candidate["proposed_steps"].append(step)
+    return body
+
+
+def _plan_with_steps(candidate_id: str, step_count: int) -> dict:
+    body = plan_body()
+    template = body["steps"][0]
+    body["candidate_id"] = candidate_id
+    body["steps"] = []
+    for step_number in range(1, step_count + 1):
+        step = deepcopy(template)
+        step["step_number"] = step_number
+        step["depends_on"] = [] if step_number <= 3 else [step_number - 3]
+        step["input_bindings"] = []
+        step.pop("contract_hash")
+        step["contract_hash"] = canonical_json_v3_sha256(step)
+        body["steps"].append(step)
+    return body
+
+
+def _assert_model_and_schema_accept(model_type, filename: str, sample: dict) -> None:
+    model_type.model_validate(sample)
+    jsonschema.Draft202012Validator(_schema(filename)).validate(sample)
 
 
 def test_parity_matrix_covers_every_committed_research_schema() -> None:
@@ -183,6 +218,64 @@ def _assert_model_and_schema_reject(model_type, filename: str, sample: dict) -> 
         model_type.model_validate(sample)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.Draft202012Validator(_schema(filename)).validate(sample)
+
+
+def test_speed_candidate_step_limit_has_pydantic_and_draft_202012_parity() -> None:
+    _assert_model_and_schema_accept(
+        PlanCandidateSetV3,
+        "plan-candidates-v3.schema.json",
+        _candidate_set_with_steps("speed", 4),
+    )
+    _assert_model_and_schema_accept(
+        PlanCandidateSetV3,
+        "plan-candidates-v3.schema.json",
+        _candidate_set_with_steps("depth", 8),
+    )
+    _assert_model_and_schema_reject(
+        PlanCandidateSetV3,
+        "plan-candidates-v3.schema.json",
+        _candidate_set_with_steps("speed", 5),
+    )
+
+
+def test_speed_execution_plan_step_limit_has_pydantic_and_draft_202012_parity() -> None:
+    _assert_model_and_schema_accept(
+        ExecutionPlanV3,
+        "execution-plan-v3.schema.json",
+        _plan_with_steps("speed", 4),
+    )
+    _assert_model_and_schema_accept(
+        ExecutionPlanV3,
+        "execution-plan-v3.schema.json",
+        _plan_with_steps("depth", 8),
+    )
+    _assert_model_and_schema_reject(
+        ExecutionPlanV3,
+        "execution-plan-v3.schema.json",
+        _plan_with_steps("speed", 5),
+    )
+
+
+def test_workbench_embeds_speed_specific_candidate_and_plan_step_limits() -> None:
+    workbench_defs = _schema("research-workbench-aggregate-v1.schema.json")["$defs"]
+    candidate_defs = _schema("plan-candidates-v3.schema.json")["$defs"]
+    for definitions in (candidate_defs, workbench_defs):
+        assert definitions["DepthPlanCandidateV3"]["properties"]["proposed_steps"]["maxItems"] == 8
+        assert definitions["SpeedPlanCandidateV3"]["properties"]["proposed_steps"]["maxItems"] == 4
+
+    expected_speed_limit = [
+        {
+            "if": {
+                "properties": {"candidate_id": {"const": "speed"}},
+                "required": ["candidate_id"],
+            },
+            "then": {"properties": {"steps": {"maxItems": 4}}},
+        }
+    ]
+    execution_schema = _schema("execution-plan-v3.schema.json")
+    for plan_schema in (execution_schema, workbench_defs["ExecutionPlanV3"]):
+        assert plan_schema["properties"]["steps"]["maxItems"] == 8
+        assert plan_schema["allOf"] == expected_speed_limit
 
 
 def test_nested_persisted_and_transport_discriminators_are_required() -> None:
