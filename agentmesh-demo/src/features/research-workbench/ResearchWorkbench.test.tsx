@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -12,9 +13,10 @@ import pausedFixture from '../../../../tests/fixtures/research_v3_workbench/paus
 import planFixture from '../../../../tests/fixtures/research_v3_workbench/plan.json'
 import textReportFixture from '../../../../tests/fixtures/research_v3_workbench/text_report.json'
 import { adaptWorkbenchAggregate } from './adapter'
+import { CANONICAL_WORKBENCH_SCHEMA_SHA256 } from './canonicalValidation'
 import { ResearchWorkbench } from './ResearchWorkbench'
 import { ResearchWorkbenchFixtureGallery } from './ResearchWorkbenchFixtureGallery'
-import type { ResearchV2HistoryWorkbenchAggregateV1 } from './types'
+import type { ResearchWorkbenchRenderV1 } from './types'
 
 const FIXTURES = [
   ['idle', idleFixture, ['你想研究什么？', 'RESEARCH WORKBENCH']],
@@ -27,13 +29,30 @@ const FIXTURES = [
   ['text_report', textReportFixture, ['Alpha versus Beta', 'Executive Summary', 'Alpha documents the compared capability.']],
 ] as const
 
+function canonicalToken(value: unknown): string {
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') return JSON.stringify(value)
+  if (typeof value === 'string') return JSON.stringify(value.normalize('NFC'))
+  if (Array.isArray(value)) return `[${value.map(canonicalToken).join(',')}]`
+  if (typeof value === 'object') {
+    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right, 'en'))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalToken(item)}`).join(',')}}`
+  }
+  throw new TypeError('unsupported test value')
+}
+
+function resealReport(fixture: { report: { artifact: { content_hash: string }; content: unknown } }): void {
+  fixture.report.artifact.content_hash = createHash('sha256').update(canonicalToken(fixture.report.content)).digest('hex')
+}
+
 describe('research-workbench-aggregate-v1 fixture renderer', () => {
   it.each(FIXTURES)('adapts and renders the %s fixture', (state, fixture, expectedText) => {
     const aggregate = adaptWorkbenchAggregate(fixture)
     const html = renderToStaticMarkup(<ResearchWorkbench aggregate={aggregate} />)
 
-    expect(aggregate.projection_kind).toBe('research-v3-current')
-    if (aggregate.projection_kind !== 'research-v3-current') throw new Error('expected current projection')
+    expect(aggregate.render_schema_version).toBe('research-workbench-render-v1')
+    expect(aggregate.source_schema_version).toBe('research-workbench-aggregate-v1')
+    expect(aggregate.render_kind).toBe('current')
+    if (aggregate.render_kind !== 'current') throw new Error('expected current render projection')
     expect(aggregate.workflow.state).toBe(state)
     expect(html).toContain(`data-workbench-state="${state}"`)
     for (const text of expectedText) expect(html).toContain(text)
@@ -67,7 +86,7 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
   })
 
   it('presents v2 history as read-only and ignores Tool Artifact-shaped payload fields', () => {
-    const history: ResearchV2HistoryWorkbenchAggregateV1 = {
+    const history = {
       schema_version: 'research-workbench-aggregate-v1',
       projection_kind: 'research-v2-history',
       orchestration_version: 'research-v2',
@@ -126,10 +145,10 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
     )
 
     expect(() => adaptWorkbenchAggregate({ ...idleFixture, orchestration_version: 'research-v2' })).toThrow(
-      'orchestration_version must be research-v3',
+      'Invalid research-workbench-aggregate-v1',
     )
     expect(() => adaptWorkbenchAggregate({ ...idleFixture, projection_kind: 'unknown' })).toThrow(
-      'Unsupported workbench projection kind',
+      'Invalid research-workbench-aggregate-v1',
     )
     expect(() => adaptWorkbenchAggregate({
       ...idleFixture,
@@ -144,7 +163,7 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
     }
     const aggregate = adaptWorkbenchAggregate(repositoryProjection)
 
-    expect(aggregate.projection_kind).toBe('research-v3-current')
+    expect(aggregate.render_kind).toBe('current')
     expect(aggregate.provenance).toEqual(expect.objectContaining({
       source_kind: 'repository_projection',
       baseline_state_id: null,
@@ -204,10 +223,72 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
     expect(css).toContain('background: var(--button-primary-bg-hover)')
   })
 
-  it('renders metric evidence disclosure from metric evidence_ids', () => {
-    const metricFixture = JSON.parse(JSON.stringify(textReportFixture))
-    const metrics = metricFixture.report.content.sections.find((section: { id: string }) => section.id === 'key-metrics')
-    const findings = metricFixture.report.content.sections.find((section: { id: string }) => section.id === 'findings')
+  it('rejects nested extras and missing required canonical fields before projection', () => {
+    const nestedExtra = structuredClone(clarifyFixture) as unknown as {
+      requirement: { payload: Record<string, unknown> }
+    }
+    nestedExtra.requirement.payload.untrusted_extra = true
+    expect(() => adaptWorkbenchAggregate(nestedExtra)).toThrow('Invalid research-workbench-aggregate-v1')
+
+    const missingField = structuredClone(candidatesFixture) as unknown as {
+      candidates: { candidates: Array<Record<string, unknown>> }
+    }
+    delete missingField.candidates.candidates[0].tradeoffs
+    expect(() => adaptWorkbenchAggregate(missingField)).toThrow('Invalid research-workbench-aggregate-v1')
+  })
+
+  it('rejects stale hashes and broken lineage references', () => {
+    const staleReport = structuredClone(textReportFixture)
+    staleReport.report.content.title = 'Tampered without resealing'
+    expect(() => adaptWorkbenchAggregate(staleReport)).toThrow('report artifact hash does not match canonical content')
+
+    const staleRequirement = structuredClone(planFixture)
+    staleRequirement.requirement.payload.research_goal = 'Tampered requirement'
+    expect(() => adaptWorkbenchAggregate(staleRequirement)).toThrow('requirement.content_hash does not match canonical content')
+
+    const brokenLineage = structuredClone(textReportFixture)
+    brokenLineage.evidence.plan_version_id = 'plan_other'
+    expect(() => adaptWorkbenchAggregate(brokenLineage)).toThrow('Workbench Evidence Manifest lineage is invalid')
+  })
+
+  it('rejects invalid fact and metric Evidence bindings', () => {
+    const emptyFactEvidence = structuredClone(textReportFixture)
+    const findings = emptyFactEvidence.report.content.sections.find((section) => section.id === 'findings')
+    if (!findings || findings.blocks[0]?.type !== 'fact') throw new Error('expected fact fixture')
+    ;(findings.blocks[0] as { evidence_ids: string[] }).evidence_ids = []
+    resealReport(emptyFactEvidence)
+    expect(() => adaptWorkbenchAggregate(emptyFactEvidence)).toThrow('Invalid research-workbench-aggregate-v1')
+
+    const unknownMetricEvidence = structuredClone(textReportFixture)
+    const metrics = unknownMetricEvidence.report.content.sections.find((section) => section.id === 'key-metrics')
+    if (!metrics) throw new Error('expected metrics section')
+    ;(metrics as unknown as { blocks: unknown[] }).blocks = [
+      { id: 'block_metric', type: 'metric', label: 'Score', value: 4, evidence_ids: ['evidence_missing'] },
+    ]
+    resealReport(unknownMetricEvidence)
+    expect(() => adaptWorkbenchAggregate(unknownMetricEvidence)).toThrow('Workbench report block references unknown Evidence')
+  })
+
+  it('pins the feature-local canonical schema copy and strips canonical identities from render models', () => {
+    const localSchemaPath = fileURLToPath(new URL('./research-workbench-aggregate-v1.schema.json', import.meta.url))
+    const backendSchemaPath = fileURLToPath(new URL('../../../../agentmesh/schemas/research/research-workbench-aggregate-v1.schema.json', import.meta.url))
+    const localSchema = readFileSync(localSchemaPath)
+    expect(localSchema.equals(readFileSync(backendSchemaPath))).toBe(true)
+    expect(createHash('sha256').update(localSchema).digest('hex')).toBe(CANONICAL_WORKBENCH_SCHEMA_SHA256)
+
+    const renderModel = adaptWorkbenchAggregate(textReportFixture)
+    expect(renderModel.render_schema_version).toBe('research-workbench-render-v1')
+    expect(renderModel).not.toHaveProperty('schema_version')
+    expect(renderModel).not.toHaveProperty('projection_kind')
+    expect(JSON.stringify(renderModel)).not.toMatch(/"(?:artifact|content_hash|plan_hash|contract_hash|step_contract_hash)"/)
+  })
+
+  it('renders metric Evidence from an explicitly unsealed render-model variant', () => {
+    const metricRender = structuredClone(adaptWorkbenchAggregate(textReportFixture)) as ResearchWorkbenchRenderV1
+    if (metricRender.render_kind !== 'current' || !metricRender.report) throw new Error('expected report render model')
+    const metrics = metricRender.report.content.sections.find((section) => section.id === 'key-metrics')
+    const findings = metricRender.report.content.sections.find((section) => section.id === 'findings')
+    if (!metrics || !findings || findings.blocks[0]?.type !== 'fact') throw new Error('expected fixture report sections')
     metrics.blocks = [{
       id: 'block_metric',
       type: 'metric',
@@ -217,10 +298,49 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
     }]
     findings.blocks[0].evidence_ids = []
 
-    const html = renderToStaticMarkup(<ResearchWorkbench aggregate={adaptWorkbenchAggregate(metricFixture)} />)
+    const html = renderToStaticMarkup(<ResearchWorkbench aggregate={metricRender} />)
     expect(html.match(/查看证据（1）/g)).toHaveLength(1)
     expect(html).toMatch(/rw-report-metric-block[\s\S]*Supported capability score[\s\S]*<dd>4<\/dd>[\s\S]*查看证据（1）/)
     expect(html).toMatch(/rw-report-metric-block[\s\S]*Alpha product documentation/)
+  })
+
+  it('meets AA contrast for every normal-size token pair used by the feature', () => {
+    const cssPath = fileURLToPath(new URL('./research-workbench.css', import.meta.url))
+    const css = readFileSync(cssPath, 'utf8')
+    const token = (name: string) => {
+      const value = css.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1]
+      if (!value) throw new Error(`missing color token ${name}`)
+      return value
+    }
+    const luminance = (hex: string) => {
+      const channels = hex.slice(1).match(/[0-9a-f]{2}/gi)
+      if (!channels) throw new Error(`invalid hex color ${hex}`)
+      const [red, green, blue] = channels.map((channel) => {
+        const value = Number.parseInt(channel, 16) / 255
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    }
+    const contrast = (foreground: string, background: string) => {
+      const values = [luminance(foreground), luminance(background)].sort((left, right) => right - left)
+      return (values[0] + 0.05) / (values[1] + 0.05)
+    }
+    const pairs = [
+      ['--text', '--bg'], ['--text', '--bg-elev'], ['--text', '--bg-card'], ['--text', '--bg-card-hi'],
+      ['--text-dim', '--bg'], ['--text-dim', '--bg-elev'], ['--text-dim', '--bg-card'], ['--text-dim', '--bg-card-hi'],
+      ['--text-faint', '--bg'], ['--text-faint', '--bg-elev'], ['--text-faint', '--bg-card'],
+      ['--text-faint', '--bg-card-hi'], ['--text-faint', '--border'], ['--muted', '--bg-card'],
+      ['--primary-strong', '--bg-card-hi'], ['--ok', '--bg-card-hi'], ['--warn', '--bg-card-hi'],
+      ['--danger', '--bg-card-hi'], ['--skill-fg', '--bg-card-hi'], ['--tool-fg', '--bg-card-hi'],
+      ['--llm-fg', '--bg-card-hi'], ['--reviewer-fg', '--bg-card-hi'],
+      ['--button-primary-text', '--button-primary-bg'], ['--button-primary-text', '--button-primary-bg-hover'],
+      ['--button-primary-text', '--stage-number-bg'], ['--button-primary-text', '--stage-number-bg-hover'],
+      ['--report-ink', '--report-paper'], ['--report-muted', '--report-paper'], ['--report-accent', '--report-paper'],
+      ['--report-ok', '--report-paper'],
+    ] as const
+    for (const [foreground, background] of pairs) {
+      expect(contrast(token(foreground), token(background)), `${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5)
+    }
   })
 
   it('keeps exact ai-x colors and the 760px flow scoped to the feature root', () => {
@@ -229,7 +349,7 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
 
     for (const token of [
       '--bg: #0a0d16', '--bg-elev: #10141f', '--bg-card: #151a27', '--bg-card-hi: #1c2233',
-      '--border: #232a3d', '--text: #e6e9f0', '--text-dim: #a5adbf', '--text-faint: #6b7488',
+      '--border: #232a3d', '--text: #e6e9f0', '--text-dim: #a5adbf', '--text-faint: #8d96aa',
       '--primary: #7c7cf0', '--primary-strong: #9ea0ff', '--ok: #34d399', '--warn: #fbbf24',
       '--danger: #f87171', '--report-paper: #f6f4ee', '--report-ink: #1c2230', '--report-accent: #5f60d9',
     ]) expect(css).toContain(token)

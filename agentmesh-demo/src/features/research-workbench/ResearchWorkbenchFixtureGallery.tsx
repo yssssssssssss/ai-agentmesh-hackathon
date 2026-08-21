@@ -1,11 +1,11 @@
 import { adaptWorkbenchAggregate } from './adapter'
 import { ResearchWorkbench } from './ResearchWorkbench'
-import type { ResearchWorkbenchActions, WorkbenchAggregateV1 } from './types'
+import type { ResearchWorkbenchActions, ResearchWorkbenchRenderV1 } from './types'
 
 export interface ResearchWorkbenchFixture {
   id: string
   label: string
-  aggregate: WorkbenchAggregateV1 | unknown
+  aggregate: ResearchWorkbenchRenderV1 | unknown
 }
 
 /**

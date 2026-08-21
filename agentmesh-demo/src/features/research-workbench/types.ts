@@ -1,6 +1,6 @@
-// Feature-local render projection types mirror the frozen research-workbench-aggregate-v1
-// discriminators and state matrix. They intentionally do not depend on generated production API
-// types: research-v3 is not routed in production.
+// Feature-local canonical validation shapes and the distinct render projection consumed by the
+// isolated workbench. The canonical shapes are never exposed to React: unknown input is validated
+// against the frozen schema and semantic invariants before canonical identities are stripped.
 
 export type WorkbenchState =
   | 'idle'
@@ -484,6 +484,47 @@ export interface ResearchV2HistoryWorkbenchAggregateV1 {
 }
 
 export type WorkbenchAggregateV1 = ResearchV3WorkbenchAggregateV1 | ResearchV2HistoryWorkbenchAggregateV1
+
+type CanonicalIdentityKey =
+  | 'schema_version'
+  | 'projection_kind'
+  | 'orchestration_version'
+  | 'content_hash'
+  | 'plan_hash'
+  | 'contract_hash'
+  | 'step_contract_hash'
+  | 'artifact'
+  | 'result_artifact'
+  | 'deliverable_artifact'
+  | 'review_artifact'
+  | 'evidence_manifest_artifact'
+
+export type RenderProjection<T> = T extends readonly (infer Item)[]
+  ? RenderProjection<Item>[]
+  : T extends object
+    ? { [Key in keyof T as Key extends CanonicalIdentityKey ? never : Key]: RenderProjection<T[Key]> }
+    : T
+
+interface ResearchWorkbenchRenderIdentity {
+  render_schema_version: 'research-workbench-render-v1'
+  source_schema_version: 'research-workbench-aggregate-v1'
+}
+
+export type ResearchTaskRenderV1 = RenderProjection<ResearchTaskV3>
+export type PlanCandidateRenderV1 = RenderProjection<PlanCandidateV3>
+export type ExecutionPlanVersionRenderV1 = RenderProjection<ExecutionPlanVersionV3>
+export type WorkbenchApprovalRenderV1 = RenderProjection<WorkbenchApprovalV1>
+export type ReportBlockRenderV1 = RenderProjection<ReportBlockV3>
+export type PlanStepRenderV1 = RenderProjection<PlanStepV3>
+export type WorkbenchStepRenderV1 = RenderProjection<WorkbenchStepV1>
+
+export type ResearchV3WorkbenchRenderV1 = RenderProjection<ResearchV3WorkbenchAggregateV1> &
+  ResearchWorkbenchRenderIdentity & { render_kind: 'current' }
+
+export type ResearchV2HistoryWorkbenchRenderV1 = RenderProjection<ResearchV2HistoryWorkbenchAggregateV1> &
+  ResearchWorkbenchRenderIdentity & { render_kind: 'history' }
+
+export type ResearchWorkbenchRenderV1 = ResearchV3WorkbenchRenderV1 | ResearchV2HistoryWorkbenchRenderV1
 
 export interface ResearchWorkbenchActions {
   onSuggestion?: (suggestion: string) => void

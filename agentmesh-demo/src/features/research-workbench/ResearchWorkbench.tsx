@@ -14,21 +14,21 @@ import { buildResearchDag, describeResearchDag } from './dag'
 import { presentWorkbench, type CurrentWorkbenchPresentation } from './presenter'
 import type {
   ActorType,
-  ExecutionPlanVersionV3,
-  PlanCandidateV3,
-  ReportBlockV3,
-  ResearchTaskV3,
-  ResearchV2HistoryWorkbenchAggregateV1,
-  ResearchV3WorkbenchAggregateV1,
+  ExecutionPlanVersionRenderV1,
+  PlanCandidateRenderV1,
+  ReportBlockRenderV1,
+  ResearchTaskRenderV1,
+  ResearchV2HistoryWorkbenchRenderV1,
+  ResearchV3WorkbenchRenderV1,
   ResearchWorkbenchActions,
   StepStatus,
-  WorkbenchAggregateV1,
-  WorkbenchApprovalV1,
+  ResearchWorkbenchRenderV1,
+  WorkbenchApprovalRenderV1,
 } from './types'
 import './research-workbench.css'
 
 export interface ResearchWorkbenchProps {
-  aggregate?: WorkbenchAggregateV1 | null
+  aggregate?: ResearchWorkbenchRenderV1 | null
   status?: 'ready' | 'loading' | 'error'
   errorMessage?: string
   actions?: ResearchWorkbenchActions
@@ -62,7 +62,7 @@ export function ResearchWorkbench({
   const presentation = presentWorkbench(aggregate)
   if (presentation.kind === 'history') {
     return (
-      <section className={rootClassName} data-workbench-state="history" data-projection-kind={aggregate.projection_kind}>
+      <section className={rootClassName} data-workbench-state="history" data-projection-kind={aggregate.render_kind}>
         <div className="rw-flow"><ResearchV2History aggregate={presentation.aggregate} /></div>
       </section>
     )
@@ -72,7 +72,7 @@ export function ResearchWorkbench({
     <section
       className={rootClassName}
       data-workbench-state={presentation.state}
-      data-projection-kind={aggregate.projection_kind}
+      data-projection-kind={aggregate.render_kind}
       aria-label={`研究工作台：${presentation.stateLabel}`}
     >
       <CurrentWorkbench presentation={presentation} actions={actions} />
@@ -173,7 +173,7 @@ function StageHeader({ number, title, note }: { number: string; title: string; n
   )
 }
 
-export function Stage1Understand({ task, activatedNodes }: { task: ResearchTaskV3; activatedNodes: string[] }) {
+export function Stage1Understand({ task, activatedNodes }: { task: ResearchTaskRenderV1; activatedNodes: string[] }) {
   return (
     <article className="rw-stage-card" data-stage="understand">
       <StageHeader number="1" title="任务理解" note="由 AI 结构化为 ResearchTask" />
@@ -202,7 +202,7 @@ export function Stage1Clarify({
   task,
   onSubmit,
 }: {
-  task: ResearchTaskV3
+  task: ResearchTaskRenderV1
   onSubmit?: ResearchWorkbenchActions['onClarificationSubmit']
 }) {
   const [answers, setAnswers] = useState<Record<string, string>>({})
@@ -253,8 +253,8 @@ export function Stage2Candidates({
   onSelect,
   readOnly = false,
 }: {
-  candidates: readonly PlanCandidateV3[]
-  selectedId?: PlanCandidateV3['candidate_id']
+  candidates: readonly PlanCandidateRenderV1[]
+  selectedId?: PlanCandidateRenderV1['candidate_id']
   onSelect?: ResearchWorkbenchActions['onCandidateSelect']
   readOnly?: boolean
 }) {
@@ -285,7 +285,7 @@ export function Stage2Candidates({
     focusCandidate(nextIndex)
   }
 
-  function choose(candidate: PlanCandidateV3, index: number) {
+  function choose(candidate: PlanCandidateRenderV1, index: number) {
     if (index !== currentIndex) {
       focusCandidate(index)
       return
@@ -392,8 +392,8 @@ export function Stage2Plan({
   onConfirm,
   onRevise,
 }: {
-  plan: ExecutionPlanVersionV3
-  task?: ResearchTaskV3
+  plan: ExecutionPlanVersionRenderV1
+  task?: ResearchTaskRenderV1
   locked: boolean
   onConfirm?: () => void
   onRevise?: () => void
@@ -437,13 +437,13 @@ export function ApprovalReadyStage({
   onApprove,
   onExecute,
 }: {
-  approvals: readonly WorkbenchApprovalV1[]
+  approvals: readonly WorkbenchApprovalRenderV1[]
   onApprove?: ResearchWorkbenchActions['onApprove']
   onExecute?: ResearchWorkbenchActions['onExecute']
 }) {
   const pending = approvals.filter((approval) => approval.decision === 'pending')
   const ready = approvals.length > 0 && pending.length === 0 && approvals.every((approval) => approval.decision === 'approved')
-  const roleLabels: Record<WorkbenchApprovalV1['role'], string> = { owner: '任务负责人', legal: '法务', security: '安全' }
+  const roleLabels: Record<WorkbenchApprovalRenderV1['role'], string> = { owner: '任务负责人', legal: '法务', security: '安全' }
   return (
     <article className="rw-stage-card" data-stage="approval" aria-live="polite">
       <StageHeader number="2" title={ready ? '计划已就绪' : '计划等待授权审批'} note={ready ? '需要明确开始执行' : '未批准前不会执行'} />
@@ -462,7 +462,7 @@ export function ApprovalReadyStage({
   )
 }
 
-function approvalDecisionLabel(decision: WorkbenchApprovalV1['decision']): string {
+function approvalDecisionLabel(decision: WorkbenchApprovalRenderV1['decision']): string {
   if (decision === 'approved') return '已批准'
   if (decision === 'rejected') return '已拒绝'
   return '待审批'
@@ -485,7 +485,7 @@ const STATUS_LABELS: Record<StepStatus, string> = {
   skipped: '已跳过',
 }
 
-export function Stage3Dag({ aggregate }: { aggregate: ResearchV3WorkbenchAggregateV1 }) {
+export function Stage3Dag({ aggregate }: { aggregate: ResearchV3WorkbenchRenderV1 }) {
   const markerId = `rw-dag-arrow-${useId().replace(/:/g, '')}`
   const steps = aggregate.selected_plan?.payload.steps ?? []
   const dag = useMemo(() => buildResearchDag(steps, aggregate.attempt?.steps), [aggregate.attempt?.steps, steps])
@@ -545,7 +545,7 @@ function StatusMark({ status }: { status: StepStatus }) {
   return <span className={`rw-status-mark status-${status}`}>{mark}</span>
 }
 
-export function GapNotice({ gaps }: { gaps: NonNullable<ResearchV3WorkbenchAggregateV1['selected_plan']>['payload']['capability_gaps'] }) {
+export function GapNotice({ gaps }: { gaps: NonNullable<ResearchV3WorkbenchRenderV1['selected_plan']>['payload']['capability_gaps'] }) {
   return (
     <aside className="rw-gap-notice" role="status">
       <b>能力缺口</b>
@@ -558,7 +558,7 @@ export function PausedRecoveryStage({
   aggregate,
   onAction,
 }: {
-  aggregate: ResearchV3WorkbenchAggregateV1
+  aggregate: ResearchV3WorkbenchRenderV1
   onAction?: ResearchWorkbenchActions['onRecoveryAction']
 }) {
   const recovery = aggregate.recovery
@@ -591,8 +591,8 @@ function ReportBlock({
   block,
   evidence,
 }: {
-  block: ReportBlockV3
-  evidence: ResearchV3WorkbenchAggregateV1['evidence']
+  block: ReportBlockRenderV1
+  evidence: ResearchV3WorkbenchRenderV1['evidence']
 }) {
   if (block.type === 'list') return <ul className="rw-report-list">{block.items.map((item) => <li key={item}>{item}</li>)}</ul>
   if (block.type === 'metric') {
@@ -619,7 +619,7 @@ function EvidenceDisclosure({
   evidence,
 }: {
   ids: readonly string[]
-  evidence: ResearchV3WorkbenchAggregateV1['evidence']
+  evidence: ResearchV3WorkbenchRenderV1['evidence']
 }) {
   const items = ids.flatMap((id) => {
     const item = evidence?.evidence.find((candidate) => candidate.evidence_id === id)
@@ -645,7 +645,7 @@ function EvidenceDisclosure({
   )
 }
 
-export function Stage4TextReport({ aggregate }: { aggregate: ResearchV3WorkbenchAggregateV1 }) {
+export function Stage4TextReport({ aggregate }: { aggregate: ResearchV3WorkbenchRenderV1 }) {
   const report = aggregate.report?.content
   if (!report) return null
   const deliverable = aggregate.deliverable?.content
@@ -683,7 +683,7 @@ export function Stage4TextReport({ aggregate }: { aggregate: ResearchV3Workbench
   )
 }
 
-export function ResearchV2History({ aggregate }: { aggregate: ResearchV2HistoryWorkbenchAggregateV1 }) {
+export function ResearchV2History({ aggregate }: { aggregate: ResearchV2HistoryWorkbenchRenderV1 }) {
   const presentation = presentWorkbench(aggregate)
   if (presentation.kind !== 'history') return null
   return (
