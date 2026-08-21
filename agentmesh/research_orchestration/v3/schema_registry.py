@@ -38,6 +38,20 @@ V3_GENERATION_IDENTITIES = frozenset(
         "report-document-v3",
     }
 )
+V3_SUPPORTING_SCHEMA_IDENTITIES = frozenset(
+    {
+        "problem-graph-v1",
+        "plan-candidates-v3",
+        "research-control-snapshot-v3",
+        "competitive-analysis-text-v1",
+        "evidence-manifest-v3",
+    }
+)
+V3_PERSISTED_SCHEMA_IDENTITIES = frozenset(
+    (V3_GENERATION_IDENTITIES - {"research-v3"}) | V3_SUPPORTING_SCHEMA_IDENTITIES
+)
+V3_PERSISTED_RESOURCE_IDENTITIES = frozenset({"research-v3"}) | V3_PERSISTED_SCHEMA_IDENTITIES
+V3_CURRENT_IDENTITIES = V3_PERSISTED_RESOURCE_IDENTITIES
 SOURCE_ONLY_IDENTITIES = frozenset(
     {
         "research-task-v2",
@@ -47,8 +61,9 @@ SOURCE_ONLY_IDENTITIES = frozenset(
         "report-document-v1",
     }
 )
-assert V2_HISTORICAL_IDENTITIES.isdisjoint(V3_GENERATION_IDENTITIES)
-assert SOURCE_ONLY_IDENTITIES.isdisjoint(V3_GENERATION_IDENTITIES)
+assert V3_GENERATION_IDENTITIES.isdisjoint(V3_SUPPORTING_SCHEMA_IDENTITIES)
+assert V2_HISTORICAL_IDENTITIES.isdisjoint(V3_PERSISTED_RESOURCE_IDENTITIES)
+assert SOURCE_ONLY_IDENTITIES.isdisjoint(V3_PERSISTED_RESOURCE_IDENTITIES)
 
 V3_TARGET_REGISTRY: dict[tuple[str, str, str], type[BaseModel]] = {
     ("research-v3", "requirement", "research-task-v3"): RequirementVersionV3,

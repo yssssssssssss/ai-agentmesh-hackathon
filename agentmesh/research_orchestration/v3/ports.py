@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Protocol
 
 from agentmesh.research_orchestration.v3.catalog import CompetitiveTextCatalog
-from agentmesh.research_orchestration.v3.common import ActorType, Identifier, StrictFrozenModel, SealedArtifactRefV3
+from agentmesh.research_orchestration.v3.common import (
+    ActorType,
+    FrozenJsonObject,
+    Identifier,
+    SealedArtifactRefV3,
+    StrictFrozenModel,
+)
 from agentmesh.research_orchestration.v3.deliverable import ResearchDeliverableV3
 from agentmesh.research_orchestration.v3.execution_plan import (
     CapabilityResolutionV3,
@@ -74,6 +80,7 @@ class CandidateCompilerPort(Protocol):
         *,
         requirement: RequirementVersionV3,
         problem_graph: ProblemGraphV1,
+        problem_graph_artifact: SealedArtifactRefV3,
         capabilities: CapabilityResolutionV3,
         candidate: PlanCandidateV3,
     ) -> ExecutionPlanV3: ...
@@ -84,7 +91,7 @@ class ActorExecutionRequestV3(StrictFrozenModel):
     plan_version_id: Identifier
     attempt_id: Identifier
     step: PlanStepV3
-    resolved_input: dict[str, Any]
+    resolved_input: FrozenJsonObject
 
 
 class ActorExecutionResultV3(StrictFrozenModel):

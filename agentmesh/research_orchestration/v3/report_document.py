@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import ConfigDict, Field, model_validator
 
 from agentmesh.research_orchestration.v3.common import (
+    FrozenJsonObject,
     Identifier,
     JsonDecimal,
     NonBlankString,
@@ -94,8 +95,8 @@ class ChartBlockV3(StrictFrozenModel):
     type: Literal["chart"] = "chart"
     chart_ref: ChartRefV3
     spec_hash: Sha256Hex
-    spec: dict[str, Any]
-    table: dict[str, Any]
+    spec: FrozenJsonObject
+    table: FrozenJsonObject
     caption: Text
     alt_text: Text
 

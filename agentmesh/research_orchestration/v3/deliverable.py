@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import ConfigDict, Field, model_validator
 
 from agentmesh.research_orchestration.v3.common import (
     ActorType,
+    FrozenJsonObject,
     Identifier,
     JsonDecimal,
     NonBlankString,
@@ -175,8 +176,8 @@ class CompetitiveAnalysisTextPayloadV1(StrictFrozenModel):
     roadmap: tuple[RoadmapItemV1, ...] | None = Field(default=None, min_length=1)
     instrumentation_plan: tuple[Text, ...] | None = Field(default=None, min_length=1)
     user_test_script: tuple[Text, ...] | None = Field(default=None, min_length=1)
-    visual_evidence: tuple[dict[str, Any], ...]
-    screenshot_comparisons: tuple[dict[str, Any], ...]
+    visual_evidence: tuple[FrozenJsonObject, ...]
+    screenshot_comparisons: tuple[FrozenJsonObject, ...]
 
     @model_validator(mode="after")
     def validate_text_payload(self) -> CompetitiveAnalysisTextPayloadV1:
@@ -258,8 +259,10 @@ class ResearchDeliverableV3(StrictFrozenModel):
 
     @model_validator(mode="after")
     def validate_deliverable(self) -> ResearchDeliverableV3:
-        if self.evidence_manifest_artifact.kind != "evidence_manifest":
-            raise ValueError("deliverable must reference an Evidence Manifest Artifact")
+        if self.evidence_manifest_artifact.kind != "evidence_manifest" or (
+            self.evidence_manifest_artifact.schema_version != "evidence-manifest-v3"
+        ):
+            raise ValueError("deliverable must reference an evidence-manifest-v3 Artifact")
         recommendation_ids = tuple(item.id for item in self.recommendations)
         require_unique(recommendation_ids, "recommendation IDs")
         finding_ids = {item.id for item in self.finding_graph.findings}

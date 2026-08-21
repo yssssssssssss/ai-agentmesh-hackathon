@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import ConfigDict, Field, model_validator
 
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_bytes
 from agentmesh.research_orchestration.v3.common import (
     ActorType,
     ApprovalRole,
+    FrozenJson,
     Identifier,
     NonBlankString,
     Sha256Hex,
@@ -30,7 +33,16 @@ class FrozenDocumentV3(StrictFrozenModel):
     media_type: Literal["application/json", "application/yaml", "text/markdown"]
     content_hash: Sha256Hex
     size_bytes: Annotated[int, Field(ge=1, le=1_048_576)]
-    content: Any
+    content: FrozenJson
+
+    @model_validator(mode="after")
+    def validate_content_integrity(self) -> FrozenDocumentV3:
+        content_bytes = canonical_json_v3_bytes(self.content)
+        if self.size_bytes != len(content_bytes):
+            raise ValueError("frozen document size_bytes does not match canonical content")
+        if self.content_hash != hashlib.sha256(content_bytes).hexdigest():
+            raise ValueError("frozen document content_hash does not match canonical content")
+        return self
 
 
 class FrozenActorV3(StrictFrozenModel):

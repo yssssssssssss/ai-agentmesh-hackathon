@@ -26,7 +26,14 @@ from agentmesh.research_orchestration.v3.problem_graph import ProblemGraphV1
 from agentmesh.research_orchestration.v3.report_document import ReportDocumentV3
 from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3, ResearchTaskV3
 from agentmesh.research_orchestration.v3.review import ReportReviewV3
-from agentmesh.research_orchestration.v3.schema_registry import V2_HISTORICAL_IDENTITIES, V3_GENERATION_IDENTITIES
+from agentmesh.research_orchestration.v3.schema_registry import (
+    V2_HISTORICAL_IDENTITIES,
+    V3_CURRENT_IDENTITIES,
+    V3_GENERATION_IDENTITIES,
+    V3_PERSISTED_RESOURCE_IDENTITIES,
+    V3_PERSISTED_SCHEMA_IDENTITIES,
+    V3_SUPPORTING_SCHEMA_IDENTITIES,
+)
 from agentmesh.research_orchestration.v3.snapshots import ResearchControlSnapshotV3
 
 __all__ = [
@@ -46,7 +53,11 @@ __all__ = [
     "ResearchDeliverableV3",
     "ResearchTaskV3",
     "V2_HISTORICAL_IDENTITIES",
+    "V3_CURRENT_IDENTITIES",
     "V3_GENERATION_IDENTITIES",
+    "V3_PERSISTED_RESOURCE_IDENTITIES",
+    "V3_PERSISTED_SCHEMA_IDENTITIES",
+    "V3_SUPPORTING_SCHEMA_IDENTITIES",
     "canonical_json_v3_bytes",
     "canonical_json_v3_sha256",
     "load_competitive_text_catalog",

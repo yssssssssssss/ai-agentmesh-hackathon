@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import ConfigDict, Field, model_validator
 
@@ -9,6 +9,7 @@ from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha2
 from agentmesh.research_orchestration.v3.common import (
     ActorType,
     ApprovalRole,
+    FrozenJsonObject,
     Identifier,
     NonBlankString,
     Sha256Hex,
@@ -118,7 +119,7 @@ class PlanStepProposalV3(StrictFrozenModel):
     actor_id: Identifier
     question_ids: tuple[Identifier, ...]
     depends_on: tuple[Annotated[int, Field(ge=1)], ...]
-    input: dict[str, Any]
+    input: FrozenJsonObject
     input_bindings: tuple[PlanInputBindingV3, ...]
     expected_outputs: tuple[ExpectedOutputV3, ...]
     acceptance_criteria: tuple[Annotated[NonBlankString, Field(max_length=1000)], ...]
@@ -161,7 +162,7 @@ class PlanStepV3(StrictFrozenModel):
     actor_id: Identifier
     question_ids: tuple[Identifier, ...] = Field(min_length=1, max_length=20)
     depends_on: tuple[Annotated[int, Field(ge=1, le=8)], ...]
-    input: dict[str, Any]
+    input: FrozenJsonObject
     input_bindings: tuple[PlanInputBindingV3, ...]
     expected_outputs: tuple[ExpectedOutputV3, ...] = Field(min_length=1)
     acceptance_criteria: tuple[Annotated[NonBlankString, Field(max_length=1000)], ...] = Field(min_length=1)

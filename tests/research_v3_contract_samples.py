@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from decimal import Decimal
 
-from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_bytes, canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.report_document import COMPETITIVE_TEXT_SECTION_ORDER
 from agentmesh.research_orchestration.v3.review import REQUIRED_DETERMINISTIC_CHECKS, REVIEW_DIMENSIONS
 
@@ -312,6 +312,247 @@ def report_body() -> dict:
         "subtitle": "Evidence-backed competitive analysis",
         "executive_summary": "Alpha is preferred for the stated need.",
         "sections": sections,
+    }
+
+
+def competitive_text_body() -> dict:
+    return deepcopy(deliverable_body()["payload"])
+
+
+def candidate_set_body() -> dict:
+    depth_step = {
+        "proposed_step_number": 1,
+        "name": "Collect evidence",
+        "actor_type": "tool",
+        "actor_id": "tavily-web-search",
+        "question_ids": ["q_capabilities"],
+        "depends_on": [],
+        "input": {"query": "Alpha Beta", "filters": [{"language": "en"}]},
+        "input_bindings": [],
+        "expected_outputs": [{"pointer": "/results", "description": "Search results"}],
+        "acceptance_criteria": ["At least one result."],
+        "requires_approval": True,
+        "approval_role": "owner",
+    }
+    return {
+        "schema_version": "plan-candidates-v3",
+        "candidates": [
+            {
+                "candidate_id": "depth",
+                "title": "Depth",
+                "rationale": "Broader evidence.",
+                "tradeoffs": "Higher latency.",
+                "assumptions": [],
+                "proposed_steps": [depth_step],
+            },
+            {
+                "candidate_id": "speed",
+                "title": "Speed",
+                "rationale": "Shortest valid path.",
+                "tradeoffs": "Narrower evidence.",
+                "assumptions": [],
+                "proposed_steps": [deepcopy(depth_step)],
+            },
+        ],
+    }
+
+
+def control_snapshot_body() -> dict:
+    content = {"type": "object", "properties": {"query": {"type": "string"}}}
+    content_bytes = canonical_json_v3_bytes(content)
+    return {
+        "schema_version": "research-control-snapshot-v3",
+        "catalog_id": "competitive-text-v1",
+        "catalog_hash": HASH,
+        "resolved_for_agent_id": "agent_1",
+        "resolved_at": "2026-08-21T00:00:00Z",
+        "model_policy": {
+            "requested_provider": "openai",
+            "requested_model": "gpt-5.2",
+            "structured_output_mode": "json_schema",
+            "adapter_compatibility_id": "openai-json-schema-v1",
+        },
+        "actors": [
+            {
+                "actor_type": "tool",
+                "actor_id": "tavily-web-search",
+                "implementation_id": "agentmesh.web_research",
+                "implementation_version": "1",
+                "execution_mode": "real",
+                "enabled": True,
+                "eligible": True,
+                "tier": "core",
+                "approval_role": "owner",
+                "required_tool_ids": [],
+                "optional_tool_ids": [],
+                "instruction_document_id": None,
+                "input_schema_document_id": "schema_tool_input",
+                "output_schema_document_id": "schema_tool_input",
+            }
+        ],
+        "documents": [
+            {
+                "document_id": "schema_tool_input",
+                "kind": "json_schema",
+                "media_type": "application/json",
+                "content_hash": canonical_json_v3_sha256(content),
+                "size_bytes": len(content_bytes),
+                "content": content,
+            }
+        ],
+    }
+
+
+def source_deliverable_body() -> dict:
+    target = deliverable_body()
+    payload = target["payload"]
+    return {
+        "version": "research-deliverable-v1",
+        "taskId": target["run_id"],
+        "planVersionId": target["plan_version_id"],
+        "attemptId": target["attempt_id"],
+        "deliverableType": target["deliverable_type"],
+        "evidenceManifestArtifactId": target["evidence_manifest_artifact"]["artifact_id"],
+        "methodSummary": target["method_summary"],
+        "findingGraph": {
+            "findings": [
+                {
+                    "id": "finding_1",
+                    "kind": "fact",
+                    "evidenceIds": ["evidence_1"],
+                    "statement": "Alpha differs.",
+                }
+            ],
+            "analyses": [
+                {"id": "analysis_1", "findingIds": ["finding_1"], "statement": "The difference matters."}
+            ],
+            "subQuestionSummaries": [
+                {
+                    "id": "summary_1",
+                    "findingIds": ["finding_1"],
+                    "analysisIds": ["analysis_1"],
+                    "summary": "A supported answer.",
+                }
+            ],
+            "overallConclusions": [
+                {"id": "conclusion_1", "summaryIds": ["summary_1"], "statement": "Prefer Alpha."}
+            ],
+        },
+        "payload": {
+            "competitorSamples": [
+                {
+                    "id": value["id"],
+                    "name": value["name"],
+                    "rationale": value["rationale"],
+                    "evidenceIds": value["evidence_ids"],
+                }
+                for value in payload["competitor_samples"]
+            ],
+            "dimensionMatrix": [
+                {
+                    "dimension": row["dimension"],
+                    "weight": row["weight"],
+                    "values": [
+                        {
+                            "sampleId": value["sample_id"],
+                            "value": value["value"],
+                            "score": value["score"],
+                            "evidenceIds": value["evidence_ids"],
+                        }
+                        for value in row["values"]
+                    ],
+                }
+                for row in payload["dimension_matrix"]
+            ],
+            "differences": [
+                {
+                    "id": value["id"],
+                    "dimension": value["dimension"],
+                    "statement": value["statement"],
+                    "evidenceIds": value["evidence_ids"],
+                }
+                for value in payload["differences"]
+            ],
+            "impacts": [
+                {
+                    "differenceId": value["difference_id"],
+                    "audience": value["audience"],
+                    "statement": value["statement"],
+                }
+                for value in payload["impacts"]
+            ],
+            "actionRecommendations": [
+                {
+                    "id": value["id"],
+                    "differenceIds": value["difference_ids"],
+                    "priority": value["priority"],
+                    "statement": value["statement"],
+                }
+                for value in payload["action_recommendations"]
+            ],
+            "managementSummary": payload["management_summary"],
+            "scoringMethod": payload["scoring_method"],
+            "roadmap": payload["roadmap"],
+            "instrumentationPlan": payload["instrumentation_plan"],
+            "userTestScript": payload["user_test_script"],
+            "visualEvidence": [],
+            "screenshotComparisons": [],
+        },
+        "recommendations": [
+            {"id": "recommendation_1", "summaryIds": ["summary_1"], "statement": "Pilot Alpha."}
+        ],
+        "coverage": {
+            "questionBindings": [{"questionId": "q_capabilities", "summaryIds": ["summary_1"]}],
+            "successCriterionBindings": [
+                {
+                    "successCriterionId": "criterion_traceable",
+                    "conclusionIds": ["conclusion_1"],
+                    "recommendationIds": [],
+                }
+            ],
+        },
+        "risksAndOpenIssues": ["Only public evidence was available."],
+        "capabilityProvenance": [{"id": "competitive-analysis", "type": "skill"}],
+    }
+
+
+def source_review_body() -> dict:
+    return {
+        "version": "report-review-v1",
+        "taskId": "run_1",
+        "planVersionId": "plan_1",
+        "attemptId": "attempt_1",
+        "deliverableArtifactId": "artifact_deliverable",
+        "verdict": "pass",
+        "dimensions": [
+            {"id": dimension, "passed": True, "issues": []} for dimension in REVIEW_DIMENSIONS
+        ],
+        "revisionRound": 0,
+    }
+
+
+def source_report_body() -> dict:
+    target = report_body()
+    return {
+        "version": "report-document-v1",
+        "title": target["title"],
+        "subtitle": target["subtitle"],
+        "executiveSummary": target["executive_summary"],
+        "sections": [
+            {
+                "id": section["id"],
+                "title": section["title"],
+                "questionIds": section["question_ids"],
+                "blocks": [
+                    {
+                        **{key: value for key, value in block.items() if key != "evidence_ids"},
+                        **({"evidenceIds": block["evidence_ids"]} if "evidence_ids" in block else {}),
+                    }
+                    for block in section["blocks"]
+                ],
+            }
+            for section in target["sections"]
+        ],
     }
 
 

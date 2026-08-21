@@ -31,17 +31,25 @@ therefore does not claim visual acceptance.
 
 ## Foundation contents
 
-- Strict target contracts for `research-task-v3`, `execution-plan-v3`,
+- Exact generation discriminators are frozen to six values: `research-v3`, `research-task-v3`,
+  `execution-plan-v3`, `research-deliverable-v3`, `report-review-v3`, and `report-document-v3`.
+- Supporting/persisted resource identities are explicit: `problem-graph-v1`, `plan-candidates-v3`,
+  `research-control-snapshot-v3`, `competitive-analysis-text-v1`, and `evidence-manifest-v3`.
+  The complete current persisted/resource set is asserted disjoint from the canonical thirteen v2
+  identities.
+- Strict target contracts cover `research-task-v3`, `execution-plan-v3`,
   `research-deliverable-v3`, `report-review-v3`, and `report-document-v3`.
 - Supporting `problem-graph-v1`, candidate, control-snapshot, and Competitive Text payload contracts.
 - A generation-specific canonical JSON/hash algorithm that does not modify research-v2 hashing.
-- Exact source-only ai-x contract models and explicit source-to-target adapters. Source aliases are not
-  target registry keys.
+  Arbitrary JSON fields use recursively frozen mappings/tuples and defensive serialization; frozen
+  catalog documents verify their canonical content hash and byte count.
+- Exact source-only ai-x contract models and explicit source-to-target adapters, including Deliverable,
+  Review, and Report shapes. Source aliases are not target registry keys.
 - A package-relative, hash-verifying Competitive Text catalog containing only the selected locked source
   assets required by Slice 1. The evidence-only Git bundle is not included by the package-data rule.
 - Domain ports for requirement and ProblemGraph planning, capability resolution, candidate generation
-  and compilation, heterogeneous actor execution, delivery, review, report composition, repository,
-  clock, and IDs.
+  and compilation (with the sealed ProblemGraph reference supplied alongside its verified body),
+  heterogeneous actor execution, delivery, review, report composition, repository, clock, and IDs.
 
 ## Locked source
 

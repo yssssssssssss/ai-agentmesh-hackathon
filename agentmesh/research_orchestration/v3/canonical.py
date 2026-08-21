@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import unicodedata
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
@@ -34,7 +35,7 @@ def _canonical_token(value: Any) -> str:
         return _canonical_token(value.model_dump(mode="python"))
     if isinstance(value, Enum):
         return _canonical_token(value.value)
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             if not isinstance(key, str):
