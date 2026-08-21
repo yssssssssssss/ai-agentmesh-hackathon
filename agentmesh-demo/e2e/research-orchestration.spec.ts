@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Locator, type Page, test } from '@playwright/test'
 
 import { loginAs } from './support/auth'
 
@@ -8,6 +8,24 @@ const THREAD_ID = 'thread_research_v2_e2e'
 const PLAN_ID = 'research_plan_e2e'
 const ATTEMPT_ID = 'attempt_research_v2_e2e'
 const INVOCATION_ID = 'invocation_research_v2_e2e'
+
+async function horizontalAlignmentDelta(first: Locator, second: Locator) {
+  const [firstBox, secondBox] = await Promise.all([
+    first.evaluate((element) => {
+      const box = element.getBoundingClientRect()
+      return { left: box.left, right: box.right, width: box.width }
+    }),
+    second.evaluate((element) => {
+      const box = element.getBoundingClientRect()
+      return { left: box.left, right: box.right, width: box.width }
+    }),
+  ])
+  return {
+    left: firstBox.left - secondBox.left,
+    right: firstBox.right - secondBox.right,
+    width: firstBox.width - secondBox.width,
+  }
+}
 
 type ResearchState = 'plan' | 'confirmed' | 'tool_approval' | 'running' | 'unknown' | 'completed' | 'aborted'
 
@@ -115,7 +133,22 @@ function resultProjection() {
     },
     report: {
       title: 'Verified competitive analysis',
-      markdown: '三款产品在证据、恢复和协作方面各有侧重。',
+      markdown: [
+        '# Verified competitive analysis',
+        '',
+        '## Summary',
+        '',
+        '**三款产品**在证据、恢复和协作方面各有侧重。',
+        '',
+        '- 证据可追溯',
+        '- 运行可恢复',
+        '',
+        '| Product | Evidence |',
+        '| --- | --- |',
+        '| AgentMesh | Traceable |',
+        '',
+        '[Markdown source](https://example.com/markdown-source)',
+      ].join('\n'),
     },
   }
 }
@@ -324,6 +357,27 @@ async function installResearchApi(page: Page, initialState: ResearchState) {
 test('drives Plan Confirmation, independent Tool Approval, SSE progress, verified results, and refresh safely', async ({ page }) => {
   await enableRuntimeBootstrap(page, 'execute')
   const api = await installResearchApi(page, 'plan')
+  await page.route('**/api/documents/jobs', (route) => route.fulfill({
+    json: {
+      items: [{
+        id: 'job_research_layout',
+        file_name: 'research-layout.pdf',
+        content_type: 'application/pdf',
+        workspace_id: 'ws_home_appliance_design',
+        project_id: 'prj_618_home_appliance',
+        uploaded_by: 'usr_current_designer',
+        status: 'completed',
+        document_id: 'document_research_layout',
+        version: 1,
+        expected_chunks: 1,
+        completed_chunks: 1,
+        error: null,
+        error_type: null,
+        created_at: NOW,
+        updated_at: NOW,
+      }],
+    },
+  }))
   await loginAs(page)
 
   await page.goto(`/workspace/thread/${THREAD_ID}?run=${RUN_ID}`)
@@ -348,7 +402,18 @@ test('drives Plan Confirmation, independent Tool Approval, SSE progress, verifie
 
   api.releaseCompletion()
   await expect(page.getByRole('heading', { name: '研究结果', exact: true })).toBeVisible()
+  const resultsSurface = page.locator('section[aria-labelledby="research-results-title"]')
+  const composerSurface = page.getByLabel('消息').locator('..')
+  expect(await horizontalAlignmentDelta(resultsSurface, composerSurface)).toEqual({ left: 0, right: 0, width: 0 })
+  await page.setViewportSize({ width: 375, height: 812 })
+  await expect.poll(() => horizontalAlignmentDelta(resultsSurface, composerSurface)).toEqual({ left: 0, right: 0, width: 0 })
+  await page.setViewportSize({ width: 1280, height: 720 })
   await expect(page.getByRole('heading', { name: 'Verified competitive analysis' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Summary', exact: true })).toBeVisible()
+  const report = page.locator('article[aria-labelledby="research-report-title"]')
+  await expect(report.locator('li').filter({ hasText: '证据可追溯' })).toBeVisible()
+  await expect(page.getByRole('table')).toContainText('AgentMesh')
+  await expect(page.getByRole('link', { name: 'Markdown source' })).toHaveAttribute('target', '_blank')
   await expect(page.locator('summary').filter({ hasText: '结构化 Deliverable' })).toBeVisible()
   await page.getByRole('link', { name: 'evidence_traceability' }).first().click()
   await expect(page).toHaveURL(/#research-evidence-evidence_traceability$/)

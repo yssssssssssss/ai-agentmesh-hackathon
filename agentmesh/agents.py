@@ -2130,7 +2130,8 @@ class PersonalAgent:
         existing_thread = self.repository.get_chat_thread(thread_id)
         if existing_thread is not None:
             if (
-                existing_thread.user_id != user.id
+                existing_thread.status != "active"
+                or existing_thread.user_id != user.id
                 or existing_thread.workspace_id != user.workspace_id
                 or existing_thread.project_id != user.default_project_id
             ):

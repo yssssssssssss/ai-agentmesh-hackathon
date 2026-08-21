@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agents import ChatThreadNotFoundError, PersonalAgent
@@ -15,6 +15,7 @@ from agentmesh.models import (
     ChatThreadCreateRequest,
     ChatThreadDetailResponse,
     ChatThreadListResponse,
+    ChatThreadUpdateRequest,
     ChatTurnReceipt,
     ChatTurnReceiptStatus,
     ChatTurnReceiptView,
@@ -38,6 +39,19 @@ agent = PersonalAgent(
 )
 
 
+def _visible_thread(thread_id: str, user: User) -> ChatThread:
+    thread = store.get_chat_thread(thread_id)
+    if (
+        thread is None
+        or thread.status != "active"
+        or thread.user_id != user.id
+        or thread.workspace_id != user.workspace_id
+        or thread.project_id != user.default_project_id
+    ):
+        raise HTTPException(status_code=404, detail="Chat thread not found")
+    return thread
+
+
 @router.get("/threads", response_model=ChatThreadListResponse)
 def chat_threads(user: User = Depends(current_user)) -> ChatThreadListResponse:
     return ChatThreadListResponse(
@@ -47,6 +61,7 @@ def chat_threads(user: User = Depends(current_user)) -> ChatThreadListResponse:
             project_id=user.default_project_id,
         )
     )
+
 
 @router.post("/threads", response_model=dict[str, ChatThread])
 def create_chat_thread(request: ChatThreadCreateRequest, user: User = Depends(current_user)) -> dict[str, ChatThread]:
@@ -59,8 +74,6 @@ def create_chat_thread(request: ChatThreadCreateRequest, user: User = Depends(cu
         )
     )
     return {"thread": thread}
-
-
 
 
 @router.get("/skills", response_model=ItemsResponse)
@@ -98,14 +111,7 @@ def _receipt_view(receipt: ChatTurnReceipt) -> ChatTurnReceiptView:
 def create_chat_message(request: ChatRequest, user: User = Depends(current_user)) -> ChatResponse:
     prior = store.get_chat_turn_receipt(user.id, request.client_turn_id)
     if prior is None and request.thread_id is not None:
-        thread = store.get_chat_thread(request.thread_id)
-        if (
-            thread is None
-            or thread.user_id != user.id
-            or thread.workspace_id != user.workspace_id
-            or thread.project_id != user.default_project_id
-        ):
-            raise HTTPException(status_code=404, detail="Chat thread not found")
+        _visible_thread(request.thread_id, user)
 
     candidate = ChatTurnReceipt(
         id=store.chat_turn_receipt_id(user.id, request.client_turn_id),
@@ -174,17 +180,9 @@ def chat_turn_receipt(client_turn_id: str, user: User = Depends(current_user)) -
     return _receipt_view(receipt)
 
 
-
 @router.get("/threads/{thread_id}", response_model=ChatThreadDetailResponse)
 def chat_thread_detail(thread_id: str, user: User = Depends(current_user)) -> ChatThreadDetailResponse:
-    thread = store.get_chat_thread(thread_id)
-    if (
-        thread is None
-        or thread.user_id != user.id
-        or thread.workspace_id != user.workspace_id
-        or thread.project_id != user.default_project_id
-    ):
-        raise HTTPException(status_code=404, detail="Chat thread not found")
+    thread = _visible_thread(thread_id, user)
     latest_research_run = store.get_latest_research_run_for_thread(thread.id, user.id)
     latest_research_run_id = (
         latest_research_run.id
@@ -199,3 +197,27 @@ def chat_thread_detail(thread_id: str, user: User = Depends(current_user)) -> Ch
         turn_traces=store.list_thread_turn_traces(thread.id),
         latest_research_run_id=latest_research_run_id,
     )
+
+
+@router.patch("/threads/{thread_id}", response_model=dict[str, ChatThread])
+def update_chat_thread(
+    thread_id: str,
+    request: ChatThreadUpdateRequest,
+    user: User = Depends(current_user),
+) -> dict[str, ChatThread]:
+    thread = _visible_thread(thread_id, user)
+    if request.title is not None:
+        thread.title = request.title
+    if request.pinned is not None:
+        thread.pinned = request.pinned
+    store.save_chat_thread(thread)
+    return {"thread": thread}
+
+
+@router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chat_thread(thread_id: str, user: User = Depends(current_user)) -> Response:
+    thread = _visible_thread(thread_id, user)
+    thread.status = "deleted"
+    thread.pinned = False
+    store.save_chat_thread(thread)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

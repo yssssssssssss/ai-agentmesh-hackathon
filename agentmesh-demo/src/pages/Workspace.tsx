@@ -10,6 +10,7 @@ import { ResearchPreview } from '../components/workspace/ResearchPreview'
 import { SkillPlanPreview } from '../components/workspace/SkillPlanPreview'
 import { SkillPlanProgress } from '../components/workspace/SkillPlanProgress'
 import { SkillSynthesisView } from '../components/workspace/SkillSynthesisView'
+import { WORKSPACE_RESOURCE_GRID_CLASS } from '../components/workspace/layout'
 import { Button } from '../components/ui/Button'
 import { useAuth } from '../features/auth/AuthProvider'
 import { ToolLauncherBar } from '../features/tool-labs/ToolLauncherBar'
@@ -96,6 +97,7 @@ export function Workspace() {
   const [activeTool, setActiveTool] = useState<WorkspaceToolId | null>(null)
   const closeActiveTool = useCallback(() => setActiveTool(null), [])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [scrollbarGutter, setScrollbarGutter] = useState(0)
   const runIsActive = Boolean(currentRun && [
     'created',
     'planning',
@@ -243,11 +245,23 @@ export function Workspace() {
   const uploadFileName = upload.variables?.name
   const showResources = Boolean(upload.isPending || upload.data || upload.isError || jobs.data?.items.length)
 
+  useLayoutEffect(() => {
+    const scrollContainer = scrollRef.current
+    if (!scrollContainer) return
+    const updateScrollbarGutter = () => {
+      setScrollbarGutter(scrollContainer.offsetWidth - scrollContainer.clientWidth)
+    }
+    updateScrollbarGutter()
+    const observer = new ResizeObserver(updateScrollbarGutter)
+    observer.observe(scrollContainer)
+    return () => observer.disconnect()
+  }, [])
+
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden">
       <div ref={scrollRef} aria-label="对话滚动区域" className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[1040px] px-4 pb-52 pt-6 md:px-6 md:pt-8">
-          <div className={showResources ? 'grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]' : ''}>
+          <div className={showResources ? WORKSPACE_RESOURCE_GRID_CLASS : ''}>
             <div className="min-w-0">
               {sendError ? (
                 <p role="alert" className="mb-4 rounded-[10px] border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">
@@ -481,6 +495,8 @@ export function Workspace() {
         skills={skills.data?.items ?? []}
         sending={sendMessage.isPending || sendAgentRun.isPending}
         locked={runIsActive}
+        hasResourceRail={showResources}
+        scrollbarGutter={scrollbarGutter}
         sendState={pending?.status === 'sending' ? null : pending?.status ?? null}
         statusMessage={pending?.status === 'sending' ? null : sendError}
         toolLauncher={<ToolLauncherBar activeTool={activeTool} onOpen={setActiveTool} />}

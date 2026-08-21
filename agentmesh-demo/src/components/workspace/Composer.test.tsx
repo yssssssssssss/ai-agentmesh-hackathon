@@ -23,4 +23,23 @@ describe('Composer send recovery', () => {
     expect(textarea).toBeDefined()
     expect(textarea).not.toMatch(/\sdisabled(?:=|[\s>])/)
   })
+
+  it('aligns the input surface with the workspace content column', () => {
+    const html = renderToStaticMarkup(
+      <Composer
+        value=""
+        skills={[]}
+        sending={false}
+        sendState={null}
+        statusMessage={null}
+        onChange={vi.fn()}
+        onSend={vi.fn()}
+        onRetry={vi.fn()}
+        onUpload={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('data-testid="workspace-composer"')
+    expect(html).toContain('max-w-[992px]')
+  })
 })

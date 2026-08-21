@@ -22,6 +22,8 @@ import type {
   SkillsResponse,
   ThreadDetailResponse,
   ThreadListResponse,
+  ThreadResponse,
+  ThreadUpdateRequest,
   UploadResponse,
   WorkspaceScope,
 } from './types'
@@ -139,6 +141,13 @@ export interface StartAgentRunInput {
 export const workspaceApi = {
   threads: () => apiRequest<ThreadListResponse>('/api/chat/threads'),
   thread: (threadId: string) => apiRequest<ThreadDetailResponse>(`/api/chat/threads/${pathId(threadId)}`),
+  updateThread: (threadId: string, request: ThreadUpdateRequest) =>
+    apiRequest<ThreadResponse>(`/api/chat/threads/${pathId(threadId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(request),
+    }),
+  deleteThread: (threadId: string) =>
+    apiRequest<null>(`/api/chat/threads/${pathId(threadId)}`, { method: 'DELETE' }),
   sendMessage: (threadId: string | null, content: string, clientTurnId: string) =>
     apiRequest<ChatResponse>('/api/chat/messages', {
       method: 'POST',

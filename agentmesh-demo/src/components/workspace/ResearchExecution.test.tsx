@@ -214,13 +214,35 @@ describe('ResearchExecution', () => {
       },
       report: {
         title: 'Verified competitive report',
-        markdown: 'Readable report\n<script>alert(1)</script>',
+        markdown: [
+          '# Verified competitive report',
+          '',
+          '## Summary',
+          '',
+          '**Readable report** with [primary evidence](https://example.com/evidence).',
+          '',
+          '- Evidence is traceable',
+          '- Raw HTML stays inert',
+          '',
+          '| Product | Score |',
+          '| --- | ---: |',
+          '| AgentMesh | 9 |',
+          '',
+          '<script>alert(1)</script>',
+        ].join('\n'),
       },
     }
 
     const html = render(value)
 
     expect(html).toContain('Verified competitive report')
+    expect(html.match(/Verified competitive report/g)).toHaveLength(1)
+    expect(html).toContain('<h2')
+    expect(html).toContain('>Summary</h2>')
+    expect(html).toContain('<strong>Readable report</strong>')
+    expect(html).toContain('<ul>')
+    expect(html).toContain('<table>')
+    expect(html).toContain('href="https://example.com/evidence"')
     expect(html).toContain('Structured deliverable summary')
     expect(html).toContain('A factual comparison.')
     expect(html).toContain('Source excerpt with traceable evidence.')

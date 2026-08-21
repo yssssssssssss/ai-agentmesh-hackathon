@@ -83,6 +83,7 @@ def _thread(request: AgentRunCreateRequest, user: User) -> ChatThread:
         thread = store.get_chat_thread(request.thread_id)
         if (
             thread is None
+            or thread.status != "active"
             or thread.user_id != user.id
             or thread.workspace_id != user.workspace_id
             or thread.project_id != user.default_project_id

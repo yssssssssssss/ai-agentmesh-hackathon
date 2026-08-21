@@ -497,6 +497,7 @@ class ChatThread(BaseModel):
     project_id: str
     user_id: str
     title: str
+    pinned: bool = False
     status: str = "active"
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
@@ -1236,6 +1237,19 @@ class TeamMembershipRequest(BaseModel):
 
 class ChatThreadCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+
+
+class ChatThreadUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    pinned: bool | None = None
+
+    @model_validator(mode="after")
+    def require_change(self) -> ChatThreadUpdateRequest:
+        if self.title is None and self.pinned is None:
+            raise ValueError("title or pinned is required")
+        return self
 
 
 class InboxUpdateRequest(BaseModel):

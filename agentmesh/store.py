@@ -7268,12 +7268,16 @@ class SQLiteStore:
         workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> list[ChatThread]:
-        items = [thread for thread in self.chat_threads if thread.user_id == user_id]
+        items = [
+            thread
+            for thread in self.chat_threads
+            if thread.user_id == user_id and thread.status == "active"
+        ]
         if workspace_id is not None:
             items = [thread for thread in items if thread.workspace_id == workspace_id]
         if project_id is not None:
             items = [thread for thread in items if thread.project_id == project_id]
-        return sorted(items, key=lambda thread: (thread.updated_at, thread.id), reverse=True)
+        return sorted(items, key=lambda thread: (thread.pinned, thread.updated_at, thread.id), reverse=True)
 
     def get_task(self, task_id: str) -> Task | None:
         return self._get("tasks", task_id, Task)
@@ -7496,7 +7500,11 @@ class SQLiteStore:
                 if msg is None:
                     continue
                 thread = threads_by_id.get(msg.thread_id)
-                if not self._thread_matches(thread, workspace_id, project_id):
+                if (
+                    thread is None
+                    or thread.status != "active"
+                    or not self._thread_matches(thread, workspace_id, project_id)
+                ):
                     continue
                 if msg.scope == Scope.PRIVATE and (
                     user_id is None or thread is None or thread.user_id != user_id

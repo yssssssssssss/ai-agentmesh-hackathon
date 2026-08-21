@@ -649,10 +649,12 @@ export interface paths {
         get: operations["chat_thread_detail_api_chat_threads__thread_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Chat Thread */
+        delete: operations["delete_chat_thread_api_chat_threads__thread_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Chat Thread */
+        patch: operations["update_chat_thread_api_chat_threads__thread_id__patch"];
         trace?: never;
     };
     "/api/bootstrap": {
@@ -2930,6 +2932,11 @@ export interface components {
             /** Title */
             title: string;
             /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /**
              * Status
              * @default active
              */
@@ -2964,6 +2971,13 @@ export interface components {
         ChatThreadListResponse: {
             /** Items */
             items: components["schemas"]["ChatThread"][];
+        };
+        /** ChatThreadUpdateRequest */
+        ChatThreadUpdateRequest: {
+            /** Title */
+            title?: string | null;
+            /** Pinned */
+            pinned?: boolean | null;
         };
         /**
          * ChatTurnReceiptStatus
@@ -6817,6 +6831,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatThreadDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_chat_thread_api_chat_threads__thread_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_chat_thread_api_chat_threads__thread_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatThreadUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: components["schemas"]["ChatThread"];
+                    };
                 };
             };
             /** @description Validation Error */

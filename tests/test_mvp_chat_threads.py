@@ -205,6 +205,78 @@ def test_persisting_message_touches_thread_and_moves_it_to_top_of_list() -> None
     assert [item["id"] for item in listed.json()["items"]] == [stale.id, recent.id]
 
 
+def test_thread_can_be_pinned_and_renamed_without_changing_activity_time() -> None:
+    client = authenticated_client(USER.id)
+    recent = add_thread(USER.id, "Recent", updated_at=now_utc() - timedelta(minutes=5))
+    older = add_thread(USER.id, "Older", updated_at=now_utc() - timedelta(days=1))
+    activity_time = older.updated_at
+
+    updated = client.patch(
+        f"/api/chat/threads/{older.id}",
+        json={"title": "  Pinned research task  ", "pinned": True},
+    )
+    listed = client.get("/api/chat/threads")
+
+    assert updated.status_code == 200
+    assert updated.json()["thread"]["title"] == "Pinned research task"
+    assert updated.json()["thread"]["pinned"] is True
+    assert store.get_chat_thread(older.id).updated_at == activity_time  # type: ignore[union-attr]
+    assert [item["id"] for item in listed.json()["items"]] == [older.id, recent.id]
+
+    unpinned = client.patch(f"/api/chat/threads/{older.id}", json={"pinned": False})
+
+    assert unpinned.status_code == 200
+    assert [item["id"] for item in client.get("/api/chat/threads").json()["items"]] == [recent.id, older.id]
+
+
+def test_thread_update_is_owner_scoped_and_rejects_empty_changes() -> None:
+    owner = authenticated_client(USER.id)
+    other = authenticated_client(TEAM_LEAD.id)
+    thread = add_thread(USER.id, "Owner task")
+
+    assert other.patch(f"/api/chat/threads/{thread.id}", json={"title": "Stolen"}).status_code == 404
+    assert TestClient(app).patch(f"/api/chat/threads/{thread.id}", json={"pinned": True}).status_code == 401
+    assert owner.patch(f"/api/chat/threads/{thread.id}", json={}).status_code == 422
+    assert owner.patch(f"/api/chat/threads/{thread.id}", json={"title": "   "}).status_code == 422
+    assert store.get_chat_thread(thread.id).title == "Owner task"  # type: ignore[union-attr]
+
+
+def test_thread_delete_hides_history_and_rejects_future_messages() -> None:
+    owner = authenticated_client(USER.id)
+    other = authenticated_client(TEAM_LEAD.id)
+    thread = add_thread(USER.id, "Delete this task")
+    store.add_chat_message(
+        ChatMessage(
+            thread_id=thread.id,
+            role=ChatRole.USER,
+            content="preserved audit content",
+            scope=Scope.PRIVATE,
+        )
+    )
+
+    assert other.delete(f"/api/chat/threads/{thread.id}").status_code == 404
+    deleted = owner.delete(f"/api/chat/threads/{thread.id}")
+
+    assert deleted.status_code == 204
+    assert thread.id not in [item["id"] for item in owner.get("/api/chat/threads").json()["items"]]
+    assert owner.get(f"/api/chat/threads/{thread.id}").status_code == 404
+    assert owner.post(
+        "/api/chat/messages",
+        json={"thread_id": thread.id, "content": "do not revive", "client_turn_id": "turn_deleted_thread"},
+    ).status_code == 404
+    stored = store.get_chat_thread(thread.id)
+    assert stored is not None
+    assert stored.status == "deleted"
+    assert len(store.list_thread_messages(thread.id)) == 1
+    assert store.search(
+        "preserved audit content",
+        {Scope.PRIVATE},
+        workspace_id=WORKSPACE.id,
+        project_id=PROJECT.id,
+        user_id=USER.id,
+    ) == []
+
+
 def test_thread_detail_persists_source_and_provider_trace_across_reads() -> None:
     client = authenticated_client(USER.id)
     created = client.post("/api/chat/threads", json={"title": "Provider trace"})

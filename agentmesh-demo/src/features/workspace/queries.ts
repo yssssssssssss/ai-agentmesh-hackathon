@@ -14,8 +14,11 @@ import { workspaceKeys } from './keys'
 import type {
   AgentRun,
   ChatResponse,
+  ChatThread,
   DocumentJobsResponse,
   ThreadDetailResponse,
+  ThreadListResponse,
+  ThreadUpdateRequest,
   UploadResponse,
   WorkspaceScope,
 } from './types'
@@ -64,6 +67,50 @@ export function useThreadDetailQuery(scope: WorkspaceScope, threadId: string | n
     queryKey: workspaceKeys.thread(scope, threadId ?? 'none'),
     queryFn: () => workspaceApi.thread(threadId ?? ''),
     enabled: Boolean(threadId),
+  })
+}
+
+function sortThreads(items: ChatThread[]): ChatThread[] {
+  return [...items].sort((left, right) => {
+    const pinOrder = Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))
+    if (pinOrder !== 0) return pinOrder
+    const timeOrder = String(right.updated_at ?? '').localeCompare(String(left.updated_at ?? ''))
+    if (timeOrder !== 0) return timeOrder
+    return String(right.id ?? '').localeCompare(String(left.id ?? ''))
+  })
+}
+
+export function useUpdateThreadMutation(scope: WorkspaceScope) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ threadId, update }: { threadId: string; update: ThreadUpdateRequest }) =>
+      workspaceApi.updateThread(threadId, update),
+    onSuccess: (response, { threadId }) => {
+      queryClient.setQueryData<ThreadListResponse>(workspaceKeys.threads(scope), (current) => {
+        if (!current) return current
+        return {
+          items: sortThreads(current.items.map((thread) => (
+            thread.id === threadId ? response.thread : thread
+          ))),
+        }
+      })
+      queryClient.setQueryData<ThreadDetailResponse>(workspaceKeys.thread(scope, threadId), (current) => (
+        current ? { ...current, thread: response.thread } : current
+      ))
+    },
+  })
+}
+
+export function useDeleteThreadMutation(scope: WorkspaceScope) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (threadId: string) => workspaceApi.deleteThread(threadId),
+    onSuccess: (_response, threadId) => {
+      queryClient.setQueryData<ThreadListResponse>(workspaceKeys.threads(scope), (current) => (
+        current ? { items: current.items.filter((thread) => thread.id !== threadId) } : current
+      ))
+      queryClient.removeQueries({ queryKey: workspaceKeys.thread(scope, threadId), exact: true })
+    },
   })
 }
 

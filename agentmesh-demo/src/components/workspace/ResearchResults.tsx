@@ -1,6 +1,7 @@
 import { Check, ExternalLink, FileText, ShieldCheck, X } from 'lucide-react'
 
 import type { ResearchRunProjection } from '../../features/workspace/types'
+import { MarkdownContent } from '../ui/MarkdownContent'
 
 const ARTIFACT_LABELS = {
   evidence_manifest_id: 'Evidence 清单',
@@ -22,6 +23,13 @@ function artifactUrl(artifactId: string): string {
 
 function evidenceAnchor(evidenceId: string): string {
   return `research-evidence-${evidenceId}`
+}
+
+function withoutDuplicateLeadingTitle(markdown: string, title: string): string {
+  const lines = markdown.trimStart().split(/\r?\n/)
+  const heading = lines[0]?.match(/^#\s+(.+?)\s*#*$/)?.[1]?.trim()
+  if (heading?.toLocaleLowerCase() !== title.trim().toLocaleLowerCase()) return markdown
+  return lines.slice(1).join('\n').trimStart()
 }
 
 function EvidenceLinks({ evidenceIds }: { evidenceIds: string[] }) {
@@ -122,7 +130,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
           {report ? (
             <article aria-labelledby="research-report-title" className="mt-4 rounded-[12px] border border-mint-400/15 bg-base/55 p-5">
               <h4 id="research-report-title" className="text-base font-semibold text-slate-100">{report.title}</h4>
-              <div className="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-300">{report.markdown}</div>
+              <MarkdownContent className="mt-4" content={withoutDuplicateLeadingTitle(report.markdown, report.title)} />
             </article>
           ) : terminal && integrityErrors.length === 0 ? (
             <p className="mt-3 text-sm text-slate-400">本次运行未生成可展示的最终 Report。</p>

@@ -6,6 +6,10 @@ import type {
   MemorySearchTrace,
   Source,
 } from '../../features/workspace/types'
+import { cn } from '../../lib/cn'
+import { MarkdownContent } from '../ui/MarkdownContent'
+
+const MESSAGE_BUBBLE_WIDTH = 'min-w-0 max-w-[calc(100%_-_3rem)]'
 
 interface PendingMessage {
   content: string
@@ -184,11 +188,16 @@ export function ConversationThread({
             ) : null}
             <div
               data-testid={message.role === 'assistant' ? 'assistant-message' : 'user-message'}
-              className={message.role === 'user'
-                ? 'max-w-[85%] rounded-[14px] rounded-tr-sm bg-surface-3 px-4 py-3 text-sm leading-6 text-slate-100'
-                : 'min-w-0 max-w-[92%] rounded-[14px] rounded-tl-sm border border-white/[0.06] bg-surface-1 px-4 py-3 text-sm leading-6 text-slate-200'}
+              className={cn(
+                MESSAGE_BUBBLE_WIDTH,
+                message.role === 'user'
+                  ? 'rounded-[14px] rounded-tr-sm bg-surface-3 px-4 py-3 text-sm leading-6 text-slate-100'
+                  : 'rounded-[14px] rounded-tl-sm border border-white/[0.06] bg-surface-1 px-4 py-3 text-sm leading-6 text-slate-200',
+              )}
             >
-              <p className="whitespace-pre-wrap">{message.content}</p>
+              {message.role === 'assistant'
+                ? <MarkdownContent content={message.content} />
+                : <p className="whitespace-pre-wrap">{message.content}</p>}
               {sources.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-2 border-t border-white/[0.06] pt-3">
                   {sources.map((source) => (
@@ -219,7 +228,10 @@ export function ConversationThread({
 
       {pending ? (
         <article className="flex justify-end gap-3">
-          <div className="max-w-[85%] rounded-[14px] rounded-tr-sm bg-surface-3 px-4 py-3 text-sm leading-6 text-slate-100 opacity-75">
+          <div className={cn(
+            MESSAGE_BUBBLE_WIDTH,
+            'rounded-[14px] rounded-tr-sm bg-surface-3 px-4 py-3 text-sm leading-6 text-slate-100 opacity-75',
+          )}>
             <p className="whitespace-pre-wrap">{pending.content}</p>
             <p className={`mt-1 text-[11px] ${pending.status === 'sending' ? 'text-slate-500' : 'text-rose'}`}>
               {PENDING_STATUS_LABEL[pending.status]}
@@ -230,4 +242,3 @@ export function ConversationThread({
     </section>
   )
 }
-

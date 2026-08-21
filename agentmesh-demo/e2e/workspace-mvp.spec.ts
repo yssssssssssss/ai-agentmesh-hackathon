@@ -30,11 +30,20 @@ test('creates, selects, sends natural and explicit skill messages, and reloads p
   expect(firstRequest.client_turn_id).toMatch(/^[0-9a-f-]{36}$/)
   await expect(page).toHaveURL(new RegExp(`/workspace/thread/${firstTurn.thread_id}$`))
 
-  await expect(page.getByTestId('user-message').filter({ hasText: naturalMessage })).toBeVisible()
-  await expect(page.getByTestId('assistant-message')).toBeVisible({ timeout: 15_000 })
+  const userMessage = page.getByTestId('user-message').filter({ hasText: naturalMessage })
+  const assistantMessage = page.getByTestId('assistant-message').last()
+  await expect(userMessage).toBeVisible()
+  await expect(assistantMessage).toBeVisible({ timeout: 15_000 })
+  const [userMaxWidth, assistantMaxWidth] = await Promise.all([
+    userMessage.evaluate((element) => getComputedStyle(element).maxWidth),
+    assistantMessage.evaluate((element) => getComputedStyle(element).maxWidth),
+  ])
+  expect(userMaxWidth).toBe(assistantMaxWidth)
+  expect(userMaxWidth).not.toBe('none')
+  await expect(page.getByTestId('workspace-composer')).toHaveCSS('max-width', '992px')
   await expect(page.getByTestId('provider-provenance')).toContainText(/请求提供方/)
   await expect(page.getByTestId('provider-provenance')).toContainText(/实际提供方/)
-  await expect(page.getByRole('button', { name: naturalMessage })).toBeVisible()
+  await expect(page.getByRole('button', { name: naturalMessage, exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: '选择 Skill' }).click()
   await page.getByRole('button', { name: /^\$research\.request 请求外部资料/ }).click()
@@ -54,8 +63,77 @@ test('creates, selects, sends natural and explicit skill messages, and reloads p
 
   await page.getByRole('button', { name: '开始新对话' }).click()
   await expect(page.getByText('选择一个对话，或发送第一条消息开始。')).toBeVisible()
-  await page.getByRole('button', { name: naturalMessage }).click()
+  await page.getByRole('button', { name: naturalMessage, exact: true }).click()
   await expect(page.getByTestId('user-message').filter({ hasText: naturalMessage })).toBeVisible()
+})
+
+test('manages existing tasks from the compact actions menu', async ({ page }) => {
+  const marker = Date.now()
+  const firstTitle = `待置顶任务-${marker}`
+  const secondTitle = `待删除任务-${marker}`
+  const renamedTitle = `已重命名任务-${marker}`
+  const createThread = async (title: string) => {
+    const response = await page.request.post('/api/chat/threads', { data: { title } })
+    expect(response.status()).toBe(200)
+    return (await response.json()).thread as { id: string }
+  }
+  const first = await createThread(firstTitle)
+  const second = await createThread(secondTitle)
+  await page.reload()
+
+  await expect(page.getByRole('button', { name: firstTitle, exact: true })).toHaveCSS('font-size', '12px')
+
+  const firstMenuTrigger = page.getByRole('button', { name: `更多任务操作：${firstTitle}` })
+  await firstMenuTrigger.focus()
+  await firstMenuTrigger.press('Enter')
+  const menu = page.getByRole('menu', { name: `任务操作：${firstTitle}` })
+  await expect(menu.getByRole('menuitem')).toHaveCount(3)
+  await expect(menu.getByRole('menuitem', { name: '置顶', exact: true })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: '重命名', exact: true })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(firstMenuTrigger).toBeFocused()
+
+  await firstMenuTrigger.click()
+  const pinResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/chat/threads/${first.id}`)
+    && response.request().method() === 'PATCH',
+  )
+  await page.getByRole('menuitem', { name: '置顶', exact: true }).click()
+  expect((await pinResponse).status()).toBe(200)
+  await expect(page.getByTestId('conversation-task').first()).toHaveAttribute('data-thread-id', first.id)
+  await expect(page.getByTestId('conversation-task').first().getByLabel('已置顶')).toBeVisible()
+
+  await page.getByRole('button', { name: `更多任务操作：${firstTitle}` }).click()
+  await expect(page.getByRole('menuitem', { name: '取消置顶', exact: true })).toBeVisible()
+  await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
+  const renameInput = page.getByRole('textbox', { name: `重命名任务：${firstTitle}` })
+  await expect(renameInput).toBeFocused()
+  await renameInput.fill(renamedTitle)
+  const renameResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/chat/threads/${first.id}`)
+    && response.request().method() === 'PATCH',
+  )
+  await page.getByRole('button', { name: '保存任务名称' }).click()
+  expect((await renameResponse).status()).toBe(200)
+  await expect(page.getByRole('button', { name: renamedTitle, exact: true })).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByTestId('conversation-task').first()).toHaveAttribute('data-thread-id', first.id)
+  await expect(page.getByRole('button', { name: renamedTitle, exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: `更多任务操作：${secondTitle}` }).click()
+  await page.getByRole('menuitem', { name: '删除', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '删除任务？' })
+  await expect(dialog).toContainText(secondTitle)
+  const deleteResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/chat/threads/${second.id}`)
+    && response.request().method() === 'DELETE',
+  )
+  await dialog.getByRole('button', { name: '删除任务' }).click()
+  expect((await deleteResponse).status()).toBe(204)
+  await expect(page.getByRole('button', { name: secondTitle, exact: true })).toHaveCount(0)
+  expect((await page.request.get(`/api/chat/threads/${second.id}`)).status()).toBe(404)
 })
 
 test('persists the seeded 618 demo conversation and replies on the same thread', async ({ page }) => {

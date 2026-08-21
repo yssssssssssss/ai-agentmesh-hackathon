@@ -99,6 +99,8 @@ export type ChatTurnReceipt = {
 }
 
 export type ThreadListResponse = { items: ChatThread[] }
+export type ThreadResponse = { thread: ChatThread }
+export type ThreadUpdateRequest = { title?: string; pinned?: boolean }
 export type ThreadDetailResponse = {
   thread: ChatThread
   messages: ChatMessage[]
