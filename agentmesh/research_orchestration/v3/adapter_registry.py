@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal, Mapping
+from typing import Literal
 
 from agentmesh.research_orchestration.v3.common import ActorType
 from agentmesh.research_orchestration.v3.execution import (
