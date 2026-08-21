@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from agentmesh.research_orchestration.v3.catalog import CompetitiveTextCatalog
 from agentmesh.research_orchestration.v3.execution_plan import ExecutionPlanVersionV3
-from agentmesh.research_orchestration.v3.ports import CandidateCompilationRequestV3
-from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3
-from agentmesh.research_orchestration.v3.planning.capabilities import CompetitiveTextCapabilityResolver
 from agentmesh.research_orchestration.v3.planning.candidates import CompetitiveTextCandidateGenerator
+from agentmesh.research_orchestration.v3.planning.capabilities import CompetitiveTextCapabilityResolver
 from agentmesh.research_orchestration.v3.planning.compiler import CompetitiveTextCandidateCompiler
 from agentmesh.research_orchestration.v3.planning.models import CompetitiveTextPlanningBundleV3
 from agentmesh.research_orchestration.v3.planning.problem_graphs import CompetitiveTextProblemGraphPlanner
 from agentmesh.research_orchestration.v3.planning.requirements import CompetitiveTextRequirementPlanner
+from agentmesh.research_orchestration.v3.ports import CandidateCompilationRequestV3
+from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3
 
 
 class CompetitiveTextPlanningFacade:

@@ -4,8 +4,8 @@ This package implements the frozen research-v3 planning ports without wiring the
 production routes, persistence, or Provider adapters.
 """
 
-from agentmesh.research_orchestration.v3.planning.capabilities import CompetitiveTextCapabilityResolver
 from agentmesh.research_orchestration.v3.planning.candidates import CompetitiveTextCandidateGenerator
+from agentmesh.research_orchestration.v3.planning.capabilities import CompetitiveTextCapabilityResolver
 from agentmesh.research_orchestration.v3.planning.compiler import CompetitiveTextCandidateCompiler
 from agentmesh.research_orchestration.v3.planning.facade import CompetitiveTextPlanningFacade
 from agentmesh.research_orchestration.v3.planning.models import (

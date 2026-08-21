@@ -220,7 +220,10 @@ class CompetitiveTextPlanningBundleV3(StrictFrozenModel):
                 raise ValueError("blocked Requirements cannot contain downstream planning outputs")
         elif any(value is None for value in planning_values):
             raise ValueError("unblocked Requirements require complete planning outputs")
-        if self.problem_graph is not None and self.problem_graph_artifact is not None:
-            if self.problem_graph_artifact.content_hash != canonical_json_v3_sha256(self.problem_graph):
-                raise ValueError("planning bundle ProblemGraph Artifact hash mismatch")
+        if (
+            self.problem_graph is not None
+            and self.problem_graph_artifact is not None
+            and self.problem_graph_artifact.content_hash != canonical_json_v3_sha256(self.problem_graph)
+        ):
+            raise ValueError("planning bundle ProblemGraph Artifact hash mismatch")
         return self

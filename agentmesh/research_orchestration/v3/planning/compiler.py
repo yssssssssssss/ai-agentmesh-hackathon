@@ -4,8 +4,16 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from jsonschema import validators
+from jsonschema.exceptions import SchemaError
+from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
+
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
-from agentmesh.research_orchestration.v3.catalog import CompetitiveTextCatalog
+from agentmesh.research_orchestration.v3.catalog import (
+    CompetitiveTextCatalog,
+    load_catalog_document,
+    load_competitive_text_catalog,
+)
 from agentmesh.research_orchestration.v3.common import thaw_json_value
 from agentmesh.research_orchestration.v3.execution_plan import (
     ExecutionPlanV3,
@@ -15,15 +23,19 @@ from agentmesh.research_orchestration.v3.execution_plan import (
     PlanStepProposalV3,
     PlanStepV3,
 )
+from agentmesh.research_orchestration.v3.planning.models import PlanningArtifactPort
+from agentmesh.research_orchestration.v3.planning.validation import validate_competitive_problem_graph
 from agentmesh.research_orchestration.v3.ports import (
     CandidateCompilationRequestV3,
     ClockPort,
     IdGeneratorPort,
 )
 from agentmesh.research_orchestration.v3.problem_graph import ProblemGraphV1
-from agentmesh.research_orchestration.v3.snapshots import ResearchControlSnapshotV3
-from agentmesh.research_orchestration.v3.planning.models import PlanningArtifactPort
-from agentmesh.research_orchestration.v3.planning.validation import validate_competitive_problem_graph
+from agentmesh.research_orchestration.v3.snapshots import (
+    FrozenActorV3,
+    FrozenDocumentV3,
+    ResearchControlSnapshotV3,
+)
 
 
 class CandidateCompilationError(ValueError):
@@ -67,6 +79,124 @@ def _resolve_pointer(document: object, pointer: str) -> object:
         if current is _MISSING:
             return _MISSING
     return current
+
+
+def _schema(document: FrozenDocumentV3) -> Mapping[str, object]:
+    if document.kind != "json_schema":
+        raise CandidateCompilationError("actor_schema_document_kind_invalid")
+    schema = thaw_json_value(document.content)
+    if not isinstance(schema, Mapping):
+        raise CandidateCompilationError("actor_schema_invalid")
+    try:
+        validator_type = validators.validator_for(schema)
+        validator_type.check_schema(schema)
+    except (SchemaError, TypeError, ValueError):
+        raise CandidateCompilationError("actor_schema_invalid") from None
+    return schema
+
+
+def _schema_variants(
+    root: Mapping[str, object],
+    schema: object,
+    visited_refs: frozenset[str] = frozenset(),
+) -> tuple[object, ...]:
+    if isinstance(schema, bool):
+        return (schema,)
+    if not isinstance(schema, Mapping):
+        return ()
+    variants: list[object] = []
+    reference = schema.get("$ref")
+    if reference is not None:
+        if not isinstance(reference, str) or not reference.startswith("#/") or reference in visited_refs:
+            return ()
+        resolved = _resolve_pointer(root, reference[1:])
+        if resolved is _MISSING:
+            return ()
+        variants.extend(_schema_variants(root, resolved, visited_refs | {reference}))
+    for keyword in ("allOf", "anyOf", "oneOf"):
+        branches = schema.get(keyword, ())
+        if isinstance(branches, Sequence) and not isinstance(branches, (str, bytes, bytearray)):
+            for branch in branches:
+                variants.extend(_schema_variants(root, branch, visited_refs))
+    structural_keywords = {
+        "type",
+        "properties",
+        "patternProperties",
+        "additionalProperties",
+        "items",
+        "prefixItems",
+    }
+    if structural_keywords & set(schema) or not variants:
+        variants.insert(0, schema)
+    return tuple(variants)
+
+
+def _schema_child(root: Mapping[str, object], schema: object, token: str) -> tuple[object, ...]:
+    children: list[object] = []
+    for variant in _schema_variants(root, schema):
+        if variant is True:
+            children.append(True)
+            continue
+        if variant is False or not isinstance(variant, Mapping):
+            continue
+        schema_type = variant.get("type")
+        types = {schema_type} if isinstance(schema_type, str) else set(schema_type or ())
+        properties = variant.get("properties")
+        if isinstance(properties, Mapping) and token in properties:
+            children.append(properties[token])
+        else:
+            object_shape = "object" in types or any(
+                key in variant for key in ("properties", "patternProperties", "additionalProperties")
+            )
+            additional = variant.get("additionalProperties", True)
+            if object_shape and additional is not False:
+                children.append(additional)
+        if not token.isdigit():
+            continue
+        array_shape = "array" in types or any(key in variant for key in ("items", "prefixItems"))
+        if not array_shape:
+            continue
+        index = int(token)
+        prefix_items = variant.get("prefixItems")
+        if (
+            isinstance(prefix_items, Sequence)
+            and not isinstance(prefix_items, (str, bytes, bytearray))
+            and index < len(prefix_items)
+        ):
+            children.append(prefix_items[index])
+            continue
+        items = variant.get("items", True)
+        if isinstance(items, Sequence) and not isinstance(items, (str, bytes, bytearray, Mapping)):
+            if index < len(items):
+                children.append(items[index])
+        elif items is not False:
+            children.append(items)
+    return tuple(children)
+
+
+def _schema_allows_pointer(schema: Mapping[str, object], pointer: str) -> bool:
+    current: tuple[object, ...] = (schema,)
+    for token in _pointer_tokens(pointer):
+        current = tuple(
+            child
+            for node in current
+            for child in _schema_child(schema, node, token)
+        )
+        if not current:
+            return False
+    return bool(current)
+
+
+def _validate_json_schema_instance(
+    schema: Mapping[str, object],
+    instance: object,
+    error_code: str,
+) -> None:
+    try:
+        validator_type = validators.validator_for(schema)
+        validator_type(schema, format_checker=validator_type.FORMAT_CHECKER).validate(instance)
+    except (JsonSchemaValidationError, RecursionError, TypeError, ValueError):
+        raise CandidateCompilationError(error_code) from None
 
 
 def _topological_proposals(
@@ -129,8 +259,21 @@ class CompetitiveTextCandidateCompiler:
         self._id_generator = id_generator
         self._clock = clock
 
+    def _validate_catalog(self) -> None:
+        try:
+            verified_catalog = load_competitive_text_catalog()
+        except (KeyError, OSError, TypeError, ValueError):
+            raise CandidateCompilationError("catalog_verification_failed") from None
+        if self._catalog != verified_catalog:
+            raise CandidateCompilationError("catalog_verification_failed")
+
     def _read_snapshot(self, request: CandidateCompilationRequestV3) -> ResearchControlSnapshotV3:
         reference = request.capabilities.control_snapshot_artifact
+        if (
+            reference.kind != "research_control_snapshot"
+            or reference.schema_version != "research-control-snapshot-v3"
+        ):
+            raise CandidateCompilationError("control_snapshot_artifact_identity_mismatch")
         snapshot = self._artifacts.read_control_snapshot(reference)
         if snapshot is None:
             raise CandidateCompilationError("control_snapshot_unavailable")
@@ -138,15 +281,117 @@ class CompetitiveTextCandidateCompiler:
             raise CandidateCompilationError("control_snapshot_hash_mismatch")
         if snapshot.catalog_id != self._catalog.catalog_id or snapshot.catalog_hash != self._catalog.catalog_hash:
             raise CandidateCompilationError("control_snapshot_catalog_mismatch")
+        self._validate_snapshot(snapshot)
         return snapshot
+
+    @staticmethod
+    def _validate_schema_documents(
+        actor: FrozenActorV3,
+        documents: Mapping[str, FrozenDocumentV3],
+    ) -> tuple[Mapping[str, object], Mapping[str, object]]:
+        input_document = documents.get(actor.input_schema_document_id)
+        output_document = documents.get(actor.output_schema_document_id)
+        if input_document is None or output_document is None:
+            raise CandidateCompilationError("actor_schema_snapshot_missing")
+        input_schema = _schema(input_document)
+        output_schema = _schema(output_document)
+        return input_schema, output_schema
+
+    def _validate_snapshot(self, snapshot: ResearchControlSnapshotV3) -> None:
+        expected_actor_keys = {
+            *(("tool", item.id) for item in self._catalog.actors.tools),
+            *(("skill", item.id) for item in self._catalog.actors.skills),
+            *(("llm", item.id) for item in self._catalog.actors.llm),
+            *(("reviewer", item.id) for item in self._catalog.actors.reviewers),
+        }
+        actors = {(item.actor_type, item.actor_id): item for item in snapshot.actors}
+        if set(actors) != expected_actor_keys:
+            raise CandidateCompilationError("control_snapshot_actor_set_mismatch")
+        documents = {item.document_id: item for item in snapshot.documents}
+        supported_catalog_kinds = {
+            "json_schema",
+            "skill_instructions",
+            "knowledge",
+            "evidence_policy",
+            "review_rubric",
+            "report_template",
+            "synthesis_prompt",
+        }
+        for catalog_document in self._catalog.documents:
+            if catalog_document.kind not in supported_catalog_kinds:
+                continue
+            frozen_document = documents.get(catalog_document.id)
+            expected_content = load_catalog_document(self._catalog, catalog_document.id)
+            if (
+                frozen_document is None
+                or frozen_document.kind != catalog_document.kind
+                or frozen_document.content_hash != canonical_json_v3_sha256(expected_content)
+            ):
+                raise CandidateCompilationError("control_snapshot_catalog_document_mismatch")
+        expected_instructions = {
+            ("tool", "tavily-web-search"): None,
+            ("skill", "competitive-web-research"): "competitive-web-research-instructions",
+            ("skill", "competitive-analysis"): "competitive-analysis-instructions",
+            ("llm", "competitive-text-synthesis-v1"): "competitive-text-synthesis-prompt",
+            ("reviewer", "competitive-text-quality-reviewer-v1"): "competitive-analysis-review-v3",
+        }
+        expected_instruction_kinds = {
+            "skill": "skill_instructions",
+            "llm": "synthesis_prompt",
+            "reviewer": "review_rubric",
+        }
+        tool_by_id = {item.id: item for item in self._catalog.actors.tools}
+        skill_by_id = {item.id: item for item in self._catalog.actors.skills}
+        for key, actor in actors.items():
+            if not actor.enabled or not actor.eligible:
+                raise CandidateCompilationError("control_snapshot_actor_not_eligible")
+            if actor.instruction_document_id != expected_instructions[key]:
+                raise CandidateCompilationError("actor_descriptor_mapping_mismatch")
+            if actor.instruction_document_id is not None:
+                instruction = documents.get(actor.instruction_document_id)
+                if instruction is None or instruction.kind != expected_instruction_kinds[actor.actor_type]:
+                    raise CandidateCompilationError("actor_instruction_document_kind_invalid")
+            _input_schema, output_schema = self._validate_schema_documents(actor, documents)
+            expected_root = self._expected_output_root(actor.actor_type, actor.actor_id, self._catalog)
+            if not _schema_allows_pointer(output_schema, expected_root):
+                raise CandidateCompilationError("actor_output_schema_mapping_mismatch")
+            if actor.actor_type == "tool":
+                tool = tool_by_id[actor.actor_id]
+                if (
+                    actor.execution_mode != "real"
+                    or actor.tier != tool.tier
+                    or actor.approval_role != tool.approval_role
+                    or actor.required_tool_ids
+                    or actor.optional_tool_ids
+                    or actor.input_schema_document_id != "source-tavily-input-schema"
+                    or actor.output_schema_document_id != "source-tavily-output-schema"
+                ):
+                    raise CandidateCompilationError("actor_descriptor_mapping_mismatch")
+            elif actor.actor_type == "skill":
+                skill = skill_by_id[actor.actor_id]
+                if (
+                    actor.tier is not None
+                    or actor.approval_role is not None
+                    or actor.required_tool_ids != skill.required_tools
+                    or actor.optional_tool_ids != skill.enabled_optional_tools
+                    or actor.output_schema_document_id != "source-skill-result-envelope-schema"
+                ):
+                    raise CandidateCompilationError("actor_descriptor_mapping_mismatch")
+            elif (
+                actor.tier is not None
+                or actor.approval_role is not None
+                or actor.required_tool_ids
+                or actor.optional_tool_ids
+            ):
+                raise CandidateCompilationError("actor_descriptor_mapping_mismatch")
 
     def _validate_resolution(self, request: CandidateCompilationRequestV3) -> None:
         required_gaps = [item.code for item in request.capabilities.gaps if item.required]
         if required_gaps:
             raise CandidateCompilationError(*required_gaps)
         expected_decisions = {
-            *(('tool', item.id) for item in self._catalog.actors.tools),
-            *(('skill', item.id) for item in self._catalog.actors.skills),
+            *(("tool", item.id) for item in self._catalog.actors.tools),
+            *(("skill", item.id) for item in self._catalog.actors.skills),
         }
         actual_decisions = {
             (item.actor_type, item.actor_id): item
@@ -155,6 +400,13 @@ class CompetitiveTextCandidateCompiler:
         if set(actual_decisions) != expected_decisions:
             raise CandidateCompilationError("capability_decision_set_mismatch")
         tool_by_id = {item.id: item for item in self._catalog.actors.tools}
+        for key, decision in actual_decisions.items():
+            if decision.status != "eligible" or tuple(item.code for item in decision.reasons) != ("eligible",):
+                raise CandidateCompilationError("capability_decision_state_mismatch")
+            if any(item.related_id != key[1] for item in decision.reasons):
+                raise CandidateCompilationError("capability_decision_state_mismatch")
+            if decision.pending_inputs:
+                raise CandidateCompilationError("capability_pending_input_mismatch")
         for tool in self._catalog.actors.tools:
             decision = actual_decisions[("tool", tool.id)]
             approvals = tuple(
@@ -163,6 +415,8 @@ class CompetitiveTextCandidateCompiler:
             )
             if approvals != (("tool", tool.id, tool.approval_role),):
                 raise CandidateCompilationError("capability_owner_approval_mismatch")
+            if decision.optional_tool_decisions:
+                raise CandidateCompilationError("optional_tool_decision_mismatch")
         for skill in self._catalog.actors.skills:
             decision = actual_decisions[("skill", skill.id)]
             expected_approvals = tuple(
@@ -175,23 +429,31 @@ class CompetitiveTextCandidateCompiler:
             )
             if actual_approvals != expected_approvals:
                 raise CandidateCompilationError("capability_owner_approval_mismatch")
-            optional_decisions = {
-                item.tool_id: (item.status, item.reason_code)
+            optional_decisions = tuple(
+                (item.tool_id, item.status, item.reason_code)
                 for item in decision.optional_tool_decisions
-            }
-            if optional_decisions != {
-                tool_id: ("unavailable", "not_enabled_in_slice")
+            )
+            expected_optional_decisions = tuple(
+                (tool_id, "unavailable", "not_enabled_in_slice")
                 for tool_id in skill.source_optional_tools
-            }:
+            )
+            if optional_decisions != expected_optional_decisions:
                 raise CandidateCompilationError("optional_tool_decision_mismatch")
-        excluded_ids = {item.id for item in self._catalog.excluded_source_capabilities}
-        declared_exclusions = {
-            item.capability_id
-            for item in request.capabilities.gaps
-            if not item.required
+        excluded_types = {
+            "competitive-app-analysis": "skill",
+            "digital-human-competitive-analysis": "skill",
+            "playwright-page-capture": "tool",
         }
-        if declared_exclusions != excluded_ids:
-            raise CandidateCompilationError("optional_capability_exclusions_missing")
+        declared_exclusions = tuple(
+            (item.capability_type, item.capability_id, item.code, item.required)
+            for item in request.capabilities.gaps
+        )
+        expected_exclusions = tuple(
+            (excluded_types[item.id], item.id, item.reason, False)
+            for item in self._catalog.excluded_source_capabilities
+        )
+        if declared_exclusions != expected_exclusions:
+            raise CandidateCompilationError("optional_capability_exclusions_mismatch")
 
     def _validate_coverage(
         self,
@@ -264,10 +526,12 @@ class CompetitiveTextCandidateCompiler:
             elif proposal.requires_approval:
                 raise CandidateCompilationError("non_tool_step_cannot_replace_tool_approval")
 
-            input_schema = documents.get(actor.input_schema_document_id)
-            output_schema = documents.get(actor.output_schema_document_id)
-            if input_schema is None or output_schema is None:
+            input_document = documents.get(actor.input_schema_document_id)
+            output_document = documents.get(actor.output_schema_document_id)
+            if input_document is None or output_document is None:
                 raise CandidateCompilationError("actor_schema_snapshot_missing")
+            input_schema = _schema(input_document)
+            output_schema = _schema(output_document)
             expected_root = self._expected_output_root(
                 proposal.actor_type,
                 proposal.actor_id,
@@ -277,14 +541,14 @@ class CompetitiveTextCandidateCompiler:
             if expected_root not in output_pointers:
                 raise CandidateCompilationError("actor_output_root_missing")
             for pointer in output_pointers:
-                _pointer_tokens(pointer)
+                if not _schema_allows_pointer(output_schema, pointer):
+                    raise CandidateCompilationError("expected_output_schema_pointer_missing")
 
+            proposed_input = thaw_json_value(proposal.input)
             mapped_dependencies = tuple(identity_map[item] for item in proposal.depends_on)
             mapped_bindings: list[PlanInputBindingV3] = []
             target_pointers: set[str] = set()
             for binding in proposal.input_bindings:
-                _pointer_tokens(binding.source_pointer)
-                _pointer_tokens(binding.target_pointer)
                 if binding.source_step_number not in proposal.depends_on:
                     raise CandidateCompilationError("binding_source_not_direct_dependency")
                 source_number = identity_map[binding.source_step_number]
@@ -295,7 +559,16 @@ class CompetitiveTextCandidateCompiler:
                     for output in source.expected_outputs
                 ):
                     raise CandidateCompilationError("binding_source_output_missing")
-                if _resolve_pointer(thaw_json_value(proposal.input), binding.target_pointer) is _MISSING:
+                source_actor = actors[(source.actor_type, source.actor_id)]
+                source_output_document = documents.get(source_actor.output_schema_document_id)
+                if source_output_document is None:
+                    raise CandidateCompilationError("actor_schema_snapshot_missing")
+                source_output_schema = _schema(source_output_document)
+                if not _schema_allows_pointer(source_output_schema, binding.source_pointer):
+                    raise CandidateCompilationError("binding_source_schema_pointer_missing")
+                if not _schema_allows_pointer(input_schema, binding.target_pointer):
+                    raise CandidateCompilationError("binding_target_schema_pointer_missing")
+                if _resolve_pointer(proposed_input, binding.target_pointer) is _MISSING:
                     raise CandidateCompilationError("binding_target_missing")
                 if binding.target_pointer in target_pointers:
                     raise CandidateCompilationError("binding_target_duplicate")
@@ -308,11 +581,14 @@ class CompetitiveTextCandidateCompiler:
                     )
                 )
 
+            _validate_json_schema_instance(input_schema, proposed_input, "candidate_input_schema_invalid")
             decision = decisions.get((proposal.actor_type, proposal.actor_id))
             if decision is not None:
                 for pending in decision.pending_inputs:
                     target = f"/{pending.role.replace('~', '~0').replace('/', '~1')}"
-                    value = _resolve_pointer(thaw_json_value(proposal.input), target)
+                    if not _schema_allows_pointer(input_schema, target):
+                        raise CandidateCompilationError("pending_input_schema_target_missing")
+                    value = _resolve_pointer(proposed_input, target)
                     if value is _MISSING or value is None:
                         raise CandidateCompilationError("pending_input_target_unresolved")
 
@@ -339,8 +615,8 @@ class CompetitiveTextCandidateCompiler:
                     "reviewer": "reviewer_once",
                 }[proposal.actor_type],
                 "actor_snapshot_hash": canonical_json_v3_sha256(actor),
-                "input_schema_hash": input_schema.content_hash,
-                "output_schema_hash": output_schema.content_hash,
+                "input_schema_hash": input_document.content_hash,
+                "output_schema_hash": output_document.content_hash,
             }
             values["contract_hash"] = canonical_json_v3_sha256(values)
             compiled.append(PlanStepV3.model_validate(values))
@@ -381,6 +657,9 @@ class CompetitiveTextCandidateCompiler:
                         raise CandidateCompilationError("problem_dependency_not_preserved")
 
     def compile(self, request: CandidateCompilationRequestV3) -> ExecutionPlanV3:
+        self._validate_catalog()
+        if request.requirement.content_hash != canonical_json_v3_sha256(request.requirement.payload):
+            raise CandidateCompilationError("requirement_content_hash_mismatch")
         if request.requirement.payload.planning_blocked:
             raise CandidateCompilationError("requirement_clarification_required")
         self._validate_resolution(request)
