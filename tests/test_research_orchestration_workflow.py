@@ -418,7 +418,7 @@ def harness() -> Harness:
 
 async def start_clear_run(harness: Harness, run_id: str = "run_clear") -> WorkflowContext:
     run = make_run(run_id, "对比 Figma 和 Miro 的协作与恢复能力")
-    assert await harness.service.start_if_applicable(run) is True
+    assert await harness.service.start_if_applicable(run) is not None
     await harness.service.wait_for_idle()
     return harness.repository.require_context(run_id)
 
@@ -585,9 +585,9 @@ async def test_start_and_command_scheduling_are_race_safe_and_tasks_are_cleaned(
     harness.planning.block = True
     run = make_run("run_dedup", "对比 Figma 和 Miro")
 
-    assert await harness.service.start_if_applicable(run) is True
+    assert await harness.service.start_if_applicable(run) is not None
     await harness.planning.started.wait()
-    assert await harness.service.start_if_applicable(run) is True
+    assert await harness.service.start_if_applicable(run) is not None
     assert harness.service.background_task_count == 1
     assert harness.planning.prepare_calls == 1
 
@@ -779,7 +779,7 @@ async def test_off_or_non_research_runs_do_not_create_workflows(harness: Harness
     legacy = make_run("run_legacy", "对比 Figma 和 Miro")
     legacy.orchestration_version = "v1"
 
-    assert await harness.service.start_if_applicable(off) is False
-    assert await harness.service.start_if_applicable(legacy) is False
+    assert await harness.service.start_if_applicable(off) is None
+    assert await harness.service.start_if_applicable(legacy) is None
     assert harness.repository.contexts == {}
     assert harness.service.background_task_count == 0

@@ -63,6 +63,13 @@ The fallback follow-up review closed the original four findings but found two ad
 3. backfills `confirmed` or `cancelled` lifecycle status from durable command receipts when opening the rejected pre-fix schema;
 4. permits owner-authorized purge after confirmation or cancellation.
 
+A third focused review confirmed those seams but found that `ResearchWorkflowService.start_if_applicable()` discarded the canonical replayed v2 Run returned by `ensure_workflow`. The third correction now returns the canonical `AgentRun`, schedules planning against its canonical ID, and makes `ResearchRuntime.start_run()` return that persisted Run. Production-path concurrent v2 route coverage passes.
+
+Latest direct evidence:
+
+- production v2/v3 workflow and preview set: 26 passed;
+- changed-file Ruff: passed.
+
 ## Out of scope
 
 This checklist does not authorize:

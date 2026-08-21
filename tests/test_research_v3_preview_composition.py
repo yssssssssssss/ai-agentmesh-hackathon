@@ -12,17 +12,9 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from agentmesh.agent_runtime.settings import SkillOrchestrationMode
-from agentmesh.models import (
-    AgentRun,
-    AgentRunStatus,
-    ChatThread,
-    SkillOrchestrationRequestMode,
-    User,
-    new_id,
-    now_utc,
-)
-from agentmesh.research_orchestration.contracts import ResearchWorkflow
+from agentmesh.models import ChatThread, SkillOrchestrationRequestMode, User
 from agentmesh.research_orchestration.current import ResearchWriterGeneration
+from agentmesh.research_orchestration.runtime import ResearchRuntime
 from agentmesh.research_orchestration.v3.actor_adapters import (
     AgentSdkSkillAdapterV3,
     LlmSynthesisAdapterV3,
@@ -44,6 +36,7 @@ from agentmesh.research_orchestration.v3.api import (
     research_v3_request_hash,
 )
 from agentmesh.research_orchestration.v3.composition import ResearchV3PreviewComposition
+from agentmesh.research_orchestration.workflow import ResearchWorkflowService
 from agentmesh.routes.deps import current_user
 from agentmesh.store import SQLiteStore
 
@@ -581,46 +574,22 @@ def test_concurrent_identical_v2_client_turn_replays_one_run_and_thread(
     import agentmesh.routes.agent_runs as agent_run_routes
 
     store = SQLiteStore(tmp_path / "v2-concurrent-replay.sqlite3")
+    workflow = ResearchWorkflowService(
+        store,
+        planning=object(),
+        execution=object(),
+        purger=object(),
+    )
 
-    class V2Runtime:
-        async def start_run(
-            self,
-            *,
-            content,
-            user,
-            thread_id,
-            client_turn_id,
-            mode,
-            requested_orchestration_mode,
-            explicit_skill=None,
-        ):  # noqa: ANN001, ANN202
-            control = store.get_research_writer_control()
-            proposed = AgentRun(
-                id=new_id("run"),
-                thread_id=thread_id,
-                user_id=user.id,
-                workspace_id=user.workspace_id,
-                project_id=user.default_project_id,
-                input_text=content,
-                client_turn_id=client_turn_id,
-                status=AgentRunStatus.PLANNING,
-                skill_id=explicit_skill.id if explicit_skill is not None else None,
-                skill_name=explicit_skill.name if explicit_skill is not None else None,
-                orchestration_version="research-v2",
-                orchestration_mode=mode.value,
-                writer_generation_epoch=control.generation_epoch,
-                requested_orchestration_mode=requested_orchestration_mode,
-                project_chat=True,
-                created_at=now_utc(),
-                updated_at=now_utc(),
-            )
-            return store.ensure_workflow(
-                proposed,
-                ResearchWorkflow(run_id=proposed.id),
-            ).run
+    def suppress_planning(_key, coroutine):  # noqa: ANN001, ANN202
+        coroutine.close()
+
+    monkeypatch.setattr(workflow, "_schedule", suppress_planning)
+    runtime = ResearchRuntime(store, workflow)
+    asyncio.run(runtime.start())
 
     isolated = FastAPI()
-    isolated.state.research_runtime = V2Runtime()
+    isolated.state.research_runtime = runtime
     isolated.include_router(agent_run_routes.router)
     isolated.dependency_overrides[current_user] = lambda: USER
     monkeypatch.setattr(agent_run_routes, "store", store)

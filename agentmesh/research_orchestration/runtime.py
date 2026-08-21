@@ -244,11 +244,9 @@ class ResearchRuntime:
             project_chat=True,
             deadline_at=now_utc() + timedelta(minutes=5),
         )
-        if not await self.workflow_service.start_if_applicable(run):
-            raise RuntimeError("Research workflow was not started")
-        stored = self.repository.get_agent_run(run.id)
+        stored = await self.workflow_service.start_if_applicable(run)
         if stored is None:
-            raise RuntimeError("Research workflow did not persist its Agent run")
+            raise RuntimeError("Research workflow was not started")
         self.repository.add_chat_message(
             ChatMessage(
                 thread_id=thread_id,
