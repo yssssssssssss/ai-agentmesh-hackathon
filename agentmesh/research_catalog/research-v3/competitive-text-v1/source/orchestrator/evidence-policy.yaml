@@ -1,0 +1,44 @@
+version: 1
+policies:
+  - task_type: competitive_research
+    deliverable_type: research_plan
+    requirements:
+      - id: public-market-evidence
+        accepted_classes: [public_source]
+        minimum_count: 1
+        required: true
+  - task_type: user_research_planning
+    deliverable_type: research_plan
+    requirements:
+      - id: research-plan
+        accepted_classes: [user_input, knowledge, public_source]
+        minimum_count: 1
+        required: true
+  - task_type: competitive_research
+    deliverable_type: competitive_analysis_report
+    requirements:
+      - id: competitive-analysis-report
+        accepted_classes: [public_source, screenshot]
+        minimum_count: 1
+        required: true
+  - task_type: voc_diagnosis
+    deliverable_type: voc_diagnosis_report
+    requirements:
+      - id: voc-diagnosis-report
+        accepted_classes: [dataset, user_input, public_source]
+        minimum_count: 1
+        required: true
+  - task_type: design_audit
+    deliverable_type: design_audit_report
+    requirements:
+      - id: design-audit-report
+        accepted_classes: [screenshot, user_input, public_source]
+        minimum_count: 1
+        required: true
+  - task_type: a11y_audit
+    deliverable_type: accessibility_audit_report
+    requirements:
+      - id: accessibility-audit-report
+        accepted_classes: [screenshot, user_input, public_source]
+        minimum_count: 1
+        required: true

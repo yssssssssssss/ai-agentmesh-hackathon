@@ -1,0 +1,504 @@
+# KB 派生部分由 indexer 生成(源: knowledge-base/skills/*/SKILL.md), 编排器原生 skill(path 在 skills/ 下)保留。
+version: 1
+skills:
+  - id: digital-human-competitive-analysis
+    name: 数字人竞品分析
+    path: skills/competitive-analysis/digital-human/SKILL.md
+    when_to_use: 用户需要分析数字人、虚拟主播、直播竞品时使用
+    owner: 竞品分析组
+    status: active
+    task_types:
+      - competitive_research
+      - user_research_planning
+    inputs:
+      - business_domain
+    outputs:
+      - competitive_analysis
+    intent_tags:
+      - digital_human
+      - live_commerce
+      - competitive
+    input_schema: skills/competitive-analysis/digital-human/input.schema.json
+    output_schema: schemas/skill-result-envelope.schema.json
+    payload_schema: skills/competitive-analysis/digital-human/output.schema.json
+    required_tools:
+      - tavily-web-search
+      - ai-spider-search
+      - experience-model-lab
+      - virtual-user-lab
+    cost_level: medium
+    risk_level: low
+  - id: competitive-web-research
+    name: 竞品分析·Web搜索
+    path: skills/competitive-analysis/web-research/SKILL.md
+    when_to_use: 竞品分析且以网络公开资料为主要信息源(官网/发布会/评测/应用商店/新闻/口碑);查竞品在做什么、战略意图、市场动态。无竞品 app
+      截图诉求时用本 skill。
+    owner: 竞品分析组
+    status: active
+    task_types:
+      - competitive_research
+    inputs:
+      - research_goal
+    outputs:
+      - competitive_analysis
+    intent_tags:
+      - competitive
+      - web-research
+      - business-competitive
+    output_schema: schemas/skill-result-envelope.schema.json
+    required_tools:
+      - tavily-web-search
+    optional_tools:
+      - playwright-page-capture
+    cost_level: low
+    risk_level: low
+  - id: competitive-app-analysis
+    name: 竞品分析·App截图
+    path: skills/competitive-analysis/app-analysis/SKILL.md
+    when_to_use: 对竞品 app
+      界面做截图级分析——视觉美学、注意力热区、品牌视觉一致性、信息架构;诉求提到看竞品页面/界面/截图/设计怎么做的。以竞品截图为信息源时用本
+      skill。
+    owner: 竞品分析组
+    status: active
+    payload_schema: skills/competitive-analysis/app-analysis/output.schema.json
+    task_types:
+      - competitive_research
+    inputs:
+      - research_goal
+      - competitor_screenshots
+    visual_inputs:
+      - competitor_screenshots
+    multiple_visual_inputs:
+      - competitor_screenshots
+    outputs:
+      - competitive_analysis
+    intent_tags:
+      - competitive
+      - ui-competitive
+      - screenshot
+      - app-teardown
+    required_tools:
+      - tavily-web-search
+      - ai-spider-search
+      - aesthetic-quant-lab
+      - attention-analysis-lab
+      - vision-brand-lab
+    output_schema: schemas/skill-result-envelope.schema.json
+    cost_level: medium
+    risk_level: low
+  - id: design-experience-review
+    name: 设计体验走查
+    path: skills/design-review/SKILL.md
+    when_to_use: 用户需要对设计稿/页面做美学、注意力、品牌视觉走查或体验评估时使用(需用户提供设计稿图像)
+    owner: 体验设计组
+    status: active
+    task_types:
+      - design_audit
+      - user_research_planning
+    inputs:
+      - designImage
+    visual_inputs:
+      - designImage
+    outputs:
+      - design_review
+    intent_tags:
+      - design_review
+      - aesthetic
+      - attention
+      - brand
+      - visual
+    input_schema: skills/design-review/input.schema.json
+    output_schema: schemas/skill-result-envelope.schema.json
+    payload_schema: skills/design-review/output.schema.json
+    required_tools:
+      - tavily-web-search
+      - aesthetic-quant-lab
+      - attention-analysis-lab
+      - vision-brand-lab
+    cost_level: low
+    risk_level: low
+  - id: accessibility-review
+    name: accessibility-review
+    path: knowledge-base/skills/accessibility-review
+    entry: knowledge-base/skills/accessibility-review/SKILL.md
+    when_to_use: 吃一个评估对象（App/页面/原型/设计稿/H5/小程序，可附截图·原型链接·线上页面·读屏录音录屏·流程或文字描述）+ 评估范围 →
+      编排 research-wiki 的无障碍产品体验与适配规范（accessibility-adaptation：POUR 四原则、四类要求、9
+      类控件详规、MUST/SHOULD/MUST NOT、A/B/C 定级、交付前
+      checklist）、无障碍走查方法本体（accessibility-audit：开读屏[VoiceOver/TalkBack]线性遍历、视觉/读屏/键盘手势三遍走查节奏、对比度·触达区·文本缩放等
+      WCAG 量化阈值）、问题分层与优先级（A/B/C、P0–P3、RICE 排整改）、可用性测试（真人验证边界）→
+      给了素材时直接做一次无障碍走查，产出问题清单（问题×违反的规范条目[原则+控件]×等级
+      A/B/C×读屏表现证据×分平台整改[Android/iOS/H5]）+ 按原则/等级汇总 + 整改清单（分平台改法+复测验证点）+ 修复优先级
+      +《本次运行说明》；没给素材时产出一份无障碍走查工具包（交付前 checklist+A/B/C
+      评级卡+读屏三遍法脚本+量化阈值速查+记录整改模板）并索要素材。当用户要「做无障碍审查/走查/适配检查/信息无障碍合规/a11y
+      审查/无障碍验收/查这页面用读屏（VoiceOver/TalkBack）能不能用/视障（盲人）用户友不友好/按 WCAG
+      检查这界面/上线前扫一遍无障碍/适老化后低视力·老年用户能不能看清用得了」时触发；哪怕只说「看看这页面对视障用户友不友好」并附截图，只要意图是拿无障碍规范、从视障/读屏可达性视角逐条检视界面、找适配问题并给整改，就用本
+      skill。边界：拿尼尔森十大原则查通用可用性问题（不专门针对视障/读屏）→
+      run-heuristic-evaluation；让真实用户（含视障）做任务并观察 →
+      generate-usability-test；竞品战略意图对比 → competitive-analysis；把海量反馈打标归类 →
+      code-open-feedback；把文档/PPT/PDF 做成无障碍版（补替代文本、阅读顺序等，非界面走查）不属本 skill。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - a11y_audit
+      - design_audit
+    required_tools:
+      - tavily-web-search
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: analyze-satisfaction
+    name: analyze-satisfaction
+    path: knowledge-base/skills/analyze-satisfaction
+    entry: knowledge-base/skills/analyze-satisfaction/SKILL.md
+    when_to_use: 吃一批满意度调研数据——总体满意度 / NSS / NPS / CSAT / CES
+      加各属性（体验维度）评分的截面数据，或同一指标的多期时间序列——加一个分析目标 →
+      实时调用用研知识库（research-wiki）里的满意度驱动因素分析（KDA / 派生重要性）、满意度分析模型（四分图 / Kano / AHP
+      / SEM）、满意度异动归因（显著性→下钻→根因）、数据标准化、期望确认理论 ECT 等正典 → 产出关键驱动因素排序 + IPA
+      重要性×表现四分图改进优先级 + 掉分归因（区分是波动还是异常、下钻到「谁在哪个模块为什么不满」），并附《本次运行说明》。当用户手里有满意度 /
+      NSS / NPS 分数（带属性分或时间序列），想「分析满意度数据 / 找关键驱动因素 / 先改哪个属性 / 做 IPA 四分图 /
+      满意度为什么掉了 / NSS 环比下降怎么归因 / 这版上线后体验涨了还是跌了 / 算各体验维度的重要性权重 / 满意度诊断」时，主动使用本
+      skill——哪怕用户只是丢来一张属性满意度评分表、或两期 NSS 分数问「怎么分析 /
+      说明了什么」、没点名「驱动分析」「IPA」「归因」，只要意图是把满意度分数诊断成驱动因素、改进优先级或掉分根因，就应触发。边界：①
+      还没有数据、要设计满意度问卷（采集阶段）→ generate-survey；② 把海量开放题 / 评价 /
+      工单的文字编码成痛点清单（纯定性文本、不是分数）→ code-open-feedback；③ 通用问卷交叉表分群显著性对比（如「会员 vs
+      非会员谁更满意」这类与满意度诊断流程无关的列联表检验）→ survey-crosstab-analysis。本 skill
+      专做满意度分数的定量诊断与归因；若用户给的数据不足以支撑所问分析（要找驱动却只给汇总均值没有逐份行级数据、要归因却没给样本量与可下钻维度、要算落差却缺期望或感知），会先列《数据补充请求》请其补齐再分析，绝不靠假设硬出结论。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - voc_diagnosis
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+    payload_schema: knowledge-base/skills/analyze-satisfaction/output.schema.json
+  - id: build-experience-metrics
+    name: build-experience-metrics
+    path: knowledge-base/skills/build-experience-metrics
+    entry: knowledge-base/skills/build-experience-metrics/SKILL.md
+    when_to_use: 吃一个产品/系统 + 业务目标（要达成什么、哪些底线不可恶化）→
+      实时调用用研知识库（research-wiki）的体验度量（HEART/GSM）、跨版本纵向/基准追踪、数据标准化、B
+      端体验度量打法、标准化体验量表等正典 → 产出一套**可落地的体验度量体系**：用 GSM（目标→信号→指标）选定 HEART
+      三到五维、定**体验北极星 +
+      护栏指标**、写清每个指标的**采集口径**（分子分母/周期/样本来源/量表与基准）、把北极星**拆解**到子系统或任务触点、配**跨版本纵向追踪方案**（口径冻结+基线+适应期再测），并附指标质量自检与《本次运行说明》。当用户要「给某产品/系统设计体验度量体系
+      / 搭体验看板 / 定（体验）北极星与护栏 / 用 HEART 选指标 / 做 GSM / 量化产品体验看上线或改版后涨没涨该看哪些数 / 给 B
+      端定可长期追踪的体验北极星并拆解到模块 / 建 UX 基准做跨版本 benchmark 追踪」时主动使用——哪怕只说「帮我想想这产品体验该看哪些指标
+      / 这次改版体验收益怎么衡量」、没点名 HEART 或北极星，只要意图是把产品+目标变成一套可持续追踪的体验度量体系就应触发。边界：①
+      已有满意度/NSS/NPS 分数要诊断「先改哪、为什么掉、涨没涨」→ `analyze-satisfaction`（本 skill
+      更前一步：先把指标和口径建起来）；② 要可投放的问卷成稿 → `generate-survey`；③
+      要可用性测试执行包（任务脚本/SEQ·SUS）→ `generate-usability-test`；④ 要把海量评价/工单文本编码成痛点 →
+      `code-open-feedback`；⑤ 要的是通用业务/销售/经营看板（GMV、DAU、转化、库存等）或 OKR/KPI
+      绩效考核——与体验无关、不属本 skill；本 skill
+      只建「用户体验」度量（HEART：愉悦/参与/采纳/留存/任务成功），北极星是体验北极星、非 DAU/GMV 增长北极星。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: code-open-feedback
+    name: code-open-feedback
+    path: knowledge-base/skills/code-open-feedback
+    entry: knowledge-base/skills/code-open-feedback/SKILL.md
+    when_to_use: 吃研究员上传的一批海量、非结构化的用户短反馈（应用商店评价 / 客服工单 / 问卷开放题 / 社媒吐槽与评论 /
+      在线客服会话等任意来源）→ 实时调用用研知识库（research-wiki）里的 VOC 用户之声分析正典 →
+      产出结构化编码标签库（模块×问题类型×情感×严重度）+ 各主题频次·占负面比·情感趋势的主题表 + Top
+      痛点清单（每条配代表原话）+《本次运行说明》。当用户手里有一批评价/工单/开放题/评论/吐槽，要「编码 / 打标 / 给反馈分类归类 / 跑一下
+      VOC / 做用户之声分析 / 把海量反馈整理成痛点清单 / 看大家都在抱怨什么 / 分析这批差评」时，主动使用本
+      skill——哪怕用户只是丢来一坨反馈文本、没点名「编码」或「VOC」，只要意图是把海量非结构化短反馈转成带频次和情感的量化标签与痛点清单，就应触发。边界：①
+      结构化问卷交叉表/列联表要做显著性检验与平台优劣势，用 survey-crosstab-analysis（本 skill
+      只做计数、不做统计检验）；② 少量访谈逐字稿要做深读、三进程编码与意义诠释（小样本定性纵深），那是 qualitative-coding 的活；③
+      设计问卷/访谈题目（还没有数据的采集阶段）用 generate-survey / generate-interview-guide。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - voc_diagnosis
+    required_tools:
+      - tavily-web-search
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: competitive-analysis
+    name: competitive-analysis
+    path: knowledge-base/skills/competitive-analysis
+    entry: knowledge-base/skills/competitive-analysis/SKILL.md
+    when_to_use: 吃一个竞品分析诉求（分析/对比哪些竞品 +
+      可观测素材：功能更新·截图·信息架构·运营活动·价格会员补贴·用户评价，或足够具体的文字描述）+ 我方定位·生命周期阶段·用户特征（先知己再知彼）→
+      编排 research-wiki 的竞品分析方法本体（按生命周期定目标、分层监控划范围、战略意图四问[时机·场景·动机·市场]、AARRR
+      海盗模型环节映射、SWOT 敌我优劣、用户体验五要素拆解、打勾对比法、跟进决策矩阵）与桌面研究、机会点研究、KANO →
+      给了素材时直接做一次竞品分析，从"记录对手做了什么"走向"读懂为什么这么做、对我方何影响、我方如何行动"，产出知己小结+竞品分层+逐动作战略意图四问（含
+      AARRR 映射与
+      SWOT）+五要素拆解与打勾对比+结果解读（战术/战略/布局）+跟进决策矩阵+差异化行动建议+《本次运行说明》；没给素材时产出一份竞品分析框架/工具包并索要素材。当用户要「做竞品分析/对比我们和某竞品/竞对上线了
+      XX
+      是什么意图·威胁多大·要不要跟/持续监控竞对动态读懂战略意图/起步期看赛道机会与威胁/竞品体验横评」时触发；哪怕只说「看看拼多多这新功能想干嘛、对我们有没有威胁」或「我们和淘宝购物车比一比」，只要意图是系统比较竞对产品/功能/策略、读懂战略意图、判断对我方影响并给应对，就用本
+      skill。边界：拿尼尔森十大原则逐条查界面可用性问题并打严重度（哪怕竞品页面，重点在界面哪不好用）→
+      run-heuristic-evaluation；让真实用户做任务并观察 →
+      generate-usability-test；给自己产品搭长期体验指标体系/看板 →
+      build-experience-metrics；脱离竞品系统挖增长机会点 →
+      opportunity-research；对策略型产品做微观量化评测/GSB 打分（图搜/推荐评测）不在本 skill。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - competitive_research
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: conversion-funnel-analysis
+    name: conversion-funnel-analysis
+    path: knowledge-base/skills/conversion-funnel-analysis
+    entry: knowledge-base/skills/conversion-funnel-analysis/SKILL.md
+    when_to_use: 吃一个转化/流失诊断诉求（拆哪条关键路径 +
+      分步数据：埋点分步人数·分步转化率·分群明细[渠道/设备/新老/版本]·改版前后对比，或足够具体的流程与数字）+ 转化目标与口径 → 编排
+      research-wiki 的转化漏斗方法本体（有序事件序列：定口径、拆 3–7
+      个互斥必经步骤、校验埋点、算分步与总转化率、看相对流失定位最大流失环节、分群下钻拆穿平均值、Fogg 行为模型 B=MAP
+      五类根因[认知/动机/操作门槛/信任顾虑/技术故障]、接定性求证、优化回测）与功能采纳、VOC、问题优先级、A/B、体验度量 →
+      给了分步数据时直接做一次漏斗诊断：算清每步转化/流失、定位最大流失环节、分群下钻区分普遍问题 vs 特定人群问题、按 Fogg
+      五类给疑似根因与求证方向、给优化建议与同口径回测，产出漏斗诊断报告
+      +《本次运行说明》；只有流程没数据时产出一份漏斗设计/诊断框架（口径清单+步骤拆解+埋点校验+分群维度+Fogg
+      诊断假设清单+出图建议）并索要数据。当用户要「做转化漏斗分析/拆这条转化路径/定位在哪流失最多/注册开通·下单支付·首次使用转化率为什么掉/改版后转化变差看哪步/核心转化做成漏斗看板预警」时触发；哪怕只说「下单转化上不去，卡在哪」或「注册走到一半好多人跑了，为啥」，只要意图是把一条关键转化路径拆成有序步骤、定位最大流失环节并归因，就用本
+      skill。边界：主观满意度/NSS/NPS 分数诊断（为什么掉、关键驱动、IPA 四分图）→
+      analyze-satisfaction；给产品搭长期体验指标体系/看板/北极星 →
+      build-experience-metrics；拿尼尔森十大原则走查界面找可用性问题 →
+      run-heuristic-evaluation。漏斗只答"在哪流失、流失多少"，答不了"为什么"——归因接定性方法（深访/VOC/可用性测试/录屏）。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+    payload_schema: knowledge-base/skills/conversion-funnel-analysis/output.schema.json
+  - id: feature-adoption-analysis
+    name: feature-adoption-analysis
+    path: knowledge-base/skills/feature-adoption-analysis
+    entry: knowledge-base/skills/feature-adoption-analysis/SKILL.md
+    when_to_use: 吃一个功能采纳诉求（新功能上线后多少人接住、老功能为何使用率低、某能力值不值得继续投入）+
+      采纳行为数据（分段人数漏斗/功能埋点/cohort 留存表，或至少各段计数）→ 编排 research-wiki
+      的功能采纳正典（曝光→激活→使用→复用四段漏斗、采纳率/广度/深度频率/首次采纳时间/功能留存五维口径、cohort
+      留存、分段病因）与转化漏斗、A/B、VOC、HEART、ECT 等关联正典，做一次采纳诊断：搭采纳漏斗（逐段人数+段转化率）、算五维指标、（有
+      cohort
+      则）读留存曲线、定位最大流失段并归因（曝光=告知问题/激活=上手摩擦/复用=价值或习惯未形成）、用定性补"为什么"、给迭代与回测建议，附《本次运行说明》；没有埋点数据时改出一份采纳度量工具包（激活事件定义+四段漏斗埋点+五维口径+cohort
+      分群）并索要数据。当用户要「分析功能采纳/做采纳漏斗/看新功能上线后多少人知道·试用·持续在用/功能采纳率怎么算/这功能没人用是没人知道还是不好用还是用一次就不来/功能留存如何/漏斗哪段流失最多/这能力值不值得继续做」时触发；哪怕只说「新功能好像没人用帮我分析」或丢来一张分段人数表，只要意图是用行为数据判断功能级能力是否被真正用起来、定位知晓→试用→持续用链路的流失点，就用本
+      skill。边界：单次任务/路径的完成转化（下单 A→B→C 哪步跌）→ conversion-funnel-analysis；满意度/NPS
+      分数驱动或掉分归因 → analyze-satisfaction；从零搭体验指标体系/看板 →
+      build-experience-metrics；设计对照实验判增量 → ab-testing；开放题/工单文字编码成痛点 →
+      code-open-feedback。数据不足以支撑所问诊断时先列《数据补充请求》或出工具包，绝不编造采纳率/转化率/留存数字。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+    payload_schema: knowledge-base/skills/feature-adoption-analysis/output.schema.json
+  - id: generate-interview-guide
+    name: generate-interview-guide
+    path: knowledge-base/skills/generate-interview-guide
+    entry: knowledge-base/skills/generate-interview-guide/SKILL.md
+    when_to_use: 吃一个定性研究目标（含目标用户、研究阶段、访谈形式）→ 实时调用用研知识库（research-wiki）里的访谈提纲设计方法、ORID
+      提问框架与受访者偏误规范 → 产出一份结构化、可直接拿去用的访谈提纲（开场暖场 / 主问题模块[每块含主问 + 追问梯度] /
+      收尾），并附追问时机提示与《本次运行说明》。当用户要「做访谈提纲 / 设计访谈问题 / 写访谈大纲 / 准备用户访谈或深访 /
+      把研究目标拆成要问用户的问题 / 拟焦点小组或拦访提问」时，主动使用本
+      skill——哪怕用户只给了一句访谈目标、没点名「提纲」二字，只要意图是把一个定性研究目标转成可问出口的问题清单，就应触发。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: generate-persona
+    name: generate-persona
+    path: knowledge-base/skills/generate-persona
+    entry: knowledge-base/skills/generate-persona/SKILL.md
+    when_to_use: 吃一批研究数据 / 已有定性洞察（访谈记录、定性发现、用户原话，可选的问卷或后台数据）+ 一个研究目标 →
+      实时调用用研知识库（research-wiki）里的人物角色创建法、亲和图聚类、定性洞察框架、「结果→结论→洞察」模型与 G7 / 用户养成透镜 →
+      先从目标·行为·观点等变量里聚类出几类典型用户、选定核心划分变量，再把每类用户描摹成血肉丰满的人物角色（角色名 · 基础信息 · 特征标签 ·
+      典型语录 · 用户故事 · 使用行为 · 需求与痛点 · 核心建议），并附划分依据与《本次运行说明》。当用户要「做用户画像 / 生成 persona
+      / 建人物角色 / 把访谈或调研数据提炼成几类典型用户 / 给产品定几个目标用户原型 / 给用户分型 / 我们的典型用户长什么样」时，主动使用本
+      skill——哪怕用户只是丢来几份访谈记录说「帮我把用户分成几类」、没点名「persona」或「人物角色」四个字，只要意图是把真实用户的共性与差异拟合成可代入、可对齐的典型用户角色，就应触发。注意区分：要的是跨场归纳主题
+      + 提炼洞察（而非拟人化角色）→ 用
+      synthesize-qualitative-insights；要的是给海量真实用户逐个打标签的「用户画像（user
+      profile）标签体系」（一种后台数据工程，不是研究产出）→ 不属本 skill。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: generate-research-plan
+    name: generate-research-plan
+    path: knowledge-base/skills/generate-research-plan
+    entry: knowledge-base/skills/generate-research-plan/SKILL.md
+    when_to_use: 吃一个研究需求（可能很碎、很模糊，甚至只有一句话）→ 先用用研知识库（research-wiki）的需求沟通规范把它拆解、对齐成结构化
+      brief（需求不清就停下来追问，绝不带臆断硬出方案）→ 需求清晰后实时编排 wiki
+      的方法正典、场景打法与执行规范，展开成一份可执行研究方案（研究目的 / 研究内容 / 方法选型+理由 / 样本与配额 / 成本 / 排期 /
+      交付物），并附方案自检与《本次运行说明》。当用户要「做研究方案 / 调研方案 / 研究设计 / 规划一次用户研究 / 设计一次调研 /
+      把（模糊的）研究需求变成可执行方案 / 接了个调研需求不知怎么下手」时，主动使用本
+      skill——哪怕需求还很含糊、只有一句话，也应触发（把模糊需求问清正是第一阶段的职责，不要因为需求不完整就拒绝启动）。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    required_tools:
+      - tavily-web-search
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: generate-survey
+    name: generate-survey
+    path: knowledge-base/skills/generate-survey
+    entry: knowledge-base/skills/generate-survey/SKILL.md
+    when_to_use: 吃一个研究 brief（研究目标 + 目标人群 + 要测维度 + 约束如题量/渠道）→
+      实时调用用研知识库（research-wiki）里的问卷设计规范、标准化体验量表与问卷方法 → 产出一份合规的问卷草稿（封面信 / 指导语 /
+      分节题目[含题型 + 量表 + 逻辑跳转] / 结尾），并附逐条合规自检与《本次运行说明》。当用户要「做问卷 / 设计问卷 / 生成调查问卷 /
+      写问卷题目 / 出一份满意度或 NPS 问卷 / 设计量表题 / 把研究目标变成问卷」时，主动使用本
+      skill——哪怕用户只给一句研究目标、没点名「问卷」二字，只要意图是把一个（偏定量、可统计的）测量目标转成可投放的结构化题目清单，就应触发。偏定性深挖、要的是开放追问的访谈，则用
+      generate-interview-guide。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: generate-usability-test
+    name: generate-usability-test
+    path: knowledge-base/skills/generate-usability-test
+    entry: knowledge-base/skills/generate-usability-test/SKILL.md
+    when_to_use: 吃一个测试对象（产品/功能/原型）+ 研究目标 →
+      实时调用用研知识库（research-wiki）里的可用性测试方法、标准化体验量表（SEQ/SUS）、受访者偏误规范与抽样/招募规范 →
+      产出一份**这次专用**的可用性测试执行包：任务场景 + 出声思考脚本（含主持指导语与事后追问）+ 观察记录表 + 成功率/SEQ/SUS 度量计划
+      + 招募甄别，并附偏误自检与《本次运行说明》。当用户要「做可用性测试 / 易用性测试 / 任务测试 / 出声思考(think-aloud) /
+      让用户试用我们的新设计或原型看哪里卡 / 设计验证 / 验证 demo 好不好用、能不能完成任务 / 跑一轮 SUS 或 SEQ / 写测试任务脚本
+      / 观察用户怎么操作」时，主动使用本
+      skill——哪怕用户只给一句「让用户试试我们新改的页面顺不顺手」、没点名「可用性测试」四个字，只要意图是**给用户布置任务、观察其操作、度量能否顺利完成并定位可用性问题**，就应触发。若用户要的是不带任务的开放访谈挖
+      why，用 generate-interview-guide；要的是大规模可统计的问卷，用
+      generate-survey；要的是「该用什么方法」的整体研究方案，用 generate-research-plan。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - design_audit
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: issue-prioritization
+    name: issue-prioritization
+    path: knowledge-base/skills/issue-prioritization
+    entry: knowledge-base/skills/issue-prioritization/SKILL.md
+    when_to_use: 吃一堆已识别的问题/需求/候选项（来自可用性测试、启发式评估、访谈、VOC、转化漏斗、功能采纳、满意度诊断、竞品分析，或用户直接给的清单，可附受影响用户量·业务损失·研发工时）+
+      决策场景（评估收尾/版本规划/线上事故）→ 编排 research-wiki 的问题分层与优先级正典（P0–P3 分层、严重度定级[NN/g
+      0–4、京东《体验问题评级标准》广度×深度→ABCD]、RICE/ICE/影响×难度矩阵、框架选型综述[MoSCoW/KANO/执行收益矩阵/CD3/四象限的信号词与适用场景]、KANO）→
+      给了清单时直接做一次分层·定级·排序，产出带分层标签、严重度分、RICE/ICE 分与影响×难度象限的排序表 + "先修/先做哪个"结论摘要 +
+      快赢清单 +《本次运行说明》；没给清单时产出一份优先级评估工具包（分层标准卡+严重度评分卡+框架选型指南+RICE/ICE
+      与矩阵模板+汇总排序表）并索要清单与量化证据。当用户要「给这些问题/需求排优先级/先修哪个 bug/先做哪个需求/按严重度分层排序/用 RICE 或
+      ICE 打分排序/版本规划先上哪些/这些问题哪个是 P0 热修/影响×难度里哪些是快赢/该用 RICE 还是
+      MoSCoW·KANO·四象限」时触发；哪怕只说「这些问题先改哪个」或「帮我把这十几个需求排个序」，只要意图是把一批已识别的问题/需求归类、定严重度、按价值÷成本排先后（或还没清单时先要一套分层排序方法与框架选型），就用本
+      skill。边界：从界面/原型逐条找可用性问题（拿尼尔森十大原则检视）→ run-heuristic-evaluation；从满意度/NPS
+      找关键驱动、判先改哪个属性 → analyze-satisfaction；把海量原始反馈打标归类成主题 →
+      code-open-feedback；跨多份定性材料归纳主题与洞察 → synthesize-qualitative-insights。本
+      skill 聚焦「已有一批问题/需求 → 分层定级排序 → 先做哪个」。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: jobs-to-be-done
+    name: jobs-to-be-done
+    path: knowledge-base/skills/jobs-to-be-done
+    entry: knowledge-base/skills/jobs-to-be-done/SKILL.md
+    when_to_use: 吃一条待定义的需求（PM 的功能设想/一句业务问题/用户的一个诉求）+ 可选研究材料（Switch/Job
+      访谈、用户反馈、流失原声、后台或竞品信息）→ 编排 research-wiki 的 JTBD
+      雇佣理论、用户需求三层模型、手段-目的链（梯子理论）、Job Map 八阶段、四力模型、Job/Switch
+      访谈法、结果→结论→洞察、竞品与机会点研究 →
+      把「加个什么功能/用户想要什么」这类停在解决方案或表层诉求的需求向上追问、翻译成「用户到底雇这个产品完成什么任务（Job）」：给出核心 Job
+      与相关 Job、拆功能层·情感层·社会层、锚定触发情境、（按需）用 Job Map 拆任务全流程、盘出完成同一 Job
+      的跨品类替代方案、（切换/流失场景）做四力诊断、提炼未被满足的期待效果与机会点，最后回答「原始那个功能设想该不该做、命中 Job
+      哪一层、有没有更优解」，附《本次运行说明》。当用户要「用 JTBD/Jobs to be Done
+      分析这需求/这功能用户到底要完成什么任务/把需求挖到用户真正目标/用户雇我们产品干什么/这功能该不该做/用户为什么切换或流失、真正任务是什么/拆用户做某事的全流程和衡量标准/把'用户想要
+      X'翻译成真需求」时触发；哪怕只说「用户说想要个一键下单，看看这需求靠不靠谱」，只要意图是把解决方案层或表层诉求向上挖到用户真正想完成的任务与深层动机，就用本
+      skill。边界：把用户拟合成几类典型角色（谁）→ generate-persona；按行为顺序还原端到端体验并可视化（历程）→
+      journey-map；把多份定性材料跨场归纳主题、提炼洞察（无"某条需求要被定义"主线）→
+      synthesize-qualitative-insights；要整份研究方案或能跑的访谈提纲 →
+      generate-research-plan/generate-interview-guide；系统比较竞对功能与战略意图（非只盘替代方案）→
+      competitive-analysis。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: journey-map
+    name: journey-map
+    path: knowledge-base/skills/journey-map
+    entry: knowledge-base/skills/journey-map/SKILL.md
+    when_to_use: 吃一批研究材料（用户深度访谈 / 现场观察记录 / 已有体验地图原始素材 / 客服反馈，可选已做好的 persona
+      与后台行为数据）+ 一个研究目标或业务场景 → 实时调用用研知识库（research-wiki）里的用户体验地图方法、定性洞察四框架（用户旅程地图
+      / 同理心地图 / 价值主张画布 / A·B·C）、场景洞察需求、亲和图聚类、「结果→结论→洞察」模型 →
+      先按用户场景/类型差异判定**画几张图**（场景不同的用户分开画，必要时做轻量分型，可衔接
+      generate-persona），再把每类用户达成目标的完整历程绘成一张旅程图：阶段 → 场景 → 目标 → 行为 → 触点 → 想法 →
+      情绪曲线 → 痛点/需求 → 诉求 → 机会点，并对需求与机会点评级、**用自带渲染器产出一份可直接分享的可视化 HTML
+      旅程图（样式参考体验旅程图样例：阶段为列、维度为行、情绪曲线）**、附《本次运行说明》。当用户要「画用户旅程图 / 体验地图 / journey
+      map / customer journey / 梳理用户从看到买（或任意 X→Y）的完整体验 / 端到端体验诊断 / 找体验断点和情绪低谷 /
+      看用户全流程在哪卡住、哪些触点体验差、机会点在哪」时，主动使用本
+      skill——哪怕用户只说「帮我把这几份访谈梳理成用户从想买到收货的全过程、标出哪里体验不好」、并没点名「旅程图 /
+      体验地图」四个字，只要意图是**按行为顺序还原用户达成某目标的端到端历程、并可视化各阶段的触点·情绪·痛点·机会**，就应触发。注意区分边界：要的是把用户拟合成几类典型角色（而非按行为顺序还原历程）→
+      用 generate-persona；要的是把多份定性材料跨场归纳主题 + 拔高洞察（没有流程主线）→ 用
+      synthesize-qualitative-insights；要的是给产品定一套可长期追踪的体验指标体系 / 看板 → 用
+      build-experience-metrics；要的是整体研究方案或访谈提纲 → 用 generate-research-plan /
+      generate-interview-guide。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+      - voc_diagnosis
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: run-heuristic-evaluation
+    name: run-heuristic-evaluation
+    path: knowledge-base/skills/run-heuristic-evaluation
+    entry: knowledge-base/skills/run-heuristic-evaluation/SKILL.md
+    when_to_use: 吃一个评估对象（产品/页面/原型/设计稿，可附截图·原型链接·流程或文字描述）+ 评估范围 →
+      实时调用用研知识库（research-wiki）里的尼尔森十大启发式（评分标尺）、启发式评估方法本体（两遍法/走查节奏/独立评估+汇总）、严重度评级与问题优先级技术（issue-prioritization
+      单一出处：NN/g 0-4 与京东《体验问题评级标准》影响范围×严重程度）、评估员人数规范 →
+      当用户给了界面素材时**直接当专家评估员做一次启发式评估/体验走查**，产出问题清单（问题×违反的启发式×严重度0-4×位置证据×改进建议）+按启发式/严重度的汇总+修复优先级+《本次运行说明》；当用户没给素材时，产出一份**可直接执行的启发式评估工具包**（检查清单+严重度评分卡+评估员任务书与两遍法脚本+记录与汇总模板）并索要素材。当用户要「做启发式评估
+      / 体验走查 / 专家评审 / 可用性检查（usability inspection）/ 用尼尔森十大原则评一下这个界面 /
+      走查这个页面有哪些体验问题 / 不招用户先扫一遍可用性 / 评审一下这版设计稿或原型好不好用 / 看界面违反了哪些可用性原则 /
+      给可用性问题打严重度并排优先级 / 上线前先专家自检一遍」时，主动使用本
+      skill——哪怕用户只丢来一句「帮我看看这个页面有什么体验问题」并附几张截图、没点名「启发式评估」五个字，只要意图是**拿公认可用性准则、由专家视角逐条检视界面、找问题并定严重度**，就应触发。若用户要的是**让真实用户做任务、观察其操作**的可用性测试，用
+      generate-usability-test；要可投放可统计的问卷，用 generate-survey；要「整体该用什么方法」的研究方案，用
+      generate-research-plan；要把海量用户反馈/评价打标归类，用 code-open-feedback。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - design_audit
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+  - id: structure-interview-transcript
+    name: structure-interview-transcript
+    path: knowledge-base/skills/structure-interview-transcript
+    entry: knowledge-base/skills/structure-interview-transcript/SKILL.md
+    when_to_use: 把研究员上传的**单场**用户访谈逐字稿 / 录音转写，结合本次研究目的与研究内容，**围绕需求方关心的研究问题**调用研究 Wiki
+      的访谈记录结构与定性洞察框架，**降噪整理**成一份结构化访谈小结（受访者背景 + 访谈执行信息 +
+      以研究内容为主干的分主题发现〔每点配关键原话〕+ 痛点 + 待跟进）。当研究员说"帮我整理这场访谈 / 出一份访谈小结 / 把这场逐字稿结构化成发现
+      / 把刚做完的这次深访记录降噪整理 / 这是一场访谈的录音转写，理一下……"并给出（或可追问到）研究目的时，应主动触发本
+      skill——哪怕用户只是把一段逐字稿丢过来让你"整理一下"。**只做单场整理，不做跨场归纳 / 拔总洞察**（多场综合属
+      `synthesize-qualitative-insights`）；也不要与"出访谈提纲"（`generate-interview-guide`）、"出问卷"（`generate-survey`）混用。逐字稿属敏感原始数据：**只在会话内临时处理、绝不写入
+      Wiki、引用原话时匿名化**。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+    payload_schema: knowledge-base/skills/structure-interview-transcript/output.schema.json
+  - id: synthesize-qualitative-insights
+    name: synthesize-qualitative-insights
+    path: knowledge-base/skills/synthesize-qualitative-insights
+    entry: knowledge-base/skills/synthesize-qualitative-insights/SKILL.md
+    when_to_use: 吃多份定性材料（多场访谈小结 / 逐字稿 / 定性笔记 / 开放题 / 客服工单等）+ 一个研究目标 →
+      实时调用用研知识库（research-wiki）里的亲和图法、质性编码、定性洞察四框架与「结果→结论→洞察」模型 →
+      先跨场自下而上归纳出多层主题（每个主题带频次、代表证据、设计机会 D / 待研究问题 Q），再把主题拔高成结构化洞察（用户 + 场景 + 任务 +
+      情感需求 + 矛盾障碍），并附《本次运行说明》。当用户手里有多份定性材料、想「归纳主题 / 聚类发现 / 做亲和图 / 提炼洞察 /
+      看这些访谈说明了什么 / 把一堆访谈记录变成结论 / 跨场总结用户痛点与需求」时，主动使用本
+      skill——哪怕用户只是丢来几份访谈记录问「能看出什么」、没点名「亲和图」或「洞察」二字，只要意图是把多份定性资料横向归纳、再向上提炼成洞察，就应触发。交付时默认产出「剥离方法论、按用户研究问题组织、结论先行」的交付稿，方法论痕迹与《本次运行说明》收进后置的「分析底稿」附录；洞察之后若用户要「机会
+      / 方向 / 落地 / 命名」，再按需编排既有正典延伸出轻量落地建议（机会-解决方案树 OST，方案标为待验证假设），并可给可视化摘要（一页纸 /
+      PPT 大纲 / 结论示意图）。
+    owner: 用研团队
+    risk_level: low
+    task_types:
+      - user_research_planning
+    output_schema: schemas/skill-result-envelope.schema.json
+    status: active
+    payload_schema: knowledge-base/skills/synthesize-qualitative-insights/output.schema.json

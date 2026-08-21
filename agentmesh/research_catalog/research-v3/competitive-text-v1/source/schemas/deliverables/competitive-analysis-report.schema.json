@@ -1,0 +1,177 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "competitive-analysis-report.schema.json",
+  "title": "CompetitiveAnalysisReportPayload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "competitorSamples",
+    "dimensionMatrix",
+    "differences",
+    "impacts",
+    "actionRecommendations",
+    "screenshotComparisons"
+  ],
+  "properties": {
+    "competitorSamples": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/competitorSample" }
+    },
+    "dimensionMatrix": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/dimensionMatrixRow" }
+    },
+    "differences": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/difference" }
+    },
+    "impacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/impact" }
+    },
+    "actionRecommendations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/actionRecommendation" }
+    },
+    "managementSummary": { "$ref": "#/$defs/nonEmptyStringArray" },
+    "scoringMethod": { "$ref": "#/$defs/nonEmptyStringArray" },
+    "roadmap": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/roadmapItem" }
+    },
+    "instrumentationPlan": { "$ref": "#/$defs/nonEmptyStringArray" },
+    "userTestScript": { "$ref": "#/$defs/nonEmptyStringArray" },
+    "visualEvidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/visualEvidence" }
+    },
+    "screenshotComparisons": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/screenshotComparison" }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "nonEmptyStringArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "competitorSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "rationale", "evidenceIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "rationale": { "$ref": "#/$defs/nonEmptyString" },
+        "evidenceIds": { "$ref": "#/$defs/nonEmptyStringArray" }
+      }
+    },
+    "dimensionValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sampleId", "value", "evidenceIds"],
+      "properties": {
+        "sampleId": { "$ref": "#/$defs/nonEmptyString" },
+        "value": { "$ref": "#/$defs/nonEmptyString" },
+        "score": { "type": "number", "minimum": 1, "maximum": 5 },
+        "evidenceIds": { "$ref": "#/$defs/nonEmptyStringArray" }
+      }
+    },
+    "dimensionMatrixRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dimension", "values"],
+      "properties": {
+        "dimension": { "$ref": "#/$defs/nonEmptyString" },
+        "weight": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/dimensionValue" }
+        }
+      }
+    },
+    "difference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "dimension", "statement", "evidenceIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "dimension": { "$ref": "#/$defs/nonEmptyString" },
+        "statement": { "$ref": "#/$defs/nonEmptyString" },
+        "evidenceIds": { "$ref": "#/$defs/nonEmptyStringArray" }
+      }
+    },
+    "impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["differenceId", "audience", "statement"],
+      "properties": {
+        "differenceId": { "$ref": "#/$defs/nonEmptyString" },
+        "audience": { "$ref": "#/$defs/nonEmptyString" },
+        "statement": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "actionRecommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "differenceIds", "priority", "statement"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "differenceIds": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "priority": { "enum": ["P0", "P1", "P2", "P3"] },
+        "statement": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "roadmapItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority", "statement", "metric", "validationMethod"],
+      "properties": {
+        "priority": { "enum": ["P0", "P1", "P2"] },
+        "statement": { "$ref": "#/$defs/nonEmptyString" },
+        "metric": { "$ref": "#/$defs/nonEmptyString" },
+        "validationMethod": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "visualEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sampleIds", "dimension", "assetId", "evidenceIds", "caption"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "sampleIds": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "dimension": { "$ref": "#/$defs/nonEmptyString" },
+        "assetId": { "$ref": "#/$defs/nonEmptyString" },
+        "evidenceIds": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "caption": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "screenshotComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "dimension", "sampleIds", "assetIds", "caption"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "dimension": { "$ref": "#/$defs/nonEmptyString" },
+        "sampleIds": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "assetIds": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "caption": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    }
+  }
+}

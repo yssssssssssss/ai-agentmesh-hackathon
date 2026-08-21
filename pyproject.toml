@@ -45,4 +45,8 @@ known-first-party = ["agentmesh"]
 include = ["agentmesh*"]
 
 [tool.setuptools.package-data]
-agentmesh = ["builtin_skills/**"]
+agentmesh = [
+  "builtin_skills/**",
+  "schemas/research/*.json",
+  "research_catalog/research-v3/competitive-text-v1/**",
+]

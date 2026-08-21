@@ -1,0 +1,419 @@
+{
+  "$defs": {
+    "ActionRecommendationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "difference_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Difference Ids",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "priority": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "title": "Priority",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 4000,
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "difference_ids",
+        "priority",
+        "statement"
+      ],
+      "title": "ActionRecommendationV1",
+      "type": "object"
+    },
+    "CompetitorSampleV1": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 240,
+          "title": "Name",
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 4000,
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "rationale",
+        "evidence_ids"
+      ],
+      "title": "CompetitorSampleV1",
+      "type": "object"
+    },
+    "DifferenceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "dimension": {
+          "maxLength": 240,
+          "title": "Dimension",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 4000,
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "dimension",
+        "statement",
+        "evidence_ids"
+      ],
+      "title": "DifferenceV1",
+      "type": "object"
+    },
+    "DimensionMatrixRowV1": {
+      "additionalProperties": false,
+      "properties": {
+        "dimension": {
+          "maxLength": 240,
+          "title": "Dimension",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "$ref": "#/$defs/DimensionValueV1"
+          },
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weight"
+        }
+      },
+      "required": [
+        "dimension",
+        "values"
+      ],
+      "title": "DimensionMatrixRowV1",
+      "type": "object"
+    },
+    "DimensionValueV1": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "sample_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Sample Id",
+          "type": "string"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "value": {
+          "maxLength": 4000,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sample_id",
+        "value",
+        "evidence_ids"
+      ],
+      "title": "DimensionValueV1",
+      "type": "object"
+    },
+    "ImpactV1": {
+      "additionalProperties": false,
+      "properties": {
+        "audience": {
+          "maxLength": 240,
+          "title": "Audience",
+          "type": "string"
+        },
+        "difference_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Difference Id",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 4000,
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "difference_id",
+        "audience",
+        "statement"
+      ],
+      "title": "ImpactV1",
+      "type": "object"
+    },
+    "RoadmapItemV1": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "maxLength": 4000,
+          "title": "Metric",
+          "type": "string"
+        },
+        "priority": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2"
+          ],
+          "title": "Priority",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 4000,
+          "title": "Statement",
+          "type": "string"
+        },
+        "validation_method": {
+          "maxLength": 4000,
+          "title": "Validation Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "priority",
+        "statement",
+        "metric",
+        "validation_method"
+      ],
+      "title": "RoadmapItemV1",
+      "type": "object"
+    }
+  },
+  "$id": "competitive-analysis-text-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action_recommendations": {
+      "items": {
+        "$ref": "#/$defs/ActionRecommendationV1"
+      },
+      "minItems": 1,
+      "title": "Action Recommendations",
+      "type": "array"
+    },
+    "competitor_samples": {
+      "items": {
+        "$ref": "#/$defs/CompetitorSampleV1"
+      },
+      "minItems": 1,
+      "title": "Competitor Samples",
+      "type": "array"
+    },
+    "differences": {
+      "items": {
+        "$ref": "#/$defs/DifferenceV1"
+      },
+      "minItems": 1,
+      "title": "Differences",
+      "type": "array"
+    },
+    "dimension_matrix": {
+      "items": {
+        "$ref": "#/$defs/DimensionMatrixRowV1"
+      },
+      "minItems": 1,
+      "title": "Dimension Matrix",
+      "type": "array"
+    },
+    "impacts": {
+      "items": {
+        "$ref": "#/$defs/ImpactV1"
+      },
+      "minItems": 1,
+      "title": "Impacts",
+      "type": "array"
+    },
+    "instrumentation_plan": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Instrumentation Plan"
+    },
+    "management_summary": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Management Summary"
+    },
+    "roadmap": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/RoadmapItemV1"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Roadmap"
+    },
+    "scoring_method": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scoring Method"
+    },
+    "screenshot_comparisons": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Screenshot Comparisons",
+      "type": "array"
+    },
+    "user_test_script": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "User Test Script"
+    },
+    "visual_evidence": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Visual Evidence",
+      "type": "array"
+    }
+  },
+  "required": [
+    "competitor_samples",
+    "dimension_matrix",
+    "differences",
+    "impacts",
+    "action_recommendations",
+    "visual_evidence",
+    "screenshot_comparisons"
+  ],
+  "title": "CompetitiveAnalysisTextPayloadV1",
+  "type": "object"
+}

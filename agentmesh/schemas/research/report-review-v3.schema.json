@@ -1,0 +1,208 @@
+{
+  "$defs": {
+    "DeterministicReviewCheckV3": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "dimension_id": {
+          "enum": [
+            "requirement_coverage",
+            "question_coverage",
+            "evidence_coverage",
+            "reasoning_quality",
+            "recommendation_quality",
+            "visual_quality",
+            "risk_disclosure"
+          ],
+          "title": "Dimension Id",
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "dimension_id",
+        "passed",
+        "issues"
+      ],
+      "title": "DeterministicReviewCheckV3",
+      "type": "object"
+    },
+    "ReviewDimensionV3": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "enum": [
+            "requirement_coverage",
+            "question_coverage",
+            "evidence_coverage",
+            "reasoning_quality",
+            "recommendation_quality",
+            "visual_quality",
+            "risk_disclosure"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "passed",
+        "issues"
+      ],
+      "title": "ReviewDimensionV3",
+      "type": "object"
+    },
+    "SealedArtifactRefV3": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "kind": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Kind",
+          "type": "string"
+        },
+        "schema_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "schema_version",
+        "content_hash"
+      ],
+      "title": "SealedArtifactRefV3",
+      "type": "object"
+    }
+  },
+  "$id": "report-review-v3",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "attempt_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "deliverable_artifact": {
+      "$ref": "#/$defs/SealedArtifactRefV3"
+    },
+    "deterministic_checks": {
+      "items": {
+        "$ref": "#/$defs/DeterministicReviewCheckV3"
+      },
+      "title": "Deterministic Checks",
+      "type": "array"
+    },
+    "dimensions": {
+      "items": {
+        "$ref": "#/$defs/ReviewDimensionV3"
+      },
+      "title": "Dimensions",
+      "type": "array"
+    },
+    "plan_version_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+      "title": "Plan Version Id",
+      "type": "string"
+    },
+    "revision_round": {
+      "enum": [
+        0,
+        1
+      ],
+      "title": "Revision Round",
+      "type": "integer"
+    },
+    "rubric_snapshot_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Rubric Snapshot Hash",
+      "type": "string"
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "report-review-v3",
+      "default": "report-review-v3",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_model_call_receipt_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Semantic Model Call Receipt Id"
+    },
+    "verdict": {
+      "enum": [
+        "pass",
+        "revise",
+        "block"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "plan_version_id",
+    "attempt_id",
+    "deliverable_artifact",
+    "rubric_snapshot_hash",
+    "deterministic_checks",
+    "semantic_model_call_receipt_id",
+    "verdict",
+    "dimensions",
+    "revision_round"
+  ],
+  "title": "ReportReviewV3",
+  "type": "object"
+}

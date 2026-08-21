@@ -1,0 +1,17 @@
+id: tavily-web-search
+name: Tavily 网页检索
+adapter_type: tavily
+entrypoint: /search
+base_url_env: TAVILY_BASE_URL
+auth_required: true
+risk_level: low
+approver_rule: none
+timeout_seconds: 30
+retry_policy:
+  max_attempts: 2
+  backoff_seconds: 3
+input_schema: tools/tavily-web-search/input.schema.json
+output_schema: tools/tavily-web-search/output.schema.json
+redaction_policy:
+  pii: mask
+  sensitive_business_data: block

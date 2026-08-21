@@ -1,0 +1,60 @@
+# 决策节点池(方案 §2.1)
+# 定位:资深用研老师沉淀的"完备性护栏(必检清单)",不是流程/控制流。
+# 与 skill-registry 平行的节点池——task_type 先分流,只激活 applies_to 命中的子集。
+# 加节点 = 改此 YAML,判断仍交 LLM,不改代码。
+#
+# tier: core(几乎所有 task_type 都激活,漏了翻车) | optional(场景相关按需激活)
+# 状态由 LLM 判定为 6 态之一(见 §2.1),不在此声明。
+
+version: 1
+
+nodes:
+  - key: D1_research_goal
+    question: 研究目标是否明确
+    applies_to: [competitive_research, user_research_planning, voc_diagnosis, design_audit, a11y_audit]
+    tier: core
+    trigger_conditions: [任何研究任务]
+    related_tags: [research_goal]
+
+  - key: D2_target_audience
+    question: 目标用户/人群是否清晰
+    applies_to: [user_research_planning, voc_diagnosis]
+    tier: optional
+    trigger_conditions: [涉及真实用户样本, 需要人群分层]
+    related_tags: [persona, audience]
+
+  - key: D3_method_selection
+    question: 研究方法是否合适
+    applies_to: [competitive_research, user_research_planning, design_audit]
+    tier: core
+    trigger_conditions: [需要选择研究方法或分析框架]
+    related_tags: [method]
+
+  - key: D4_experience_status
+    question: 是否需要评估现有体验现状
+    applies_to: [user_research_planning, design_audit, a11y_audit]
+    tier: optional
+    trigger_conditions: [涉及现有产品体验, 走查/审查类]
+    related_tags: [ux-audit, a11y]
+
+  - key: D5_competitive
+    question: 是否需要竞品参照
+    applies_to: [competitive_research, user_research_planning]
+    tier: optional
+    trigger_conditions: [用户提到竞品/对标, 探索性研究]
+    related_tags: [ui-competitive, business-competitive, digital_human]
+
+  - key: D6_data_sensitivity
+    question: 是否涉及敏感数据/合规边界
+    applies_to: [competitive_research, user_research_planning, voc_diagnosis, design_audit, a11y_audit]
+    tier: core
+    trigger_conditions: [涉及 PII, 涉及外部发布, 高风险 tool]
+    related_tags: [privacy, compliance]
+    risk_policy: 高风险数据或外部发布必须走 need_approval;缺授权 blocked
+
+  - key: D7_output_standard
+    question: 产出标准是否明确
+    applies_to: [competitive_research, user_research_planning, voc_diagnosis, design_audit, a11y_audit]
+    tier: core
+    trigger_conditions: [任何研究任务]
+    related_tags: [output, report]

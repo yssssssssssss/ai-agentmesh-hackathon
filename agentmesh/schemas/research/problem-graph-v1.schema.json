@@ -1,0 +1,206 @@
+{
+  "$defs": {
+    "EvidenceRequirementV1": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_classes": {
+          "items": {
+            "enum": [
+              "public_source",
+              "screenshot",
+              "user_input",
+              "knowledge",
+              "dataset",
+              "simulation",
+              "derived"
+            ],
+            "type": "string"
+          },
+          "maxItems": 7,
+          "minItems": 1,
+          "title": "Accepted Classes",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "minimum_count": {
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Minimum Count",
+          "type": "integer"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "accepted_classes",
+        "minimum_count",
+        "required"
+      ],
+      "title": "EvidenceRequirementV1",
+      "type": "object"
+    },
+    "ProblemGraphProvenanceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "context_manifest_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Context Manifest Hash",
+          "type": "string"
+        },
+        "model_call_receipt_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Model Call Receipt Id",
+          "type": "string"
+        },
+        "model_name": {
+          "maxLength": 120,
+          "title": "Model Name",
+          "type": "string"
+        },
+        "model_version": {
+          "maxLength": 120,
+          "title": "Model Version",
+          "type": "string"
+        },
+        "prompt_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prompt Hash",
+          "type": "string"
+        },
+        "trace_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Trace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_call_receipt_id",
+        "model_name",
+        "model_version",
+        "prompt_hash",
+        "trace_id",
+        "context_manifest_hash"
+      ],
+      "title": "ProblemGraphProvenanceV1",
+      "type": "object"
+    },
+    "ProblemQuestionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance_criteria": {
+          "items": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Acceptance Criteria",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "evidence_requirements": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRequirementV1"
+          },
+          "maxItems": 20,
+          "title": "Evidence Requirements",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "priority": {
+          "enum": [
+            "required",
+            "optional"
+          ],
+          "title": "Priority",
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 2000,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 2000,
+          "title": "Statement",
+          "type": "string"
+        },
+        "success_criterion_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Success Criterion Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "statement",
+        "rationale",
+        "priority",
+        "success_criterion_ids",
+        "evidence_requirements",
+        "acceptance_criteria",
+        "depends_on"
+      ],
+      "title": "ProblemQuestionV1",
+      "type": "object"
+    }
+  },
+  "$id": "problem-graph-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "provenance": {
+      "$ref": "#/$defs/ProblemGraphProvenanceV1"
+    },
+    "questions": {
+      "items": {
+        "$ref": "#/$defs/ProblemQuestionV1"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Questions",
+      "type": "array"
+    },
+    "requirement_version_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+      "title": "Requirement Version Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "problem-graph-v1",
+      "default": "problem-graph-v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_version_id",
+    "questions",
+    "provenance"
+  ],
+  "title": "ProblemGraphV1",
+  "type": "object"
+}

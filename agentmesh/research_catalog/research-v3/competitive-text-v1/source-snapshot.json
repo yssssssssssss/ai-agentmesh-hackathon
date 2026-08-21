@@ -1,0 +1,200 @@
+{
+  "catalog_id": "competitive-text-v1",
+  "files": [
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "knowledge",
+      "sha256": "a4f9a6678845b2d29f94a8e6f760e37cd6e9e59254a443510da5e19acc582aeb",
+      "source_path": "knowledge-base/methods/toolbox/analysis/competitive-analysis.md",
+      "target_path": "source/knowledge-base/methods/toolbox/analysis/competitive-analysis.md"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "knowledge",
+      "sha256": "38c960d6440ff4f4b27271c94d385d790f6507e0c50958828890cc8d600ee5ca",
+      "source_path": "knowledge-base/methods/toolbox/collection/desk-research.md",
+      "target_path": "source/knowledge-base/methods/toolbox/collection/desk-research.md"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "knowledge",
+      "sha256": "9e69e629ff03e690cef8032aaecd02949f307affcd4656197edf0226a205eba3",
+      "source_path": "knowledge-base/models/kano.md",
+      "target_path": "source/knowledge-base/models/kano.md"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "skill_instructions",
+      "sha256": "1149e89fc3af47aeec8467d7e547285abcb44fc6d0bc265fe58074c7fda5d2a9",
+      "source_path": "knowledge-base/skills/competitive-analysis/SKILL.md",
+      "target_path": "source/knowledge-base/skills/competitive-analysis/SKILL.md"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "knowledge",
+      "sha256": "925e8761ecf9a7e1dd90fa5a7c856632dfe973d0aa6b181b1dac7e7ac6b72060",
+      "source_path": "knowledge-base/skills/competitive-analysis/references/competitive-analysis-skeleton.md",
+      "target_path": "source/knowledge-base/skills/competitive-analysis/references/competitive-analysis-skeleton.md"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_metadata",
+      "sha256": "7ef06d665cdd6738e59237c61236c2bd3790e421213838d055e10b064d7f948a",
+      "source_path": "orchestrator/decision-graph.yaml",
+      "target_path": "source/orchestrator/decision-graph.yaml"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_metadata",
+      "sha256": "9355e5b1d233f575da8196ddf3ca619f9132b955f2db593f7bf6b16134f5029f",
+      "source_path": "orchestrator/deliverable-registry.yaml",
+      "target_path": "source/orchestrator/deliverable-registry.yaml"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_metadata",
+      "sha256": "6e3110a9222f3f9803eba0ef45b18bb09fae8fedc10a9c16a380038185c415bd",
+      "source_path": "orchestrator/evidence-policy.yaml",
+      "target_path": "source/orchestrator/evidence-policy.yaml"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "synthesis_prompt",
+      "sha256": "806d7ce7faffea9c7bed6c48870588a715379e4d04cec56a79eb0279054001a5",
+      "source_path": "orchestrator/prompts/deliverables/competitive-analysis-report.md",
+      "target_path": "source/orchestrator/prompts/deliverables/competitive-analysis-report.md"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "review_rubric",
+      "sha256": "41fe367c3e37d1d77bda930e2f87835c7f181a4f80619d583f5a094b3db615a1",
+      "source_path": "orchestrator/report-rubrics/competitive-analysis-report.yaml",
+      "target_path": "source/orchestrator/report-rubrics/competitive-analysis-report.yaml"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "report_template",
+      "sha256": "8cbd6a53eeb88e0b2181fae64402690c5d539ce9bf6a0cf6e65486ecff80449a",
+      "source_path": "orchestrator/report-templates/competitive-analysis-report.yaml",
+      "target_path": "source/orchestrator/report-templates/competitive-analysis-report.yaml"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_metadata",
+      "sha256": "3eb8c566c2a4e7bc0198d03151e078d56ad69fbedb0034433df23693d326ff8b",
+      "source_path": "orchestrator/skill-registry.yaml",
+      "target_path": "source/orchestrator/skill-registry.yaml"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_adapter_input",
+      "sha256": "9f861c764ef19fa9f096c618490ba6d0eec0f779445d64ce6be51c6312bab78b",
+      "source_path": "schemas/current-execution-plan.schema.json",
+      "target_path": "source/schemas/current-execution-plan.schema.json"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_adapter_input",
+      "sha256": "e156b9e643030dd4fbd077ae9c51948e541f7ccb842b511ae939987f75193b3a",
+      "source_path": "schemas/current-plan-candidates.schema.json",
+      "target_path": "source/schemas/current-plan-candidates.schema.json"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_adapter_input",
+      "sha256": "55e3549376d38646cd69c584ecb8f3dcf49e6c7c228e75c8e254a3873df9bebf",
+      "source_path": "schemas/deliverables/competitive-analysis-report.schema.json",
+      "target_path": "source/schemas/deliverables/competitive-analysis-report.schema.json"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_adapter_input",
+      "sha256": "1cb95103d5aeccf22086a314fc3ae2fc3762f1918fd23f7611512ce951461893",
+      "source_path": "schemas/problem-graph.schema.json",
+      "target_path": "source/schemas/problem-graph.schema.json"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_adapter_input",
+      "sha256": "f51c00861fa6bf7720dd21cd75349938ed295a202212d6d4f1b8dc037cef67a7",
+      "source_path": "schemas/report-document.schema.json",
+      "target_path": "source/schemas/report-document.schema.json"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_adapter_input",
+      "sha256": "9da404c8a4c00c0a97be202ad9632919e819929a86dfc08883847388c6f2a301",
+      "source_path": "schemas/report-review.schema.json",
+      "target_path": "source/schemas/report-review.schema.json"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_adapter_input",
+      "sha256": "299c4fa147d28a3e7ff38fea0e2f981dc3b38a1d8aad07498d2f6734ad24dbea",
+      "source_path": "schemas/research-task-v2.schema.json",
+      "target_path": "source/schemas/research-task-v2.schema.json"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "source_adapter_input",
+      "sha256": "24a2474dfabbe1159614d2b14854c81615672565106c260259e386f1aa29da00",
+      "source_path": "schemas/skill-result-envelope.schema.json",
+      "target_path": "source/schemas/skill-result-envelope.schema.json"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "skill_instructions",
+      "sha256": "9eacba95cc36931d6da736efa8ce74a0e8f90fb6b187c2d8debf9c35c69b7d59",
+      "source_path": "skills/competitive-analysis/web-research/SKILL.md",
+      "target_path": "source/skills/competitive-analysis/web-research/SKILL.md"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "tool_contract",
+      "sha256": "719d746fcfbb1d57df257f49c8057966f05bec5e8042c25afcf63b8b0b972372",
+      "source_path": "tools/tavily-web-search/input.schema.json",
+      "target_path": "source/tools/tavily-web-search/input.schema.json"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "tool_contract",
+      "sha256": "bd01fe58b45909a0f9f41b57fa2f88a961331b3a89f6c309c3e4760ed1518cd8",
+      "source_path": "tools/tavily-web-search/manifest.yaml",
+      "target_path": "source/tools/tavily-web-search/manifest.yaml"
+    },
+    {
+      "copy_mode": "verbatim",
+      "mode": "100644",
+      "runtime_role": "tool_contract",
+      "sha256": "71435dc4e65a5f63821a52ca2b8d9b948022f76913d206b89517c986bbd338b9",
+      "source_path": "tools/tavily-web-search/output.schema.json",
+      "target_path": "source/tools/tavily-web-search/output.schema.json"
+    }
+  ],
+  "schema_version": "ai-x-competitive-text-source-snapshot-v1",
+  "source_commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+  "source_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
+}
