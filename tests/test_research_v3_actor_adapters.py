@@ -192,10 +192,12 @@ class _Gateway:
         missing_receipt: bool = False,
         results: list[dict[str, object]] | None = None,
         provider_request_id: str = "provider_request_test",
+        error: Exception | None = None,
     ) -> None:
         self.missing_receipt = missing_receipt
         self.results = results
         self.provider_request_id = provider_request_id
+        self.error = error
         self.calls: list[dict[str, object]] = []
         self.definition = next(item for item in SYSTEM_TOOLS if item.id == "tool_web_research")
         self.grant = AgentToolGrant(
@@ -236,6 +238,8 @@ class _Gateway:
                 "approval_proof": approval_proof,
             }
         )
+        if self.error is not None:
+            raise self.error
         payload = freeze_json_object(
             {
                 "answer": None,
@@ -275,6 +279,7 @@ def _tool_context(
     missing_receipt: bool = False,
     results: list[dict[str, object]] | None = None,
     provider_request_id: str = "provider_request_test",
+    error: Exception | None = None,
 ):
     actor = FrozenActorV3(
         actor_type="tool",
@@ -302,6 +307,7 @@ def _tool_context(
         missing_receipt=missing_receipt,
         results=results,
         provider_request_id=provider_request_id,
+        error=error,
     )
     settlement = _Settlement()
     adapter = TavilyToolGatewayAdapterV3(
@@ -381,6 +387,34 @@ def test_tavily_adapter_redacts_provider_receipt_identifiers_before_persistence(
     assert source["redaction"] == "masked"
 
 
+def test_tavily_adapter_preserves_receipt_redaction_flags_for_empty_results() -> None:
+    adapter, request, _gateway, settlement = _tool_context(
+        results=[],
+        provider_request_id="Bearer receipt-secret",
+    )
+
+    asyncio.run(adapter.execute(request))
+
+    persisted = settlement.calls[0]["content"]
+    assert "receipt-secret" not in str(persisted)
+    assert persisted["output"]["results"] == ()
+    assert set(persisted["risk_flags"]) == {"bearer_token_redacted", "credential_redacted"}
+    assert persisted["redaction"] == "masked"
+
+
+def test_tavily_adapter_translates_provider_failures_without_leaking_exception_text() -> None:
+    adapter, request, gateway, settlement = _tool_context(
+        error=RuntimeError("Bearer tool-provider-secret"),
+    )
+
+    with pytest.raises(ActorAdapterError, match="^tool_provider_call_failed$") as error:
+        asyncio.run(adapter.execute(request))
+
+    assert "tool-provider-secret" not in str(error.value)
+    assert len(gateway.calls) == 1
+    assert settlement.calls == []
+
+
 @pytest.mark.parametrize(
     "url",
     [
@@ -415,19 +449,12 @@ def test_tavily_adapter_rejects_non_public_ipv4_ipv6_and_metadata_hosts(url: str
     assert settlement.calls == []
 
 
-@pytest.mark.parametrize(
-    ("url", "expected_host"),
-    [
-        ("https://8.8.8.8/research", "8.8.8.8"),
-        ("https://[2606:4700:4700::1111]/research", "2606:4700:4700::1111"),
-    ],
-)
-def test_tavily_adapter_accepts_only_global_ip_literals(url: str, expected_host: str) -> None:
+def test_tavily_adapter_accepts_global_ipv4_literal() -> None:
     adapter, request, _gateway, settlement = _tool_context(
         results=[
             {
                 "title": "Public source",
-                "url": url,
+                "url": "https://8.8.8.8/research",
                 "snippet": "Publicly routed endpoint.",
                 "score": 1,
                 "published_date": "2026-08-21",
@@ -438,9 +465,28 @@ def test_tavily_adapter_accepts_only_global_ip_literals(url: str, expected_host:
     asyncio.run(adapter.execute(request))
 
     source = settlement.calls[0]["content"]["output"]["results"][0]
-    assert source["registrable_domain"] == expected_host
-    assert source["independence_group"] == expected_host
+    assert source["registrable_domain"] == "8.8.8.8"
+    assert source["independence_group"] == "8.8.8.8"
     assert source["redaction"] == "none"
+
+
+def test_tavily_adapter_rejects_global_ipv6_until_evidence_contract_supports_it() -> None:
+    adapter, request, _gateway, settlement = _tool_context(
+        results=[
+            {
+                "title": "Public IPv6 source",
+                "url": "https://[2606:4700:4700::1111]/research",
+                "snippet": "The Evidence domain contract cannot represent this host yet.",
+                "score": 1,
+                "published_date": "2026-08-21",
+            }
+        ]
+    )
+
+    with pytest.raises(ActorAdapterError, match="tool_public_source_url_invalid"):
+        asyncio.run(adapter.execute(request))
+
+    assert settlement.calls == []
 
 
 def test_tavily_adapter_groups_subdomains_by_multi_label_registrable_domain() -> None:
@@ -560,10 +606,12 @@ class _ModelPort:
         missing_receipt: bool = False,
         output: dict[str, object] | None = None,
         receipt_update: dict[str, object] | None = None,
+        error: Exception | None = None,
     ) -> None:
         self.drift = drift
         self.missing_receipt = missing_receipt
         self.receipt_update = receipt_update or {}
+        self.error = error
         self.calls = []
         self.output = freeze_json_object(
             output
@@ -591,6 +639,8 @@ class _ModelPort:
 
     async def invoke(self, request):
         self.calls.append(request)
+        if self.error is not None:
+            raise self.error
         if self.missing_receipt:
             return StructuredModelResponseV3(payload=self.output, receipt=None)
         receipt_values = {
@@ -885,6 +935,53 @@ def test_model_adapters_reject_receipt_model_and_rubric_drift(
         asyncio.run(adapter.execute(request))
 
     assert len(model.calls) == 1
+    assert settlement.calls == []
+
+
+def test_model_adapter_translates_provider_failures_without_leaking_exception_text() -> None:
+    adapter, request, model, settlement = _model_actor_context("llm")
+    model.error = RuntimeError("Bearer model-provider-secret")
+
+    with pytest.raises(ActorAdapterError, match="^model_provider_call_failed$") as error:
+        asyncio.run(adapter.execute(request))
+
+    assert "model-provider-secret" not in str(error.value)
+    assert len(model.calls) == 1
+    assert settlement.calls == []
+
+
+def test_skill_adapter_rejects_unsafe_dynamic_output_keys_without_reflection() -> None:
+    adapter, request, model, settlement, _actor = _skill_context()
+    model.output = freeze_json_object(
+        {
+            "version": "skill-output-v2",
+            "status": "succeeded",
+            "summary": "Organized public evidence.",
+            "findings": [],
+            "assumptions": [],
+            "limitations": [],
+            "recommendations": [],
+            "payload": {"api_key=dynamic-key-secret": 1},
+        }
+    )
+
+    with pytest.raises(ActorAdapterError, match="^provider_json_key_unsafe$") as error:
+        asyncio.run(adapter.execute(request))
+
+    assert "dynamic-key-secret" not in str(error.value)
+    assert settlement.calls == []
+
+
+def test_model_adapter_rejects_unsafe_dynamic_receipt_usage_keys_without_reflection() -> None:
+    adapter, request, _model, settlement = _model_actor_context(
+        "llm",
+        receipt_update={"usage": {"Bearer usage-key-secret": 1}},
+    )
+
+    with pytest.raises(ActorAdapterError, match="^provider_json_key_unsafe$") as error:
+        asyncio.run(adapter.execute(request))
+
+    assert "usage-key-secret" not in str(error.value)
     assert settlement.calls == []
 
 
