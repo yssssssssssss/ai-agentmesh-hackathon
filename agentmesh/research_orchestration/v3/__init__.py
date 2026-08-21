@@ -11,6 +11,7 @@ from agentmesh.research_orchestration.v3.canonical import (
     strict_json_v3_loads,
 )
 from agentmesh.research_orchestration.v3.catalog import CompetitiveTextCatalog, load_competitive_text_catalog
+from agentmesh.research_orchestration.v3.common import ProblemGraphArtifactRefV3
 from agentmesh.research_orchestration.v3.deliverable import (
     CompetitiveAnalysisTextPayloadV1,
     FindingGraphV3,
@@ -29,7 +30,6 @@ from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3
 from agentmesh.research_orchestration.v3.review import ReportReviewV3
 from agentmesh.research_orchestration.v3.schema_registry import (
     V2_HISTORICAL_IDENTITIES,
-    V3_CURRENT_IDENTITIES,
     V3_GENERATION_IDENTITIES,
     V3_PERSISTED_RESOURCE_IDENTITIES,
     V3_PERSISTED_SCHEMA_IDENTITIES,
@@ -49,6 +49,7 @@ __all__ = [
     "FindingGraphV3",
     "PlanCandidateSetV3",
     "PlanCandidateV3",
+    "ProblemGraphArtifactRefV3",
     "ProblemGraphV1",
     "ReportDocumentV3",
     "ReportReviewV3",
@@ -57,7 +58,6 @@ __all__ = [
     "ResearchDeliverableV3",
     "ResearchTaskV3",
     "V2_HISTORICAL_IDENTITIES",
-    "V3_CURRENT_IDENTITIES",
     "V3_GENERATION_IDENTITIES",
     "V3_PERSISTED_RESOURCE_IDENTITIES",
     "V3_PERSISTED_SCHEMA_IDENTITIES",

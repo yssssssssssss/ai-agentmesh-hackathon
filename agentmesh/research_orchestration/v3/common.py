@@ -6,7 +6,6 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
-    AfterValidator,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -19,19 +18,13 @@ from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, core_schema
 
 
-def _nonblank(value: str) -> str:
-    if not value.strip():
-        raise ValueError("value must contain non-whitespace characters")
-    return value
-
-
 def _reject_binary_float(value: Any) -> Any:
     if isinstance(value, float):
         raise TypeError("binary floating point values are not accepted by research-v3 contracts")
     return value
 
 
-NonBlankString = Annotated[str, AfterValidator(_nonblank)]
+NonBlankString = Annotated[str, Field(pattern=r"\S")]
 Sha256Hex = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Identifier = Annotated[
     str,
@@ -58,12 +51,12 @@ ApprovalRole = Literal["owner", "legal", "security"]
 type FrozenJsonValue = str | int | Decimal | bool | None | FrozenJsonObject | tuple[FrozenJsonValue, ...]
 
 
-class FrozenJsonObject(Mapping[str, FrozenJsonValue]):
-    """A recursively immutable JSON object with stable key normalization and order."""
+class FrozenJsonObject(tuple, Mapping[str, FrozenJsonValue]):
+    """A recursively immutable JSON object with stable equality, hashing, and order."""
 
-    __slots__ = ("_items", "_values")
+    __slots__ = ()
 
-    def __init__(self, value: Mapping[str, object]) -> None:
+    def __new__(cls, value: Mapping[str, object]) -> FrozenJsonObject:
         normalized: dict[str, FrozenJsonValue] = {}
         for key, item in value.items():
             if not isinstance(key, str):
@@ -72,23 +65,50 @@ class FrozenJsonObject(Mapping[str, FrozenJsonValue]):
             if canonical_key in normalized:
                 raise ValueError("frozen JSON contains duplicate normalized keys")
             normalized[canonical_key] = freeze_json_value(item)
-        self._items = tuple(sorted(normalized.items(), key=lambda item: item[0].encode("utf-8")))
-        self._values = dict(self._items)
+        items = tuple(sorted(normalized.items(), key=lambda item: item[0].encode("utf-8")))
+        return tuple.__new__(cls, items)
+
+    @property
+    def _items(self) -> tuple[tuple[str, FrozenJsonValue], ...]:
+        return tuple(tuple.__iter__(self))
+
+    def __setattr__(self, name: str, value: object) -> None:
+        del name, value
+        raise TypeError("FrozenJsonObject state is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        del name
+        raise TypeError("FrozenJsonObject state is immutable")
 
     def __getitem__(self, key: str) -> FrozenJsonValue:
-        return self._values[key]
+        for candidate, value in tuple.__iter__(self):
+            if candidate == key:
+                return value
+        raise KeyError(key)
+
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and any(candidate == key for candidate, _ in tuple.__iter__(self))
 
     def __iter__(self) -> Iterator[str]:
-        return (key for key, _ in self._items)
+        return (key for key, _ in tuple.__iter__(self))
 
     def __len__(self) -> int:
-        return len(self._items)
+        return tuple.__len__(self)
 
-    def __hash__(self) -> int:
-        return hash(self._items)
+    __hash__ = tuple.__hash__
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, FrozenJsonObject):
+            return tuple.__eq__(self, other)
+        if isinstance(other, Mapping):
+            try:
+                return tuple.__eq__(self, FrozenJsonObject(other))
+            except (TypeError, ValueError):
+                return False
+        return NotImplemented
 
     def __repr__(self) -> str:
-        return f"FrozenJsonObject({self._values!r})"
+        return f"FrozenJsonObject({thaw_json_value(self)!r})"
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -102,7 +122,7 @@ class FrozenJsonObject(Mapping[str, FrozenJsonValue]):
             serialization=core_schema.plain_serializer_function_ser_schema(
                 thaw_json_value,
                 return_schema=core_schema.dict_schema(),
-                when_used="json",
+                when_used="always",
             ),
         )
 
@@ -120,7 +140,7 @@ def freeze_json_value(value: object) -> FrozenJsonValue:
     """Defensively copy a JSON value into recursively immutable containers."""
 
     if isinstance(value, FrozenJsonObject):
-        return value
+        return FrozenJsonObject(value)
     if value is None or isinstance(value, (str, bool, int, Decimal)):
         return value
     if isinstance(value, float):
@@ -157,7 +177,7 @@ class _FrozenJsonValueAnnotation:
             serialization=core_schema.plain_serializer_function_ser_schema(
                 thaw_json_value,
                 return_schema=core_schema.any_schema(),
-                when_used="json",
+                when_used="always",
             ),
         )
 
@@ -198,8 +218,13 @@ class SealedArtifactRefV3(StrictFrozenModel):
 
 
 class EvidenceManifestArtifactRefV3(SealedArtifactRefV3):
-    kind: Literal["evidence_manifest"] = "evidence_manifest"
-    schema_version: Literal["evidence-manifest-v3"] = "evidence-manifest-v3"
+    kind: Literal["evidence_manifest"]
+    schema_version: Literal["evidence-manifest-v3"]
+
+
+class ProblemGraphArtifactRefV3(SealedArtifactRefV3):
+    kind: Literal["problem_graph"]
+    schema_version: Literal["problem-graph-v1"]
 
 
 def require_unique(values: tuple[Any, ...], label: str) -> None:

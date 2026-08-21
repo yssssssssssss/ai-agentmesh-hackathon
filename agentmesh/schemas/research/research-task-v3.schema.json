@@ -15,6 +15,7 @@
         },
         "reason": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Reason",
           "type": "string"
         }
@@ -37,11 +38,13 @@
         },
         "question": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Question",
           "type": "string"
         },
         "rationale": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Rationale",
           "type": "string"
         }
@@ -68,6 +71,7 @@
         },
         "statement": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -124,6 +128,7 @@
         },
         "statement": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -146,6 +151,7 @@
         },
         "statement": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -188,6 +194,7 @@
     },
     "business_domain": {
       "maxLength": 240,
+      "pattern": "\\S",
       "title": "Business Domain",
       "type": "string"
     },
@@ -204,6 +211,7 @@
         {
           "items": {
             "maxLength": 120,
+            "pattern": "\\S",
             "type": "string"
           },
           "maxItems": 20,
@@ -215,7 +223,8 @@
         }
       ],
       "default": null,
-      "title": "Comparison Dimensions"
+      "title": "Comparison Dimensions",
+      "uniqueItems": true
     },
     "constraints": {
       "items": {
@@ -226,15 +235,15 @@
       "type": "array"
     },
     "expected_deliverables": {
-      "default": [
-        "competitive_analysis_report"
-      ],
       "items": {
         "const": "competitive_analysis_report",
         "type": "string"
       },
+      "maxItems": 1,
+      "minItems": 1,
       "title": "Expected Deliverables",
-      "type": "array"
+      "type": "array",
+      "uniqueItems": true
     },
     "pii_detected": {
       "title": "Pii Detected",
@@ -242,18 +251,19 @@
     },
     "research_goal": {
       "maxLength": 4000,
+      "pattern": "\\S",
       "title": "Research Goal",
       "type": "string"
     },
     "schema_version": {
       "const": "research-task-v3",
-      "default": "research-task-v3",
       "title": "Schema Version",
       "type": "string"
     },
     "scope": {
       "items": {
         "maxLength": 1000,
+        "pattern": "\\S",
         "type": "string"
       },
       "maxItems": 20,
@@ -281,6 +291,7 @@
     "target_audience": {
       "items": {
         "maxLength": 240,
+        "pattern": "\\S",
         "type": "string"
       },
       "maxItems": 20,
@@ -289,18 +300,20 @@
     },
     "task_type": {
       "const": "competitive_research",
-      "default": "competitive_research",
       "title": "Task Type",
       "type": "string"
     }
   },
   "required": [
+    "schema_version",
+    "task_type",
     "business_domain",
     "research_goal",
     "target_audience",
     "scope",
     "constraints",
     "success_criteria",
+    "expected_deliverables",
     "assumptions",
     "ambiguities",
     "clarification_questions",

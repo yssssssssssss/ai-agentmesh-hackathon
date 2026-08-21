@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.common import (
@@ -36,14 +36,14 @@ DomainName = Annotated[
 class EvidenceSourceV3(StrictFrozenModel):
     """The human-auditable public source represented by one text evidence item."""
 
-    source_kind: Literal["public_web"] = "public_web"
+    source_kind: Literal["public_web"]
     url: HttpsUrl
     quote: EvidenceText
     retrieved_at: datetime
     registrable_domain: DomainName
     independence_group: Identifier
     conflict_status: Literal["none", "corroborated", "conflicting"]
-    risk_flags: tuple[Identifier, ...]
+    risk_flags: tuple[Identifier, ...] = Field(json_schema_extra={"uniqueItems": True})
     truncated: bool
 
     @model_validator(mode="after")
@@ -61,12 +61,12 @@ class EvidenceProofV3(StrictFrozenModel):
     plan_version_id: Identifier
     attempt_id: Identifier
     step_number: Annotated[int, Field(ge=1, le=8)]
-    actor_type: Literal["tool"] = "tool"
+    actor_type: Literal["tool"]
     actor_id: Identifier
     step_contract_hash: Sha256Hex
     receipt_id: Identifier
     implementation_id: Identifier
-    execution_mode: Literal["real"] = "real"
+    execution_mode: Literal["real"]
     redacted_output_hash: Sha256Hex
 
 
@@ -79,23 +79,21 @@ class VerifiedArtifactPointerV3(StrictFrozenModel):
 
 class EvidenceItemV3(StrictFrozenModel):
     id: Identifier
-    kind: Literal["tool_output"] = "tool_output"
-    evidence_class: Literal["public_source"] = "public_source"
+    kind: Literal["tool_output"]
+    evidence_class: Literal["public_source"]
     pointer: VerifiedArtifactPointerV3
     source: EvidenceSourceV3
     proof: EvidenceProofV3
-    sensitivity: Literal["public"] = "public"
+    sensitivity: Literal["public"]
     redaction: Literal["none", "masked"]
 
 
 class EvidenceManifestV3(StrictFrozenModel):
     """Slice 1 Evidence Manifest: public, real-Tool, text-only evidence from one execution."""
 
-    model_config = ConfigDict(json_schema_extra={"$id": "evidence-manifest-v3"})
-
-    schema_version: Literal["evidence-manifest-v3"] = "evidence-manifest-v3"
-    presentation_mode: Literal["text"] = "text"
-    payload_schema_version: Literal["competitive-analysis-text-v1"] = "competitive-analysis-text-v1"
+    schema_version: Literal["evidence-manifest-v3"]
+    presentation_mode: Literal["text"]
+    payload_schema_version: Literal["competitive-analysis-text-v1"]
     run_id: Identifier
     plan_version_id: Identifier
     attempt_id: Identifier
@@ -147,17 +145,17 @@ def _resolve_json_pointer(value: FrozenJson, pointer: str) -> FrozenJson | None:
     current: FrozenJson = value
     for encoded_segment in pointer[1:].split("/"):
         segment = encoded_segment.replace("~1", "/").replace("~0", "~")
-        if isinstance(current, tuple):
+        if isinstance(current, FrozenJsonObject):
+            if segment not in current:
+                return None
+            current = current[segment]
+        elif isinstance(current, tuple):
             if not segment.isdigit() or (segment.startswith("0") and segment != "0"):
                 return None
             index = int(segment)
             if index >= len(current):
                 return None
             current = current[index]
-        elif isinstance(current, FrozenJsonObject):
-            if segment not in current:
-                return None
-            current = current[segment]
         else:
             return None
     return current
@@ -167,8 +165,6 @@ def _resolved_source_url(value: FrozenJson) -> str | None:
     if not isinstance(value, Mapping):
         return None
     url = value.get("url")
-    if not isinstance(url, str):
-        url = value.get("oss_url")
     return url if isinstance(url, str) else None
 
 

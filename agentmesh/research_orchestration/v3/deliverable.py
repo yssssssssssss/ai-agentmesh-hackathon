@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from agentmesh.research_orchestration.v3.common import (
     ActorType,
@@ -21,14 +21,14 @@ Text = Annotated[NonBlankString, Field(max_length=4000)]
 
 class FactFindingV3(StrictFrozenModel):
     id: Identifier
-    kind: Literal["fact"] = "fact"
+    kind: Literal["fact"]
     evidence_ids: tuple[Identifier, ...] = Field(min_length=1)
     statement: Text
 
 
 class InferenceFindingV3(StrictFrozenModel):
     id: Identifier
-    kind: Literal["inference"] = "inference"
+    kind: Literal["inference"]
     finding_ids: tuple[Identifier, ...] = Field(min_length=1)
     statement: Text
 
@@ -165,8 +165,6 @@ class RoadmapItemV1(StrictFrozenModel):
 
 
 class CompetitiveAnalysisTextPayloadV1(StrictFrozenModel):
-    model_config = ConfigDict(json_schema_extra={"$id": "competitive-analysis-text-v1"})
-
     competitor_samples: tuple[CompetitorSampleV1, ...] = Field(min_length=1)
     dimension_matrix: tuple[DimensionMatrixRowV1, ...] = Field(min_length=1)
     differences: tuple[DifferenceV1, ...] = Field(min_length=1)
@@ -177,8 +175,8 @@ class CompetitiveAnalysisTextPayloadV1(StrictFrozenModel):
     roadmap: tuple[RoadmapItemV1, ...] | None = Field(default=None, min_length=1)
     instrumentation_plan: tuple[Text, ...] | None = Field(default=None, min_length=1)
     user_test_script: tuple[Text, ...] | None = Field(default=None, min_length=1)
-    visual_evidence: tuple[FrozenJsonObject, ...]
-    screenshot_comparisons: tuple[FrozenJsonObject, ...]
+    visual_evidence: tuple[FrozenJsonObject, ...] = Field(max_length=0)
+    screenshot_comparisons: tuple[FrozenJsonObject, ...] = Field(max_length=0)
 
     @model_validator(mode="after")
     def validate_text_payload(self) -> CompetitiveAnalysisTextPayloadV1:
@@ -240,15 +238,13 @@ class CapabilityProvenanceV3(StrictFrozenModel):
 
 
 class ResearchDeliverableV3(StrictFrozenModel):
-    model_config = ConfigDict(json_schema_extra={"$id": "research-deliverable-v3"})
-
-    schema_version: Literal["research-deliverable-v3"] = "research-deliverable-v3"
+    schema_version: Literal["research-deliverable-v3"]
     run_id: Identifier
     requirement_version_id: Identifier
     plan_version_id: Identifier
     attempt_id: Identifier
-    deliverable_type: Literal["competitive_analysis_report"] = "competitive_analysis_report"
-    payload_schema_version: Literal["competitive-analysis-text-v1"] = "competitive-analysis-text-v1"
+    deliverable_type: Literal["competitive_analysis_report"]
+    payload_schema_version: Literal["competitive-analysis-text-v1"]
     evidence_manifest_artifact: EvidenceManifestArtifactRefV3
     method_summary: Text
     finding_graph: FindingGraphV3

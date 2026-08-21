@@ -55,7 +55,8 @@
             "$ref": "#/$defs/OptionalToolDecisionV3"
           },
           "title": "Optional Tool Decisions",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "pending_inputs": {
           "items": {
@@ -125,6 +126,7 @@
         },
         "message": {
           "maxLength": 300,
+          "pattern": "\\S",
           "title": "Message",
           "type": "string"
         },
@@ -161,6 +163,7 @@
         },
         "label": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Label",
           "type": "string"
         },
@@ -194,6 +197,7 @@
         },
         "message": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Message",
           "type": "string"
         },
@@ -237,7 +241,8 @@
           "maxItems": 7,
           "minItems": 1,
           "title": "Accepted Classes",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -269,6 +274,7 @@
       "properties": {
         "description": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Description",
           "type": "string"
         },
@@ -293,6 +299,7 @@
           "anyOf": [
             {
               "maxLength": 300,
+              "pattern": "\\S",
               "type": "string"
             },
             {
@@ -377,6 +384,7 @@
         "acceptance_criteria": {
           "items": {
             "maxLength": 1000,
+            "pattern": "\\S",
             "type": "string"
           },
           "minItems": 1,
@@ -432,7 +440,8 @@
             "type": "integer"
           },
           "title": "Depends On",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "expected_outputs": {
           "items": {
@@ -477,6 +486,7 @@
         },
         "name": {
           "maxLength": 120,
+          "pattern": "\\S",
           "title": "Name",
           "type": "string"
         },
@@ -493,7 +503,8 @@
           "maxItems": 20,
           "minItems": 1,
           "title": "Question Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "required": {
           "title": "Required",
@@ -540,6 +551,39 @@
       "title": "PlanStepV3",
       "type": "object"
     },
+    "ProblemGraphArtifactRefV3": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "kind": {
+          "const": "problem_graph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "problem-graph-v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "schema_version",
+        "content_hash"
+      ],
+      "title": "ProblemGraphArtifactRefV3",
+      "type": "object"
+    },
     "SealedArtifactRefV3": {
       "additionalProperties": false,
       "properties": {
@@ -584,7 +628,8 @@
         "type": "string"
       },
       "title": "Activated Nodes",
-      "type": "array"
+      "type": "array",
+      "uniqueItems": true
     },
     "candidate_id": {
       "enum": [
@@ -596,16 +641,19 @@
     },
     "candidate_rationale": {
       "maxLength": 2000,
+      "pattern": "\\S",
       "title": "Candidate Rationale",
       "type": "string"
     },
     "candidate_title": {
       "maxLength": 240,
+      "pattern": "\\S",
       "title": "Candidate Title",
       "type": "string"
     },
     "candidate_tradeoffs": {
       "maxLength": 2000,
+      "pattern": "\\S",
       "title": "Candidate Tradeoffs",
       "type": "string"
     },
@@ -628,7 +676,6 @@
     },
     "deliverable_type": {
       "const": "competitive_analysis_report",
-      "default": "competitive_analysis_report",
       "title": "Deliverable Type",
       "type": "string"
     },
@@ -659,12 +706,11 @@
     },
     "payload_schema_version": {
       "const": "competitive-analysis-text-v1",
-      "default": "competitive-analysis-text-v1",
       "title": "Payload Schema Version",
       "type": "string"
     },
     "problem_graph_artifact": {
-      "$ref": "#/$defs/SealedArtifactRefV3"
+      "$ref": "#/$defs/ProblemGraphArtifactRefV3"
     },
     "requirement_content_hash": {
       "pattern": "^[0-9a-f]{64}$",
@@ -678,7 +724,6 @@
     },
     "schema_version": {
       "const": "execution-plan-v3",
-      "default": "execution-plan-v3",
       "title": "Schema Version",
       "type": "string"
     },
@@ -693,16 +738,19 @@
     },
     "task_type": {
       "const": "competitive_research",
-      "default": "competitive_research",
       "title": "Task Type",
       "type": "string"
     }
   },
   "required": [
+    "schema_version",
+    "task_type",
     "requirement_version_id",
     "requirement_content_hash",
     "problem_graph_artifact",
     "candidate_id",
+    "deliverable_type",
+    "payload_schema_version",
     "evidence_requirements",
     "capability_decisions",
     "capability_gaps",

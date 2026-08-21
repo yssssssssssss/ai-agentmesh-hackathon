@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from agentmesh.research_orchestration.v3.common import (
     Identifier,
@@ -46,10 +46,53 @@ REQUIRED_DETERMINISTIC_CHECKS = frozenset(
         "text_mode_no_visual_references",
     }
 )
+DeterministicReviewCheckCode = Literal[
+    "schema_valid",
+    "lineage_binding_valid",
+    "requirement_coverage",
+    "question_coverage",
+    "evidence_coverage",
+    "finding_graph_valid",
+    "recommendation_roots_valid",
+    "gap_disclosure",
+    "sensitive_content_absent",
+    "artifact_hash_valid",
+    "text_mode_no_visual_references",
+]
+_DIMENSION_CARDINALITY_SCHEMA = {
+    "allOf": [
+        {
+            "contains": {
+                "type": "object",
+                "properties": {"id": {"const": dimension_id}},
+                "required": ["id"],
+            },
+            "minContains": 1,
+            "maxContains": 1,
+        }
+        for dimension_id in REVIEW_DIMENSIONS
+    ],
+    "uniqueItems": True,
+}
+_CHECK_CARDINALITY_SCHEMA = {
+    "allOf": [
+        {
+            "contains": {
+                "type": "object",
+                "properties": {"code": {"const": code}},
+                "required": ["code"],
+            },
+            "minContains": 1,
+            "maxContains": 1,
+        }
+        for code in sorted(REQUIRED_DETERMINISTIC_CHECKS)
+    ],
+    "uniqueItems": True,
+}
 
 
 class DeterministicReviewCheckV3(StrictFrozenModel):
-    code: Identifier
+    code: DeterministicReviewCheckCode
     dimension_id: ReviewDimensionId
     passed: bool
     issues: tuple[Annotated[NonBlankString, Field(max_length=1000)], ...]
@@ -74,18 +117,24 @@ class ReviewDimensionV3(StrictFrozenModel):
 
 
 class ReportReviewV3(StrictFrozenModel):
-    model_config = ConfigDict(json_schema_extra={"$id": "report-review-v3"})
-
-    schema_version: Literal["report-review-v3"] = "report-review-v3"
+    schema_version: Literal["report-review-v3"]
     run_id: Identifier
     plan_version_id: Identifier
     attempt_id: Identifier
     deliverable_artifact: SealedArtifactRefV3
     rubric_snapshot_hash: Sha256Hex
-    deterministic_checks: tuple[DeterministicReviewCheckV3, ...]
+    deterministic_checks: tuple[DeterministicReviewCheckV3, ...] = Field(
+        min_length=len(REQUIRED_DETERMINISTIC_CHECKS),
+        max_length=len(REQUIRED_DETERMINISTIC_CHECKS),
+        json_schema_extra=_CHECK_CARDINALITY_SCHEMA,
+    )
     semantic_model_call_receipt_id: Identifier | None
     verdict: Literal["pass", "revise", "block"]
-    dimensions: tuple[ReviewDimensionV3, ...]
+    dimensions: tuple[ReviewDimensionV3, ...] = Field(
+        min_length=len(REVIEW_DIMENSIONS),
+        max_length=len(REVIEW_DIMENSIONS),
+        json_schema_extra=_DIMENSION_CARDINALITY_SCHEMA,
+    )
     revision_round: Literal[0, 1]
 
     @model_validator(mode="after")

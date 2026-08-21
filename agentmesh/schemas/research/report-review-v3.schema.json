@@ -4,7 +4,19 @@
       "additionalProperties": false,
       "properties": {
         "code": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "enum": [
+            "schema_valid",
+            "lineage_binding_valid",
+            "requirement_coverage",
+            "question_coverage",
+            "evidence_coverage",
+            "finding_graph_valid",
+            "recommendation_roots_valid",
+            "gap_disclosure",
+            "sensitive_content_absent",
+            "artifact_hash_valid",
+            "text_mode_no_visual_references"
+          ],
           "title": "Code",
           "type": "string"
         },
@@ -24,6 +36,7 @@
         "issues": {
           "items": {
             "maxLength": 1000,
+            "pattern": "\\S",
             "type": "string"
           },
           "title": "Issues",
@@ -62,6 +75,7 @@
         "issues": {
           "items": {
             "maxLength": 1000,
+            "pattern": "\\S",
             "type": "string"
           },
           "title": "Issues",
@@ -127,18 +141,298 @@
       "$ref": "#/$defs/SealedArtifactRefV3"
     },
     "deterministic_checks": {
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "artifact_hash_valid"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "evidence_coverage"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "finding_graph_valid"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "gap_disclosure"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "lineage_binding_valid"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "question_coverage"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "recommendation_roots_valid"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "requirement_coverage"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "schema_valid"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "sensitive_content_absent"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "code": {
+                "const": "text_mode_no_visual_references"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        }
+      ],
       "items": {
         "$ref": "#/$defs/DeterministicReviewCheckV3"
       },
+      "maxItems": 11,
+      "minItems": 11,
       "title": "Deterministic Checks",
-      "type": "array"
+      "type": "array",
+      "uniqueItems": true
     },
     "dimensions": {
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "id": {
+                "const": "requirement_coverage"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "id": {
+                "const": "question_coverage"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "id": {
+                "const": "evidence_coverage"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "id": {
+                "const": "reasoning_quality"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "id": {
+                "const": "recommendation_quality"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "id": {
+                "const": "visual_quality"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "id": {
+                "const": "risk_disclosure"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "maxContains": 1,
+          "minContains": 1
+        }
+      ],
       "items": {
         "$ref": "#/$defs/ReviewDimensionV3"
       },
+      "maxItems": 7,
+      "minItems": 7,
       "title": "Dimensions",
-      "type": "array"
+      "type": "array",
+      "uniqueItems": true
     },
     "plan_version_id": {
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -165,7 +459,6 @@
     },
     "schema_version": {
       "const": "report-review-v3",
-      "default": "report-review-v3",
       "title": "Schema Version",
       "type": "string"
     },
@@ -192,6 +485,7 @@
     }
   },
   "required": [
+    "schema_version",
     "run_id",
     "plan_version_id",
     "attempt_id",

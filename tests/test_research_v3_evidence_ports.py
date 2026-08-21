@@ -95,6 +95,25 @@ def test_verified_evidence_rejects_pointer_url_proof_and_content_drift() -> None
         )
 
 
+def test_verified_evidence_rejects_oss_url_fallback() -> None:
+    verified_body = verified_evidence_artifact().model_dump(mode="json")
+    resolved = verified_body["content"]["output"]["results"][0]
+    resolved["oss_url"] = resolved.pop("url")
+    content = verified_body["content"]
+    output_hash = canonical_json_v3_sha256(content["output"])
+    content["redacted_output_hash"] = output_hash
+    content_hash = canonical_json_v3_sha256(content)
+    verified_body["artifact"]["content_hash"] = content_hash
+    verified = VerifiedArtifactContentV3.model_validate(verified_body)
+
+    manifest_body = evidence_body()
+    manifest_body["evidence"][0]["pointer"]["artifact"]["content_hash"] = content_hash
+    manifest_body["evidence"][0]["proof"]["redacted_output_hash"] = output_hash
+    manifest = EvidenceManifestV3.model_validate(manifest_body)
+    with pytest.raises(ValueError, match="source URL"):
+        verify_evidence_manifest_artifacts(manifest, (verified,))
+
+
 def test_actor_results_retain_request_lineage_when_parallel_completion_is_reordered() -> None:
     plan = ExecutionPlanV3.model_validate(plan_body())
     requests = tuple(

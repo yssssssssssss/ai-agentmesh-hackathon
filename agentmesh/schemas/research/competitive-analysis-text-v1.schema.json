@@ -29,6 +29,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -61,11 +62,13 @@
         },
         "name": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Name",
           "type": "string"
         },
         "rationale": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Rationale",
           "type": "string"
         }
@@ -84,6 +87,7 @@
       "properties": {
         "dimension": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Dimension",
           "type": "string"
         },
@@ -103,6 +107,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -121,6 +126,7 @@
       "properties": {
         "dimension": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Dimension",
           "type": "string"
         },
@@ -183,6 +189,7 @@
         },
         "value": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Value",
           "type": "string"
         }
@@ -200,6 +207,7 @@
       "properties": {
         "audience": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Audience",
           "type": "string"
         },
@@ -210,6 +218,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -227,6 +236,7 @@
       "properties": {
         "metric": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Metric",
           "type": "string"
         },
@@ -241,11 +251,13 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         },
         "validation_method": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Validation Method",
           "type": "string"
         }
@@ -309,6 +321,7 @@
         {
           "items": {
             "maxLength": 4000,
+            "pattern": "\\S",
             "type": "string"
           },
           "minItems": 1,
@@ -326,6 +339,7 @@
         {
           "items": {
             "maxLength": 4000,
+            "pattern": "\\S",
             "type": "string"
           },
           "minItems": 1,
@@ -359,6 +373,7 @@
         {
           "items": {
             "maxLength": 4000,
+            "pattern": "\\S",
             "type": "string"
           },
           "minItems": 1,
@@ -376,6 +391,7 @@
         "additionalProperties": true,
         "type": "object"
       },
+      "maxItems": 0,
       "title": "Screenshot Comparisons",
       "type": "array"
     },
@@ -384,6 +400,7 @@
         {
           "items": {
             "maxLength": 4000,
+            "pattern": "\\S",
             "type": "string"
           },
           "minItems": 1,
@@ -401,6 +418,7 @@
         "additionalProperties": true,
         "type": "object"
       },
+      "maxItems": 0,
       "title": "Visual Evidence",
       "type": "array"
     }

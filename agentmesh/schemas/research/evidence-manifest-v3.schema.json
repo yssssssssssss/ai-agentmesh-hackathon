@@ -5,7 +5,6 @@
       "properties": {
         "evidence_class": {
           "const": "public_source",
-          "default": "public_source",
           "title": "Evidence Class",
           "type": "string"
         },
@@ -16,7 +15,6 @@
         },
         "kind": {
           "const": "tool_output",
-          "default": "tool_output",
           "title": "Kind",
           "type": "string"
         },
@@ -36,7 +34,6 @@
         },
         "sensitivity": {
           "const": "public",
-          "default": "public",
           "title": "Sensitivity",
           "type": "string"
         },
@@ -46,9 +43,12 @@
       },
       "required": [
         "id",
+        "kind",
+        "evidence_class",
         "pointer",
         "source",
         "proof",
+        "sensitivity",
         "redaction"
       ],
       "title": "EvidenceItemV3",
@@ -65,7 +65,6 @@
         },
         "actor_type": {
           "const": "tool",
-          "default": "tool",
           "title": "Actor Type",
           "type": "string"
         },
@@ -76,7 +75,6 @@
         },
         "execution_mode": {
           "const": "real",
-          "default": "real",
           "title": "Execution Mode",
           "type": "string"
         },
@@ -122,10 +120,12 @@
         "plan_version_id",
         "attempt_id",
         "step_number",
+        "actor_type",
         "actor_id",
         "step_contract_hash",
         "receipt_id",
         "implementation_id",
+        "execution_mode",
         "redacted_output_hash"
       ],
       "title": "EvidenceProofV3",
@@ -151,6 +151,7 @@
         },
         "quote": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Quote",
           "type": "string"
         },
@@ -171,11 +172,11 @@
             "type": "string"
           },
           "title": "Risk Flags",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "source_kind": {
           "const": "public_web",
-          "default": "public_web",
           "title": "Source Kind",
           "type": "string"
         },
@@ -191,6 +192,7 @@
         }
       },
       "required": [
+        "source_kind",
         "url",
         "quote",
         "retrieved_at",
@@ -283,7 +285,6 @@
     },
     "payload_schema_version": {
       "const": "competitive-analysis-text-v1",
-      "default": "competitive-analysis-text-v1",
       "title": "Payload Schema Version",
       "type": "string"
     },
@@ -294,7 +295,6 @@
     },
     "presentation_mode": {
       "const": "text",
-      "default": "text",
       "title": "Presentation Mode",
       "type": "string"
     },
@@ -305,12 +305,14 @@
     },
     "schema_version": {
       "const": "evidence-manifest-v3",
-      "default": "evidence-manifest-v3",
       "title": "Schema Version",
       "type": "string"
     }
   },
   "required": [
+    "schema_version",
+    "presentation_mode",
+    "payload_schema_version",
     "run_id",
     "plan_version_id",
     "attempt_id",

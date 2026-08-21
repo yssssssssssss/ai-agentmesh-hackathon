@@ -208,7 +208,7 @@ class WorkbenchReportV1(StrictFrozenModel):
 
 class WorkbenchProjectionProvenanceV1(StrictFrozenModel):
     source_kind: Literal["isolated_fixture", "repository_projection", "v2_history_adapter"]
-    projection_schema_version: Literal["research-workbench-aggregate-v1"] = "research-workbench-aggregate-v1"
+    projection_schema_version: Literal["research-workbench-aggregate-v1"]
     projected_at: datetime
     source_state_version: Annotated[int, Field(ge=0)]
     baseline_state_id: WorkbenchStateId | None = None
@@ -225,9 +225,9 @@ class WorkbenchProjectionProvenanceV1(StrictFrozenModel):
 
 
 class ResearchV3WorkbenchAggregateV1(StrictFrozenModel):
-    schema_version: Literal["research-workbench-aggregate-v1"] = "research-workbench-aggregate-v1"
-    projection_kind: Literal["research-v3-current"] = "research-v3-current"
-    orchestration_version: Literal["research-v3"] = "research-v3"
+    schema_version: Literal["research-workbench-aggregate-v1"]
+    projection_kind: Literal["research-v3-current"]
+    orchestration_version: Literal["research-v3"]
     run_id: Identifier
     workflow: WorkbenchWorkflowV1
     requirement: RequirementVersionV3 | None
@@ -375,9 +375,9 @@ class ResearchV3WorkbenchAggregateV1(StrictFrozenModel):
 
 
 class ResearchV2HistoryWorkbenchAggregateV1(StrictFrozenModel):
-    schema_version: Literal["research-workbench-aggregate-v1"] = "research-workbench-aggregate-v1"
-    projection_kind: Literal["research-v2-history"] = "research-v2-history"
-    orchestration_version: Literal["research-v2"] = "research-v2"
+    schema_version: Literal["research-workbench-aggregate-v1"]
+    projection_kind: Literal["research-v2-history"]
+    orchestration_version: Literal["research-v2"]
     read_only: Literal[True] = True
     run_id: Identifier
     history_payload: FrozenJsonObject
@@ -399,7 +399,4 @@ _WorkbenchAggregateValue = Annotated[
 class WorkbenchAggregateV1(RootModel[_WorkbenchAggregateValue]):
     """Version-first Web DTO; deliberately not wired into the production API."""
 
-    model_config = ConfigDict(
-        frozen=True,
-        json_schema_extra={"$id": "research-workbench-aggregate-v1"},
-    )
+    model_config = ConfigDict(frozen=True)

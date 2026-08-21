@@ -45,12 +45,7 @@ from agentmesh.research_orchestration.v3.problem_graph import (
     ProblemQuestionV1,
 )
 from agentmesh.research_orchestration.v3.report_document import (
-    AssetRefV3,
-    ChartBlockV3,
-    ChartRefV3,
     FactBlockV3,
-    ImageBlockV3,
-    ImageComparisonBlockV3,
     ListBlockV3,
     MetricBlockV3,
     ParagraphBlockV3,
@@ -73,7 +68,6 @@ from agentmesh.research_orchestration.v3.review import (
     ReviewDimensionV3,
 )
 from agentmesh.research_orchestration.v3.source_contracts import (
-    AiXAssetRefV1,
     AiXChartBlockV1,
     AiXCurrentExecutionPlan,
     AiXFactBlockV1,
@@ -400,12 +394,14 @@ def translate_ai_x_research_deliverable_v1(
         findings=tuple(
             FactFindingV3(
                 id=finding_id_map[value.id],
+                kind="fact",
                 evidence_ids=tuple(_identifier(item, "evidence") for item in value.evidenceIds),
                 statement=value.statement,
             )
             if isinstance(value, AiXFactFindingV1)
             else InferenceFindingV3(
                 id=finding_id_map[value.id],
+                kind="inference",
                 finding_ids=tuple(finding_id_map[item] for item in value.findingIds),
                 statement=value.statement,
             )
@@ -562,66 +558,28 @@ def translate_ai_x_report_review_v1(
     )
 
 
-def _asset_ref(value: AiXAssetRefV1) -> AssetRefV3:
-    return AssetRefV3(
-        asset_id=_identifier(value.assetId, "asset"),
-        manifest_artifact_id=_identifier(value.manifestArtifactId, "artifact"),
-    )
-
-
 def _translate_report_block(value: AiXReportBlockV1) -> ReportBlockV3:
     if isinstance(value, AiXParagraphBlockV1):
-        return ParagraphBlockV3(id=_identifier(value.id, "block"), text=value.text)
+        return ParagraphBlockV3(id=_identifier(value.id, "block"), type="paragraph", text=value.text)
     if isinstance(value, AiXFactBlockV1):
         return FactBlockV3(
             id=_identifier(value.id, "block"),
+            type="fact",
             text=value.text,
             evidence_ids=tuple(_identifier(item, "evidence") for item in value.evidenceIds),
         )
     if isinstance(value, AiXMetricBlockV1):
         return MetricBlockV3(
             id=_identifier(value.id, "block"),
+            type="metric",
             label=value.label,
             value=value.value,
             evidence_ids=tuple(_identifier(item, "evidence") for item in value.evidenceIds),
         )
     if isinstance(value, AiXListBlockV1):
-        return ListBlockV3(id=_identifier(value.id, "block"), items=value.items)
-    if isinstance(value, AiXImageBlockV1):
-        if value.evidenceIds is None:
-            raise ValueError("source image blocks require Evidence IDs for research-v3")
-        return ImageBlockV3(
-            id=_identifier(value.id, "block"),
-            asset_ref=_asset_ref(value.assetRef),
-            caption=value.caption,
-            alt_text=value.altText,
-            evidence_ids=tuple(_identifier(item, "evidence") for item in value.evidenceIds),
-        )
-    if isinstance(value, AiXImageComparisonBlockV1):
-        if value.evidenceIds is None:
-            raise ValueError("source image-comparison blocks require Evidence IDs for research-v3")
-        return ImageComparisonBlockV3(
-            id=_identifier(value.id, "block"),
-            before_asset_ref=_asset_ref(value.beforeAssetRef),
-            after_asset_ref=_asset_ref(value.afterAssetRef),
-            caption=value.caption,
-            alt_text=value.altText,
-            evidence_ids=tuple(_identifier(item, "evidence") for item in value.evidenceIds),
-        )
-    if isinstance(value, AiXChartBlockV1):
-        return ChartBlockV3(
-            id=_identifier(value.id, "block"),
-            chart_ref=ChartRefV3(
-                chart_id=_identifier(value.chartRef.chartId, "chart"),
-                asset_id=_identifier(value.chartRef.assetId, "asset"),
-                manifest_artifact_id=_identifier(value.chartRef.manifestArtifactId, "artifact"),
-            ),
-            spec_hash=value.specHash.removeprefix("sha256:"),
-            spec=value.spec.model_dump(mode="python"),
-            table=value.table.model_dump(mode="python"),
-            caption=value.caption,
-            alt_text=value.altText,
-        )
+        return ListBlockV3(id=_identifier(value.id, "block"), type="list", items=value.items)
+    if isinstance(value, (AiXImageBlockV1, AiXImageComparisonBlockV1, AiXChartBlockV1)):
+        raise ValueError(f"Competitive Text cannot translate source {value.type} blocks")
     raise TypeError(f"unsupported source report block: {type(value).__name__}")
 
 
@@ -637,6 +595,8 @@ def translate_ai_x_report_document_v1(
     review_artifact: SealedArtifactRefV3 | Mapping[str, Any],
     template_snapshot_hash: str,
 ) -> ReportDocumentV3:
+    if presentation_mode != "text":
+        raise ValueError("Slice 1 source report translation supports text presentation only")
     item = _source(source, AiXReportDocumentV1)
     return ReportDocumentV3(
         schema_version="report-document-v3",

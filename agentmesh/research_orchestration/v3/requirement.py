@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.common import (
@@ -57,23 +57,24 @@ class BlockingIssueV3(StrictFrozenModel):
 
 
 class ResearchTaskV3(StrictFrozenModel):
-    model_config = ConfigDict(json_schema_extra={"$id": "research-task-v3"})
-
-    schema_version: Literal["research-task-v3"] = "research-task-v3"
-    task_type: Literal["competitive_research"] = "competitive_research"
+    schema_version: Literal["research-task-v3"]
+    task_type: Literal["competitive_research"]
     business_domain: Content240
     research_goal: Content4000
     comparison_dimensions: tuple[Annotated[NonBlankString, Field(max_length=120)], ...] | None = Field(
         default=None,
         min_length=2,
         max_length=20,
+        json_schema_extra={"uniqueItems": True},
     )
     target_audience: tuple[Content240, ...] = Field(max_length=20)
     scope: tuple[Content1000, ...] = Field(max_length=20)
     constraints: tuple[ResearchConstraintV3, ...] = Field(max_length=20)
     success_criteria: tuple[SuccessCriterionV3, ...] = Field(min_length=1, max_length=20)
-    expected_deliverables: tuple[Literal["competitive_analysis_report"], ...] = (
-        "competitive_analysis_report",
+    expected_deliverables: tuple[Literal["competitive_analysis_report"], ...] = Field(
+        min_length=1,
+        max_length=1,
+        json_schema_extra={"uniqueItems": True},
     )
     assumptions: tuple[ResearchAssumptionV3, ...] = Field(max_length=20)
     ambiguities: tuple[ResearchAmbiguityV3, ...] = Field(max_length=10)
@@ -110,8 +111,8 @@ class RequirementVersionV3(StrictFrozenModel):
     id: Identifier
     run_id: Identifier
     version: Annotated[int, Field(ge=1)]
-    schema_version: Literal["research-task-v3"] = "research-task-v3"
-    task_type: Literal["competitive_research"] = "competitive_research"
+    schema_version: Literal["research-task-v3"]
+    task_type: Literal["competitive_research"]
     payload: ResearchTaskV3
     content_hash: Sha256Hex
     created_at: datetime

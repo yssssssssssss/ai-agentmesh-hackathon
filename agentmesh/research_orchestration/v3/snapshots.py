@@ -4,7 +4,7 @@ import hashlib
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_bytes
 from agentmesh.research_orchestration.v3.common import (
@@ -55,8 +55,8 @@ class FrozenActorV3(StrictFrozenModel):
     eligible: bool
     tier: Literal["core", "optional"] | None = None
     approval_role: ApprovalRole | None = None
-    required_tool_ids: tuple[Identifier, ...]
-    optional_tool_ids: tuple[Identifier, ...]
+    required_tool_ids: tuple[Identifier, ...] = Field(json_schema_extra={"uniqueItems": True})
+    optional_tool_ids: tuple[Identifier, ...] = Field(json_schema_extra={"uniqueItems": True})
     instruction_document_id: Identifier | None = None
     input_schema_document_id: Identifier
     output_schema_document_id: Identifier
@@ -80,10 +80,8 @@ class FrozenModelPolicyV3(StrictFrozenModel):
 
 
 class ResearchControlSnapshotV3(StrictFrozenModel):
-    model_config = ConfigDict(json_schema_extra={"$id": "research-control-snapshot-v3"})
-
-    schema_version: Literal["research-control-snapshot-v3"] = "research-control-snapshot-v3"
-    catalog_id: Literal["competitive-text-v1"] = "competitive-text-v1"
+    schema_version: Literal["research-control-snapshot-v3"]
+    catalog_id: Literal["competitive-text-v1"]
     catalog_hash: Sha256Hex
     resolved_for_agent_id: Identifier
     resolved_at: datetime

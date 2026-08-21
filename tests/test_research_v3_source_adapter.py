@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+import jsonschema
 import pytest
 from pydantic import ValidationError
 
@@ -16,7 +17,12 @@ from agentmesh.research_orchestration.v3.source_adapter import (
     translate_ai_x_research_deliverable_v1,
     translate_ai_x_research_task_v2,
 )
-from agentmesh.research_orchestration.v3.source_contracts import AiXCurrentExecutionPlan
+from agentmesh.research_orchestration.v3.source_contracts import (
+    AiXCurrentExecutionPlan,
+    AiXProblemGraphV1,
+    AiXReportDocumentV1,
+    AiXResearchTaskV2,
+)
 from research_v3_contract_samples import (
     artifact_ref,
     review_body,
@@ -26,6 +32,88 @@ from research_v3_contract_samples import (
 )
 
 HASH = "b" * 64
+SOURCE_SCHEMA_ROOT = Path("agentmesh/research_catalog/research-v3/competitive-text-v1/source/schemas")
+
+
+def _source_schema(relative_path: str) -> dict:
+    return json.loads((SOURCE_SCHEMA_ROOT / relative_path).read_text(encoding="utf-8"))
+
+
+def _source_report_blocks() -> list[dict]:
+    asset = {"assetId": "asset_1", "manifestArtifactId": "manifest_1"}
+    return [
+        {"id": "paragraph_1", "type": "paragraph", "text": "Narrative."},
+        {
+            "id": "fact_1",
+            "type": "fact",
+            "text": "Supported fact.",
+            "evidenceIds": ["evidence_1"],
+        },
+        {
+            "id": "metric_1",
+            "type": "metric",
+            "label": "Score",
+            "value": 4,
+            "evidenceIds": ["evidence_1"],
+        },
+        {"id": "list_1", "type": "list", "items": ["First"]},
+        {
+            "id": "image_1",
+            "type": "image",
+            "assetRef": asset,
+            "caption": "Image caption.",
+            "altText": "Image alternative.",
+            "evidenceIds": ["evidence_1"],
+        },
+        {
+            "id": "comparison_1",
+            "type": "image-comparison",
+            "beforeAssetRef": asset,
+            "afterAssetRef": {"assetId": "asset_2", "manifestArtifactId": "manifest_1"},
+            "caption": "Comparison caption.",
+            "altText": "Comparison alternative.",
+            "evidenceIds": ["evidence_1"],
+        },
+        {
+            "id": "chart_1",
+            "type": "chart",
+            "chartRef": {
+                "chartId": "chart_1",
+                "assetId": "asset_3",
+                "manifestArtifactId": "manifest_1",
+            },
+            "specHash": f"sha256:{HASH}",
+            "spec": {
+                "version": "chart-spec-v1",
+                "chartId": "chart_1",
+                "type": "comparison",
+                "title": "Comparison",
+                "categories": ["Alpha"],
+                "series": [
+                    {
+                        "key": "score",
+                        "label": "Score",
+                        "values": [4],
+                        "evidenceIds": [["evidence_1"]],
+                    }
+                ],
+            },
+            "table": {
+                "caption": "Accessible data.",
+                "columns": ["Competitor", "Score"],
+                "rows": [
+                    {
+                        "key": "alpha",
+                        "label": "Alpha",
+                        "cells": [4],
+                        "evidenceIds": [["evidence_1"]],
+                    }
+                ],
+            },
+            "caption": "Chart caption.",
+            "altText": "Chart alternative.",
+        },
+    ]
 
 
 @pytest.fixture
@@ -41,6 +129,42 @@ def source_review_fixture() -> dict:
 @pytest.fixture
 def source_report_fixture() -> dict:
     return source_report_body()
+
+
+def test_source_requirement_uniqueness_matches_locked_schema() -> None:
+    source = json.loads(Path("tests/fixtures/ai_x_parity/requirement.json").read_text(encoding="utf-8"))[
+        "source_normalized_example"
+    ]
+    AiXResearchTaskV2.model_validate(source)
+    jsonschema.Draft7Validator(_source_schema("research-task-v2.schema.json")).validate(source)
+
+    duplicate = deepcopy(source)
+    duplicate["comparison_dimensions"] = ["capabilities", "capabilities"]
+    with pytest.raises(ValidationError, match="comparison dimensions"):
+        AiXResearchTaskV2.model_validate(duplicate)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft7Validator(_source_schema("research-task-v2.schema.json")).validate(duplicate)
+
+
+def test_source_problem_graph_and_plan_keep_distinct_minimum_count_semantics() -> None:
+    graph_fixture = json.loads(
+        Path("tests/fixtures/ai_x_parity/problem-graph-problem-contract.json").read_text(encoding="utf-8")
+    )["source_normalized_example"]
+    standalone_zero = deepcopy(graph_fixture)
+    standalone_zero["questions"][0]["evidence_requirements"][0]["minimumCount"] = 0
+    with pytest.raises(ValidationError):
+        AiXProblemGraphV1.model_validate(standalone_zero)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft7Validator(_source_schema("problem-graph.schema.json")).validate(standalone_zero)
+
+    current = _source_execution_plan()
+    assert AiXCurrentExecutionPlan.model_validate(current).evidence_requirements[0].minimumCount == 0
+    jsonschema.Draft7Validator(_source_schema("current-execution-plan.schema.json")).validate(current)
+    current["evidence_requirements"][0]["minimumCount"] = -1
+    with pytest.raises(ValidationError):
+        AiXCurrentExecutionPlan.model_validate(current)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft7Validator(_source_schema("current-execution-plan.schema.json")).validate(current)
 
 
 def test_source_research_task_is_translated_before_target_validation() -> None:
@@ -198,6 +322,9 @@ def test_source_execution_plan_is_schema_faithful_and_becomes_non_authoritative_
 
 def test_source_capability_decisions_reject_shape_fallbacks() -> None:
     source = _source_execution_plan()
+    AiXCurrentExecutionPlan.model_validate(source)
+    jsonschema.Draft7Validator(_source_schema("current-execution-plan.schema.json")).validate(source)
+
     source["capability_decisions"]["eligible"][0]["skill"]["unknown"] = True
     with pytest.raises(ValidationError, match="unknown"):
         translate_ai_x_current_execution_plan(source, candidate_id="depth")
@@ -206,6 +333,14 @@ def test_source_capability_decisions_reject_shape_fallbacks() -> None:
     source["capability_decisions"]["eligible"][0]["optional_tool_decisions"][0].pop("reason_code")
     with pytest.raises(ValidationError, match="reason"):
         translate_ai_x_current_execution_plan(source, candidate_id="depth")
+
+    source = _source_execution_plan()
+    decision = source["capability_decisions"]["eligible"][0]["optional_tool_decisions"][0]
+    source["capability_decisions"]["eligible"][0]["optional_tool_decisions"] = [decision, decision]
+    with pytest.raises(ValidationError, match="optional Tool decisions"):
+        AiXCurrentExecutionPlan.model_validate(source)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft7Validator(_source_schema("current-execution-plan.schema.json")).validate(source)
 
 
 def test_source_deliverable_adapter_has_explicit_lineage_and_typed_payload(
@@ -275,12 +410,50 @@ def test_source_review_adapter_requires_exact_sealed_deliverable(
         )
 
 
-def test_source_report_adapter_translates_full_block_union_without_fallback(
-    source_report_fixture: dict,
-) -> None:
-    translated = translate_ai_x_report_document_v1(
-        source_report_fixture,
-        presentation_mode="text",
+def test_source_report_contract_rejects_missing_discriminators_and_duplicate_nested_evidence() -> None:
+    missing_type = source_report_body()
+    missing_type["sections"][1]["blocks"][0].pop("type")
+    with pytest.raises(ValidationError):
+        AiXReportDocumentV1.model_validate(missing_type)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft7Validator(_source_schema("report-document.schema.json")).validate(missing_type)
+
+    duplicate_nested_evidence = source_report_body()
+    chart = deepcopy(_source_report_blocks()[-1])
+    chart["spec"]["series"][0]["evidenceIds"][0] = ["evidence_1", "evidence_1"]
+    duplicate_nested_evidence["sections"][1]["blocks"] = [chart]
+    with pytest.raises(ValidationError, match="chart-series Evidence IDs"):
+        AiXReportDocumentV1.model_validate(duplicate_nested_evidence)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft7Validator(_source_schema("report-document.schema.json")).validate(
+            duplicate_nested_evidence
+        )
+
+    duplicate_table_evidence = source_report_body()
+    chart = deepcopy(_source_report_blocks()[-1])
+    chart["table"]["rows"][0]["evidenceIds"][0] = ["evidence_1", "evidence_1"]
+    duplicate_table_evidence["sections"][1]["blocks"] = [chart]
+    with pytest.raises(ValidationError, match="chart-table Evidence IDs"):
+        AiXReportDocumentV1.model_validate(duplicate_table_evidence)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft7Validator(_source_schema("report-document.schema.json")).validate(
+            duplicate_table_evidence
+        )
+
+
+def test_source_optional_properties_reject_explicit_null() -> None:
+    source = _source_execution_plan()
+    source["capability_decisions"]["eligible"][0]["skill"]["name"] = None
+    with pytest.raises(ValidationError, match="do not accept null"):
+        AiXCurrentExecutionPlan.model_validate(source)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft7Validator(_source_schema("current-execution-plan.schema.json")).validate(source)
+
+
+def _translate_source_report(source: dict, *, presentation_mode: str = "text"):
+    return translate_ai_x_report_document_v1(
+        source,
+        presentation_mode=presentation_mode,  # type: ignore[arg-type]
         run_id="run_1",
         requirement_version_id="requirement_1",
         plan_version_id="plan_1",
@@ -291,23 +464,38 @@ def test_source_report_adapter_translates_full_block_union_without_fallback(
         review_artifact=artifact_ref("artifact_review", "report_review", "report-review-v3"),
         template_snapshot_hash=HASH,
     )
-    assert translated.schema_version == "report-document-v3"
-    assert translated.sections[1].blocks[0].type == "paragraph"
-    assert translated.sections[5].blocks[0].type == "fact"
+
+
+def test_source_report_contract_accepts_every_locked_block_variant() -> None:
+    source = source_report_body()
+    source["sections"][1]["blocks"] = _source_report_blocks()
+    AiXReportDocumentV1.model_validate(source)
+    jsonschema.Draft7Validator(_source_schema("report-document.schema.json")).validate(source)
+
+
+@pytest.mark.parametrize("block", _source_report_blocks()[:4], ids=lambda block: block["type"])
+def test_source_report_adapter_translates_each_text_block_variant(block: dict) -> None:
+    source = source_report_body()
+    source["sections"][1]["blocks"] = [block]
+    translated = _translate_source_report(source)
+    assert translated.sections[1].blocks[0].type == block["type"]
+
+
+@pytest.mark.parametrize("block", _source_report_blocks()[4:], ids=lambda block: block["type"])
+def test_source_report_adapter_rejects_every_visual_block_variant(block: dict) -> None:
+    source = source_report_body()
+    source["sections"][1]["blocks"] = [block]
+    with pytest.raises(ValueError, match="cannot translate source"):
+        _translate_source_report(source)
+
+
+def test_source_report_adapter_rejects_multimodal_presentation_and_unknown_fields(
+    source_report_fixture: dict,
+) -> None:
+    with pytest.raises(ValueError, match="text presentation only"):
+        _translate_source_report(source_report_fixture, presentation_mode="multimodal")
 
     malformed = deepcopy(source_report_fixture)
     malformed["sections"][1]["blocks"][0]["fallback_payload"] = {}
     with pytest.raises(ValidationError, match="fallback_payload"):
-        translate_ai_x_report_document_v1(
-            malformed,
-            presentation_mode="text",
-            run_id="run_1",
-            requirement_version_id="requirement_1",
-            plan_version_id="plan_1",
-            attempt_id="attempt_1",
-            deliverable_artifact=artifact_ref(
-                "artifact_deliverable", "research_deliverable", "research-deliverable-v3"
-            ),
-            review_artifact=artifact_ref("artifact_review", "report_review", "report-review-v3"),
-            template_snapshot_hash=HASH,
-        )
+        _translate_source_report(malformed)

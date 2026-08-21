@@ -26,11 +26,13 @@
       "properties": {
         "alt_text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Alt Text",
           "type": "string"
         },
         "caption": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Caption",
           "type": "string"
         },
@@ -59,13 +61,13 @@
         },
         "type": {
           "const": "chart",
-          "default": "chart",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "chart_ref",
         "spec_hash",
         "spec",
@@ -113,7 +115,8 @@
           },
           "minItems": 1,
           "title": "Evidence Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -122,18 +125,19 @@
         },
         "text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Text",
           "type": "string"
         },
         "type": {
           "const": "fact",
-          "default": "fact",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "text",
         "evidence_ids"
       ],
@@ -145,6 +149,7 @@
       "properties": {
         "alt_text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Alt Text",
           "type": "string"
         },
@@ -153,6 +158,7 @@
         },
         "caption": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Caption",
           "type": "string"
         },
@@ -163,7 +169,8 @@
           },
           "minItems": 1,
           "title": "Evidence Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -172,13 +179,13 @@
         },
         "type": {
           "const": "image",
-          "default": "image",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "asset_ref",
         "caption",
         "alt_text",
@@ -195,6 +202,7 @@
         },
         "alt_text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Alt Text",
           "type": "string"
         },
@@ -203,6 +211,7 @@
         },
         "caption": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Caption",
           "type": "string"
         },
@@ -213,7 +222,8 @@
           },
           "minItems": 1,
           "title": "Evidence Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -222,13 +232,13 @@
         },
         "type": {
           "const": "image-comparison",
-          "default": "image-comparison",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "before_asset_ref",
         "after_asset_ref",
         "caption",
@@ -249,6 +259,7 @@
         "items": {
           "items": {
             "maxLength": 20000,
+            "pattern": "\\S",
             "type": "string"
           },
           "minItems": 1,
@@ -257,13 +268,13 @@
         },
         "type": {
           "const": "list",
-          "default": "list",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "items"
       ],
       "title": "ListBlockV3",
@@ -279,7 +290,8 @@
           },
           "minItems": 1,
           "title": "Evidence Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -288,12 +300,12 @@
         },
         "label": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Label",
           "type": "string"
         },
         "type": {
           "const": "metric",
-          "default": "metric",
           "title": "Type",
           "type": "string"
         },
@@ -304,6 +316,7 @@
       },
       "required": [
         "id",
+        "type",
         "label",
         "value",
         "evidence_ids"
@@ -321,18 +334,19 @@
         },
         "text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Text",
           "type": "string"
         },
         "type": {
           "const": "paragraph",
-          "default": "paragraph",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "text"
       ],
       "title": "ParagraphBlockV3",
@@ -393,10 +407,12 @@
             "type": "string"
           },
           "title": "Question Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "title": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Title",
           "type": "string"
         }
@@ -458,6 +474,7 @@
     },
     "executive_summary": {
       "maxLength": 20000,
+      "pattern": "\\S",
       "title": "Executive Summary",
       "type": "string"
     },
@@ -489,7 +506,6 @@
     },
     "schema_version": {
       "const": "report-document-v3",
-      "default": "report-document-v3",
       "title": "Schema Version",
       "type": "string"
     },
@@ -503,6 +519,7 @@
     },
     "subtitle": {
       "maxLength": 1000,
+      "pattern": "\\S",
       "title": "Subtitle",
       "type": "string"
     },
@@ -513,11 +530,13 @@
     },
     "title": {
       "maxLength": 500,
+      "pattern": "\\S",
       "title": "Title",
       "type": "string"
     }
   },
   "required": [
+    "schema_version",
     "presentation_mode",
     "run_id",
     "requirement_version_id",

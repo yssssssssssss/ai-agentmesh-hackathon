@@ -29,6 +29,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -129,6 +130,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -177,6 +179,7 @@
         },
         "reason": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Reason",
           "type": "string"
         }
@@ -244,7 +247,8 @@
             "$ref": "#/$defs/OptionalToolDecisionV3"
           },
           "title": "Optional Tool Decisions",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "pending_inputs": {
           "items": {
@@ -314,6 +318,7 @@
         },
         "message": {
           "maxLength": 300,
+          "pattern": "\\S",
           "title": "Message",
           "type": "string"
         },
@@ -350,6 +355,7 @@
         },
         "label": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Label",
           "type": "string"
         },
@@ -413,6 +419,7 @@
         },
         "message": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Message",
           "type": "string"
         },
@@ -442,11 +449,13 @@
       "properties": {
         "alt_text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Alt Text",
           "type": "string"
         },
         "caption": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Caption",
           "type": "string"
         },
@@ -475,13 +484,13 @@
         },
         "type": {
           "const": "chart",
-          "default": "chart",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "chart_ref",
         "spec_hash",
         "spec",
@@ -529,11 +538,13 @@
         },
         "question": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Question",
           "type": "string"
         },
         "rationale": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Rationale",
           "type": "string"
         }
@@ -594,6 +605,7 @@
             {
               "items": {
                 "maxLength": 4000,
+                "pattern": "\\S",
                 "type": "string"
               },
               "minItems": 1,
@@ -611,6 +623,7 @@
             {
               "items": {
                 "maxLength": 4000,
+                "pattern": "\\S",
                 "type": "string"
               },
               "minItems": 1,
@@ -644,6 +657,7 @@
             {
               "items": {
                 "maxLength": 4000,
+                "pattern": "\\S",
                 "type": "string"
               },
               "minItems": 1,
@@ -661,6 +675,7 @@
             "additionalProperties": true,
             "type": "object"
           },
+          "maxItems": 0,
           "title": "Screenshot Comparisons",
           "type": "array"
         },
@@ -669,6 +684,7 @@
             {
               "items": {
                 "maxLength": 4000,
+                "pattern": "\\S",
                 "type": "string"
               },
               "minItems": 1,
@@ -686,6 +702,7 @@
             "additionalProperties": true,
             "type": "object"
           },
+          "maxItems": 0,
           "title": "Visual Evidence",
           "type": "array"
         }
@@ -721,11 +738,13 @@
         },
         "name": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Name",
           "type": "string"
         },
         "rationale": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Rationale",
           "type": "string"
         }
@@ -749,6 +768,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         },
@@ -774,7 +794,19 @@
       "additionalProperties": false,
       "properties": {
         "code": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "enum": [
+            "schema_valid",
+            "lineage_binding_valid",
+            "requirement_coverage",
+            "question_coverage",
+            "evidence_coverage",
+            "finding_graph_valid",
+            "recommendation_roots_valid",
+            "gap_disclosure",
+            "sensitive_content_absent",
+            "artifact_hash_valid",
+            "text_mode_no_visual_references"
+          ],
           "title": "Code",
           "type": "string"
         },
@@ -794,6 +826,7 @@
         "issues": {
           "items": {
             "maxLength": 1000,
+            "pattern": "\\S",
             "type": "string"
           },
           "title": "Issues",
@@ -818,6 +851,7 @@
       "properties": {
         "dimension": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Dimension",
           "type": "string"
         },
@@ -837,6 +871,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -855,6 +890,7 @@
       "properties": {
         "dimension": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Dimension",
           "type": "string"
         },
@@ -917,6 +953,7 @@
         },
         "value": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Value",
           "type": "string"
         }
@@ -934,7 +971,6 @@
       "properties": {
         "evidence_class": {
           "const": "public_source",
-          "default": "public_source",
           "title": "Evidence Class",
           "type": "string"
         },
@@ -945,7 +981,6 @@
         },
         "kind": {
           "const": "tool_output",
-          "default": "tool_output",
           "title": "Kind",
           "type": "string"
         },
@@ -965,7 +1000,6 @@
         },
         "sensitivity": {
           "const": "public",
-          "default": "public",
           "title": "Sensitivity",
           "type": "string"
         },
@@ -975,9 +1009,12 @@
       },
       "required": [
         "id",
+        "kind",
+        "evidence_class",
         "pointer",
         "source",
         "proof",
+        "sensitivity",
         "redaction"
       ],
       "title": "EvidenceItemV3",
@@ -998,19 +1035,19 @@
         },
         "kind": {
           "const": "evidence_manifest",
-          "default": "evidence_manifest",
           "title": "Kind",
           "type": "string"
         },
         "schema_version": {
           "const": "evidence-manifest-v3",
-          "default": "evidence-manifest-v3",
           "title": "Schema Version",
           "type": "string"
         }
       },
       "required": [
         "artifact_id",
+        "kind",
+        "schema_version",
         "content_hash"
       ],
       "title": "EvidenceManifestArtifactRefV3",
@@ -1040,7 +1077,6 @@
         },
         "payload_schema_version": {
           "const": "competitive-analysis-text-v1",
-          "default": "competitive-analysis-text-v1",
           "title": "Payload Schema Version",
           "type": "string"
         },
@@ -1051,7 +1087,6 @@
         },
         "presentation_mode": {
           "const": "text",
-          "default": "text",
           "title": "Presentation Mode",
           "type": "string"
         },
@@ -1062,12 +1097,14 @@
         },
         "schema_version": {
           "const": "evidence-manifest-v3",
-          "default": "evidence-manifest-v3",
           "title": "Schema Version",
           "type": "string"
         }
       },
       "required": [
+        "schema_version",
+        "presentation_mode",
+        "payload_schema_version",
         "run_id",
         "plan_version_id",
         "attempt_id",
@@ -1088,7 +1125,6 @@
         },
         "actor_type": {
           "const": "tool",
-          "default": "tool",
           "title": "Actor Type",
           "type": "string"
         },
@@ -1099,7 +1135,6 @@
         },
         "execution_mode": {
           "const": "real",
-          "default": "real",
           "title": "Execution Mode",
           "type": "string"
         },
@@ -1145,10 +1180,12 @@
         "plan_version_id",
         "attempt_id",
         "step_number",
+        "actor_type",
         "actor_id",
         "step_contract_hash",
         "receipt_id",
         "implementation_id",
+        "execution_mode",
         "redacted_output_hash"
       ],
       "title": "EvidenceProofV3",
@@ -1173,7 +1210,8 @@
           "maxItems": 7,
           "minItems": 1,
           "title": "Accepted Classes",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -1220,6 +1258,7 @@
         },
         "quote": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Quote",
           "type": "string"
         },
@@ -1240,11 +1279,11 @@
             "type": "string"
           },
           "title": "Risk Flags",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "source_kind": {
           "const": "public_web",
-          "default": "public_web",
           "title": "Source Kind",
           "type": "string"
         },
@@ -1260,6 +1299,7 @@
         }
       },
       "required": [
+        "source_kind",
         "url",
         "quote",
         "retrieved_at",
@@ -1281,7 +1321,8 @@
             "type": "string"
           },
           "title": "Activated Nodes",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "candidate_id": {
           "enum": [
@@ -1293,16 +1334,19 @@
         },
         "candidate_rationale": {
           "maxLength": 2000,
+          "pattern": "\\S",
           "title": "Candidate Rationale",
           "type": "string"
         },
         "candidate_title": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Candidate Title",
           "type": "string"
         },
         "candidate_tradeoffs": {
           "maxLength": 2000,
+          "pattern": "\\S",
           "title": "Candidate Tradeoffs",
           "type": "string"
         },
@@ -1325,7 +1369,6 @@
         },
         "deliverable_type": {
           "const": "competitive_analysis_report",
-          "default": "competitive_analysis_report",
           "title": "Deliverable Type",
           "type": "string"
         },
@@ -1356,12 +1399,11 @@
         },
         "payload_schema_version": {
           "const": "competitive-analysis-text-v1",
-          "default": "competitive-analysis-text-v1",
           "title": "Payload Schema Version",
           "type": "string"
         },
         "problem_graph_artifact": {
-          "$ref": "#/$defs/SealedArtifactRefV3"
+          "$ref": "#/$defs/ProblemGraphArtifactRefV3"
         },
         "requirement_content_hash": {
           "pattern": "^[0-9a-f]{64}$",
@@ -1375,7 +1417,6 @@
         },
         "schema_version": {
           "const": "execution-plan-v3",
-          "default": "execution-plan-v3",
           "title": "Schema Version",
           "type": "string"
         },
@@ -1390,16 +1431,19 @@
         },
         "task_type": {
           "const": "competitive_research",
-          "default": "competitive_research",
           "title": "Task Type",
           "type": "string"
         }
       },
       "required": [
+        "schema_version",
+        "task_type",
         "requirement_version_id",
         "requirement_content_hash",
         "problem_graph_artifact",
         "candidate_id",
+        "deliverable_type",
+        "payload_schema_version",
         "evidence_requirements",
         "capability_decisions",
         "capability_gaps",
@@ -1446,7 +1490,6 @@
         },
         "schema_version": {
           "const": "execution-plan-v3",
-          "default": "execution-plan-v3",
           "title": "Schema Version",
           "type": "string"
         },
@@ -1461,6 +1504,7 @@
         "run_id",
         "requirement_version_id",
         "version",
+        "schema_version",
         "plan_hash",
         "payload",
         "created_at"
@@ -1473,6 +1517,7 @@
       "properties": {
         "description": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Description",
           "type": "string"
         },
@@ -1500,7 +1545,8 @@
           },
           "minItems": 1,
           "title": "Evidence Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -1509,18 +1555,19 @@
         },
         "text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Text",
           "type": "string"
         },
         "type": {
           "const": "fact",
-          "default": "fact",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "text",
         "evidence_ids"
       ],
@@ -1546,18 +1593,19 @@
         },
         "kind": {
           "const": "fact",
-          "default": "fact",
           "title": "Kind",
           "type": "string"
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "kind",
         "evidence_ids",
         "statement"
       ],
@@ -1625,6 +1673,7 @@
       "properties": {
         "alt_text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Alt Text",
           "type": "string"
         },
@@ -1633,6 +1682,7 @@
         },
         "caption": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Caption",
           "type": "string"
         },
@@ -1643,7 +1693,8 @@
           },
           "minItems": 1,
           "title": "Evidence Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -1652,13 +1703,13 @@
         },
         "type": {
           "const": "image",
-          "default": "image",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "asset_ref",
         "caption",
         "alt_text",
@@ -1675,6 +1726,7 @@
         },
         "alt_text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Alt Text",
           "type": "string"
         },
@@ -1683,6 +1735,7 @@
         },
         "caption": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Caption",
           "type": "string"
         },
@@ -1693,7 +1746,8 @@
           },
           "minItems": 1,
           "title": "Evidence Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -1702,13 +1756,13 @@
         },
         "type": {
           "const": "image-comparison",
-          "default": "image-comparison",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "before_asset_ref",
         "after_asset_ref",
         "caption",
@@ -1723,6 +1777,7 @@
       "properties": {
         "audience": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Audience",
           "type": "string"
         },
@@ -1733,6 +1788,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -1764,18 +1820,19 @@
         },
         "kind": {
           "const": "inference",
-          "default": "inference",
           "title": "Kind",
           "type": "string"
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "kind",
         "finding_ids",
         "statement"
       ],
@@ -1793,6 +1850,7 @@
         "items": {
           "items": {
             "maxLength": 20000,
+            "pattern": "\\S",
             "type": "string"
           },
           "minItems": 1,
@@ -1801,13 +1859,13 @@
         },
         "type": {
           "const": "list",
-          "default": "list",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "items"
       ],
       "title": "ListBlockV3",
@@ -1823,7 +1881,8 @@
           },
           "minItems": 1,
           "title": "Evidence Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -1832,12 +1891,12 @@
         },
         "label": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Label",
           "type": "string"
         },
         "type": {
           "const": "metric",
-          "default": "metric",
           "title": "Type",
           "type": "string"
         },
@@ -1848,6 +1907,7 @@
       },
       "required": [
         "id",
+        "type",
         "label",
         "value",
         "evidence_ids"
@@ -1862,6 +1922,7 @@
           "anyOf": [
             {
               "maxLength": 300,
+              "pattern": "\\S",
               "type": "string"
             },
             {
@@ -1920,18 +1981,19 @@
         },
         "text": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Text",
           "type": "string"
         },
         "type": {
           "const": "paragraph",
-          "default": "paragraph",
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "type",
         "text"
       ],
       "title": "ParagraphBlockV3",
@@ -1956,12 +2018,12 @@
         },
         "schema_version": {
           "const": "plan-candidates-v3",
-          "default": "plan-candidates-v3",
           "title": "Schema Version",
           "type": "string"
         }
       },
       "required": [
+        "schema_version",
         "candidates"
       ],
       "title": "PlanCandidateSetV3",
@@ -1996,16 +2058,19 @@
         },
         "rationale": {
           "maxLength": 2000,
+          "pattern": "\\S",
           "title": "Rationale",
           "type": "string"
         },
         "title": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Title",
           "type": "string"
         },
         "tradeoffs": {
           "maxLength": 2000,
+          "pattern": "\\S",
           "title": "Tradeoffs",
           "type": "string"
         }
@@ -2057,6 +2122,7 @@
         "acceptance_criteria": {
           "items": {
             "maxLength": 1000,
+            "pattern": "\\S",
             "type": "string"
           },
           "title": "Acceptance Criteria",
@@ -2100,7 +2166,8 @@
             "type": "integer"
           },
           "title": "Depends On",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "expected_outputs": {
           "items": {
@@ -2123,6 +2190,7 @@
         },
         "name": {
           "maxLength": 120,
+          "pattern": "\\S",
           "title": "Name",
           "type": "string"
         },
@@ -2137,7 +2205,8 @@
             "type": "string"
           },
           "title": "Question Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "requires_approval": {
           "title": "Requires Approval",
@@ -2166,6 +2235,7 @@
         "acceptance_criteria": {
           "items": {
             "maxLength": 1000,
+            "pattern": "\\S",
             "type": "string"
           },
           "minItems": 1,
@@ -2221,7 +2291,8 @@
             "type": "integer"
           },
           "title": "Depends On",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "expected_outputs": {
           "items": {
@@ -2266,6 +2337,7 @@
         },
         "name": {
           "maxLength": 120,
+          "pattern": "\\S",
           "title": "Name",
           "type": "string"
         },
@@ -2282,7 +2354,8 @@
           "maxItems": 20,
           "minItems": 1,
           "title": "Question Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "required": {
           "title": "Required",
@@ -2327,6 +2400,39 @@
         "contract_hash"
       ],
       "title": "PlanStepV3",
+      "type": "object"
+    },
+    "ProblemGraphArtifactRefV3": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "kind": {
+          "const": "problem_graph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "problem-graph-v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "schema_version",
+        "content_hash"
+      ],
+      "title": "ProblemGraphArtifactRefV3",
       "type": "object"
     },
     "QuestionCoverageV3": {
@@ -2383,6 +2489,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -2409,6 +2516,7 @@
         },
         "executive_summary": {
           "maxLength": 20000,
+          "pattern": "\\S",
           "title": "Executive Summary",
           "type": "string"
         },
@@ -2440,7 +2548,6 @@
         },
         "schema_version": {
           "const": "report-document-v3",
-          "default": "report-document-v3",
           "title": "Schema Version",
           "type": "string"
         },
@@ -2454,6 +2561,7 @@
         },
         "subtitle": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Subtitle",
           "type": "string"
         },
@@ -2464,11 +2572,13 @@
         },
         "title": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Title",
           "type": "string"
         }
       },
       "required": [
+        "schema_version",
         "presentation_mode",
         "run_id",
         "requirement_version_id",
@@ -2497,18 +2607,298 @@
           "$ref": "#/$defs/SealedArtifactRefV3"
         },
         "deterministic_checks": {
+          "allOf": [
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "artifact_hash_valid"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "evidence_coverage"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "finding_graph_valid"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "gap_disclosure"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "lineage_binding_valid"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "question_coverage"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "recommendation_roots_valid"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "requirement_coverage"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "schema_valid"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "sensitive_content_absent"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "code": {
+                    "const": "text_mode_no_visual_references"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            }
+          ],
           "items": {
             "$ref": "#/$defs/DeterministicReviewCheckV3"
           },
+          "maxItems": 11,
+          "minItems": 11,
           "title": "Deterministic Checks",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "dimensions": {
+          "allOf": [
+            {
+              "contains": {
+                "properties": {
+                  "id": {
+                    "const": "requirement_coverage"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "id": {
+                    "const": "question_coverage"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "id": {
+                    "const": "evidence_coverage"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "id": {
+                    "const": "reasoning_quality"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "id": {
+                    "const": "recommendation_quality"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "id": {
+                    "const": "visual_quality"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            },
+            {
+              "contains": {
+                "properties": {
+                  "id": {
+                    "const": "risk_disclosure"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 1
+            }
+          ],
           "items": {
             "$ref": "#/$defs/ReviewDimensionV3"
           },
+          "maxItems": 7,
+          "minItems": 7,
           "title": "Dimensions",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "plan_version_id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -2535,7 +2925,6 @@
         },
         "schema_version": {
           "const": "report-review-v3",
-          "default": "report-review-v3",
           "title": "Schema Version",
           "type": "string"
         },
@@ -2562,6 +2951,7 @@
         }
       },
       "required": [
+        "schema_version",
         "run_id",
         "plan_version_id",
         "attempt_id",
@@ -2631,10 +3021,12 @@
             "type": "string"
           },
           "title": "Question Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "title": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Title",
           "type": "string"
         }
@@ -2676,13 +3068,11 @@
         },
         "schema_version": {
           "const": "research-task-v3",
-          "default": "research-task-v3",
           "title": "Schema Version",
           "type": "string"
         },
         "task_type": {
           "const": "competitive_research",
-          "default": "competitive_research",
           "title": "Task Type",
           "type": "string"
         },
@@ -2696,6 +3086,8 @@
         "id",
         "run_id",
         "version",
+        "schema_version",
+        "task_type",
         "payload",
         "content_hash",
         "created_at"
@@ -2717,6 +3109,7 @@
         },
         "statement": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -2773,6 +3166,7 @@
         },
         "statement": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -2830,7 +3224,6 @@
         },
         "deliverable_type": {
           "const": "competitive_analysis_report",
-          "default": "competitive_analysis_report",
           "title": "Deliverable Type",
           "type": "string"
         },
@@ -2842,6 +3235,7 @@
         },
         "method_summary": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Method Summary",
           "type": "string"
         },
@@ -2850,7 +3244,6 @@
         },
         "payload_schema_version": {
           "const": "competitive-analysis-text-v1",
-          "default": "competitive-analysis-text-v1",
           "title": "Payload Schema Version",
           "type": "string"
         },
@@ -2874,6 +3267,7 @@
         "risks_and_open_issues": {
           "items": {
             "maxLength": 4000,
+            "pattern": "\\S",
             "type": "string"
           },
           "title": "Risks And Open Issues",
@@ -2886,16 +3280,18 @@
         },
         "schema_version": {
           "const": "research-deliverable-v3",
-          "default": "research-deliverable-v3",
           "title": "Schema Version",
           "type": "string"
         }
       },
       "required": [
+        "schema_version",
         "run_id",
         "requirement_version_id",
         "plan_version_id",
         "attempt_id",
+        "deliverable_type",
+        "payload_schema_version",
         "evidence_manifest_artifact",
         "method_summary",
         "finding_graph",
@@ -2937,6 +3333,7 @@
         },
         "business_domain": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Business Domain",
           "type": "string"
         },
@@ -2953,6 +3350,7 @@
             {
               "items": {
                 "maxLength": 120,
+                "pattern": "\\S",
                 "type": "string"
               },
               "maxItems": 20,
@@ -2964,7 +3362,8 @@
             }
           ],
           "default": null,
-          "title": "Comparison Dimensions"
+          "title": "Comparison Dimensions",
+          "uniqueItems": true
         },
         "constraints": {
           "items": {
@@ -2975,15 +3374,15 @@
           "type": "array"
         },
         "expected_deliverables": {
-          "default": [
-            "competitive_analysis_report"
-          ],
           "items": {
             "const": "competitive_analysis_report",
             "type": "string"
           },
+          "maxItems": 1,
+          "minItems": 1,
           "title": "Expected Deliverables",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "pii_detected": {
           "title": "Pii Detected",
@@ -2991,18 +3390,19 @@
         },
         "research_goal": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Research Goal",
           "type": "string"
         },
         "schema_version": {
           "const": "research-task-v3",
-          "default": "research-task-v3",
           "title": "Schema Version",
           "type": "string"
         },
         "scope": {
           "items": {
             "maxLength": 1000,
+            "pattern": "\\S",
             "type": "string"
           },
           "maxItems": 20,
@@ -3030,6 +3430,7 @@
         "target_audience": {
           "items": {
             "maxLength": 240,
+            "pattern": "\\S",
             "type": "string"
           },
           "maxItems": 20,
@@ -3038,18 +3439,20 @@
         },
         "task_type": {
           "const": "competitive_research",
-          "default": "competitive_research",
           "title": "Task Type",
           "type": "string"
         }
       },
       "required": [
+        "schema_version",
+        "task_type",
         "business_domain",
         "research_goal",
         "target_audience",
         "scope",
         "constraints",
         "success_criteria",
+        "expected_deliverables",
         "assumptions",
         "ambiguities",
         "clarification_questions",
@@ -3070,13 +3473,11 @@
         },
         "orchestration_version": {
           "const": "research-v2",
-          "default": "research-v2",
           "title": "Orchestration Version",
           "type": "string"
         },
         "projection_kind": {
           "const": "research-v2-history",
-          "default": "research-v2-history",
           "title": "Projection Kind",
           "type": "string"
         },
@@ -3096,12 +3497,14 @@
         },
         "schema_version": {
           "const": "research-workbench-aggregate-v1",
-          "default": "research-workbench-aggregate-v1",
           "title": "Schema Version",
           "type": "string"
         }
       },
       "required": [
+        "schema_version",
+        "projection_kind",
+        "orchestration_version",
         "run_id",
         "history_payload",
         "provenance"
@@ -3161,13 +3564,11 @@
         },
         "orchestration_version": {
           "const": "research-v3",
-          "default": "research-v3",
           "title": "Orchestration Version",
           "type": "string"
         },
         "projection_kind": {
           "const": "research-v3-current",
-          "default": "research-v3-current",
           "title": "Projection Kind",
           "type": "string"
         },
@@ -3221,7 +3622,6 @@
         },
         "schema_version": {
           "const": "research-workbench-aggregate-v1",
-          "default": "research-workbench-aggregate-v1",
           "title": "Schema Version",
           "type": "string"
         },
@@ -3240,6 +3640,9 @@
         }
       },
       "required": [
+        "schema_version",
+        "projection_kind",
+        "orchestration_version",
         "run_id",
         "workflow",
         "requirement",
@@ -3276,6 +3679,7 @@
         "issues": {
           "items": {
             "maxLength": 1000,
+            "pattern": "\\S",
             "type": "string"
           },
           "title": "Issues",
@@ -3299,6 +3703,7 @@
       "properties": {
         "metric": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Metric",
           "type": "string"
         },
@@ -3313,11 +3718,13 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         },
         "validation_method": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Validation Method",
           "type": "string"
         }
@@ -3399,6 +3806,7 @@
         },
         "statement": {
           "maxLength": 1000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -3436,6 +3844,7 @@
         },
         "summary": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Summary",
           "type": "string"
         }
@@ -3767,7 +4176,6 @@
         },
         "projection_schema_version": {
           "const": "research-workbench-aggregate-v1",
-          "default": "research-workbench-aggregate-v1",
           "title": "Projection Schema Version",
           "type": "string"
         },
@@ -3788,6 +4196,7 @@
       },
       "required": [
         "source_kind",
+        "projection_schema_version",
         "projected_at",
         "source_state_version"
       ],

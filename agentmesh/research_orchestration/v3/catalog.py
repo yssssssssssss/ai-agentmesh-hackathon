@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import stat
 from collections.abc import Mapping
 from importlib.resources import files
 from importlib.resources.abc import Traversable
@@ -22,13 +23,35 @@ from agentmesh.research_orchestration.v3.common import (
 )
 
 CATALOG_RELATIVE_ROOT = ("research_catalog", "research-v3", "competitive-text-v1")
+CATALOG_MAX_FILES = 64
+CATALOG_MAX_FILE_BYTES = 262_144
+CATALOG_MAX_AGGREGATE_BYTES = 2_097_152
+CATALOG_MAX_DIRECTORY_DEPTH = 16
+CATALOG_MAX_DOCUMENT_DEPTH = 32
+CATALOG_MAX_DOCUMENT_NODES = 50_000
+CATALOG_MAX_CATALOG_BYTES = 65_536
+CATALOG_MAX_SNAPSHOT_BYTES = 65_536
 
 
 class _StrictYamlLoader(yaml.SafeLoader):
+    def __init__(self, stream: Any) -> None:
+        super().__init__(stream)
+        self._resource_depth = 0
+        self._resource_nodes = 0
+
     def compose_node(self, parent: Any, index: Any) -> Any:
         if self.check_event(AliasEvent):
             raise ValueError("YAML aliases are not allowed in research catalogs")
-        return super().compose_node(parent, index)
+        self._resource_depth += 1
+        self._resource_nodes += 1
+        try:
+            if self._resource_depth > CATALOG_MAX_DOCUMENT_DEPTH:
+                raise ValueError("research catalog YAML exceeds the maximum document depth")
+            if self._resource_nodes > CATALOG_MAX_DOCUMENT_NODES:
+                raise ValueError("research catalog YAML exceeds the maximum node count")
+            return super().compose_node(parent, index)
+        finally:
+            self._resource_depth -= 1
 
     def construct_mapping(self, node: MappingNode, deep: bool = False) -> dict[str, Any]:
         if not isinstance(node, MappingNode):
@@ -46,10 +69,45 @@ class _StrictYamlLoader(yaml.SafeLoader):
         return result
 
 
+def _validate_document_resources(value: Any, *, media_type: str) -> Any:
+    stack = [(value, 1)]
+    nodes = 0
+    while stack:
+        current, depth = stack.pop()
+        nodes += 1
+        if depth > CATALOG_MAX_DOCUMENT_DEPTH:
+            raise ValueError(f"research catalog {media_type} exceeds the maximum document depth")
+        if nodes > CATALOG_MAX_DOCUMENT_NODES:
+            raise ValueError(f"research catalog {media_type} exceeds the maximum node count")
+        if isinstance(current, Mapping):
+            stack.extend((item, depth + 1) for item in current.values())
+        elif isinstance(current, (list, tuple)):
+            stack.extend((item, depth + 1) for item in current)
+    return value
+
+
 def strict_yaml_load(value: str | bytes) -> Any:
     if isinstance(value, bytes):
+        if len(value) > CATALOG_MAX_FILE_BYTES:
+            raise ValueError("research catalog YAML exceeds the maximum byte size")
         value = value.decode("utf-8", errors="strict")
-    return yaml.load(value, Loader=_StrictYamlLoader)
+    elif len(value.encode("utf-8")) > CATALOG_MAX_FILE_BYTES:
+        raise ValueError("research catalog YAML exceeds the maximum byte size")
+    return _validate_document_resources(
+        yaml.load(value, Loader=_StrictYamlLoader),
+        media_type="YAML",
+    )
+
+
+def _strict_json_resource_load(value: str | bytes | bytearray) -> Any:
+    byte_length = len(value) if not isinstance(value, str) else len(value.encode("utf-8"))
+    if byte_length > CATALOG_MAX_FILE_BYTES:
+        raise ValueError("research catalog JSON exceeds the maximum byte size")
+    try:
+        parsed = strict_json_v3_loads(value)
+    except RecursionError as exc:
+        raise ValueError("research catalog JSON exceeds the maximum document depth") from exc
+    return _validate_document_resources(parsed, media_type="JSON")
 
 
 class CatalogDocument(StrictFrozenModel):
@@ -226,38 +284,104 @@ def _safe_parts(relative_path: str) -> tuple[str, ...]:
     return path.parts
 
 
-def _resource(root: Traversable, relative_path: str) -> Traversable:
+def _resource(root: Traversable, relative_path: str) -> Path:
+    if not isinstance(root, Path):
+        raise ValueError("catalog resources must be backed by a local filesystem path")
     current = root
     for part in _safe_parts(relative_path):
         current = current.joinpath(part)
-        if isinstance(current, Path) and current.is_symlink():
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError as exc:
+            raise ValueError(f"catalog resource is missing: {relative_path}") from exc
+        if stat.S_ISLNK(metadata.st_mode):
             raise ValueError(f"catalog resources must not be symlinks: {relative_path}")
-    if not current.is_file():
-        raise ValueError(f"catalog resource is missing: {relative_path}")
+    if not stat.S_ISREG(current.lstat().st_mode):
+        raise ValueError(f"catalog resource is not a regular file: {relative_path}")
     return current
 
 
-def _read_verified(root: Traversable, relative_path: str, expected_hash: str) -> bytes:
-    content = _resource(root, relative_path).read_bytes()
+def _preflight_inventory(
+    root: Traversable,
+    *,
+    max_files: int = CATALOG_MAX_FILES,
+    max_aggregate_bytes: int = CATALOG_MAX_AGGREGATE_BYTES,
+    max_file_bytes: int = CATALOG_MAX_FILE_BYTES,
+) -> dict[str, int]:
+    """Bound the entire filesystem-backed inventory before reading any resource bytes."""
+
+    if not isinstance(root, Path):
+        raise ValueError("catalog resources must be backed by a local filesystem path")
+    try:
+        root_metadata = root.lstat()
+    except FileNotFoundError as exc:
+        raise ValueError("catalog resource root is missing") from exc
+    if stat.S_ISLNK(root_metadata.st_mode) or not stat.S_ISDIR(root_metadata.st_mode):
+        raise ValueError("catalog resource root must be a real directory")
+
+    inventory: dict[str, int] = {}
+    aggregate_bytes = 0
+    pending = [(root, "", 0)]
+    while pending:
+        directory, prefix, depth = pending.pop()
+        if depth > CATALOG_MAX_DIRECTORY_DEPTH:
+            raise ValueError("catalog directory depth exceeds the resource limit")
+        for child in directory.iterdir():
+            relative = f"{prefix}/{child.name}" if prefix else child.name
+            metadata = child.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                raise ValueError(f"catalog resources must not be symlinks: {relative}")
+            if stat.S_ISDIR(metadata.st_mode):
+                pending.append((child, relative, depth + 1))
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError(f"catalog contains an unsupported filesystem entry: {relative}")
+            if len(inventory) >= max_files:
+                raise ValueError("catalog file count exceeds the resource limit")
+            if metadata.st_size > max_file_bytes:
+                raise ValueError(f"catalog resource exceeds the per-file byte limit: {relative}")
+            aggregate_bytes += metadata.st_size
+            if aggregate_bytes > max_aggregate_bytes:
+                raise ValueError("catalog aggregate bytes exceed the resource limit")
+            inventory[relative] = metadata.st_size
+    return inventory
+
+
+def _read_resource(
+    root: Traversable,
+    relative_path: str,
+    inventory: Mapping[str, int],
+    *,
+    max_bytes: int = CATALOG_MAX_FILE_BYTES,
+) -> bytes:
+    expected_size = inventory.get(relative_path)
+    if expected_size is None:
+        raise ValueError(f"catalog resource is missing from the pre-read inventory: {relative_path}")
+    if expected_size > max_bytes:
+        raise ValueError(f"catalog resource exceeds its byte limit: {relative_path}")
+    resource = _resource(root, relative_path)
+    if resource.lstat().st_size != expected_size:
+        raise ValueError(f"catalog resource size changed after pre-read inventory: {relative_path}")
+    with resource.open("rb") as stream:
+        content = stream.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise ValueError(f"catalog resource exceeds its byte limit: {relative_path}")
+    if len(content) != expected_size:
+        raise ValueError(f"catalog resource size changed while reading: {relative_path}")
+    return content
+
+
+def _read_verified(
+    root: Traversable,
+    relative_path: str,
+    expected_hash: str,
+    inventory: Mapping[str, int],
+) -> bytes:
+    content = _read_resource(root, relative_path, inventory)
     actual = hashlib.sha256(content).hexdigest()
     if actual != expected_hash:
         raise ValueError(f"catalog resource hash mismatch: {relative_path}")
     return content
-
-
-def _inventory(root: Traversable, prefix: str = "") -> set[str]:
-    result: set[str] = set()
-    for child in root.iterdir():
-        relative = f"{prefix}/{child.name}" if prefix else child.name
-        if isinstance(child, Path) and child.is_symlink():
-            raise ValueError(f"catalog resources must not be symlinks: {relative}")
-        if child.is_dir():
-            result.update(_inventory(child, relative))
-        elif child.is_file():
-            result.add(relative)
-        else:
-            raise ValueError(f"catalog contains an unsupported filesystem entry: {relative}")
-    return result
 
 
 def _catalog_root() -> Traversable:
@@ -271,7 +395,13 @@ def load_competitive_text_catalog() -> CompetitiveTextCatalog:
     """Load and byte-verify the packaged, non-production Competitive Text catalog."""
 
     root = _catalog_root()
-    catalog_bytes = _resource(root, "catalog.yaml").read_bytes()
+    inventory = _preflight_inventory(root)
+    catalog_bytes = _read_resource(
+        root,
+        "catalog.yaml",
+        inventory,
+        max_bytes=CATALOG_MAX_CATALOG_BYTES,
+    )
     raw_catalog = strict_yaml_load(catalog_bytes)
     if not isinstance(raw_catalog, Mapping):
         raise ValueError("catalog.yaml must contain a mapping")
@@ -280,22 +410,31 @@ def load_competitive_text_catalog() -> CompetitiveTextCatalog:
     declared = {"catalog.yaml", catalog.source_snapshot}
     resource_hashes: list[tuple[str, str]] = []
     for document in catalog.documents:
-        _read_verified(root, document.path, document.sha256)
+        _read_verified(root, document.path, document.sha256, inventory)
         declared.add(document.path)
         resource_hashes.append((document.path, document.sha256))
 
-    snapshot_raw = strict_json_v3_loads(_resource(root, catalog.source_snapshot).read_bytes())
+    snapshot_bytes = _read_resource(
+        root,
+        catalog.source_snapshot,
+        inventory,
+        max_bytes=CATALOG_MAX_SNAPSHOT_BYTES,
+    )
+    snapshot_raw = _strict_json_resource_load(snapshot_bytes)
     snapshot = CompetitiveTextSourceSnapshot.model_validate(snapshot_raw)
     if snapshot.catalog_id != catalog.catalog_id:
         raise ValueError("source snapshot and catalog IDs must agree")
     for item in snapshot.files:
         if item.target_path != f"source/{item.source_path}":
             raise ValueError("source snapshot target paths must preserve the locked relative path")
-        _read_verified(root, item.target_path, item.sha256)
+        _read_verified(root, item.target_path, item.sha256, inventory)
         declared.add(item.target_path)
         resource_hashes.append((item.target_path, item.sha256))
 
-    actual = _inventory(root)
+    final_inventory = _preflight_inventory(root)
+    if final_inventory != inventory:
+        raise ValueError("catalog inventory changed while loading")
+    actual = set(final_inventory)
     if actual != declared:
         extra = sorted(actual - declared)
         missing = sorted(declared - actual)
@@ -316,7 +455,9 @@ def read_catalog_document(catalog: CompetitiveTextCatalog, document_id: str) -> 
     if len(matches) != 1:
         raise KeyError(f"unknown catalog document: {document_id}")
     document = matches[0]
-    return _read_verified(_catalog_root(), document.path, document.sha256)
+    root = _catalog_root()
+    inventory = _preflight_inventory(root)
+    return _read_verified(root, document.path, document.sha256, inventory)
 
 
 def load_catalog_document(catalog: CompetitiveTextCatalog, document_id: str) -> Any:
@@ -327,5 +468,5 @@ def load_catalog_document(catalog: CompetitiveTextCatalog, document_id: str) -> 
     if document.path.endswith((".yaml", ".yml")):
         return strict_yaml_load(content)
     if document.path.endswith(".json"):
-        return strict_json_v3_loads(content)
+        return _strict_json_resource_load(content)
     return content.decode("utf-8", errors="strict")

@@ -35,8 +35,8 @@ therefore does not claim visual acceptance.
   `execution-plan-v3`, `research-deliverable-v3`, `report-review-v3`, and `report-document-v3`.
 - Supporting/persisted resource identities are explicit: `problem-graph-v1`, `plan-candidates-v3`,
   `research-control-snapshot-v3`, `competitive-analysis-text-v1`, and `evidence-manifest-v3`.
-  The complete current persisted/resource set is asserted disjoint from the canonical thirteen v2
-  identities.
+  The complete persisted/resource set is asserted disjoint from the canonical thirteen v2 identities;
+  it is deliberately not aliased or described as the active/current production generation.
 - Strict target contracts cover `research-task-v3`, `execution-plan-v3`,
   `evidence-manifest-v3`, `research-deliverable-v3`, `report-review-v3`, and `report-document-v3`.
   The Evidence Manifest binds every public text source and verified Artifact pointer to one Run, Plan,
@@ -45,6 +45,10 @@ therefore does not claim visual acceptance.
 - A generation-specific canonical JSON/hash algorithm that does not modify research-v2 hashing.
   Arbitrary JSON fields use recursively frozen mappings/tuples and defensive serialization; frozen
   catalog documents verify their canonical content hash and byte count.
+- Committed Draft 2020-12 schemas mirror the Pydantic contracts for expressible same-record structure,
+  including required discriminators, scalar-array uniqueness, and Review check/dimension cardinality.
+  The parity claim excludes only canonical hash bindings and cross-record lineage/ownership/readback
+  invariants, which remain enforced at typed model and Port boundaries.
 - Exact source-only ai-x contract models and explicit source-to-target adapters, including Deliverable,
   Review, and Report shapes. Source aliases are not target registry keys.
 - A package-relative, hash-verifying Competitive Text catalog containing only the selected locked source

@@ -54,11 +54,13 @@
         },
         "implementation_id": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Implementation Id",
           "type": "string"
         },
         "implementation_version": {
           "maxLength": 120,
+          "pattern": "\\S",
           "title": "Implementation Version",
           "type": "string"
         },
@@ -86,7 +88,8 @@
             "type": "string"
           },
           "title": "Optional Tool Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "output_schema_document_id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
@@ -99,7 +102,8 @@
             "type": "string"
           },
           "title": "Required Tool Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "tier": {
           "anyOf": [
@@ -195,16 +199,19 @@
       "properties": {
         "adapter_compatibility_id": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Adapter Compatibility Id",
           "type": "string"
         },
         "requested_model": {
           "maxLength": 120,
+          "pattern": "\\S",
           "title": "Requested Model",
           "type": "string"
         },
         "requested_provider": {
           "maxLength": 120,
+          "pattern": "\\S",
           "title": "Requested Provider",
           "type": "string"
         },
@@ -245,7 +252,6 @@
     },
     "catalog_id": {
       "const": "competitive-text-v1",
-      "default": "competitive-text-v1",
       "title": "Catalog Id",
       "type": "string"
     },
@@ -271,12 +277,13 @@
     },
     "schema_version": {
       "const": "research-control-snapshot-v3",
-      "default": "research-control-snapshot-v3",
       "title": "Schema Version",
       "type": "string"
     }
   },
   "required": [
+    "schema_version",
+    "catalog_id",
     "catalog_hash",
     "resolved_for_agent_id",
     "resolved_at",

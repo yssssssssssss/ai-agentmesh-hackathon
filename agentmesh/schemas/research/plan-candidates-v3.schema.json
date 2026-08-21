@@ -5,6 +5,7 @@
       "properties": {
         "description": {
           "maxLength": 500,
+          "pattern": "\\S",
           "title": "Description",
           "type": "string"
         },
@@ -51,16 +52,19 @@
         },
         "rationale": {
           "maxLength": 2000,
+          "pattern": "\\S",
           "title": "Rationale",
           "type": "string"
         },
         "title": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Title",
           "type": "string"
         },
         "tradeoffs": {
           "maxLength": 2000,
+          "pattern": "\\S",
           "title": "Tradeoffs",
           "type": "string"
         }
@@ -112,6 +116,7 @@
         "acceptance_criteria": {
           "items": {
             "maxLength": 1000,
+            "pattern": "\\S",
             "type": "string"
           },
           "title": "Acceptance Criteria",
@@ -155,7 +160,8 @@
             "type": "integer"
           },
           "title": "Depends On",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "expected_outputs": {
           "items": {
@@ -178,6 +184,7 @@
         },
         "name": {
           "maxLength": 120,
+          "pattern": "\\S",
           "title": "Name",
           "type": "string"
         },
@@ -192,7 +199,8 @@
             "type": "string"
           },
           "title": "Question Ids",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "requires_approval": {
           "title": "Requires Approval",
@@ -262,12 +270,12 @@
     },
     "schema_version": {
       "const": "plan-candidates-v3",
-      "default": "plan-candidates-v3",
       "title": "Schema Version",
       "type": "string"
     }
   },
   "required": [
+    "schema_version",
     "candidates"
   ],
   "title": "PlanCandidateSetV3",

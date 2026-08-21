@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.common import (
@@ -12,6 +12,7 @@ from agentmesh.research_orchestration.v3.common import (
     FrozenJsonObject,
     Identifier,
     NonBlankString,
+    ProblemGraphArtifactRefV3,
     Sha256Hex,
     StrictFrozenModel,
     SealedArtifactRefV3,
@@ -68,7 +69,9 @@ class CapabilityDecisionV3(StrictFrozenModel):
     required_approvals: tuple[CapabilityApprovalV3, ...]
     reasons: tuple[CapabilityReasonV3, ...] = Field(min_length=1)
     pending_inputs: tuple[CapabilityPendingInputV3, ...]
-    optional_tool_decisions: tuple[OptionalToolDecisionV3, ...]
+    optional_tool_decisions: tuple[OptionalToolDecisionV3, ...] = Field(
+        json_schema_extra={"uniqueItems": True}
+    )
 
     @model_validator(mode="after")
     def validate_decision(self) -> CapabilityDecisionV3:
@@ -117,14 +120,23 @@ class PlanStepProposalV3(StrictFrozenModel):
     name: Annotated[NonBlankString, Field(max_length=120)]
     actor_type: ActorType
     actor_id: Identifier
-    question_ids: tuple[Identifier, ...]
-    depends_on: tuple[Annotated[int, Field(ge=1)], ...]
+    question_ids: tuple[Identifier, ...] = Field(json_schema_extra={"uniqueItems": True})
+    depends_on: tuple[Annotated[int, Field(ge=1)], ...] = Field(json_schema_extra={"uniqueItems": True})
     input: FrozenJsonObject
     input_bindings: tuple[PlanInputBindingV3, ...]
     expected_outputs: tuple[ExpectedOutputV3, ...]
     acceptance_criteria: tuple[Annotated[NonBlankString, Field(max_length=1000)], ...]
     requires_approval: bool
     approval_role: ApprovalRole | None = None
+
+    @model_validator(mode="after")
+    def validate_proposal(self) -> PlanStepProposalV3:
+        require_unique(self.question_ids, "proposed step question IDs")
+        require_unique(self.depends_on, "proposed step dependencies")
+        require_unique(tuple(item.pointer for item in self.expected_outputs), "proposed step output pointers")
+        if self.requires_approval != (self.approval_role is not None):
+            raise ValueError("approval role must be present exactly when approval is required")
+        return self
 
 
 class PlanCandidateV3(StrictFrozenModel):
@@ -143,9 +155,7 @@ class PlanCandidateV3(StrictFrozenModel):
 
 
 class PlanCandidateSetV3(StrictFrozenModel):
-    model_config = ConfigDict(json_schema_extra={"$id": "plan-candidates-v3"})
-
-    schema_version: Literal["plan-candidates-v3"] = "plan-candidates-v3"
+    schema_version: Literal["plan-candidates-v3"]
     candidates: tuple[PlanCandidateV3, PlanCandidateV3]
 
     @model_validator(mode="after")
@@ -160,8 +170,14 @@ class PlanStepV3(StrictFrozenModel):
     name: Annotated[NonBlankString, Field(max_length=120)]
     actor_type: ActorType
     actor_id: Identifier
-    question_ids: tuple[Identifier, ...] = Field(min_length=1, max_length=20)
-    depends_on: tuple[Annotated[int, Field(ge=1, le=8)], ...]
+    question_ids: tuple[Identifier, ...] = Field(
+        min_length=1,
+        max_length=20,
+        json_schema_extra={"uniqueItems": True},
+    )
+    depends_on: tuple[Annotated[int, Field(ge=1, le=8)], ...] = Field(
+        json_schema_extra={"uniqueItems": True}
+    )
     input: FrozenJsonObject
     input_bindings: tuple[PlanInputBindingV3, ...]
     expected_outputs: tuple[ExpectedOutputV3, ...] = Field(min_length=1)
@@ -199,16 +215,14 @@ class PlanStepV3(StrictFrozenModel):
 
 
 class ExecutionPlanV3(StrictFrozenModel):
-    model_config = ConfigDict(json_schema_extra={"$id": "execution-plan-v3"})
-
-    schema_version: Literal["execution-plan-v3"] = "execution-plan-v3"
-    task_type: Literal["competitive_research"] = "competitive_research"
+    schema_version: Literal["execution-plan-v3"]
+    task_type: Literal["competitive_research"]
     requirement_version_id: Identifier
     requirement_content_hash: Sha256Hex
-    problem_graph_artifact: SealedArtifactRefV3
+    problem_graph_artifact: ProblemGraphArtifactRefV3
     candidate_id: Literal["depth", "speed"]
-    deliverable_type: Literal["competitive_analysis_report"] = "competitive_analysis_report"
-    payload_schema_version: Literal["competitive-analysis-text-v1"] = "competitive-analysis-text-v1"
+    deliverable_type: Literal["competitive_analysis_report"]
+    payload_schema_version: Literal["competitive-analysis-text-v1"]
     evidence_requirements: tuple[EvidenceRequirementV1, ...]
     capability_decisions: tuple[CapabilityDecisionV3, ...]
     capability_gaps: tuple[CapabilityGapV3, ...]
@@ -216,7 +230,7 @@ class ExecutionPlanV3(StrictFrozenModel):
     candidate_title: Annotated[NonBlankString, Field(max_length=240)]
     candidate_rationale: Annotated[NonBlankString, Field(max_length=2000)]
     candidate_tradeoffs: Annotated[NonBlankString, Field(max_length=2000)]
-    activated_nodes: tuple[Identifier, ...]
+    activated_nodes: tuple[Identifier, ...] = Field(json_schema_extra={"uniqueItems": True})
     control_snapshot_artifact: SealedArtifactRefV3
     execution_budget_seconds: Literal[300] = 300
     max_tool_calls: Literal[24] = 24
@@ -263,7 +277,7 @@ class ExecutionPlanVersionV3(StrictFrozenModel):
     run_id: Identifier
     requirement_version_id: Identifier
     version: Annotated[int, Field(ge=1)]
-    schema_version: Literal["execution-plan-v3"] = "execution-plan-v3"
+    schema_version: Literal["execution-plan-v3"]
     plan_hash: Sha256Hex
     payload: ExecutionPlanV3
     created_at: datetime

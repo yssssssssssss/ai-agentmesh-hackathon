@@ -13,14 +13,24 @@ from agentmesh.research_orchestration.v3.canonical import (
     canonical_json_v3_sha256,
     strict_json_v3_loads,
 )
-from agentmesh.research_orchestration.v3.common import FrozenJsonObject
+from agentmesh.research_orchestration.v3.common import (
+    FrozenJsonObject,
+    ProblemGraphArtifactRefV3,
+    freeze_json_object,
+    thaw_json_value,
+)
 from agentmesh.research_orchestration.v3.deliverable import ResearchDeliverableV3
 from agentmesh.research_orchestration.v3.execution_plan import (
+    CapabilityResolutionV3,
     ExecutionPlanV3,
     ExecutionPlanVersionV3,
     PlanCandidateSetV3,
 )
-from agentmesh.research_orchestration.v3.ports import ActorExecutionRequestV3, CandidateCompilerPort
+from agentmesh.research_orchestration.v3.ports import (
+    ActorExecutionRequestV3,
+    CandidateCompilationRequestV3,
+    CandidateCompilerPort,
+)
 from agentmesh.research_orchestration.v3.problem_graph import (
     EvidenceRequirementV1,
     ProblemGraphV1,
@@ -32,7 +42,6 @@ from agentmesh.research_orchestration.v3.review import ReportReviewV3
 from agentmesh.research_orchestration.v3.schema_registry import (
     SOURCE_ONLY_IDENTITIES,
     V2_HISTORICAL_IDENTITIES,
-    V3_CURRENT_IDENTITIES,
     V3_GENERATION_IDENTITIES,
     V3_PERSISTED_RESOURCE_IDENTITIES,
     V3_PERSISTED_SCHEMA_IDENTITIES,
@@ -134,9 +143,9 @@ def test_all_requested_target_discriminators_validate() -> None:
 
 
 def test_v2_identifiers_remain_disjoint_and_no_source_alias_is_registered() -> None:
-    assert V2_HISTORICAL_IDENTITIES.isdisjoint(V3_CURRENT_IDENTITIES)
+    assert V2_HISTORICAL_IDENTITIES.isdisjoint(V3_GENERATION_IDENTITIES)
     assert V2_HISTORICAL_IDENTITIES.isdisjoint(V3_PERSISTED_RESOURCE_IDENTITIES)
-    assert SOURCE_ONLY_IDENTITIES.isdisjoint(V3_CURRENT_IDENTITIES)
+    assert SOURCE_ONLY_IDENTITIES.isdisjoint(V3_PERSISTED_RESOURCE_IDENTITIES)
     assert {key[2] for key in V3_TARGET_REGISTRY}.isdisjoint(SOURCE_ONLY_IDENTITIES)
     assert len(V2_HISTORICAL_IDENTITIES) == 13
     assert V3_GENERATION_IDENTITIES == {
@@ -157,7 +166,7 @@ def test_v2_identifiers_remain_disjoint_and_no_source_alias_is_registered() -> N
     assert V3_PERSISTED_SCHEMA_IDENTITIES == (
         (V3_GENERATION_IDENTITIES - {"research-v3"}) | V3_SUPPORTING_SCHEMA_IDENTITIES
     )
-    assert V3_PERSISTED_RESOURCE_IDENTITIES == V3_CURRENT_IDENTITIES
+    assert V3_PERSISTED_RESOURCE_IDENTITIES == {"research-v3"} | V3_PERSISTED_SCHEMA_IDENTITIES
     assert V3_WEB_SCHEMA_IDENTITIES == {"research-workbench-aggregate-v1"}
     assert V3_WEB_SCHEMA_IDENTITIES.isdisjoint(V3_PERSISTED_RESOURCE_IDENTITIES)
 
@@ -191,6 +200,39 @@ def test_canonical_json_fields_are_transitively_immutable_and_defensively_serial
     assert request.resolved_input["nested"][0]["value"] == "sealed"
 
 
+def test_frozen_json_object_private_state_cannot_be_mutated_or_reassigned() -> None:
+    original = FrozenJsonObject({"nested": {"values": [1, 2]}, "label": "stable"})
+    equivalent = FrozenJsonObject({"label": "stable", "nested": {"values": [1, 2]}})
+    original_hash = hash(original)
+    original_bytes = canonical_json_v3_bytes(original)
+
+    assert original == equivalent == {"nested": {"values": [1, 2]}, "label": "stable"}
+    assert hash(equivalent) == original_hash
+    assert not hasattr(original, "_values")
+    assert isinstance(original._items, tuple)  # type: ignore[attr-defined]
+    with pytest.raises(TypeError, match="state is immutable"):
+        original._items = ()  # type: ignore[attr-defined,misc]
+    with pytest.raises(TypeError, match="state is immutable"):
+        original._hash = 0  # type: ignore[attr-defined,misc]
+    with pytest.raises(TypeError, match="state is immutable"):
+        original._values = {}  # type: ignore[attr-defined,misc]
+    with pytest.raises(AttributeError):
+        object.__setattr__(original, "_items", ())
+    with pytest.raises(AttributeError):
+        object.__setattr__(original, "_hash", 0)
+    with pytest.raises(TypeError):
+        original._items[0] = ("changed", "changed")  # type: ignore[attr-defined,index]
+
+    defensive_copy = freeze_json_object(original)
+    assert defensive_copy is not original
+    assert defensive_copy == original
+    thawed = thaw_json_value(original)
+    assert isinstance(thawed, dict)
+    thawed["nested"]["values"].append(3)  # type: ignore[index,union-attr]
+    assert hash(original) == original_hash
+    assert canonical_json_v3_bytes(original) == original_bytes
+
+
 def test_frozen_document_recomputes_content_hash_and_rejects_nested_mutation() -> None:
     source_content = {"schema": {"required": ["query"]}}
     content_bytes = canonical_json_v3_bytes(source_content)
@@ -219,9 +261,49 @@ def test_frozen_document_recomputes_content_hash_and_rejects_nested_mutation() -
         )
 
 
-def test_candidate_compiler_requires_the_sealed_problem_graph_reference() -> None:
-    parameters = signature(CandidateCompilerPort.compile).parameters
-    assert tuple(parameters).index("problem_graph_artifact") == tuple(parameters).index("problem_graph") + 1
+def test_candidate_compiler_boundary_requires_and_hash_validates_problem_graph_artifact() -> None:
+    graph = ProblemGraphV1.model_validate(problem_graph_body())
+    artifact = ProblemGraphArtifactRefV3(
+        artifact_id="artifact_graph",
+        kind="problem_graph",
+        schema_version="problem-graph-v1",
+        content_hash=canonical_json_v3_sha256(graph),
+    )
+    capabilities = CapabilityResolutionV3(
+        decisions=(),
+        gaps=(),
+        control_snapshot_artifact={
+            "artifact_id": "artifact_control",
+            "kind": "research_control_snapshot",
+            "schema_version": "research-control-snapshot-v3",
+            "content_hash": "a" * 64,
+        },
+    )
+    request = CandidateCompilationRequestV3(
+        requirement=RequirementVersionV3.model_validate(requirement_envelope()),
+        problem_graph=graph,
+        problem_graph_artifact=artifact,
+        capabilities=capabilities,
+        candidate=PlanCandidateSetV3.model_validate(candidate_set_body()).candidates[0],
+    )
+    assert request.problem_graph_artifact == artifact
+    assert tuple(signature(CandidateCompilerPort.compile).parameters) == ("self", "request")
+
+    with pytest.raises(ValidationError, match="canonical ProblemGraph body"):
+        CandidateCompilationRequestV3(
+            requirement=request.requirement,
+            problem_graph=request.problem_graph,
+            problem_graph_artifact=artifact.model_copy(update={"content_hash": "f" * 64}),
+            capabilities=request.capabilities,
+            candidate=request.candidate,
+        )
+    with pytest.raises(ValidationError):
+        ProblemGraphArtifactRefV3(
+            artifact_id="artifact_graph",
+            kind="generic",
+            schema_version="problem-graph-v1",
+            content_hash=canonical_json_v3_sha256(graph),
+        )
 
 
 def test_foundation_does_not_make_research_v3_reachable() -> None:

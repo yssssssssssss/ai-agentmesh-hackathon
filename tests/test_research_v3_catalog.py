@@ -8,6 +8,10 @@ import pytest
 import yaml
 
 from agentmesh.research_orchestration.v3.catalog import (
+    CATALOG_MAX_DOCUMENT_DEPTH,
+    _preflight_inventory,
+    _read_resource,
+    _strict_json_resource_load,
     load_catalog_document,
     load_competitive_text_catalog,
     strict_yaml_load,
@@ -84,6 +88,46 @@ def test_catalog_yaml_rejects_ambiguous_or_unsafe_constructs() -> None:
         strict_yaml_load("1: value\n")
     with pytest.raises(yaml.constructor.ConstructorError):  # type: ignore[name-defined]
         strict_yaml_load("value: !unsafe payload\n")
+
+
+def test_catalog_preflight_enforces_file_count_size_and_aggregate_limits(tmp_path: Path) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.yaml"
+    first.write_bytes(b"{}")
+    second.write_bytes(b"key: value\n")
+
+    with pytest.raises(ValueError, match="file count"):
+        _preflight_inventory(tmp_path, max_files=1)
+    with pytest.raises(ValueError, match="aggregate bytes"):
+        _preflight_inventory(tmp_path, max_aggregate_bytes=4)
+    with pytest.raises(ValueError, match="per-file byte limit"):
+        _preflight_inventory(tmp_path, max_file_bytes=4)
+
+    inventory = _preflight_inventory(tmp_path)
+    with pytest.raises(ValueError, match="its byte limit"):
+        _read_resource(tmp_path, "second.yaml", inventory, max_bytes=4)
+
+
+def test_catalog_yaml_and_json_depth_limits_are_fail_closed() -> None:
+    yaml_lines = ["value:"]
+    yaml_lines.extend(f"{'  ' * depth}child:" for depth in range(1, CATALOG_MAX_DOCUMENT_DEPTH + 2))
+    yaml_lines.append(f"{'  ' * (CATALOG_MAX_DOCUMENT_DEPTH + 2)}leaf: value")
+    with pytest.raises(ValueError, match="document depth"):
+        strict_yaml_load("\n".join(yaml_lines))
+
+    nested_json = "{}"
+    for _ in range(CATALOG_MAX_DOCUMENT_DEPTH + 1):
+        nested_json = '{"child":' + nested_json + "}"
+    with pytest.raises(ValueError, match="document depth"):
+        _strict_json_resource_load(nested_json)
+
+
+def test_catalog_loading_never_uses_unbounded_path_read_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    def reject_read_bytes(self: Path) -> bytes:
+        raise AssertionError(f"unbounded read_bytes called for {self}")
+
+    monkeypatch.setattr(Path, "read_bytes", reject_read_bytes)
+    assert load_competitive_text_catalog().catalog_hash is not None
 
 
 def test_package_data_is_narrow_and_excludes_evidence_bundle() -> None:

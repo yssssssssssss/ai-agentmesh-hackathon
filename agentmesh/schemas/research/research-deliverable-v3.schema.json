@@ -29,6 +29,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -61,6 +62,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -151,6 +153,7 @@
             {
               "items": {
                 "maxLength": 4000,
+                "pattern": "\\S",
                 "type": "string"
               },
               "minItems": 1,
@@ -168,6 +171,7 @@
             {
               "items": {
                 "maxLength": 4000,
+                "pattern": "\\S",
                 "type": "string"
               },
               "minItems": 1,
@@ -201,6 +205,7 @@
             {
               "items": {
                 "maxLength": 4000,
+                "pattern": "\\S",
                 "type": "string"
               },
               "minItems": 1,
@@ -218,6 +223,7 @@
             "additionalProperties": true,
             "type": "object"
           },
+          "maxItems": 0,
           "title": "Screenshot Comparisons",
           "type": "array"
         },
@@ -226,6 +232,7 @@
             {
               "items": {
                 "maxLength": 4000,
+                "pattern": "\\S",
                 "type": "string"
               },
               "minItems": 1,
@@ -243,6 +250,7 @@
             "additionalProperties": true,
             "type": "object"
           },
+          "maxItems": 0,
           "title": "Visual Evidence",
           "type": "array"
         }
@@ -278,11 +286,13 @@
         },
         "name": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Name",
           "type": "string"
         },
         "rationale": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Rationale",
           "type": "string"
         }
@@ -306,6 +316,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         },
@@ -332,6 +343,7 @@
       "properties": {
         "dimension": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Dimension",
           "type": "string"
         },
@@ -351,6 +363,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -369,6 +382,7 @@
       "properties": {
         "dimension": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Dimension",
           "type": "string"
         },
@@ -431,6 +445,7 @@
         },
         "value": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Value",
           "type": "string"
         }
@@ -458,19 +473,19 @@
         },
         "kind": {
           "const": "evidence_manifest",
-          "default": "evidence_manifest",
           "title": "Kind",
           "type": "string"
         },
         "schema_version": {
           "const": "evidence-manifest-v3",
-          "default": "evidence-manifest-v3",
           "title": "Schema Version",
           "type": "string"
         }
       },
       "required": [
         "artifact_id",
+        "kind",
+        "schema_version",
         "content_hash"
       ],
       "title": "EvidenceManifestArtifactRefV3",
@@ -495,18 +510,19 @@
         },
         "kind": {
           "const": "fact",
-          "default": "fact",
           "title": "Kind",
           "type": "string"
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "kind",
         "evidence_ids",
         "statement"
       ],
@@ -574,6 +590,7 @@
       "properties": {
         "audience": {
           "maxLength": 240,
+          "pattern": "\\S",
           "title": "Audience",
           "type": "string"
         },
@@ -584,6 +601,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -615,18 +633,19 @@
         },
         "kind": {
           "const": "inference",
-          "default": "inference",
           "title": "Kind",
           "type": "string"
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
       },
       "required": [
         "id",
+        "kind",
         "finding_ids",
         "statement"
       ],
@@ -687,6 +706,7 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         }
@@ -730,6 +750,7 @@
       "properties": {
         "metric": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Metric",
           "type": "string"
         },
@@ -744,11 +765,13 @@
         },
         "statement": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Statement",
           "type": "string"
         },
         "validation_method": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Validation Method",
           "type": "string"
         }
@@ -846,6 +869,7 @@
         },
         "summary": {
           "maxLength": 4000,
+          "pattern": "\\S",
           "title": "Summary",
           "type": "string"
         }
@@ -881,7 +905,6 @@
     },
     "deliverable_type": {
       "const": "competitive_analysis_report",
-      "default": "competitive_analysis_report",
       "title": "Deliverable Type",
       "type": "string"
     },
@@ -893,6 +916,7 @@
     },
     "method_summary": {
       "maxLength": 4000,
+      "pattern": "\\S",
       "title": "Method Summary",
       "type": "string"
     },
@@ -901,7 +925,6 @@
     },
     "payload_schema_version": {
       "const": "competitive-analysis-text-v1",
-      "default": "competitive-analysis-text-v1",
       "title": "Payload Schema Version",
       "type": "string"
     },
@@ -925,6 +948,7 @@
     "risks_and_open_issues": {
       "items": {
         "maxLength": 4000,
+        "pattern": "\\S",
         "type": "string"
       },
       "title": "Risks And Open Issues",
@@ -937,16 +961,18 @@
     },
     "schema_version": {
       "const": "research-deliverable-v3",
-      "default": "research-deliverable-v3",
       "title": "Schema Version",
       "type": "string"
     }
   },
   "required": [
+    "schema_version",
     "run_id",
     "requirement_version_id",
     "plan_version_id",
     "attempt_id",
+    "deliverable_type",
+    "payload_schema_version",
     "evidence_manifest_artifact",
     "method_summary",
     "finding_graph",

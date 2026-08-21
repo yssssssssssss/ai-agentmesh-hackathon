@@ -220,7 +220,12 @@ def plan_body() -> dict:
         "task_type": "competitive_research",
         "requirement_version_id": "requirement_1",
         "requirement_content_hash": canonical_json_v3_sha256(requirement_body()),
-        "problem_graph_artifact": artifact_ref("artifact_graph", "problem_graph", "problem-graph-v1"),
+        "problem_graph_artifact": artifact_ref(
+            "artifact_graph",
+            "problem_graph",
+            "problem-graph-v1",
+            canonical_json_v3_sha256(problem_graph_body()),
+        ),
         "candidate_id": "depth",
         "deliverable_type": "competitive_analysis_report",
         "payload_schema_version": "competitive-analysis-text-v1",
@@ -566,11 +571,6 @@ def source_deliverable_body() -> dict:
                 }
                 for value in payload["action_recommendations"]
             ],
-            "managementSummary": payload["management_summary"],
-            "scoringMethod": payload["scoring_method"],
-            "roadmap": payload["roadmap"],
-            "instrumentationPlan": payload["instrumentation_plan"],
-            "userTestScript": payload["user_test_script"],
             "visualEvidence": [],
             "screenshotComparisons": [],
         },

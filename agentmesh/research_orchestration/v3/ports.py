@@ -5,12 +5,14 @@ from typing import Annotated, Protocol
 
 from pydantic import Field
 
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.catalog import CompetitiveTextCatalog
 from agentmesh.research_orchestration.v3.common import (
     ActorType,
     EvidenceManifestArtifactRefV3,
     FrozenJsonObject,
     Identifier,
+    ProblemGraphArtifactRefV3,
     SealedArtifactRefV3,
     Sha256Hex,
     StrictFrozenModel,
@@ -80,16 +82,23 @@ class CandidateGenerationPort(Protocol):
     ) -> PlanCandidateSetV3: ...
 
 
+class CandidateCompilationRequestV3(StrictFrozenModel):
+    """Validated compiler boundary; the sealed graph must match the supplied body."""
+
+    requirement: RequirementVersionV3
+    problem_graph: ProblemGraphV1
+    problem_graph_artifact: ProblemGraphArtifactRefV3
+    capabilities: CapabilityResolutionV3
+    candidate: PlanCandidateV3
+
+    def model_post_init(self, context: object) -> None:
+        del context
+        if self.problem_graph_artifact.content_hash != canonical_json_v3_sha256(self.problem_graph):
+            raise ValueError("ProblemGraph Artifact hash does not match the canonical ProblemGraph body")
+
+
 class CandidateCompilerPort(Protocol):
-    def compile(
-        self,
-        *,
-        requirement: RequirementVersionV3,
-        problem_graph: ProblemGraphV1,
-        problem_graph_artifact: SealedArtifactRefV3,
-        capabilities: CapabilityResolutionV3,
-        candidate: PlanCandidateV3,
-    ) -> ExecutionPlanV3: ...
+    def compile(self, request: CandidateCompilationRequestV3) -> ExecutionPlanV3: ...
 
 
 class ActorExecutionRequestV3(StrictFrozenModel):
@@ -195,7 +204,7 @@ class ResearchV3RepositoryPort(Protocol):
         requirement_version_id: Identifier,
     ) -> PlanCandidateSetV3 | None: ...
 
-    def get_problem_graph(self, artifact: SealedArtifactRefV3) -> ProblemGraphV1 | None: ...
+    def get_problem_graph(self, artifact: ProblemGraphArtifactRefV3) -> ProblemGraphV1 | None: ...
 
     def seal_problem_graph(
         self,
@@ -203,7 +212,7 @@ class ResearchV3RepositoryPort(Protocol):
         graph: ProblemGraphV1,
         *,
         expected_state_version: int,
-    ) -> SealedArtifactRefV3: ...
+    ) -> ProblemGraphArtifactRefV3: ...
 
     def get_plan(self, run_id: Identifier, version_id: Identifier) -> ExecutionPlanVersionV3 | None: ...
 

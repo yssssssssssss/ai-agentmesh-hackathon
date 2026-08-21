@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from agentmesh.research_orchestration.v3.common import (
     FrozenJsonObject,
@@ -46,53 +46,85 @@ class ChartRefV3(StrictFrozenModel):
 
 class ParagraphBlockV3(StrictFrozenModel):
     id: Identifier
-    type: Literal["paragraph"] = "paragraph"
+    type: Literal["paragraph"]
     text: Text
 
 
 class FactBlockV3(StrictFrozenModel):
     id: Identifier
-    type: Literal["fact"] = "fact"
+    type: Literal["fact"]
     text: Text
-    evidence_ids: tuple[Identifier, ...] = Field(min_length=1)
+    evidence_ids: tuple[Identifier, ...] = Field(
+        min_length=1,
+        json_schema_extra={"uniqueItems": True},
+    )
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> FactBlockV3:
+        require_unique(self.evidence_ids, "fact block Evidence IDs")
+        return self
 
 
 class MetricBlockV3(StrictFrozenModel):
     id: Identifier
-    type: Literal["metric"] = "metric"
+    type: Literal["metric"]
     label: Annotated[NonBlankString, Field(max_length=500)]
     value: JsonDecimal
-    evidence_ids: tuple[Identifier, ...] = Field(min_length=1)
+    evidence_ids: tuple[Identifier, ...] = Field(
+        min_length=1,
+        json_schema_extra={"uniqueItems": True},
+    )
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> MetricBlockV3:
+        require_unique(self.evidence_ids, "metric block Evidence IDs")
+        return self
 
 
 class ListBlockV3(StrictFrozenModel):
     id: Identifier
-    type: Literal["list"] = "list"
+    type: Literal["list"]
     items: tuple[Text, ...] = Field(min_length=1)
 
 
 class ImageBlockV3(StrictFrozenModel):
     id: Identifier
-    type: Literal["image"] = "image"
+    type: Literal["image"]
     asset_ref: AssetRefV3
     caption: Text
     alt_text: Text
-    evidence_ids: tuple[Identifier, ...] = Field(min_length=1)
+    evidence_ids: tuple[Identifier, ...] = Field(
+        min_length=1,
+        json_schema_extra={"uniqueItems": True},
+    )
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> ImageBlockV3:
+        require_unique(self.evidence_ids, "image block Evidence IDs")
+        return self
 
 
 class ImageComparisonBlockV3(StrictFrozenModel):
     id: Identifier
-    type: Literal["image-comparison"] = "image-comparison"
+    type: Literal["image-comparison"]
     before_asset_ref: AssetRefV3
     after_asset_ref: AssetRefV3
     caption: Text
     alt_text: Text
-    evidence_ids: tuple[Identifier, ...] = Field(min_length=1)
+    evidence_ids: tuple[Identifier, ...] = Field(
+        min_length=1,
+        json_schema_extra={"uniqueItems": True},
+    )
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> ImageComparisonBlockV3:
+        require_unique(self.evidence_ids, "image-comparison block Evidence IDs")
+        return self
 
 
 class ChartBlockV3(StrictFrozenModel):
     id: Identifier
-    type: Literal["chart"] = "chart"
+    type: Literal["chart"]
     chart_ref: ChartRefV3
     spec_hash: Sha256Hex
     spec: FrozenJsonObject
@@ -116,7 +148,7 @@ ReportBlockV3 = Annotated[
 class ReportSectionV3(StrictFrozenModel):
     id: Identifier
     title: Annotated[NonBlankString, Field(max_length=500)]
-    question_ids: tuple[Identifier, ...]
+    question_ids: tuple[Identifier, ...] = Field(json_schema_extra={"uniqueItems": True})
     blocks: tuple[ReportBlockV3, ...]
 
     @model_validator(mode="after")
@@ -127,9 +159,7 @@ class ReportSectionV3(StrictFrozenModel):
 
 
 class ReportDocumentV3(StrictFrozenModel):
-    model_config = ConfigDict(json_schema_extra={"$id": "report-document-v3"})
-
-    schema_version: Literal["report-document-v3"] = "report-document-v3"
+    schema_version: Literal["report-document-v3"]
     presentation_mode: Literal["text", "multimodal"]
     run_id: Identifier
     requirement_version_id: Identifier

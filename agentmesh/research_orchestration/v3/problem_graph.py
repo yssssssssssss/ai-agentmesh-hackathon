@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from agentmesh.research_orchestration.v3.common import (
     EvidenceClass,
@@ -17,7 +17,11 @@ from agentmesh.research_orchestration.v3.requirement import ResearchTaskV3
 
 class EvidenceRequirementV1(StrictFrozenModel):
     id: Identifier
-    accepted_classes: tuple[EvidenceClass, ...] = Field(min_length=1, max_length=7)
+    accepted_classes: tuple[EvidenceClass, ...] = Field(
+        min_length=1,
+        max_length=7,
+        json_schema_extra={"uniqueItems": True},
+    )
     minimum_count: Annotated[int, Field(ge=1, le=20)]
     required: bool
 
@@ -32,13 +36,20 @@ class ProblemQuestionV1(StrictFrozenModel):
     statement: Annotated[NonBlankString, Field(max_length=2000)]
     rationale: Annotated[NonBlankString, Field(max_length=2000)]
     priority: Literal["required", "optional"]
-    success_criterion_ids: tuple[Identifier, ...] = Field(max_length=20)
+    success_criterion_ids: tuple[Identifier, ...] = Field(
+        max_length=20,
+        json_schema_extra={"uniqueItems": True},
+    )
     evidence_requirements: tuple[EvidenceRequirementV1, ...] = Field(max_length=20)
     acceptance_criteria: tuple[Annotated[NonBlankString, Field(max_length=1000)], ...] = Field(
         min_length=1,
         max_length=20,
+        json_schema_extra={"uniqueItems": True},
     )
-    depends_on: tuple[Identifier, ...] = Field(max_length=20)
+    depends_on: tuple[Identifier, ...] = Field(
+        max_length=20,
+        json_schema_extra={"uniqueItems": True},
+    )
 
     @model_validator(mode="after")
     def validate_question(self) -> ProblemQuestionV1:
@@ -63,9 +74,7 @@ class ProblemGraphProvenanceV1(StrictFrozenModel):
 
 
 class ProblemGraphV1(StrictFrozenModel):
-    model_config = ConfigDict(json_schema_extra={"$id": "problem-graph-v1"})
-
-    schema_version: Literal["problem-graph-v1"] = "problem-graph-v1"
+    schema_version: Literal["problem-graph-v1"]
     requirement_version_id: Identifier
     questions: tuple[ProblemQuestionV1, ...] = Field(min_length=1, max_length=20)
     provenance: ProblemGraphProvenanceV1
