@@ -47,6 +47,19 @@ from agentmesh.research_orchestration.v3.web_projection import WorkbenchApproval
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 _IDENTIFIER_ADAPTER = TypeAdapter(Identifier)
+_RECORD_CODECS: dict[str, tuple[str, type[BaseModel]]] = {
+    "requirement": ("research-task-v3", RequirementVersionV3),
+    "candidate_set": ("plan-candidates-v3", PlanCandidateSetV3),
+    "problem_graph": ("problem-graph-v1", ProblemGraphV1),
+    "plan": ("execution-plan-v3", ExecutionPlanVersionV3),
+    "control_snapshot": ("research-control-snapshot-v3", ResearchControlSnapshotV3),
+    "actor_result": ("actor-execution-result-v3", ActorExecutionResultV3),
+    "evidence_manifest": ("evidence-manifest-v3", EvidenceManifestV3),
+    "deliverable": ("research-deliverable-v3", ResearchDeliverableV3),
+    "review": ("report-review-v3", ReportReviewV3),
+    "report": ("report-document-v3", ReportDocumentV3),
+    "approval": ("workbench-approval-v1", WorkbenchApprovalV1),
+}
 
 
 class ResearchV3PersistenceError(RuntimeError):
@@ -63,6 +76,13 @@ class ResearchV3ConflictError(ResearchV3PersistenceError):
 
 class ResearchV3IntegrityError(ResearchV3PersistenceError):
     pass
+
+
+class _CommitResearchV3Conflict(ResearchV3ConflictError):
+    """Conflict raised after a required coordination transition must be committed."""
+
+
+_DEADLINE_ERROR_CODE = "attempt_deadline_exceeded"
 
 
 def _require_aware(value: datetime, label: str) -> datetime:
@@ -262,6 +282,18 @@ class ActorInvocationV3(StrictFrozenModel):
                 )
             ):
                 raise ValueError("prepared invocation cannot contain send or result metadata")
+        elif self.state == "cancelled":
+            if self.send_count or any(
+                item is not None
+                for item in (
+                    self.sent_fencing_epoch,
+                    self.sent_at,
+                    self.unknown_at,
+                    self.receipt_id,
+                    self.result_artifact,
+                )
+            ) or self.error_code is None:
+                raise ValueError("cancelled invocation requires an unsent cancellation reason")
         elif not sent:
             raise ValueError("post-send invocation states require exactly one persisted send")
         if self.state == "sent" and any(
@@ -296,6 +328,25 @@ class ResearchCommandReceiptV3(StrictFrozenModel):
     def validate_created_at(self) -> ResearchCommandReceiptV3:
         _require_aware(self.created_at, "command receipt created_at")
         return self
+
+
+class RepositoryRecordPayloadV3(StrictFrozenModel):
+    """Typed envelope that integrity-binds every generic record projection column."""
+
+    envelope_schema_version: Literal["research-v3-record-envelope-v1"] = (
+        "research-v3-record-envelope-v1"
+    )
+    run_id: Identifier
+    record_kind: Identifier
+    natural_key: Identifier
+    record_schema_version: Identifier
+    sequence_number: Annotated[int, Field(ge=1)] | None = None
+    requirement_version_id: Identifier | None = None
+    plan_version_id: Identifier | None = None
+    attempt_id: Identifier | None = None
+    step_number: Annotated[int, Field(ge=1, le=8)] | None = None
+    artifact: SealedArtifactRefV3 | None = None
+    value_json: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,6 +516,9 @@ class SQLiteResearchV3Repository:
             try:
                 self._connection.execute("BEGIN IMMEDIATE")
                 yield self._connection
+            except _CommitResearchV3Conflict:
+                self._connection.commit()
+                raise
             except Exception:
                 self._connection.rollback()
                 raise
@@ -611,7 +665,31 @@ class SQLiteResearchV3Repository:
     ) -> None:
         row = self._require_run(connection, run_id)
         self._check_state(row, expected_state_version)
-        payload, payload_hash = _encode_model(value)
+        codec = _RECORD_CODECS.get(record_kind)
+        if codec is None or codec[0] != schema_version or not isinstance(value, codec[1]):
+            raise ResearchV3IntegrityError(f"unsupported typed {record_kind} record append")
+        self._validated_record_rows(
+            connection,
+            run_id=run_id,
+            record_kind=record_kind,
+            schema_version=schema_version,
+            model_type=codec[1],
+        )
+        value_payload = canonical_json_v3_bytes(value)
+        envelope = RepositoryRecordPayloadV3(
+            run_id=run_id,
+            record_kind=record_kind,
+            natural_key=natural_key,
+            record_schema_version=schema_version,
+            sequence_number=sequence_number,
+            requirement_version_id=requirement_version_id,
+            plan_version_id=plan_version_id,
+            attempt_id=attempt_id,
+            step_number=step_number,
+            artifact=artifact,
+            value_json=value_payload.decode("utf-8"),
+        )
+        payload, payload_hash = _encode_model(envelope)
         try:
             connection.execute(
                 """
@@ -657,16 +735,53 @@ class SQLiteResearchV3Repository:
     ) -> _ModelT | None:
         if self._select_run(connection, run_id) is None:
             return None
-        row = connection.execute(
-            """SELECT * FROM research_v3_records
-            WHERE run_id = ? AND record_kind = ? AND natural_key = ?""",
-            (run_id, record_kind, natural_key),
-        ).fetchone()
-        if row is None:
-            return None
-        return self._decode_record_row(
+        rows = self._validated_record_rows(
+            connection,
+            run_id=run_id,
+            record_kind=record_kind,
+            schema_version=schema_version,
+            model_type=model_type,
+        )
+        matches = [value for row, value in rows if row["natural_key"] == natural_key]
+        if len(matches) > 1:
+            raise ResearchV3IntegrityError(f"stored {record_kind} natural key is not unique")
+        return matches[0] if matches else None
+
+    @classmethod
+    def _validated_record_rows(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        record_kind: str,
+        schema_version: str,
+        model_type: type[_ModelT],
+    ) -> tuple[tuple[sqlite3.Row, _ModelT], ...]:
+        rows = connection.execute(
+            "SELECT * FROM research_v3_records WHERE run_id = ?",
+            (run_id,),
+        ).fetchall()
+        decoded = tuple((row, cls._decode_any_record_row(row)) for row in rows)
+        matches: list[tuple[sqlite3.Row, _ModelT]] = []
+        for row, value in decoded:
+            if row["record_kind"] != record_kind:
+                continue
+            if row["schema_version"] != schema_version or not isinstance(value, model_type):
+                raise ResearchV3IntegrityError(
+                    f"stored {record_kind} record has an unsupported typed codec"
+                )
+            matches.append((row, value))
+        return tuple(matches)
+
+    @classmethod
+    def _decode_any_record_row(cls, row: sqlite3.Row) -> BaseModel:
+        codec = _RECORD_CODECS.get(row["record_kind"])
+        if codec is None:
+            raise ResearchV3IntegrityError("stored generic record kind is unsupported")
+        schema_version, model_type = codec
+        return cls._decode_record_row(
             row,
-            expected_kind=record_kind,
+            expected_kind=row["record_kind"],
             expected_schema=schema_version,
             model_type=model_type,
         )
@@ -683,15 +798,187 @@ class SQLiteResearchV3Repository:
             raise ResearchV3IntegrityError(
                 f"stored {expected_kind} record has an unsupported exact schema version"
             )
-        value = _decode_model(
+        envelope = _decode_model(
             payload=row["payload"],
             payload_hash=row["payload_hash"],
+            model_type=RepositoryRecordPayloadV3,
+            label=f"{expected_kind} record envelope",
+        )
+        artifact_columns = (
+            row["artifact_id"],
+            row["artifact_kind"],
+            row["artifact_schema_version"],
+            row["artifact_content_hash"],
+        )
+        expected_artifact_columns = (
+            (
+                envelope.artifact.artifact_id,
+                envelope.artifact.kind,
+                envelope.artifact.schema_version,
+                envelope.artifact.content_hash,
+            )
+            if envelope.artifact is not None
+            else (None, None, None, None)
+        )
+        projection = (
+            row["run_id"],
+            row["record_kind"],
+            row["natural_key"],
+            row["schema_version"],
+            row["sequence_number"],
+            row["requirement_version_id"],
+            row["plan_version_id"],
+            row["attempt_id"],
+            row["step_number"],
+            *artifact_columns,
+        )
+        expected_projection = (
+            envelope.run_id,
+            envelope.record_kind,
+            envelope.natural_key,
+            envelope.record_schema_version,
+            envelope.sequence_number,
+            envelope.requirement_version_id,
+            envelope.plan_version_id,
+            envelope.attempt_id,
+            envelope.step_number,
+            *expected_artifact_columns,
+        )
+        if projection != expected_projection or (
+            envelope.record_kind != expected_kind
+            or envelope.record_schema_version != expected_schema
+        ):
+            raise ResearchV3IntegrityError(
+                f"stored {expected_kind} indexed columns do not match its typed payload"
+            )
+        value_raw = envelope.value_json.encode("utf-8")
+        value = _decode_model(
+            payload=value_raw,
+            payload_hash=hashlib.sha256(value_raw).hexdigest(),
             model_type=model_type,
             label=expected_kind,
         )
         if hasattr(value, "schema_version") and getattr(value, "schema_version") != expected_schema:
             raise ResearchV3IntegrityError(f"stored {expected_kind} discriminator does not match its row")
+        SQLiteResearchV3Repository._assert_record_value_binding(envelope, value)
         return value
+
+    @staticmethod
+    def _assert_record_value_binding(
+        envelope: RepositoryRecordPayloadV3,
+        value: BaseModel,
+    ) -> None:
+        artifact: SealedArtifactRefV3 | None = None
+        match envelope.record_kind:
+            case "requirement":
+                natural_key = value.id
+                sequence_number = value.version
+                run_id = value.run_id
+                requirement_version_id = value.id
+                plan_version_id = attempt_id = step_number = None
+            case "candidate_set":
+                natural_key = envelope.requirement_version_id
+                sequence_number = None
+                run_id = envelope.run_id
+                requirement_version_id = envelope.requirement_version_id
+                plan_version_id = attempt_id = step_number = None
+            case "problem_graph":
+                run_id = envelope.run_id
+                requirement_version_id = value.requirement_version_id
+                sequence_number = plan_version_id = attempt_id = step_number = None
+                artifact = _sealed_ref(
+                    run_id=run_id,
+                    kind="problem_graph",
+                    schema_version="problem-graph-v1",
+                    value=value,
+                )
+                natural_key = artifact.artifact_id
+            case "plan":
+                natural_key = value.id
+                sequence_number = value.version
+                run_id = value.run_id
+                requirement_version_id = value.requirement_version_id
+                plan_version_id = value.id
+                attempt_id = step_number = None
+            case "control_snapshot":
+                run_id = envelope.run_id
+                sequence_number = requirement_version_id = plan_version_id = None
+                attempt_id = step_number = None
+                artifact = _sealed_ref(
+                    run_id=run_id,
+                    kind="research_control_snapshot",
+                    schema_version="research-control-snapshot-v3",
+                    value=value,
+                )
+                natural_key = artifact.artifact_id
+            case "actor_result":
+                run_id = value.run_id
+                natural_key = f"{value.attempt_id}:{value.step_number}"
+                sequence_number = requirement_version_id = None
+                plan_version_id = value.plan_version_id
+                attempt_id = value.attempt_id
+                step_number = value.step_number
+                artifact = value.result_artifact
+            case "evidence_manifest":
+                run_id = value.run_id
+                sequence_number = requirement_version_id = step_number = None
+                plan_version_id = value.plan_version_id
+                attempt_id = value.attempt_id
+                artifact = _sealed_ref(
+                    run_id=run_id,
+                    kind="evidence_manifest",
+                    schema_version="evidence-manifest-v3",
+                    value=value,
+                )
+                natural_key = artifact.artifact_id
+            case "deliverable" | "review" | "report":
+                run_id = value.run_id
+                sequence_number = requirement_version_id = step_number = None
+                plan_version_id = value.plan_version_id
+                attempt_id = value.attempt_id
+                artifact_kind = {
+                    "deliverable": "research_deliverable",
+                    "review": "report_review",
+                    "report": "report_document",
+                }[envelope.record_kind]
+                artifact = _sealed_ref(
+                    run_id=run_id,
+                    kind=artifact_kind,
+                    schema_version=envelope.record_schema_version,
+                    value=value,
+                )
+                natural_key = artifact.artifact_id
+            case "approval":
+                run_id = envelope.run_id
+                natural_key = value.gate_key
+                sequence_number = requirement_version_id = attempt_id = step_number = None
+                plan_version_id = value.plan_version_id
+            case _:
+                raise ResearchV3IntegrityError("stored generic record kind is unsupported")
+        expected = (
+            run_id,
+            natural_key,
+            sequence_number,
+            requirement_version_id,
+            plan_version_id,
+            attempt_id,
+            step_number,
+            artifact,
+        )
+        actual = (
+            envelope.run_id,
+            envelope.natural_key,
+            envelope.sequence_number,
+            envelope.requirement_version_id,
+            envelope.plan_version_id,
+            envelope.attempt_id,
+            envelope.step_number,
+            envelope.artifact,
+        )
+        if actual != expected:
+            raise ResearchV3IntegrityError(
+                f"stored {envelope.record_kind} columns do not match its typed value"
+            )
 
     @staticmethod
     def _artifact_from_row(row: sqlite3.Row) -> SealedArtifactRefV3:
@@ -786,29 +1073,36 @@ class SQLiteResearchV3Repository:
 
     def get_problem_graph(self, artifact: ProblemGraphArtifactRefV3) -> ProblemGraphV1 | None:
         with self._lock:
-            row = self._connection.execute(
+            rows = self._connection.execute(
                 """
                 SELECT records.* FROM research_v3_records AS records
                 JOIN research_v3_runs AS runs ON runs.run_id = records.run_id
-                WHERE records.record_kind = 'problem_graph' AND records.artifact_id = ?
-                  AND runs.owner_id = ? AND runs.workspace_id = ? AND runs.project_id = ?
+                WHERE runs.owner_id = ? AND runs.workspace_id = ? AND runs.project_id = ?
                   AND runs.tombstoned_at IS NULL
                 """,
                 (
-                    artifact.artifact_id,
                     self.scope.owner_id,
                     self.scope.workspace_id,
                     self.scope.project_id,
                 ),
-            ).fetchone()
-            if row is None or not _artifact_refs_equal(self._artifact_from_row(row), artifact):
+            ).fetchall()
+            matches: list[tuple[sqlite3.Row, ProblemGraphV1]] = []
+            for row in rows:
+                value = self._decode_any_record_row(row)
+                if (
+                    row["record_kind"] == "problem_graph"
+                    and row["artifact_id"] == artifact.artifact_id
+                ):
+                    if not isinstance(value, ProblemGraphV1):
+                        raise ResearchV3IntegrityError("ProblemGraph record has an invalid typed codec")
+                    matches.append((row, value))
+            if not matches:
                 return None
-            value = self._decode_record_row(
-                row,
-                expected_kind="problem_graph",
-                expected_schema="problem-graph-v1",
-                model_type=ProblemGraphV1,
-            )
+            if len(matches) != 1:
+                raise ResearchV3IntegrityError("ProblemGraph Artifact identity is not unique")
+            row, value = matches[0]
+            if not _artifact_refs_equal(self._artifact_from_row(row), artifact):
+                return None
             if canonical_json_v3_sha256(value) != artifact.content_hash:
                 raise ResearchV3IntegrityError("ProblemGraph Artifact content hash does not match")
             return value
@@ -878,16 +1172,36 @@ class SQLiteResearchV3Repository:
             )
             if requirement is None or plan.payload.requirement_content_hash != requirement.content_hash:
                 raise ResearchV3ConflictError("Plan Requirement lineage is not persisted exactly")
-            graph_row = connection.execute(
-                """SELECT * FROM research_v3_records
-                WHERE run_id = ? AND record_kind = 'problem_graph' AND artifact_id = ?""",
-                (plan.run_id, plan.payload.problem_graph_artifact.artifact_id),
-            ).fetchone()
-            snapshot_row = connection.execute(
-                """SELECT * FROM research_v3_records
-                WHERE run_id = ? AND record_kind = 'control_snapshot' AND artifact_id = ?""",
-                (plan.run_id, plan.payload.control_snapshot_artifact.artifact_id),
-            ).fetchone()
+            graph_rows = self._validated_record_rows(
+                connection,
+                run_id=plan.run_id,
+                record_kind="problem_graph",
+                schema_version="problem-graph-v1",
+                model_type=ProblemGraphV1,
+            )
+            graph_row = next(
+                (
+                    row
+                    for row, _value in graph_rows
+                    if row["artifact_id"] == plan.payload.problem_graph_artifact.artifact_id
+                ),
+                None,
+            )
+            snapshot_rows = self._validated_record_rows(
+                connection,
+                run_id=plan.run_id,
+                record_kind="control_snapshot",
+                schema_version="research-control-snapshot-v3",
+                model_type=ResearchControlSnapshotV3,
+            )
+            snapshot_row = next(
+                (
+                    row
+                    for row, _value in snapshot_rows
+                    if row["artifact_id"] == plan.payload.control_snapshot_artifact.artifact_id
+                ),
+                None,
+            )
             if graph_row is None or not _artifact_refs_equal(
                 self._artifact_from_row(graph_row), plan.payload.problem_graph_artifact
             ):
@@ -976,30 +1290,35 @@ class SQLiteResearchV3Repository:
         model_type: type[_ModelT],
     ) -> _ModelT | None:
         with self._lock:
-            row = self._connection.execute(
+            rows = self._connection.execute(
                 """
                 SELECT records.* FROM research_v3_records AS records
                 JOIN research_v3_runs AS runs ON runs.run_id = records.run_id
-                WHERE records.record_kind = ? AND records.artifact_id = ?
-                  AND runs.owner_id = ? AND runs.workspace_id = ? AND runs.project_id = ?
+                WHERE runs.owner_id = ? AND runs.workspace_id = ? AND runs.project_id = ?
                   AND runs.tombstoned_at IS NULL
                 """,
                 (
-                    record_kind,
-                    artifact.artifact_id,
                     self.scope.owner_id,
                     self.scope.workspace_id,
                     self.scope.project_id,
                 ),
-            ).fetchone()
-            if row is None or not _artifact_refs_equal(self._artifact_from_row(row), artifact):
+            ).fetchall()
+            matches: list[tuple[sqlite3.Row, _ModelT]] = []
+            for row in rows:
+                value = self._decode_any_record_row(row)
+                if row["record_kind"] == record_kind and row["artifact_id"] == artifact.artifact_id:
+                    if not isinstance(value, model_type):
+                        raise ResearchV3IntegrityError(
+                            f"{record_kind} record has an invalid typed codec"
+                        )
+                    matches.append((row, value))
+            if not matches:
                 return None
-            value = self._decode_record_row(
-                row,
-                expected_kind=record_kind,
-                expected_schema=schema_version,
-                model_type=model_type,
-            )
+            if len(matches) != 1:
+                raise ResearchV3IntegrityError(f"{record_kind} Artifact identity is not unique")
+            row, value = matches[0]
+            if not _artifact_refs_equal(self._artifact_from_row(row), artifact):
+                return None
             if canonical_json_v3_sha256(value) != artifact.content_hash:
                 raise ResearchV3IntegrityError(f"{record_kind} Artifact content hash does not match")
             return value
@@ -1013,21 +1332,19 @@ class SQLiteResearchV3Repository:
         with self._lock:
             if self._select_run(self._connection, run_id) is None:
                 return ()
-            rows = self._connection.execute(
-                """SELECT * FROM research_v3_records
-                WHERE run_id = ? AND record_kind = 'actor_result'
-                  AND plan_version_id = ? AND attempt_id = ? ORDER BY step_number""",
-                (run_id, plan_version_id, attempt_id),
-            ).fetchall()
-            return tuple(
-                self._decode_record_row(
-                    row,
-                    expected_kind="actor_result",
-                    expected_schema="actor-execution-result-v3",
-                    model_type=ActorExecutionResultV3,
-                )
-                for row in rows
+            rows = self._validated_record_rows(
+                self._connection,
+                run_id=run_id,
+                record_kind="actor_result",
+                schema_version="actor-execution-result-v3",
+                model_type=ActorExecutionResultV3,
             )
+            values = [
+                value
+                for _row, value in rows
+                if value.plan_version_id == plan_version_id and value.attempt_id == attempt_id
+            ]
+            return tuple(sorted(values, key=lambda value: value.step_number))
 
     def append_actor_result(
         self,
@@ -1039,7 +1356,16 @@ class SQLiteResearchV3Repository:
         with self._write() as connection:
             attempt = self._load_attempt(connection, result.attempt_id)
             self._assert_attempt_lineage(attempt, result.run_id, result.plan_version_id)
-            self._assert_lease(attempt, lease, self._clock())
+            run = self._require_run(connection, result.run_id)
+            self._check_state(run, expected_state_version)
+            checked = self._clock()
+            self._expire_attempt_or_raise(
+                connection,
+                attempt,
+                now=checked,
+                expected_state_version=expected_state_version,
+            )
+            self._assert_lease(attempt, lease, checked)
             invocation = self._load_invocation_for_step(
                 connection, attempt_id=result.attempt_id, step_number=result.step_number
             )
@@ -1094,13 +1420,16 @@ class SQLiteResearchV3Repository:
             expected_ids = {
                 item.pointer.artifact.artifact_id for item in manifest.evidence
             }
+            verified_rows = connection.execute(
+                """SELECT * FROM research_v3_verified_artifacts WHERE run_id = ?""",
+                (manifest.run_id,),
+            ).fetchall()
+            verified = tuple(self._verified_from_row(row) for row in verified_rows)
             stored_ids = {
-                row["artifact_id"]
-                for row in connection.execute(
-                    """SELECT artifact_id FROM research_v3_verified_artifacts
-                    WHERE run_id = ? AND plan_version_id = ? AND attempt_id = ?""",
-                    (manifest.run_id, manifest.plan_version_id, manifest.attempt_id),
-                ).fetchall()
+                item.artifact.artifact_id
+                for item in verified
+                if item.plan_version_id == manifest.plan_version_id
+                and item.attempt_id == manifest.attempt_id
             }
             if not expected_ids.issubset(stored_ids):
                 raise ResearchV3ConflictError(
@@ -1232,7 +1561,14 @@ class SQLiteResearchV3Repository:
             self._check_state(row, expected_state_version)
             attempt = self._load_attempt(connection, content.attempt_id)
             self._assert_attempt_lineage(attempt, content.run_id, content.plan_version_id)
-            self._assert_lease(attempt, lease, self._clock())
+            checked = self._clock()
+            self._expire_attempt_or_raise(
+                connection,
+                attempt,
+                now=checked,
+                expected_state_version=expected_state_version,
+            )
+            self._assert_lease(attempt, lease, checked)
             payload, payload_hash = _encode_model(content)
             try:
                 connection.execute(
@@ -1273,28 +1609,17 @@ class SQLiteResearchV3Repository:
         with self._lock:
             if self._select_run(self._connection, run_id) is None:
                 return None
-            row = self._connection.execute(
-                """SELECT * FROM research_v3_verified_artifacts
-                WHERE artifact_id = ? AND run_id = ? AND plan_version_id = ?
-                  AND attempt_id = ? AND step_number = ?""",
-                (artifact.artifact_id, run_id, plan_version_id, attempt_id, step_number),
-            ).fetchone()
-            if row is None:
+            rows = self._connection.execute(
+                """SELECT * FROM research_v3_verified_artifacts WHERE run_id = ?""",
+                (run_id,),
+            ).fetchall()
+            values = tuple(self._verified_from_row(row) for row in rows)
+            matches = [value for value in values if value.artifact.artifact_id == artifact.artifact_id]
+            if not matches:
                 return None
-            stored_ref = SealedArtifactRefV3(
-                artifact_id=row["artifact_id"],
-                kind=row["artifact_kind"],
-                schema_version=row["artifact_schema_version"],
-                content_hash=row["artifact_content_hash"],
-            )
-            if not _artifact_refs_equal(stored_ref, artifact):
-                return None
-            value = _decode_model(
-                payload=row["payload"],
-                payload_hash=row["payload_hash"],
-                model_type=VerifiedArtifactContentV3,
-                label="verified Actor Artifact",
-            )
+            if len(matches) != 1:
+                raise ResearchV3IntegrityError("verified Actor Artifact identity is not unique")
+            value = matches[0]
             if (
                 value.run_id,
                 value.plan_version_id,
@@ -1361,6 +1686,14 @@ class SQLiteResearchV3Repository:
             )
             if plan is None:
                 raise ResearchV3ConflictError("Attempt Plan is not persisted")
+            active_row = connection.execute(
+                """SELECT * FROM research_v3_attempts
+                WHERE run_id = ? AND status IN ('pending', 'running', 'paused')""",
+                (run_id,),
+            ).fetchone()
+            if active_row is not None:
+                active_attempt = self._attempt_from_row(active_row)
+                self._expire_attempt_if_due(connection, active_attempt, created)
             next_number = connection.execute(
                 "SELECT COALESCE(MAX(attempt_number), 0) + 1 FROM research_v3_attempts WHERE run_id = ?",
                 (run_id,),
@@ -1542,6 +1875,71 @@ class SQLiteResearchV3Repository:
         if lease.expires_at <= checked or attempt.deadline_at <= checked:
             raise ResearchV3ConflictError("Attempt lease is expired")
 
+    def _expire_attempt_if_due(
+        self,
+        connection: sqlite3.Connection,
+        attempt: ExecutionAttemptV3,
+        now: datetime,
+    ) -> ExecutionAttemptV3 | None:
+        checked = _require_aware(now, "attempt deadline check")
+        if attempt.status not in {"pending", "running", "paused"} or attempt.deadline_at > checked:
+            return None
+        transition_at = attempt.deadline_at
+        invocation_rows = connection.execute(
+            """SELECT * FROM research_v3_invocations
+            WHERE attempt_id = ? ORDER BY step_number, invocation_id""",
+            (attempt.attempt_id,),
+        ).fetchall()
+        for invocation_row in invocation_rows:
+            invocation = self._invocation_from_row(invocation_row)
+            if invocation.state == "prepared":
+                cancelled = invocation.model_copy(
+                    update={
+                        "state": "cancelled",
+                        "error_code": _DEADLINE_ERROR_CODE,
+                        "updated_at": transition_at,
+                    }
+                )
+                self._store_invocation(connection, cancelled)
+            elif invocation.state == "sent":
+                unknown = invocation.model_copy(
+                    update={
+                        "state": "unknown",
+                        "unknown_at": transition_at,
+                        "error_code": _DEADLINE_ERROR_CODE,
+                        "updated_at": transition_at,
+                    }
+                )
+                self._store_invocation(connection, unknown)
+        expired = attempt.model_copy(
+            update={
+                "status": "aborted",
+                "lease_owner": None,
+                "lease_token": None,
+                "lease_expires_at": None,
+                "fencing_epoch": attempt.fencing_epoch + 1,
+                "failed_step_number": None,
+                "failure_code": None,
+                "pause_reason": None,
+                "updated_at": transition_at,
+            }
+        )
+        self._store_attempt(connection, expired)
+        return expired
+
+    def _expire_attempt_or_raise(
+        self,
+        connection: sqlite3.Connection,
+        attempt: ExecutionAttemptV3,
+        *,
+        now: datetime,
+        expected_state_version: int,
+    ) -> None:
+        if self._expire_attempt_if_due(connection, attempt, now) is None:
+            return
+        self._advance_state(connection, attempt.run_id, expected_state_version)
+        raise _CommitResearchV3Conflict("Attempt deadline was reached and the Attempt was aborted")
+
     def claim_attempt(
         self,
         attempt_id: Identifier,
@@ -1559,7 +1957,8 @@ class SQLiteResearchV3Repository:
             attempt = self._load_attempt(connection, attempt_id)
             run = self._require_run(connection, attempt.run_id)
             self._check_state(run, expected_state_version)
-            if attempt.deadline_at <= checked:
+            if self._expire_attempt_if_due(connection, attempt, checked) is not None:
+                self._advance_state(connection, attempt.run_id, expected_state_version)
                 return None
             if (
                 attempt.status == "running"
@@ -1653,6 +2052,12 @@ class SQLiteResearchV3Repository:
             attempt = self._load_attempt(connection, lease.attempt_id)
             run = self._require_run(connection, attempt.run_id)
             self._check_state(run, expected_state_version)
+            self._expire_attempt_or_raise(
+                connection,
+                attempt,
+                now=checked,
+                expected_state_version=expected_state_version,
+            )
             self._assert_lease(attempt, lease, checked)
             expires_at = min(checked + lease_ttl, attempt.deadline_at)
             if expires_at <= checked:
@@ -1685,7 +2090,25 @@ class SQLiteResearchV3Repository:
             attempt = self._load_attempt(connection, lease.attempt_id)
             run = self._require_run(connection, attempt.run_id)
             self._check_state(run, expected_state_version)
+            self._expire_attempt_or_raise(
+                connection,
+                attempt,
+                now=checked,
+                expected_state_version=expected_state_version,
+            )
             self._assert_lease(attempt, lease, checked)
+            plan = self._read_record(
+                connection,
+                run_id=attempt.run_id,
+                record_kind="plan",
+                natural_key=attempt.plan_version_id,
+                schema_version="execution-plan-v3",
+                model_type=ExecutionPlanVersionV3,
+            )
+            if plan is None:
+                raise ResearchV3IntegrityError("Attempt Plan disappeared")
+            if failed_step_number not in {step.step_number for step in plan.payload.steps}:
+                raise ResearchV3ConflictError("failed Step is not in the selected Plan")
             paused = attempt.model_copy(
                 update={
                     "status": "paused",
@@ -1714,6 +2137,12 @@ class SQLiteResearchV3Repository:
             attempt = self._load_attempt(connection, lease.attempt_id)
             run = self._require_run(connection, attempt.run_id)
             self._check_state(run, expected_state_version)
+            self._expire_attempt_or_raise(
+                connection,
+                attempt,
+                now=checked,
+                expected_state_version=expected_state_version,
+            )
             self._assert_lease(attempt, lease, checked)
             plan = self._read_record(
                 connection,
@@ -1725,13 +2154,17 @@ class SQLiteResearchV3Repository:
             )
             if plan is None:
                 raise ResearchV3IntegrityError("Attempt Plan disappeared")
+            result_rows = self._validated_record_rows(
+                connection,
+                run_id=attempt.run_id,
+                record_kind="actor_result",
+                schema_version="actor-execution-result-v3",
+                model_type=ActorExecutionResultV3,
+            )
             result_steps = {
-                row["step_number"]
-                for row in connection.execute(
-                    """SELECT step_number FROM research_v3_records
-                    WHERE run_id = ? AND record_kind = 'actor_result' AND attempt_id = ?""",
-                    (attempt.run_id, attempt.attempt_id),
-                ).fetchall()
+                result.step_number
+                for _row, result in result_rows
+                if result.attempt_id == attempt.attempt_id
             }
             if result_steps != {step.step_number for step in plan.payload.steps}:
                 raise ResearchV3ConflictError("Attempt cannot complete without exact Plan Step results")
@@ -1768,6 +2201,10 @@ class SQLiteResearchV3Repository:
             attempt = self._load_attempt(connection, attempt_id)
             run = self._require_run(connection, attempt.run_id)
             self._check_state(run, expected_state_version)
+            expired = self._expire_attempt_if_due(connection, attempt, aborted_at)
+            if expired is not None:
+                self._advance_state(connection, attempt.run_id, expected_state_version)
+                return expired
             if attempt.status == "running":
                 self._assert_lease(attempt, lease, aborted_at)
             elif attempt.status not in {"pending", "paused"}:
@@ -1790,8 +2227,32 @@ class SQLiteResearchV3Repository:
 
     def list_recoverable_attempts(self, *, now: datetime) -> tuple[ExecutionAttemptV3, ...]:
         checked = _require_aware(now, "recovery time")
-        with self._lock:
-            rows = self._connection.execute(
+        with self._write() as connection:
+            expired_rows = connection.execute(
+                """
+                SELECT attempts.* FROM research_v3_attempts AS attempts
+                JOIN research_v3_runs AS runs ON runs.run_id = attempts.run_id
+                WHERE runs.owner_id = ? AND runs.workspace_id = ? AND runs.project_id = ?
+                  AND runs.tombstoned_at IS NULL AND attempts.deadline_at <= ?
+                  AND attempts.status IN ('pending', 'running', 'paused')
+                ORDER BY attempts.run_id, attempts.attempt_id
+                """,
+                (
+                    self.scope.owner_id,
+                    self.scope.workspace_id,
+                    self.scope.project_id,
+                    _iso(checked),
+                ),
+            ).fetchall()
+            for row in expired_rows:
+                attempt = self._attempt_from_row(row)
+                if self._expire_attempt_if_due(connection, attempt, checked) is not None:
+                    connection.execute(
+                        """UPDATE research_v3_runs SET state_version = state_version + 1
+                        WHERE run_id = ? AND tombstoned_at IS NULL""",
+                        (attempt.run_id,),
+                    )
+            rows = connection.execute(
                 """
                 SELECT attempts.* FROM research_v3_attempts AS attempts
                 JOIN research_v3_runs AS runs ON runs.run_id = attempts.run_id
@@ -1829,6 +2290,12 @@ class SQLiteResearchV3Repository:
             self._check_state(run, expected_state_version)
             attempt = self._load_attempt(connection, attempt_id)
             self._assert_attempt_lineage(attempt, run_id, plan_version_id)
+            self._expire_attempt_or_raise(
+                connection,
+                attempt,
+                now=created,
+                expected_state_version=expected_state_version,
+            )
             self._assert_lease(attempt, lease, created)
             plan = self._read_record(
                 connection,
@@ -1991,6 +2458,12 @@ class SQLiteResearchV3Repository:
             run = self._require_run(connection, invocation.run_id)
             self._check_state(run, expected_state_version)
             attempt = self._load_attempt(connection, invocation.attempt_id)
+            self._expire_attempt_or_raise(
+                connection,
+                attempt,
+                now=sent_at,
+                expected_state_version=expected_state_version,
+            )
             self._assert_lease(attempt, lease, sent_at)
             if invocation.state != "prepared":
                 raise ResearchV3ConflictError(
@@ -2025,24 +2498,68 @@ class SQLiteResearchV3Repository:
             run = self._require_run(connection, invocation.run_id)
             self._check_state(run, expected_state_version)
             attempt = self._load_attempt(connection, invocation.attempt_id)
+            self._expire_attempt_or_raise(
+                connection,
+                attempt,
+                now=acknowledged_at,
+                expected_state_version=expected_state_version,
+            )
             self._assert_lease(attempt, lease, acknowledged_at)
             if invocation.state != "sent" or invocation.sent_fencing_epoch != lease.fencing_epoch:
                 raise ResearchV3ConflictError("only the currently fenced SENT invocation may acknowledge")
             artifact_row = connection.execute(
-                """SELECT 1 FROM research_v3_verified_artifacts
-                WHERE artifact_id = ? AND run_id = ? AND plan_version_id = ?
-                  AND attempt_id = ? AND step_number = ? AND artifact_content_hash = ?""",
-                (
-                    result_artifact.artifact_id,
-                    invocation.run_id,
-                    invocation.plan_version_id,
-                    invocation.attempt_id,
-                    invocation.step_number,
-                    result_artifact.content_hash,
-                ),
+                """SELECT * FROM research_v3_verified_artifacts WHERE artifact_id = ?""",
+                (result_artifact.artifact_id,),
             ).fetchone()
             if artifact_row is None:
                 raise ResearchV3ConflictError("acknowledged result Artifact is not persisted and verified")
+            verified = self._verified_from_row(artifact_row)
+            plan = self._read_record(
+                connection,
+                run_id=invocation.run_id,
+                record_kind="plan",
+                natural_key=invocation.plan_version_id,
+                schema_version="execution-plan-v3",
+                model_type=ExecutionPlanVersionV3,
+            )
+            plan_step = (
+                next(
+                    (
+                        step
+                        for step in plan.payload.steps
+                        if step.step_number == invocation.step_number
+                    ),
+                    None,
+                )
+                if plan is not None
+                else None
+            )
+            if plan_step is None:
+                raise ResearchV3IntegrityError("invocation Step is absent from its persisted Plan")
+            if (
+                verified.artifact,
+                verified.run_id,
+                verified.plan_version_id,
+                verified.attempt_id,
+                verified.step_number,
+                verified.receipt_id,
+                verified.actor_type,
+                verified.actor_id,
+                verified.step_contract_hash,
+            ) != (
+                result_artifact,
+                invocation.run_id,
+                invocation.plan_version_id,
+                invocation.attempt_id,
+                invocation.step_number,
+                receipt_id,
+                plan_step.actor_type,
+                plan_step.actor_id,
+                plan_step.contract_hash,
+            ):
+                raise ResearchV3ConflictError(
+                    "acknowledged result Artifact does not match its verified Step and receipt"
+                )
             acknowledged = invocation.model_copy(
                 update={
                     "state": "acknowledged",
@@ -2070,6 +2587,12 @@ class SQLiteResearchV3Repository:
             run = self._require_run(connection, invocation.run_id)
             self._check_state(run, expected_state_version)
             attempt = self._load_attempt(connection, invocation.attempt_id)
+            self._expire_attempt_or_raise(
+                connection,
+                attempt,
+                now=unknown_at,
+                expected_state_version=expected_state_version,
+            )
             self._assert_lease(attempt, lease, unknown_at)
             if invocation.state != "sent" or invocation.sent_fencing_epoch != lease.fencing_epoch:
                 raise ResearchV3ConflictError("only the currently fenced SENT invocation may become UNKNOWN")
@@ -2215,13 +2738,17 @@ class SQLiteResearchV3Repository:
                 WHERE run_id = ? AND idempotency_key = ?""",
                 (run_id, idempotency_key),
             ).fetchone()
-            if run["tombstoned_at"] is not None:
-                if existing_row is None:
-                    raise ResearchV3ConflictError("run is already tombstoned")
+            if existing_row is not None:
                 existing = self._receipt_from_row(existing_row)
                 if existing.command_type != "purge" or existing.request_hash != request_hash:
-                    raise ResearchV3ConflictError("purge idempotency key does not match tombstone")
-                return existing, True
+                    raise ResearchV3ConflictError(
+                        "idempotency key was already used for a different command"
+                    )
+                if run["tombstoned_at"] is not None:
+                    return existing, True
+                raise ResearchV3IntegrityError("active run has a committed purge command receipt")
+            if run["tombstoned_at"] is not None:
+                raise ResearchV3ConflictError("run is already tombstoned")
             self._check_state(run, expected_state_version)
             receipt = ResearchCommandReceiptV3(
                 run_id=run_id,
@@ -2232,13 +2759,6 @@ class SQLiteResearchV3Repository:
                 committed_state_version=expected_state_version + 1,
                 created_at=purged,
             )
-            connection.execute("DELETE FROM research_v3_records WHERE run_id = ?", (run_id,))
-            connection.execute(
-                "DELETE FROM research_v3_verified_artifacts WHERE run_id = ?", (run_id,)
-            )
-            connection.execute("DELETE FROM research_v3_invocations WHERE run_id = ?", (run_id,))
-            connection.execute("DELETE FROM research_v3_attempts WHERE run_id = ?", (run_id,))
-            connection.execute("DELETE FROM research_v3_command_receipts WHERE run_id = ?", (run_id,))
             payload, payload_hash = _encode_model(receipt)
             connection.execute(
                 """INSERT INTO research_v3_command_receipts(
@@ -2255,6 +2775,17 @@ class SQLiteResearchV3Repository:
                     _iso(purged),
                 ),
             )
+            connection.execute("DELETE FROM research_v3_records WHERE run_id = ?", (run_id,))
+            connection.execute(
+                "DELETE FROM research_v3_verified_artifacts WHERE run_id = ?", (run_id,)
+            )
+            connection.execute("DELETE FROM research_v3_invocations WHERE run_id = ?", (run_id,))
+            connection.execute("DELETE FROM research_v3_attempts WHERE run_id = ?", (run_id,))
+            connection.execute(
+                """DELETE FROM research_v3_command_receipts
+                WHERE run_id = ? AND idempotency_key <> ?""",
+                (run_id, idempotency_key),
+            )
             cursor = connection.execute(
                 """UPDATE research_v3_runs SET state_version = state_version + 1, tombstoned_at = ?
                 WHERE run_id = ? AND state_version = ? AND tombstoned_at IS NULL""",
@@ -2264,28 +2795,35 @@ class SQLiteResearchV3Repository:
                 raise ResearchV3ConflictError("research-v3 state version conflict during purge")
             return receipt, False
 
-    @staticmethod
     def _latest_record_row(
+        self,
         connection: sqlite3.Connection,
         *,
         run_id: str,
         record_kind: str,
+        schema_version: str,
+        model_type: type[_ModelT],
         plan_version_id: str | None = None,
         attempt_id: str | None = None,
     ) -> sqlite3.Row | None:
-        clauses = ["run_id = ?", "record_kind = ?"]
-        parameters: list[object] = [run_id, record_kind]
-        if plan_version_id is not None:
-            clauses.append("plan_version_id = ?")
-            parameters.append(plan_version_id)
-        if attempt_id is not None:
-            clauses.append("attempt_id = ?")
-            parameters.append(attempt_id)
-        return connection.execute(
-            f"SELECT * FROM research_v3_records WHERE {' AND '.join(clauses)} "
-            "ORDER BY COALESCE(sequence_number, 0) DESC, id DESC LIMIT 1",
-            parameters,
-        ).fetchone()
+        rows = self._validated_record_rows(
+            connection,
+            run_id=run_id,
+            record_kind=record_kind,
+            schema_version=schema_version,
+            model_type=model_type,
+        )
+        filtered = [
+            row
+            for row, _value in rows
+            if (plan_version_id is None or row["plan_version_id"] == plan_version_id)
+            and (attempt_id is None or row["attempt_id"] == attempt_id)
+        ]
+        return max(
+            filtered,
+            key=lambda row: (row["sequence_number"] or 0, row["id"]),
+            default=None,
+        )
 
     def projection_snapshot(
         self, run_id: Identifier
@@ -2297,7 +2835,11 @@ class SQLiteResearchV3Repository:
                 return None
             run = self._run_from_row(run_row)
             requirement_row = self._latest_record_row(
-                self._connection, run_id=run_id, record_kind="requirement"
+                self._connection,
+                run_id=run_id,
+                record_kind="requirement",
+                schema_version="research-task-v3",
+                model_type=RequirementVersionV3,
             )
             requirement = (
                 self._decode_record_row(
@@ -2320,7 +2862,11 @@ class SQLiteResearchV3Repository:
                     model_type=PlanCandidateSetV3,
                 )
             plan_row = self._latest_record_row(
-                self._connection, run_id=run_id, record_kind="plan"
+                self._connection,
+                run_id=run_id,
+                record_kind="plan",
+                schema_version="execution-plan-v3",
+                model_type=ExecutionPlanVersionV3,
             )
             plan = (
                 self._decode_record_row(
@@ -2345,34 +2891,42 @@ class SQLiteResearchV3Repository:
             report: tuple[SealedArtifactRefV3, ReportDocumentV3] | None = None
             verified: tuple[VerifiedArtifactContentV3, ...] = ()
             if plan is not None:
-                approval_rows = self._connection.execute(
-                    """SELECT * FROM research_v3_records
-                    WHERE run_id = ? AND record_kind = 'approval' AND plan_version_id = ?
-                    ORDER BY natural_key""",
-                    (run_id, plan.id),
-                ).fetchall()
-                approvals = tuple(
-                    self._decode_record_row(
-                        row,
-                        expected_kind="approval",
-                        expected_schema="workbench-approval-v1",
-                        model_type=WorkbenchApprovalV1,
-                    )
-                    for row in approval_rows
+                approval_rows = self._validated_record_rows(
+                    self._connection,
+                    run_id=run_id,
+                    record_kind="approval",
+                    schema_version="workbench-approval-v1",
+                    model_type=WorkbenchApprovalV1,
                 )
-                attempt_row = self._connection.execute(
-                    """SELECT * FROM research_v3_attempts
-                    WHERE run_id = ? AND plan_version_id = ?
-                    ORDER BY attempt_number DESC LIMIT 1""",
-                    (run_id, plan.id),
-                ).fetchone()
-                if attempt_row is not None:
-                    attempt = self._attempt_from_row(attempt_row)
+                approvals = tuple(
+                    value
+                    for _row, value in sorted(
+                        approval_rows,
+                        key=lambda item: item[0]["natural_key"],
+                    )
+                    if value.plan_version_id == plan.id
+                )
+                attempt_rows = self._connection.execute(
+                    """SELECT * FROM research_v3_attempts WHERE run_id = ?""",
+                    (run_id,),
+                ).fetchall()
+                attempts = tuple(self._attempt_from_row(row) for row in attempt_rows)
+                matching_attempts = [
+                    value for value in attempts if value.plan_version_id == plan.id
+                ]
+                attempt = max(
+                    matching_attempts,
+                    key=lambda value: value.attempt_number,
+                    default=None,
+                )
+                if attempt is not None:
                     actor_results = self.get_actor_results(run_id, plan.id, attempt.attempt_id)
                     evidence_row = self._latest_record_row(
                         self._connection,
                         run_id=run_id,
                         record_kind="evidence_manifest",
+                        schema_version="evidence-manifest-v3",
+                        model_type=EvidenceManifestV3,
                         plan_version_id=plan.id,
                         attempt_id=attempt.attempt_id,
                     )
@@ -2395,15 +2949,21 @@ class SQLiteResearchV3Repository:
                             item.pointer.artifact.artifact_id for item in evidence_value.evidence
                         }
                         artifact_rows = self._connection.execute(
-                            """SELECT * FROM research_v3_verified_artifacts
-                            WHERE run_id = ? AND plan_version_id = ? AND attempt_id = ?
-                            ORDER BY step_number, artifact_id""",
-                            (run_id, plan.id, attempt.attempt_id),
+                            """SELECT * FROM research_v3_verified_artifacts WHERE run_id = ?""",
+                            (run_id,),
                         ).fetchall()
+                        verified_values = tuple(
+                            self._verified_from_row(row) for row in artifact_rows
+                        )
                         verified = tuple(
-                            self._verified_from_row(row)
-                            for row in artifact_rows
-                            if row["artifact_id"] in expected_artifact_ids
+                            value
+                            for value in sorted(
+                                verified_values,
+                                key=lambda item: (item.step_number, item.artifact.artifact_id),
+                            )
+                            if value.plan_version_id == plan.id
+                            and value.attempt_id == attempt.attempt_id
+                            and value.artifact.artifact_id in expected_artifact_ids
                         )
                     deliverable = self._projection_artifact(
                         run_id=run_id,
@@ -2458,6 +3018,8 @@ class SQLiteResearchV3Repository:
             self._connection,
             run_id=run_id,
             record_kind=record_kind,
+            schema_version=schema_version,
+            model_type=model_type,
             plan_version_id=plan_version_id,
             attempt_id=attempt_id,
         )
