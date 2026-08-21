@@ -12,6 +12,10 @@
   --primary-strong: #9ea0ff;
   --primary-dim: #4b4fd6;
   --primary-tint: rgba(124, 124, 240, 0.14);
+  /* White at 15px is 5.05:1 normally and 6.08:1 on hover. */
+  --button-primary-bg: #5f60d9;
+  --button-primary-bg-hover: #5556bd;
+  --button-primary-text: #ffffff;
   --ok: #34d399;
   --running: #6366f1;
   --warn: #fbbf24;
@@ -138,8 +142,8 @@
 
 .research-workbench-current .rw-button-primary {
   border: 0;
-  background: var(--primary);
-  color: #fff;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
 }
 
 .research-workbench-current .rw-button-ghost {
@@ -1133,6 +1137,10 @@
   border-left-style: dashed;
 }
 
+.research-workbench-current .rw-report-metric-block {
+  margin-bottom: 24px;
+}
+
 .research-workbench-current .rw-report-metric {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1283,7 +1291,7 @@
 
 @media (hover: hover) {
   .research-workbench-current .rw-button-primary:hover:not(:disabled) {
-    background: var(--primary-strong);
+    background: var(--button-primary-bg-hover);
   }
 
   .research-workbench-current .rw-button-ghost:hover:not(:disabled),

@@ -1,5 +1,6 @@
-// Feature-local projection types mirror the frozen research-workbench-aggregate-v1 schema.
-// They intentionally do not depend on generated production API types: research-v3 is not routed in production.
+// Feature-local render projection types mirror the frozen research-workbench-aggregate-v1
+// discriminators and state matrix. They intentionally do not depend on generated production API
+// types: research-v3 is not routed in production.
 
 export type WorkbenchState =
   | 'idle'
@@ -15,23 +16,51 @@ export type ActorType = 'tool' | 'skill' | 'llm' | 'reviewer'
 export type StepStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
 export type ApprovalRole = 'owner' | 'legal' | 'security'
 
-export interface WorkbenchProjectionProvenance {
-  baseline_state_id: WorkbenchState | string
+interface WorkbenchProjectionProvenanceBase {
+  baseline_state_id: WorkbenchState | null
   projected_at: string
   projection_schema_version: 'research-workbench-aggregate-v1'
-  source_kind: 'isolated_fixture' | 'v2_history_adapter'
   source_state_version: number
 }
 
-export interface WorkbenchWorkflow {
-  state: WorkbenchState
-  state_version: number
-  gate: {
-    kind: 'none' | 'clarification' | 'candidate_selection' | 'plan_confirmation' | 'role_approval' | 'recovery'
-    status: 'inactive' | 'pending' | 'satisfied' | 'blocked'
-    required_role: ApprovalRole | null
-  }
+export interface IsolatedFixtureProvenance extends WorkbenchProjectionProvenanceBase {
+  source_kind: 'isolated_fixture'
+  baseline_state_id: WorkbenchState
 }
+
+export interface RepositoryProjectionProvenance extends WorkbenchProjectionProvenanceBase {
+  source_kind: 'repository_projection'
+  baseline_state_id: null
+}
+
+export interface V2HistoryAdapterProvenance extends WorkbenchProjectionProvenanceBase {
+  source_kind: 'v2_history_adapter'
+  baseline_state_id: null
+}
+
+export type CurrentWorkbenchProjectionProvenance =
+  | IsolatedFixtureProvenance
+  | RepositoryProjectionProvenance
+export type WorkbenchProjectionProvenance =
+  | CurrentWorkbenchProjectionProvenance
+  | V2HistoryAdapterProvenance
+
+export interface WorkbenchGateByState {
+  idle: { kind: 'none'; status: 'inactive'; required_role: null }
+  clarify: { kind: 'clarification'; status: 'pending'; required_role: null }
+  candidates: { kind: 'candidate_selection'; status: 'pending'; required_role: null }
+  plan: { kind: 'plan_confirmation'; status: 'pending'; required_role: null }
+  approval: { kind: 'role_approval'; status: 'pending'; required_role: ApprovalRole }
+  dag_or_executing: { kind: 'none'; status: 'inactive'; required_role: null }
+  paused: { kind: 'recovery'; status: 'blocked'; required_role: null }
+  text_report: { kind: 'none'; status: 'inactive'; required_role: null }
+}
+
+export type WorkbenchWorkflow<S extends WorkbenchState = WorkbenchState> = S extends WorkbenchState ? {
+  state: S
+  state_version: number
+  gate: WorkbenchGateByState[S]
+} : never
 
 export interface ResearchAssumption {
   key: string
@@ -93,8 +122,7 @@ export interface PlanStepProposalV3 {
   approval_role: ApprovalRole | null
 }
 
-export interface PlanCandidateV3 {
-  candidate_id: 'depth' | 'speed'
+interface PlanCandidateV3Base {
   title: string
   rationale: string
   tradeoffs: string
@@ -102,9 +130,19 @@ export interface PlanCandidateV3 {
   proposed_steps: PlanStepProposalV3[]
 }
 
+export interface DepthPlanCandidateV3 extends PlanCandidateV3Base {
+  candidate_id: 'depth'
+}
+
+export interface SpeedPlanCandidateV3 extends PlanCandidateV3Base {
+  candidate_id: 'speed'
+}
+
+export type PlanCandidateV3 = DepthPlanCandidateV3 | SpeedPlanCandidateV3
+
 export interface PlanCandidateSetV3 {
   schema_version: 'plan-candidates-v3'
-  candidates: [PlanCandidateV3, PlanCandidateV3]
+  candidates: [DepthPlanCandidateV3, SpeedPlanCandidateV3]
 }
 
 export interface CapabilityGapV3 {
@@ -120,6 +158,7 @@ export interface PlanStepV3 {
   name: string
   actor_type: ActorType
   actor_id: string
+  contract_hash: string
   question_ids: string[]
   depends_on: number[]
   expected_outputs: ExpectedOutputV3[]
@@ -142,6 +181,7 @@ export interface ExecutionPlanVersionV3 {
     schema_version: 'execution-plan-v3'
     task_type: 'competitive_research'
     requirement_version_id: string
+    requirement_content_hash: string
     candidate_id: 'depth' | 'speed'
     candidate_title: string
     candidate_rationale: string
@@ -162,6 +202,25 @@ export interface WorkbenchApprovalV1 {
   receipt_id: string | null
 }
 
+export interface SealedArtifactRefV3 {
+  artifact_id: string
+  content_hash: string
+  kind: string
+  schema_version: string
+}
+
+export interface ActorExecutionResultV3 {
+  result_artifact: SealedArtifactRefV3
+  run_id: string
+  plan_version_id: string
+  attempt_id: string
+  step_number: number
+  actor_type: ActorType
+  actor_id: string
+  step_contract_hash: string
+  receipt_id: string
+}
+
 export interface WorkbenchStepV1 {
   step_number: number
   actor_type: ActorType
@@ -171,7 +230,7 @@ export interface WorkbenchStepV1 {
   status: StepStatus
   failure_code: string | null
   // The aggregate exposes only a sealed result reference. Renderers must not expose it.
-  result: unknown | null
+  result: ActorExecutionResultV3 | null
 }
 
 export interface WorkbenchAttemptV1 {
@@ -206,13 +265,20 @@ export interface WorkbenchEvidenceItemV1 {
     retrieved_at: string
     registrable_domain: string
     independence_group: string
+    artifact: SealedArtifactRefV3
+    run_id: string
+    plan_version_id: string
+    attempt_id: string
     actor_type: 'tool'
     actor_id: string
     step_number: number
+    step_contract_hash: string
+    receipt_id: string
   }
 }
 
 export interface WorkbenchEvidenceV1 {
+  artifact: SealedArtifactRefV3
   presentation_mode: 'text'
   run_id: string
   plan_version_id: string
@@ -261,6 +327,8 @@ export interface ReportDocumentV3 {
   requirement_version_id: string
   plan_version_id: string
   attempt_id: string
+  deliverable_artifact: SealedArtifactRefV3
+  review_artifact: SealedArtifactRefV3
   title: string
   subtitle: string
   executive_summary: string
@@ -273,6 +341,16 @@ export interface ReportDocumentV3 {
 }
 
 export interface ResearchDeliverableV3 {
+  run_id: string
+  requirement_version_id: string
+  plan_version_id: string
+  attempt_id: string
+  evidence_manifest_artifact: SealedArtifactRefV3
+  capability_provenance: Array<{
+    actor_type: ActorType
+    actor_id: string
+    result_artifact: SealedArtifactRefV3
+  }>
   method_summary: string
   risks_and_open_issues: string[]
   recommendations: Array<{
@@ -283,24 +361,117 @@ export interface ResearchDeliverableV3 {
   }>
 }
 
-export interface ResearchV3WorkbenchAggregateV1 {
+export interface ReportReviewV3 {
+  run_id: string
+  requirement_version_id: string
+  plan_version_id: string
+  attempt_id: string
+  verdict: 'pass' | 'revise' | 'block'
+  deliverable_artifact: SealedArtifactRefV3
+}
+
+interface ResearchV3WorkbenchAggregateBase<S extends WorkbenchState> {
   schema_version: 'research-workbench-aggregate-v1'
   projection_kind: 'research-v3-current'
   orchestration_version: 'research-v3'
   run_id: string
-  workflow: WorkbenchWorkflow
-  requirement: RequirementVersionV3 | null
-  candidates: PlanCandidateSetV3 | null
-  selected_plan: ExecutionPlanVersionV3 | null
+  workflow: WorkbenchWorkflow<S>
   approvals: WorkbenchApprovalV1[]
-  attempt: WorkbenchAttemptV1 | null
-  recovery: WorkbenchRecoveryV1 | null
-  evidence: (WorkbenchEvidenceV1 & { artifact?: unknown }) | null
-  deliverable: ({ content: ResearchDeliverableV3; artifact?: unknown }) | null
-  review: ({ content: { verdict: 'pass' | 'revise' | 'block' }; artifact?: unknown }) | null
-  report: ({ content: ReportDocumentV3; artifact?: unknown }) | null
-  provenance: WorkbenchProjectionProvenance
+  provenance: CurrentWorkbenchProjectionProvenance
 }
+
+type IdleWorkbenchAggregate = ResearchV3WorkbenchAggregateBase<'idle'> & {
+  requirement: null
+  candidates: null
+  selected_plan: null
+  attempt: null
+  recovery: null
+  evidence: null
+  deliverable: null
+  review: null
+  report: null
+}
+
+type ClarifyWorkbenchAggregate = ResearchV3WorkbenchAggregateBase<'clarify'> & {
+  requirement: RequirementVersionV3
+  candidates: null
+  selected_plan: null
+  attempt: null
+  recovery: null
+  evidence: null
+  deliverable: null
+  review: null
+  report: null
+}
+
+type CandidatesWorkbenchAggregate = ResearchV3WorkbenchAggregateBase<'candidates'> & {
+  requirement: RequirementVersionV3
+  candidates: PlanCandidateSetV3
+  selected_plan: null
+  attempt: null
+  recovery: null
+  evidence: null
+  deliverable: null
+  review: null
+  report: null
+}
+
+type PlanWorkbenchAggregate = ResearchV3WorkbenchAggregateBase<'plan' | 'approval'> & {
+  requirement: RequirementVersionV3
+  candidates: PlanCandidateSetV3
+  selected_plan: ExecutionPlanVersionV3
+  attempt: null
+  recovery: null
+  evidence: null
+  deliverable: null
+  review: null
+  report: null
+}
+
+type ExecutingWorkbenchAggregate = ResearchV3WorkbenchAggregateBase<'dag_or_executing'> & {
+  requirement: RequirementVersionV3
+  candidates: PlanCandidateSetV3
+  selected_plan: ExecutionPlanVersionV3
+  attempt: WorkbenchAttemptV1
+  recovery: null
+  evidence: null
+  deliverable: null
+  review: null
+  report: null
+}
+
+type PausedWorkbenchAggregate = ResearchV3WorkbenchAggregateBase<'paused'> & {
+  requirement: RequirementVersionV3
+  candidates: PlanCandidateSetV3
+  selected_plan: ExecutionPlanVersionV3
+  attempt: WorkbenchAttemptV1
+  recovery: WorkbenchRecoveryV1
+  evidence: null
+  deliverable: null
+  review: null
+  report: null
+}
+
+type TextReportWorkbenchAggregate = ResearchV3WorkbenchAggregateBase<'text_report'> & {
+  requirement: RequirementVersionV3
+  candidates: PlanCandidateSetV3
+  selected_plan: ExecutionPlanVersionV3
+  attempt: WorkbenchAttemptV1
+  recovery: null
+  evidence: WorkbenchEvidenceV1
+  deliverable: { content: ResearchDeliverableV3; artifact: SealedArtifactRefV3 }
+  review: { content: ReportReviewV3; artifact: SealedArtifactRefV3 }
+  report: { content: ReportDocumentV3; artifact: SealedArtifactRefV3 }
+}
+
+export type ResearchV3WorkbenchAggregateV1 =
+  | IdleWorkbenchAggregate
+  | ClarifyWorkbenchAggregate
+  | CandidatesWorkbenchAggregate
+  | PlanWorkbenchAggregate
+  | ExecutingWorkbenchAggregate
+  | PausedWorkbenchAggregate
+  | TextReportWorkbenchAggregate
 
 export interface ResearchV2HistoryWorkbenchAggregateV1 {
   schema_version: 'research-workbench-aggregate-v1'
@@ -309,7 +480,7 @@ export interface ResearchV2HistoryWorkbenchAggregateV1 {
   read_only: true
   run_id: string
   history_payload: Record<string, unknown>
-  provenance: WorkbenchProjectionProvenance
+  provenance: V2HistoryAdapterProvenance
 }
 
 export type WorkbenchAggregateV1 = ResearchV3WorkbenchAggregateV1 | ResearchV2HistoryWorkbenchAggregateV1

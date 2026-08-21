@@ -81,7 +81,7 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
         tool_artifact: 'RAW-TOOL-ARTIFACT-MUST-NOT-RENDER',
       },
       provenance: {
-        baseline_state_id: 'text_report',
+        baseline_state_id: null,
         projected_at: '2026-08-21T00:00:00Z',
         projection_schema_version: 'research-workbench-aggregate-v1',
         source_kind: 'v2_history_adapter',
@@ -106,13 +106,121 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
     expect(error).toContain('读取超时')
   })
 
-  it('rejects shape fallback across stored orchestration versions', () => {
+  it('rejects relabelled states, gate mismatches, and cross-version provenance', () => {
+    const relabelledIdle = structuredClone(idleFixture)
+    relabelledIdle.workflow = {
+      state: 'text_report',
+      state_version: 7,
+      gate: { kind: 'none', status: 'inactive', required_role: null },
+    }
+    relabelledIdle.provenance.baseline_state_id = 'text_report'
+    relabelledIdle.provenance.source_state_version = 7
+    expect(() => adaptWorkbenchAggregate(relabelledIdle)).toThrow(
+      'Workbench aggregate fields do not match the frozen state projection',
+    )
+
+    const gateMismatch = structuredClone(idleFixture)
+    gateMismatch.workflow.gate = { kind: 'clarification', status: 'pending', required_role: null }
+    expect(() => adaptWorkbenchAggregate(gateMismatch)).toThrow(
+      'Workbench workflow state and active gate do not agree',
+    )
+
     expect(() => adaptWorkbenchAggregate({ ...idleFixture, orchestration_version: 'research-v2' })).toThrow(
-      'research-v3-current requires research-v3 orchestration',
+      'orchestration_version must be research-v3',
     )
     expect(() => adaptWorkbenchAggregate({ ...idleFixture, projection_kind: 'unknown' })).toThrow(
       'Unsupported workbench projection kind',
     )
+    expect(() => adaptWorkbenchAggregate({
+      ...idleFixture,
+      provenance: { ...idleFixture.provenance, source_kind: 'v2_history_adapter', baseline_state_id: null },
+    })).toThrow('research-v3 current projections cannot use v2 history provenance')
+  })
+
+  it('accepts repository projection provenance only with a null baseline state', () => {
+    const repositoryProjection = {
+      ...idleFixture,
+      provenance: { ...idleFixture.provenance, source_kind: 'repository_projection', baseline_state_id: null },
+    }
+    const aggregate = adaptWorkbenchAggregate(repositoryProjection)
+
+    expect(aggregate.projection_kind).toBe('research-v3-current')
+    expect(aggregate.provenance).toEqual(expect.objectContaining({
+      source_kind: 'repository_projection',
+      baseline_state_id: null,
+    }))
+    expect(() => adaptWorkbenchAggregate({
+      ...repositoryProjection,
+      provenance: { ...repositoryProjection.provenance, baseline_state_id: 'idle' },
+    })).toThrow('baseline_state_id must be null for non-fixture projections')
+  })
+
+  it('keeps the workflow at 760px while the text report uses the 1240px report container', () => {
+    const html = renderToStaticMarkup(<ResearchWorkbench aggregate={adaptWorkbenchAggregate(textReportFixture)} />)
+    const workflowStart = html.indexOf('data-layout="workflow"')
+    const dagStart = html.indexOf('data-stage="dag"')
+    const reportStart = html.indexOf('data-layout="report"')
+    const documentStart = html.indexOf('data-stage="text-report"')
+
+    expect(workflowStart).toBeGreaterThan(-1)
+    expect(dagStart).toBeGreaterThan(workflowStart)
+    expect(dagStart).toBeLessThan(reportStart)
+    expect(documentStart).toBeGreaterThan(reportStart)
+
+    const cssPath = fileURLToPath(new URL('./research-workbench.css', import.meta.url))
+    const css = readFileSync(cssPath, 'utf8')
+    expect(css).toMatch(/\.rw-flow\s*\{[^}]*width: min\(100%, 760px\)/s)
+    expect(css).toMatch(/\.rw-report-flow\s*\{[^}]*width: min\(100%, 1240px\)/s)
+  })
+
+  it('uses AA-contrast primary button tokens for normal and hover states', () => {
+    const cssPath = fileURLToPath(new URL('./research-workbench.css', import.meta.url))
+    const css = readFileSync(cssPath, 'utf8')
+    const token = (name: string) => {
+      const value = css.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1]
+      if (!value) throw new Error(`missing color token ${name}`)
+      return value
+    }
+    const luminance = (hex: string) => {
+      const channels = hex.match(/[0-9a-f]{2}/gi)
+      if (!channels) throw new Error(`invalid hex color ${hex}`)
+      const [red, green, blue] = channels.map((channel) => {
+        const value = Number.parseInt(channel, 16) / 255
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    }
+    const contrast = (foreground: string, background: string) => {
+      const values = [luminance(foreground), luminance(background)].sort((left, right) => right - left)
+      return (values[0] + 0.05) / (values[1] + 0.05)
+    }
+
+    expect(token('--button-primary-bg')).toBe('#5f60d9')
+    expect(token('--button-primary-bg-hover')).toBe('#5556bd')
+    expect(token('--button-primary-text')).toBe('#ffffff')
+    expect(contrast(token('--button-primary-text'), token('--button-primary-bg'))).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(token('--button-primary-text'), token('--button-primary-bg-hover'))).toBeGreaterThanOrEqual(4.5)
+    expect(css).toContain('background: var(--button-primary-bg)')
+    expect(css).toContain('background: var(--button-primary-bg-hover)')
+  })
+
+  it('renders metric evidence disclosure from metric evidence_ids', () => {
+    const metricFixture = JSON.parse(JSON.stringify(textReportFixture))
+    const metrics = metricFixture.report.content.sections.find((section: { id: string }) => section.id === 'key-metrics')
+    const findings = metricFixture.report.content.sections.find((section: { id: string }) => section.id === 'findings')
+    metrics.blocks = [{
+      id: 'block_metric',
+      type: 'metric',
+      label: 'Supported capability score',
+      value: 4,
+      evidence_ids: ['evidence_1'],
+    }]
+    findings.blocks[0].evidence_ids = []
+
+    const html = renderToStaticMarkup(<ResearchWorkbench aggregate={adaptWorkbenchAggregate(metricFixture)} />)
+    expect(html.match(/查看证据（1）/g)).toHaveLength(1)
+    expect(html).toMatch(/rw-report-metric-block[\s\S]*Supported capability score[\s\S]*<dd>4<\/dd>[\s\S]*查看证据（1）/)
+    expect(html).toMatch(/rw-report-metric-block[\s\S]*Alpha product documentation/)
   })
 
   it('keeps exact ai-x colors and the 760px flow scoped to the feature root', () => {
