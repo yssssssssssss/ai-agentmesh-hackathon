@@ -9,6 +9,15 @@
   --text-dim: #a5adbf;
   /* 5.85:1 on cards and 6.54:1 on the base background at normal text sizes. */
   --text-faint: #8d96aa;
+  --candidate-muted-bg: rgba(10, 13, 22, 0.72);
+  --candidate-muted-border: #30384d;
+  --candidate-muted-title: #aeb6c7;
+  --candidate-muted-body: #8d96aa;
+  --candidate-muted-label: #8d96aa;
+  --skipped-node-bg: rgba(16, 20, 31, 0.9);
+  --skipped-node-border: #46506a;
+  --skipped-node-title: #aeb6c7;
+  --skipped-node-label: #8d96aa;
   --primary: #7c7cf0;
   --primary-strong: #9ea0ff;
   --primary-dim: #4b4fd6;
@@ -364,14 +373,12 @@
   min-width: 0;
   flex: 0 0 min(80%, 540px);
   padding-left: 14px;
-  opacity: 0.46;
   transform: scale(0.92);
   transform-origin: center;
-  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease;
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .research-workbench-current .rw-candidate-slide.is-current {
-  opacity: 1;
   transform: scale(1);
 }
 
@@ -388,6 +395,24 @@
   color: inherit;
   text-align: left;
   transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.research-workbench-current .rw-candidate-slide:not(.is-current) .rw-candidate-card {
+  border-color: var(--candidate-muted-border);
+  background: var(--candidate-muted-bg);
+}
+
+.research-workbench-current .rw-candidate-slide:not(.is-current) .rw-candidate-head b {
+  color: var(--candidate-muted-title);
+}
+
+.research-workbench-current .rw-candidate-slide:not(.is-current) .rw-candidate-card > p {
+  color: var(--candidate-muted-body);
+}
+
+.research-workbench-current .rw-candidate-slide:not(.is-current) .rw-candidate-steps code,
+.research-workbench-current .rw-candidate-slide:not(.is-current) .rw-candidate-meta {
+  color: var(--candidate-muted-label);
 }
 
 .research-workbench-current .rw-candidate-slide.is-current .rw-candidate-card {
@@ -811,8 +836,18 @@
 }
 
 .research-workbench-current .rw-dag-node.status-skipped {
+  border-color: var(--skipped-node-border);
   border-style: dashed;
-  opacity: 0.78;
+  background: var(--skipped-node-bg);
+}
+
+.research-workbench-current .rw-dag-node.status-skipped > b {
+  color: var(--skipped-node-title);
+}
+
+.research-workbench-current .rw-dag-node.status-skipped > div,
+.research-workbench-current .rw-dag-node.status-skipped > p code {
+  color: var(--skipped-node-label);
 }
 
 .research-workbench-current .rw-dag-node > div,

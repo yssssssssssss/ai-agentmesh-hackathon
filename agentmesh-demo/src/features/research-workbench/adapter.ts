@@ -69,6 +69,15 @@ const PROJECTED_FIELDS = [
   'requirement', 'candidates', 'selected_plan', 'attempt', 'recovery', 'evidence', 'deliverable', 'review', 'report',
 ] as const
 
+const ARTIFACT_IDENTITIES = {
+  controlSnapshot: { kind: 'research_control_snapshot', schema_version: 'research-control-snapshot-v3' },
+  deliverable: { kind: 'research_deliverable', schema_version: 'research-deliverable-v3' },
+  evidenceManifest: { kind: 'evidence_manifest', schema_version: 'evidence-manifest-v3' },
+  problemGraph: { kind: 'problem_graph', schema_version: 'problem-graph-v1' },
+  report: { kind: 'report_document', schema_version: 'report-document-v3' },
+  review: { kind: 'report_review', schema_version: 'report-review-v3' },
+} as const satisfies Record<string, Pick<SealedArtifactRefV3, 'kind' | 'schema_version'>>
+
 function canonicalJson(value: unknown): string {
   if (value === null) return 'null'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
@@ -193,13 +202,21 @@ function parseApprovalRole(value: unknown, label: string): ApprovalRole {
   return requireOneOf(value, ['owner', 'legal', 'security'] as const, label)
 }
 
-function parseArtifact(value: unknown, label: string): SealedArtifactRefV3 {
+function parseArtifact(
+  value: unknown,
+  label: string,
+  expectedIdentity?: Pick<SealedArtifactRefV3, 'kind' | 'schema_version'>,
+): SealedArtifactRefV3 {
   const item = record(value, label)
   return {
     artifact_id: requireString(item.artifact_id, `${label}.artifact_id`),
     content_hash: requireString(item.content_hash, `${label}.content_hash`),
-    kind: requireString(item.kind, `${label}.kind`),
-    schema_version: requireString(item.schema_version, `${label}.schema_version`),
+    kind: expectedIdentity
+      ? requireLiteral(item.kind, expectedIdentity.kind, `${label}.kind`)
+      : requireString(item.kind, `${label}.kind`),
+    schema_version: expectedIdentity
+      ? requireLiteral(item.schema_version, expectedIdentity.schema_version, `${label}.schema_version`)
+      : requireString(item.schema_version, `${label}.schema_version`),
   }
 }
 
@@ -433,9 +450,19 @@ function parseCandidates(value: unknown): PlanCandidateSetV3 {
 
 function parsePlan(value: unknown): ExecutionPlanVersionV3 {
   const item = record(value, 'selected_plan')
-  requireCanonicalHash(item.payload, item.plan_hash, 'selected_plan.plan_hash')
   requireLiteral(item.schema_version, 'execution-plan-v3', 'selected_plan.schema_version')
   const payload = record(item.payload, 'selected_plan.payload')
+  parseArtifact(
+    payload.problem_graph_artifact,
+    'selected_plan.payload.problem_graph_artifact',
+    ARTIFACT_IDENTITIES.problemGraph,
+  )
+  parseArtifact(
+    payload.control_snapshot_artifact,
+    'selected_plan.payload.control_snapshot_artifact',
+    ARTIFACT_IDENTITIES.controlSnapshot,
+  )
+  requireCanonicalHash(item.payload, item.plan_hash, 'selected_plan.plan_hash')
   return {
     id: requireString(item.id, 'selected_plan.id'),
     run_id: requireString(item.run_id, 'selected_plan.run_id'),
@@ -589,7 +616,7 @@ function parseRecovery(value: unknown): WorkbenchRecoveryV1 {
 function parseEvidence(value: unknown): WorkbenchEvidenceV1 {
   const item = record(value, 'evidence')
   return {
-    artifact: parseArtifact(item.artifact, 'evidence.artifact'),
+    artifact: parseArtifact(item.artifact, 'evidence.artifact', ARTIFACT_IDENTITIES.evidenceManifest),
     presentation_mode: requireLiteral(item.presentation_mode, 'text', 'evidence.presentation_mode'),
     run_id: requireString(item.run_id, 'evidence.run_id'),
     plan_version_id: requireString(item.plan_version_id, 'evidence.plan_version_id'),
@@ -634,54 +661,60 @@ function parseEvidence(value: unknown): WorkbenchEvidenceV1 {
 
 function parseDeliverable(value: unknown): { content: ResearchDeliverableV3; artifact: SealedArtifactRefV3 } {
   const item = record(value, 'deliverable')
-  requireCanonicalHash(item.content, record(item.artifact, 'deliverable.artifact').content_hash, 'deliverable artifact hash')
+  const artifact = parseArtifact(item.artifact, 'deliverable.artifact', ARTIFACT_IDENTITIES.deliverable)
   const content = record(item.content, 'deliverable.content')
-  return {
-    artifact: parseArtifact(item.artifact, 'deliverable.artifact'),
-    content: {
-      run_id: requireString(content.run_id, 'deliverable.content.run_id'),
-      requirement_version_id: requireString(content.requirement_version_id, 'deliverable.content.requirement_version_id'),
-      plan_version_id: requireString(content.plan_version_id, 'deliverable.content.plan_version_id'),
-      attempt_id: requireString(content.attempt_id, 'deliverable.content.attempt_id'),
-      evidence_manifest_artifact: parseArtifact(content.evidence_manifest_artifact, 'deliverable.content.evidence_manifest_artifact'),
-      capability_provenance: requireArray(content.capability_provenance, 'deliverable.content.capability_provenance').map((raw, index) => {
-        const capability = record(raw, `deliverable.content.capability_provenance[${index}]`)
-        return {
-          actor_type: parseActorType(capability.actor_type, `deliverable.content.capability_provenance[${index}].actor_type`),
-          actor_id: requireString(capability.actor_id, `deliverable.content.capability_provenance[${index}].actor_id`),
-          result_artifact: parseArtifact(capability.result_artifact, `deliverable.content.capability_provenance[${index}].result_artifact`),
-        }
-      }),
-      method_summary: requireString(content.method_summary, 'deliverable.content.method_summary'),
-      risks_and_open_issues: strings(content.risks_and_open_issues, 'deliverable.content.risks_and_open_issues'),
-      recommendations: requireArray(content.recommendations, 'deliverable.content.recommendations').map((raw, index) => {
-        const recommendation = record(raw, `deliverable.content.recommendations[${index}]`)
-        return {
-          id: requireString(recommendation.id, `deliverable.content.recommendations[${index}].id`),
-          statement: requireString(recommendation.statement, `deliverable.content.recommendations[${index}].statement`),
-          priority: requireOneOf(recommendation.priority, ['P0', 'P1', 'P2', 'P3'] as const, `deliverable.content.recommendations[${index}].priority`),
-          finding_ids: strings(recommendation.finding_ids, `deliverable.content.recommendations[${index}].finding_ids`),
-        }
-      }),
-    },
+  const parsedContent = {
+    run_id: requireString(content.run_id, 'deliverable.content.run_id'),
+    requirement_version_id: requireString(content.requirement_version_id, 'deliverable.content.requirement_version_id'),
+    plan_version_id: requireString(content.plan_version_id, 'deliverable.content.plan_version_id'),
+    attempt_id: requireString(content.attempt_id, 'deliverable.content.attempt_id'),
+    evidence_manifest_artifact: parseArtifact(
+      content.evidence_manifest_artifact,
+      'deliverable.content.evidence_manifest_artifact',
+      ARTIFACT_IDENTITIES.evidenceManifest,
+    ),
+    capability_provenance: requireArray(content.capability_provenance, 'deliverable.content.capability_provenance').map((raw, index) => {
+      const capability = record(raw, `deliverable.content.capability_provenance[${index}]`)
+      return {
+        actor_type: parseActorType(capability.actor_type, `deliverable.content.capability_provenance[${index}].actor_type`),
+        actor_id: requireString(capability.actor_id, `deliverable.content.capability_provenance[${index}].actor_id`),
+        result_artifact: parseArtifact(capability.result_artifact, `deliverable.content.capability_provenance[${index}].result_artifact`),
+      }
+    }),
+    method_summary: requireString(content.method_summary, 'deliverable.content.method_summary'),
+    risks_and_open_issues: strings(content.risks_and_open_issues, 'deliverable.content.risks_and_open_issues'),
+    recommendations: requireArray(content.recommendations, 'deliverable.content.recommendations').map((raw, index) => {
+      const recommendation = record(raw, `deliverable.content.recommendations[${index}]`)
+      return {
+        id: requireString(recommendation.id, `deliverable.content.recommendations[${index}].id`),
+        statement: requireString(recommendation.statement, `deliverable.content.recommendations[${index}].statement`),
+        priority: requireOneOf(recommendation.priority, ['P0', 'P1', 'P2', 'P3'] as const, `deliverable.content.recommendations[${index}].priority`),
+        finding_ids: strings(recommendation.finding_ids, `deliverable.content.recommendations[${index}].finding_ids`),
+      }
+    }),
   }
+  requireCanonicalHash(item.content, artifact.content_hash, 'deliverable artifact hash')
+  return { artifact, content: parsedContent }
 }
 
 function parseReview(value: unknown): { content: ReportReviewV3; artifact: SealedArtifactRefV3 } {
   const item = record(value, 'review')
-  requireCanonicalHash(item.content, record(item.artifact, 'review.artifact').content_hash, 'review artifact hash')
+  const artifact = parseArtifact(item.artifact, 'review.artifact', ARTIFACT_IDENTITIES.review)
   const content = record(item.content, 'review.content')
-  return {
-    artifact: parseArtifact(item.artifact, 'review.artifact'),
-    content: {
-      run_id: requireString(content.run_id, 'review.content.run_id'),
-      requirement_version_id: requireString(content.requirement_version_id, 'review.content.requirement_version_id'),
-      plan_version_id: requireString(content.plan_version_id, 'review.content.plan_version_id'),
-      attempt_id: requireString(content.attempt_id, 'review.content.attempt_id'),
-      verdict: requireOneOf(content.verdict, ['pass', 'revise', 'block'] as const, 'review.content.verdict'),
-      deliverable_artifact: parseArtifact(content.deliverable_artifact, 'review.content.deliverable_artifact'),
-    },
+  const parsedContent = {
+    run_id: requireString(content.run_id, 'review.content.run_id'),
+    requirement_version_id: requireString(content.requirement_version_id, 'review.content.requirement_version_id'),
+    plan_version_id: requireString(content.plan_version_id, 'review.content.plan_version_id'),
+    attempt_id: requireString(content.attempt_id, 'review.content.attempt_id'),
+    verdict: requireOneOf(content.verdict, ['pass', 'revise', 'block'] as const, 'review.content.verdict'),
+    deliverable_artifact: parseArtifact(
+      content.deliverable_artifact,
+      'review.content.deliverable_artifact',
+      ARTIFACT_IDENTITIES.deliverable,
+    ),
   }
+  requireCanonicalHash(item.content, artifact.content_hash, 'review artifact hash')
+  return { artifact, content: parsedContent }
 }
 
 function parseReportBlock(value: unknown, label: string): ReportBlockV3 {
@@ -702,36 +735,43 @@ function parseReportBlock(value: unknown, label: string): ReportBlockV3 {
 
 function parseReport(value: unknown): { content: ReportDocumentV3; artifact: SealedArtifactRefV3 } {
   const item = record(value, 'report')
-  requireCanonicalHash(item.content, record(item.artifact, 'report.artifact').content_hash, 'report artifact hash')
+  const artifact = parseArtifact(item.artifact, 'report.artifact', ARTIFACT_IDENTITIES.report)
   const content = record(item.content, 'report.content')
-  return {
-    artifact: parseArtifact(item.artifact, 'report.artifact'),
-    content: {
-      schema_version: requireLiteral(content.schema_version, 'report-document-v3', 'report.content.schema_version'),
-      presentation_mode: requireLiteral(content.presentation_mode, 'text', 'report.content.presentation_mode'),
-      review_verdict: requireLiteral(content.review_verdict, 'pass', 'report.content.review_verdict'),
-      run_id: requireString(content.run_id, 'report.content.run_id'),
-      requirement_version_id: requireString(content.requirement_version_id, 'report.content.requirement_version_id'),
-      plan_version_id: requireString(content.plan_version_id, 'report.content.plan_version_id'),
-      attempt_id: requireString(content.attempt_id, 'report.content.attempt_id'),
-      deliverable_artifact: parseArtifact(content.deliverable_artifact, 'report.content.deliverable_artifact'),
-      review_artifact: parseArtifact(content.review_artifact, 'report.content.review_artifact'),
-      title: requireString(content.title, 'report.content.title'),
-      subtitle: requireString(content.subtitle, 'report.content.subtitle'),
-      executive_summary: requireString(content.executive_summary, 'report.content.executive_summary'),
-      sections: requireArray(content.sections, 'report.content.sections').map((raw, index) => {
-        const section = record(raw, `report.content.sections[${index}]`)
-        return {
-          id: requireString(section.id, `report.content.sections[${index}].id`),
-          title: requireString(section.title, `report.content.sections[${index}].title`),
-          question_ids: strings(section.question_ids, `report.content.sections[${index}].question_ids`),
-          blocks: requireArray(section.blocks, `report.content.sections[${index}].blocks`).map((block, blockIndex) => (
-            parseReportBlock(block, `report.content.sections[${index}].blocks[${blockIndex}]`)
-          )),
-        }
-      }),
-    },
+  const parsedContent = {
+    schema_version: requireLiteral(content.schema_version, 'report-document-v3', 'report.content.schema_version'),
+    presentation_mode: requireLiteral(content.presentation_mode, 'text', 'report.content.presentation_mode'),
+    review_verdict: requireLiteral(content.review_verdict, 'pass', 'report.content.review_verdict'),
+    run_id: requireString(content.run_id, 'report.content.run_id'),
+    requirement_version_id: requireString(content.requirement_version_id, 'report.content.requirement_version_id'),
+    plan_version_id: requireString(content.plan_version_id, 'report.content.plan_version_id'),
+    attempt_id: requireString(content.attempt_id, 'report.content.attempt_id'),
+    deliverable_artifact: parseArtifact(
+      content.deliverable_artifact,
+      'report.content.deliverable_artifact',
+      ARTIFACT_IDENTITIES.deliverable,
+    ),
+    review_artifact: parseArtifact(
+      content.review_artifact,
+      'report.content.review_artifact',
+      ARTIFACT_IDENTITIES.review,
+    ),
+    title: requireString(content.title, 'report.content.title'),
+    subtitle: requireString(content.subtitle, 'report.content.subtitle'),
+    executive_summary: requireString(content.executive_summary, 'report.content.executive_summary'),
+    sections: requireArray(content.sections, 'report.content.sections').map((raw, index) => {
+      const section = record(raw, `report.content.sections[${index}]`)
+      return {
+        id: requireString(section.id, `report.content.sections[${index}].id`),
+        title: requireString(section.title, `report.content.sections[${index}].title`),
+        question_ids: strings(section.question_ids, `report.content.sections[${index}].question_ids`),
+        blocks: requireArray(section.blocks, `report.content.sections[${index}].blocks`).map((block, blockIndex) => (
+          parseReportBlock(block, `report.content.sections[${index}].blocks[${blockIndex}]`)
+        )),
+      }
+    }),
   }
+  requireCanonicalHash(item.content, artifact.content_hash, 'report artifact hash')
+  return { artifact, content: parsedContent }
 }
 
 function validateFieldMatrix(root: Record<string, unknown>, state: WorkbenchState): void {

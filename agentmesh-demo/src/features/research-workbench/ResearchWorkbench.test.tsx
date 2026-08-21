@@ -44,6 +44,86 @@ function resealReport(fixture: { report: { artifact: { content_hash: string }; c
   fixture.report.artifact.content_hash = createHash('sha256').update(canonicalToken(fixture.report.content)).digest('hex')
 }
 
+type MutableArtifactIdentity = {
+  content_hash: string
+  kind: string
+  schema_version: string
+}
+
+type TextReportFixture = typeof textReportFixture
+
+const CONTEXTUAL_ARTIFACT_IDENTITIES: ReadonlyArray<{
+  label: string
+  artifact: (fixture: TextReportFixture) => MutableArtifactIdentity
+  kind: string
+  schemaVersion: string
+  schemaEnforced?: boolean
+}> = [
+  {
+    label: 'Plan Problem Graph reference',
+    artifact: (fixture) => fixture.selected_plan.payload.problem_graph_artifact,
+    kind: 'problem_graph',
+    schemaVersion: 'problem-graph-v1',
+    schemaEnforced: true,
+  },
+  {
+    label: 'Plan control snapshot reference',
+    artifact: (fixture) => fixture.selected_plan.payload.control_snapshot_artifact,
+    kind: 'research_control_snapshot',
+    schemaVersion: 'research-control-snapshot-v3',
+  },
+  {
+    label: 'Evidence wrapper',
+    artifact: (fixture) => fixture.evidence.artifact,
+    kind: 'evidence_manifest',
+    schemaVersion: 'evidence-manifest-v3',
+    schemaEnforced: true,
+  },
+  {
+    label: 'Deliverable Evidence Manifest reference',
+    artifact: (fixture) => fixture.deliverable.content.evidence_manifest_artifact,
+    kind: 'evidence_manifest',
+    schemaVersion: 'evidence-manifest-v3',
+    schemaEnforced: true,
+  },
+  {
+    label: 'Deliverable wrapper',
+    artifact: (fixture) => fixture.deliverable.artifact,
+    kind: 'research_deliverable',
+    schemaVersion: 'research-deliverable-v3',
+  },
+  {
+    label: 'Review Deliverable reference',
+    artifact: (fixture) => fixture.review.content.deliverable_artifact,
+    kind: 'research_deliverable',
+    schemaVersion: 'research-deliverable-v3',
+  },
+  {
+    label: 'Review wrapper',
+    artifact: (fixture) => fixture.review.artifact,
+    kind: 'report_review',
+    schemaVersion: 'report-review-v3',
+  },
+  {
+    label: 'Report Deliverable reference',
+    artifact: (fixture) => fixture.report.content.deliverable_artifact,
+    kind: 'research_deliverable',
+    schemaVersion: 'research-deliverable-v3',
+  },
+  {
+    label: 'Report Review reference',
+    artifact: (fixture) => fixture.report.content.review_artifact,
+    kind: 'report_review',
+    schemaVersion: 'report-review-v3',
+  },
+  {
+    label: 'Report wrapper',
+    artifact: (fixture) => fixture.report.artifact,
+    kind: 'report_document',
+    schemaVersion: 'report-document-v3',
+  },
+]
+
 describe('research-workbench-aggregate-v1 fixture renderer', () => {
   it.each(FIXTURES)('adapts and renders the %s fixture', (state, fixture, expectedText) => {
     const aggregate = adaptWorkbenchAggregate(fixture)
@@ -237,6 +317,27 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
     expect(() => adaptWorkbenchAggregate(missingField)).toThrow('Invalid research-workbench-aggregate-v1')
   })
 
+  it('rejects kind-only and schema-only relabelling for every context-bound canonical Artifact', () => {
+    for (const identity of CONTEXTUAL_ARTIFACT_IDENTITIES) {
+      for (const field of ['kind', 'schema_version'] as const) {
+        const relabelled = structuredClone(textReportFixture)
+        const artifact = identity.artifact(relabelled)
+        const original = structuredClone(artifact)
+        artifact[field] = field === 'kind' ? 'relabelled_artifact' : 'relabelled-schema-v1'
+
+        expect(artifact.content_hash, `${identity.label} ${field} hash`).toBe(original.content_hash)
+        expect(artifact, `${identity.label} ${field} mutation`).toEqual({
+          ...original,
+          [field]: field === 'kind' ? 'relabelled_artifact' : 'relabelled-schema-v1',
+        })
+        const expected = identity.schemaEnforced
+          ? 'Invalid research-workbench-aggregate-v1'
+          : `${field} must be ${field === 'kind' ? identity.kind : identity.schemaVersion}`
+        expect(() => adaptWorkbenchAggregate(relabelled), `${identity.label} ${field}`).toThrow(expected)
+      }
+    }
+  })
+
   it('rejects stale hashes and broken lineage references', () => {
     const staleReport = structuredClone(textReportFixture)
     staleReport.report.content.title = 'Tampered without resealing'
@@ -340,6 +441,79 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
     ] as const
     for (const [foreground, background] of pairs) {
       expect(contrast(token(foreground), token(background)), `${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('computes AA contrast after compositing de-emphasized candidates and skipped DAG nodes', () => {
+    const cssPath = fileURLToPath(new URL('./research-workbench.css', import.meta.url))
+    const css = readFileSync(cssPath, 'utf8')
+    type Rgba = readonly [number, number, number, number]
+    type Rgb = readonly [number, number, number]
+    const token = (name: string): Rgba => {
+      const raw = css.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6}|rgba\\([^)]*\\))`, 'i'))?.[1]
+      if (!raw) throw new Error(`missing color token ${name}`)
+      if (raw.startsWith('#')) {
+        const channels = raw.slice(1).match(/[0-9a-f]{2}/gi)?.map((channel) => Number.parseInt(channel, 16))
+        if (!channels || channels.length !== 3) throw new Error(`invalid hex color ${raw}`)
+        return [channels[0], channels[1], channels[2], 1]
+      }
+      const channels = raw.match(/[\d.]+/g)?.map(Number)
+      if (!channels || channels.length !== 4) throw new Error(`invalid rgba color ${raw}`)
+      return [channels[0], channels[1], channels[2], channels[3]]
+    }
+    const composite = (foreground: Rgba, background: Rgb): Rgb => [
+      foreground[0] * foreground[3] + background[0] * (1 - foreground[3]),
+      foreground[1] * foreground[3] + background[1] * (1 - foreground[3]),
+      foreground[2] * foreground[3] + background[2] * (1 - foreground[3]),
+    ]
+    const opaque = (color: Rgba): Rgb => {
+      if (color[3] !== 1) throw new Error('expected an opaque parent background')
+      return [color[0], color[1], color[2]]
+    }
+    const luminance = (color: Rgb) => {
+      const [red, green, blue] = color.map((channel) => {
+        const value = channel / 255
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    }
+    const contrast = (foreground: Rgb, background: Rgb) => {
+      const values = [luminance(foreground), luminance(background)].sort((left, right) => right - left)
+      return (values[0] + 0.05) / (values[1] + 0.05)
+    }
+    const effectiveContrast = (foregroundToken: string, background: Rgb) => (
+      contrast(composite(token(foregroundToken), background), background)
+    )
+
+    const candidateRule = css.match(/\.rw-candidate-slide\s*\{([^}]*)\}/s)?.[1]
+    const skippedRule = css.match(/\.rw-dag-node\.status-skipped\s*\{([^}]*)\}/s)?.[1]
+    expect(candidateRule).toBeDefined()
+    expect(skippedRule).toBeDefined()
+    expect(candidateRule).not.toMatch(/\bopacity\s*:/)
+    expect(skippedRule).not.toMatch(/\bopacity\s*:/)
+    expect(css).toContain('background: var(--candidate-muted-bg)')
+    expect(css).toContain('color: var(--candidate-muted-title)')
+    expect(css).toContain('color: var(--candidate-muted-body)')
+    expect(css).toContain('color: var(--candidate-muted-label)')
+    expect(css).toContain('background: var(--skipped-node-bg)')
+    expect(css).toContain('color: var(--skipped-node-title)')
+    expect(css).toContain('color: var(--skipped-node-label)')
+
+    const candidateBackground = composite(token('--candidate-muted-bg'), opaque(token('--bg-card')))
+    for (const [label, foreground] of [
+      ['non-current candidate title', '--candidate-muted-title'],
+      ['non-current candidate body', '--candidate-muted-body'],
+      ['non-current candidate 10–11px labels', '--candidate-muted-label'],
+    ] as const) {
+      expect(effectiveContrast(foreground, candidateBackground), label).toBeGreaterThanOrEqual(4.5)
+    }
+
+    const skippedBackground = composite(token('--skipped-node-bg'), opaque(token('--bg')))
+    for (const [label, foreground] of [
+      ['skipped-node 12px title', '--skipped-node-title'],
+      ['skipped-node 9–10px labels', '--skipped-node-label'],
+    ] as const) {
+      expect(effectiveContrast(foreground, skippedBackground), label).toBeGreaterThanOrEqual(4.5)
     }
   })
 
