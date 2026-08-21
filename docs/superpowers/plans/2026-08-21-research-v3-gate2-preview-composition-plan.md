@@ -1,8 +1,10 @@
 # Research V3 Gate 2 Preview Production Composition Plan
 
-**Status:** Approved for documentation only on 2026-08-21 by interim owner `@heyunshen`.  
-**Implementation:** Not authorized.  
-**Production reachability:** Not authorized.  
+**Status:** Approved on 2026-08-21 by interim owner `@heyunshen`; implemented on the isolated Gate 2 branch.
+
+**Implementation:** Complete through dormant preview composition; see `docs/verification/2026-08-21-research-v3-gate2.md`.
+
+**Production reachability:** Not authorized.
 **Planning base:** `5bcaac910a252030248220babe75985d7cbc7b4e` (`agent/slice1-production-shaped-integration`).
 
 ## 1. Purpose
@@ -512,10 +514,4 @@ Gate 2 completion does not authorize cutover. A later production-cutover proposa
 
 Implementation must branch from the exact accepted Slice 1 integration commit plus this plan commit. It must preserve one writer per worktree, use at most one final reviewer per package, and avoid new parallel workflow fanout unless the user separately authorizes it.
 
-Authorization phrase required before implementation:
-
-```text
-implement this plan
-```
-
-Until that phrase or an equivalent explicit instruction is received, no Gate 2 code, production wiring, test run, migration, merge, push, or configuration change is authorized.
+Implementation authorization was received after this plan was approved. The implementation remains isolated on `agent/research-v3-gate2-preview-composition`; production configuration, merge, push, deployment, Provider use, and cutover still require separate explicit authorization.

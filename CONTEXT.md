@@ -1,7 +1,7 @@
 # CONTEXT.md — Digital Twin × Agent Market
 
 Glossary for the "digital twin / agent collaboration market" work. Each term maps to its
-**code reality** as of 2026-08-20, so downstream work doesn't mistake the design doc's
+**code reality** as of 2026-08-21, so downstream work doesn't mistake the design doc's
 aspiration for what is built. Source design: `docs/2026-08-08-数字分身-Agent协作市场-产品设计.md`.
 MVP scope decisions: `docs/adr/0003-mvp-scope-answer-only-gateway.md`.
 
@@ -82,9 +82,21 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
 - **Research Workflow** — durable control state bound one-to-one to a research-v2
   `AgentRun`. ✅ `ResearchWorkflow.phase`, `active_gate` and `state_version` are persisted;
   AgentRun/Attempt/Step/Invocation states are subordinate projections.
-- **Orchestration version** — immutable per Run: `v1` or `research-v2`. ✅ The single
-  `POST /api/agent/runs` routing decision, client-turn replay, aggregate projection and
-  Workspace branch are connected. `off` creates only v1 Runs while historical v2 remains readable.
+- **Orchestration version** — immutable per Run: `v1`, `research-v2`, or `research-v3`.
+  ✅ The single `POST /api/agent/runs` routing decision, client-turn replay, aggregate
+  projection and Workspace branch are connected. Production-safe defaults still create no
+  research-v3 Runs; v3 is reachable only in a disposable Gate 2 rehearsal after an explicit
+  one-way control-row change.
+- **Research writer generation** — the durable singleton `research_writer_control` selects one
+  global research writer and increments a fencing epoch. ✅ It defaults to research-v2/epoch 1;
+  the `research_writer_generation_fence` SQLite trigger rejects stale writers after a future
+  generation advance. The preview allowlist controls `off` versus `preview`, never v2 versus v3.
+- **Research-v3 preview composition** — provider-free Requirement, ProblemGraph, depth/speed,
+  Plan revision/confirmation, authoritative projection and Workbench wiring. ✅ Implemented and
+  Gate 2 focused checks pass. Approval, execute and recovery commands fail closed; production
+  cutover, real Provider calls, allowlist population and v2 retirement remain unauthorized. See
+  `docs/runbooks/research-v3-preview.md` and
+  `docs/verification/2026-08-21-research-v3-gate2.md`.
 - **Research recovery** — UNKNOWN external calls are never automatically replayed. ✅ The
   runtime and Web expose explicit retry/abort decisions; refresh, SSE reconnect and process
   restart recover persisted state without silently resending Provider work.

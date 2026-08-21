@@ -159,6 +159,20 @@ npm --prefix agentmesh-demo run test:e2e
 
 `eval/research_orchestration/run_eval.py` validates the fixed 20-case dataset and rubric; without real observations it deliberately reports `release_gate_passed=false`. On an approved release host with real credentials, run the Provider checks in [the research-v2 runbook](docs/runbooks/research-orchestration-v2.md). The redacted engineering evidence is recorded in [the research-v2 baseline](docs/verification/2026-08-19-research-orchestration-v2-baseline.md). Neither document substitutes for the pending blind review and internal pilot.
 
+### Research V3 Gate 2 dormant preview
+
+Research-v3 Competitive Text preview composition is implemented behind durable single-writer control, but it is not authorized for production traffic. Production-safe defaults remain:
+
+```text
+AGENTMESH_SKILL_ORCHESTRATION=off
+AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST=
+research_writer_control.active_generation=research-v2
+```
+
+The server, not the client, selects the active writer generation. Client-turn replay precedes routing; subsequent reads and commands dispatch by the Run's stored version. A SQLite trigger blocks a stale research-v2 writer after a future one-way generation advance. Research-v3 preview can clarify, compare candidates, revise, and confirm a Plan, but Provider-backed approval, execute, and recovery commands fail closed.
+
+Do not change the production control row or populate the allowlist. Use only the disposable procedure in [the research-v3 preview runbook](docs/runbooks/research-v3-preview.md). Gate evidence and remaining production-cutover blockers are recorded in [the Gate 2 verification](docs/verification/2026-08-21-research-v3-gate2.md).
+
 ### Reference UI and data provenance
 
 The `feature/reference-ui-mt-data` branch restores the visual hierarchy of the reference Mock frontend for DigitalSelf, Knowledge, Collaboration, and Insights while keeping FastAPI and SQLite as the authority for identity, permissions, state, versions, and mutations.

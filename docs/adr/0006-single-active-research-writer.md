@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted on 2026-08-21 by interim owner `@heyunshen` for **Gate 0 and isolated Slice 1 development only**. This acceptance does not authorize production cutover or change the production rollout default of `off`. Production cutover remains blocked on a separate decision by independent `AM-ARCH` and `AM-RELEASE-QA` reviewers.
+Accepted on 2026-08-21 by interim owner `@heyunshen` for **Gate 0, isolated Slice 1, and dormant Gate 2 preview composition only**. Gate 2 may install additive generation fencing, stored-version dispatch, and provider-free preview code while production remains `off` with research-v2 as the control-row generation. This acceptance does not authorize production v3 traffic, a control-row change, allowlist population, Provider calls, research-v2 retirement, merge, push, or deployment. Production cutover remains blocked on a separate decision by distinct `AM-ARCH` and `AM-RELEASE-QA` individuals.
 
 ## Context
 
@@ -45,7 +45,7 @@ Production has at most one active research writer generation globally. This cano
 
 Replay by `client_turn_id` precedes live routing and always returns the persisted version. Slice 1 enables only Competitive Text research, not all five future task types. An allowlist controls preview versus execution, never v2 versus v3. `off` means no new versioned research Workflow or research claims; routing an ordinary request to v1 does not make v1 the current research writer.
 
-The Slice 1 implementation is validated and accepted only in an isolated environment while production continues to route eligible research to v2. Production changes only through a **separate, jointly approved atomic cutover** after isolated Slice 1 acceptance. At that cutover, all new eligible Competitive Runs switch together: after cutover v2 cannot create a new Run.
+The Slice 1 implementation was validated in isolation while production continued to route eligible research to v2. Gate 2 adds a dormant composition only: `research_writer_control` remains seeded to research-v2 epoch 1, the preview allowlist remains empty, and no production request can create a v3 Run under the approved defaults. Production changes only through a **separate, jointly approved atomic cutover**. At that cutover, all new eligible Competitive Runs switch together: after cutover v2 cannot create a new Run.
 
 ### Immutable routing and durable fencing
 
