@@ -75,9 +75,7 @@ export function ResearchWorkbench({
       data-projection-kind={aggregate.projection_kind}
       aria-label={`研究工作台：${presentation.stateLabel}`}
     >
-      <div className={presentation.showReport ? 'rw-report-flow' : 'rw-flow'}>
-        <CurrentWorkbench presentation={presentation} actions={actions} />
-      </div>
+      <CurrentWorkbench presentation={presentation} actions={actions} />
     </section>
   )
 }
@@ -92,46 +90,50 @@ function CurrentWorkbench({
   const { aggregate } = presentation
   const task = aggregate.requirement?.payload
 
-  if (presentation.showWelcome) return <Welcome onPick={actions.onSuggestion} />
+  if (presentation.showWelcome) return <div className="rw-flow" data-layout="workflow"><Welcome onPick={actions.onSuggestion} /></div>
 
   return (
     <>
-      {task ? <UserBubble text={task.research_goal} /> : null}
-      {presentation.showClarification && task ? (
-        <Stage1Clarify task={task} onSubmit={actions.onClarificationSubmit} />
-      ) : null}
-      {presentation.showRequirement && task ? (
-        <Stage1Understand task={task} activatedNodes={aggregate.selected_plan?.payload.activated_nodes ?? []} />
-      ) : null}
-      {presentation.showCandidates && aggregate.candidates ? (
-        <Stage2Candidates
-          candidates={aggregate.candidates.candidates}
-          onSelect={actions.onCandidateSelect}
-        />
-      ) : null}
-      {presentation.showPlan && aggregate.selected_plan ? (
-        <Stage2Plan
-          plan={aggregate.selected_plan}
-          task={task}
-          locked={presentation.showApproval}
-          onConfirm={actions.onPlanConfirm}
-          onRevise={actions.onPlanRevise}
-        />
-      ) : null}
-      {presentation.showApproval ? (
-        <ApprovalReadyStage approvals={aggregate.approvals} onApprove={actions.onApprove} onExecute={actions.onExecute} />
-      ) : null}
-      {presentation.showDag && aggregate.selected_plan ? (
-        <Stage3Dag aggregate={aggregate} />
-      ) : null}
-      {aggregate.selected_plan?.payload.capability_gaps.length ? (
-        <GapNotice gaps={aggregate.selected_plan.payload.capability_gaps} />
-      ) : null}
-      {presentation.showRecovery && aggregate.recovery ? (
-        <PausedRecoveryStage aggregate={aggregate} onAction={actions.onRecoveryAction} />
-      ) : null}
+      <div className="rw-flow" data-layout="workflow">
+        {task ? <UserBubble text={task.research_goal} /> : null}
+        {presentation.showClarification && task ? (
+          <Stage1Clarify task={task} onSubmit={actions.onClarificationSubmit} />
+        ) : null}
+        {presentation.showRequirement && task ? (
+          <Stage1Understand task={task} activatedNodes={aggregate.selected_plan?.payload.activated_nodes ?? []} />
+        ) : null}
+        {presentation.showCandidates && aggregate.candidates ? (
+          <Stage2Candidates
+            candidates={aggregate.candidates.candidates}
+            onSelect={actions.onCandidateSelect}
+          />
+        ) : null}
+        {presentation.showPlan && aggregate.selected_plan ? (
+          <Stage2Plan
+            plan={aggregate.selected_plan}
+            task={task}
+            locked={presentation.showApproval}
+            onConfirm={actions.onPlanConfirm}
+            onRevise={actions.onPlanRevise}
+          />
+        ) : null}
+        {presentation.showApproval ? (
+          <ApprovalReadyStage approvals={aggregate.approvals} onApprove={actions.onApprove} onExecute={actions.onExecute} />
+        ) : null}
+        {presentation.showDag && aggregate.selected_plan ? (
+          <Stage3Dag aggregate={aggregate} />
+        ) : null}
+        {aggregate.selected_plan?.payload.capability_gaps.length ? (
+          <GapNotice gaps={aggregate.selected_plan.payload.capability_gaps} />
+        ) : null}
+        {presentation.showRecovery && aggregate.recovery ? (
+          <PausedRecoveryStage aggregate={aggregate} onAction={actions.onRecoveryAction} />
+        ) : null}
+      </div>
       {presentation.showReport && aggregate.report ? (
-        <Stage4TextReport aggregate={aggregate} />
+        <div className="rw-report-flow" data-layout="report">
+          <Stage4TextReport aggregate={aggregate} />
+        </div>
       ) : null}
     </>
   )
@@ -593,7 +595,14 @@ function ReportBlock({
   evidence: ResearchV3WorkbenchAggregateV1['evidence']
 }) {
   if (block.type === 'list') return <ul className="rw-report-list">{block.items.map((item) => <li key={item}>{item}</li>)}</ul>
-  if (block.type === 'metric') return <dl className="rw-report-metric"><dt>{block.label}</dt><dd>{block.value}</dd></dl>
+  if (block.type === 'metric') {
+    return (
+      <div className="rw-report-metric-block">
+        <dl className="rw-report-metric"><dt>{block.label}</dt><dd>{block.value}</dd></dl>
+        <EvidenceDisclosure ids={block.evidence_ids} evidence={evidence} />
+      </div>
+    )
+  }
   if (block.type === 'fact') {
     return (
       <div className="rw-report-fact">
