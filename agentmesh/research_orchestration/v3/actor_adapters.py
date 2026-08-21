@@ -397,24 +397,27 @@ class AgentSdkStructuredModelPortV3:
         encoded = canonical_json_v3_bytes(model_input)
         if len(encoded) > _MAX_MODEL_VISIBLE_BYTES:
             raise ActorAdapterError("model_visible_input_limit")
-        async with asyncio.timeout(request.timeout_seconds):
-            result = await Runner.run(
-                agent,
-                encoded.decode("utf-8"),
-                max_turns=1,
-                session=None,
-                run_config=RunConfig(
-                    workflow_name=f"research-v3:{request.actor_id}",
-                    group_id=request.run_id,
-                    trace_include_sensitive_data=False,
-                    trace_metadata={
-                        "run_id": request.run_id,
-                        "actor_id": request.actor_id,
-                        "call_key": request.call_key,
-                    },
-                    tool_name_collision_policy="error",
-                ),
-            )
+        try:
+            async with asyncio.timeout(request.timeout_seconds):
+                result = await Runner.run(
+                    agent,
+                    encoded.decode("utf-8"),
+                    max_turns=1,
+                    session=None,
+                    run_config=RunConfig(
+                        workflow_name=f"research-v3:{request.actor_id}",
+                        group_id=request.run_id,
+                        trace_include_sensitive_data=False,
+                        trace_metadata={
+                            "run_id": request.run_id,
+                            "actor_id": request.actor_id,
+                            "call_key": request.call_key,
+                        },
+                        tool_name_collision_policy="error",
+                    ),
+                )
+        except Exception:
+            raise ActorAdapterError("model_provider_call_failed") from None
         output = result.final_output
         payload = freeze_json_object(_json_with_decimal_numbers(output))
         raw_responses = list(getattr(result, "raw_responses", ()) or ())
@@ -697,7 +700,10 @@ def _normalized_public_hostname(hostname: str) -> str:
         ):
             raise ActorAdapterError("tool_public_source_url_invalid") from None
     else:
-        if not address.is_global:
+        # EvidenceSourceV3 currently binds publisher identity to a DNS/IPv4-shaped
+        # value. Fail closed for IPv6 here rather than settling an Artifact that
+        # the downstream Evidence materializer cannot decode.
+        if not address.is_global or address.version != 4:
             raise ActorAdapterError("tool_public_source_url_invalid")
     return normalized
 
@@ -733,8 +739,16 @@ def _redact_provider_json(value: object) -> tuple[object, set[str], bool]:
         flags: set[str] = set()
         changed = False
         for key, item in value.items():
+            if not isinstance(key, str):
+                raise ActorAdapterError("provider_json_key_unsafe")
+            _safe_key, key_flags, key_changed = _redact_provider_text(key)
+            if key_flags or key_changed:
+                # Transforming an arbitrary key could collide with another key
+                # and silently change the provider payload. Reject it without
+                # reflecting provider-controlled text in the error instead.
+                raise ActorAdapterError("provider_json_key_unsafe")
             redacted_item, item_flags, item_changed = _redact_provider_json(item)
-            redacted_mapping[str(key)] = redacted_item
+            redacted_mapping[key] = redacted_item
             flags.update(item_flags)
             changed = changed or item_changed
         return redacted_mapping, flags, changed
@@ -982,12 +996,15 @@ class TavilyToolGatewayAdapterV3:
             self.frozen_actor,
         )
         operation_key = tool_operation_key_v3(request)
-        response = await self._gateway.invoke(
-            request=request,
-            arguments=request.resolved_input,
-            operation_key=operation_key,
-            approval_proof=approval,
-        )
+        try:
+            response = await self._gateway.invoke(
+                request=request,
+                arguments=request.resolved_input,
+                operation_key=operation_key,
+                approval_proof=approval,
+            )
+        except Exception:
+            raise ActorAdapterError("tool_provider_call_failed") from None
         receipt = response.receipt
         if receipt is None:
             raise ActorAdapterError("tool_call_receipt_missing")
@@ -1021,6 +1038,8 @@ class TavilyToolGatewayAdapterV3:
                 "redacted_output_hash": canonical_json_v3_sha256(output),
                 "operation_key": operation_key,
                 "tool_call_receipt": safe_receipt.model_dump(mode="json"),
+                "risk_flags": sorted(receipt_risk_flags),
+                "redaction": "masked" if receipt_redacted else "none",
             }
         )
         return _settle_result(
@@ -1196,7 +1215,10 @@ class _ModelActorAdapterV3:
             self.snapshot.model_policy,
             self._model.describe(self.snapshot.model_policy),
         )
-        response = await self._model.invoke(invocation)
+        try:
+            response = await self._model.invoke(invocation)
+        except Exception:
+            raise ActorAdapterError("model_provider_call_failed") from None
         receipt = response.receipt
         if receipt is None:
             raise ActorAdapterError("model_call_receipt_missing")
