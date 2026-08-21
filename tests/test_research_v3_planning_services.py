@@ -417,6 +417,42 @@ def compilation_request(
     )
 
 
+def services_with_analysis_evidence_schema(
+    evidence_schema: dict[str, object],
+    *,
+    suffix: str,
+) -> tuple[CompetitiveTextCandidateCompiler, CompetitiveTextPlanningFacade]:
+    service_set = services(task=research_task())
+    descriptors = service_set[4]
+    input_document = frozen_document(
+        f"runtime-analysis-{suffix}-input-schema",
+        {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["evidence", "dimensions"],
+            "properties": {
+                "evidence": evidence_schema,
+                "dimensions": {
+                    "type": "array",
+                    "minItems": 2,
+                    "uniqueItems": True,
+                    "items": {"type": "string", "minLength": 1},
+                },
+            },
+        },
+    )
+    key = ("skill", "competitive-analysis")
+    descriptor = descriptors.descriptors[key]
+    descriptors.descriptors[key] = descriptor.model_copy(
+        update={
+            "input_schema_document_id": input_document.document_id,
+            "documents": (input_document,),
+        }
+    )
+    return service_set[9], service_set[10]
+
+
 def test_requirement_planner_uses_receipt_backed_fake_and_versions_clarifications() -> None:
     blocked = research_task(blocked=True)
     resolved = research_task()
@@ -764,6 +800,255 @@ def test_compiler_validates_inputs_and_output_schema_pointers() -> None:
     )
     with pytest.raises(CandidateCompilationError, match="binding_target_schema_pointer_missing"):
         compiler.compile(compilation_request(bundle, candidate=invalid_target))
+
+
+def test_compiler_rejects_array_binding_to_string_target() -> None:
+    *_, compiler, facade = services(task=research_task())
+    bundle = asyncio.run(
+        facade.prepare(run_id="run_array_to_string", user_request="Compare Alpha and Beta", previous_requirement=None)
+    )
+    assert bundle.candidates is not None
+    candidate = bundle.candidates.candidates[0]
+    web_research = candidate.proposed_steps[1]
+    mismatched_step = web_research.model_copy(
+        update={
+            "input_bindings": (
+                PlanInputBindingV3(
+                    source_step_number=2,
+                    source_pointer="/results",
+                    target_pointer="/research_goal",
+                ),
+            )
+        }
+    )
+    mismatched = candidate.model_copy(
+        update={"proposed_steps": (candidate.proposed_steps[0], mismatched_step, *candidate.proposed_steps[2:])}
+    )
+
+    with pytest.raises(CandidateCompilationError, match="binding_schema_incompatible"):
+        compiler.compile(compilation_request(bundle, candidate=mismatched))
+
+
+@pytest.mark.parametrize(
+    ("source_pointer", "target_pointer"),
+    (
+        ("/results/~2bad", "/evidence"),
+        ("/results", "/evidence/~2bad"),
+        ("/results/00", "/evidence"),
+    ),
+)
+def test_compiler_rejects_malformed_or_leading_zero_binding_pointers(
+    source_pointer: str,
+    target_pointer: str,
+) -> None:
+    *_, compiler, facade = services(task=research_task())
+    bundle = asyncio.run(
+        facade.prepare(run_id="run_bad_pointer", user_request="Compare Alpha and Beta", previous_requirement=None)
+    )
+    assert bundle.candidates is not None
+    candidate = bundle.candidates.candidates[0]
+    web_research = candidate.proposed_steps[1].model_copy(
+        update={
+            "input_bindings": (
+                PlanInputBindingV3(
+                    source_step_number=2,
+                    source_pointer=source_pointer,
+                    target_pointer=target_pointer,
+                ),
+            )
+        }
+    )
+    invalid = candidate.model_copy(
+        update={"proposed_steps": (candidate.proposed_steps[0], web_research, *candidate.proposed_steps[2:])}
+    )
+
+    with pytest.raises(CandidateCompilationError, match="json_pointer_invalid"):
+        compiler.compile(compilation_request(bundle, candidate=invalid))
+
+
+def test_compiler_rejects_exact_and_leading_zero_equivalent_binding_targets() -> None:
+    *_, compiler, facade = services(task=research_task())
+    bundle = asyncio.run(
+        facade.prepare(run_id="run_duplicate_target", user_request="Compare Alpha and Beta", previous_requirement=None)
+    )
+    assert bundle.candidates is not None
+    candidate = bundle.candidates.candidates[0]
+    search, web_research, *remaining = candidate.proposed_steps
+    duplicate_step = web_research.model_copy(
+        update={"input_bindings": (web_research.input_bindings[0], web_research.input_bindings[0])}
+    )
+    duplicate = candidate.model_copy(update={"proposed_steps": (search, duplicate_step, *remaining)})
+    with pytest.raises(CandidateCompilationError, match="binding_target_duplicate"):
+        compiler.compile(compilation_request(bundle, candidate=duplicate))
+
+    evidence_item = {
+        "title": "Alpha",
+        "url": "https://example.com/alpha",
+        "snippet": "Public evidence",
+    }
+    equivalent_step = web_research.model_copy(
+        update={
+            "input": {"evidence": [evidence_item], "research_goal": "Compare Alpha and Beta"},
+            "input_bindings": (
+                PlanInputBindingV3(
+                    source_step_number=2,
+                    source_pointer="/results/0",
+                    target_pointer="/evidence/0",
+                ),
+                PlanInputBindingV3(
+                    source_step_number=2,
+                    source_pointer="/results/0",
+                    target_pointer="/evidence/00",
+                ),
+            ),
+        }
+    )
+    equivalent = candidate.model_copy(update={"proposed_steps": (search, equivalent_step, *remaining)})
+    with pytest.raises(CandidateCompilationError, match="json_pointer_invalid"):
+        compiler.compile(compilation_request(bundle, candidate=equivalent))
+
+
+@pytest.mark.parametrize(
+    ("suffix", "target_schema", "target_value"),
+    (
+        ("object-to-string", {"type": "string"}, "placeholder"),
+        ("unresolved", {}, {}),
+        (
+            "ambiguous-one-of",
+            {
+                "oneOf": [
+                    {"type": "object"},
+                    {
+                        "type": "object",
+                        "required": ["marker"],
+                        "properties": {"marker": {"type": "string"}},
+                    },
+                ]
+            },
+            {},
+        ),
+    ),
+)
+def test_compiler_fails_closed_for_object_scalar_unresolved_and_ambiguous_binding_schemas(
+    suffix: str,
+    target_schema: dict[str, object],
+    target_value: object,
+) -> None:
+    compiler, facade = services_with_analysis_evidence_schema(target_schema, suffix=suffix)
+    bundle = asyncio.run(
+        facade.prepare(run_id=f"run_{suffix}", user_request="Compare Alpha and Beta", previous_requirement=None)
+    )
+    assert bundle.candidates is not None
+    candidate = bundle.candidates.candidates[0]
+    analysis = candidate.proposed_steps[2].model_copy(
+        update={"input": {"evidence": target_value, "dimensions": ["capabilities", "limitations"]}}
+    )
+    invalid = candidate.model_copy(
+        update={"proposed_steps": (*candidate.proposed_steps[:2], analysis, candidate.proposed_steps[3])}
+    )
+
+    with pytest.raises(CandidateCompilationError, match="binding_schema_incompatible"):
+        compiler.compile(compilation_request(bundle, candidate=invalid))
+
+
+def test_compiler_rejects_number_output_bound_to_integer_input() -> None:
+    service_set = services(task=research_task())
+    descriptors = service_set[4]
+    compiler = service_set[9]
+    facade = service_set[10]
+    input_document = frozen_document(
+        "runtime-web-research-integer-input-schema",
+        {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["evidence", "research_goal"],
+            "properties": {
+                "evidence": {"type": ["array", "null"]},
+                "research_goal": {"type": ["integer", "null"]},
+            },
+        },
+    )
+    key = ("skill", "competitive-web-research")
+    descriptor = descriptors.descriptors[key]
+    descriptors.descriptors[key] = descriptor.model_copy(
+        update={
+            "input_schema_document_id": input_document.document_id,
+            "documents": (input_document,),
+        }
+    )
+    bundle = asyncio.run(
+        facade.prepare(run_id="run_number_to_integer", user_request="Compare Alpha and Beta", previous_requirement=None)
+    )
+    assert bundle.candidates is not None
+    candidate = bundle.candidates.candidates[0]
+    search = candidate.proposed_steps[0].model_copy(
+        update={
+            "expected_outputs": (
+                *candidate.proposed_steps[0].expected_outputs,
+                ExpectedOutputV3(pointer="/response_time", description="Search duration."),
+            )
+        }
+    )
+    web_research = candidate.proposed_steps[1].model_copy(
+        update={
+            "input": {"evidence": None, "research_goal": None},
+            "input_bindings": (
+                PlanInputBindingV3(
+                    source_step_number=2,
+                    source_pointer="/response_time",
+                    target_pointer="/research_goal",
+                ),
+            ),
+        }
+    )
+    invalid = candidate.model_copy(update={"proposed_steps": (search, web_research, *candidate.proposed_steps[2:])})
+
+    with pytest.raises(CandidateCompilationError, match="binding_schema_incompatible"):
+        compiler.compile(compilation_request(bundle, candidate=invalid))
+
+
+def test_compiler_rejects_incompatible_enum_const_one_of_binding_branches() -> None:
+    compiler, facade = services_with_analysis_evidence_schema(
+        {
+            "oneOf": [
+                {"type": "string", "const": "succeeded"},
+                {"type": "string", "const": "failed"},
+            ]
+        },
+        suffix="enum-const-one-of",
+    )
+    bundle = asyncio.run(
+        facade.prepare(run_id="run_enum_const", user_request="Compare Alpha and Beta", previous_requirement=None)
+    )
+    assert bundle.candidates is not None
+    candidate = bundle.candidates.candidates[0]
+    web_research = candidate.proposed_steps[1].model_copy(
+        update={
+            "expected_outputs": (
+                *candidate.proposed_steps[1].expected_outputs,
+                ExpectedOutputV3(pointer="/status", description="Skill result status."),
+            )
+        }
+    )
+    analysis = candidate.proposed_steps[2].model_copy(
+        update={
+            "input": {"evidence": "succeeded", "dimensions": ["capabilities", "limitations"]},
+            "input_bindings": (
+                PlanInputBindingV3(
+                    source_step_number=4,
+                    source_pointer="/status",
+                    target_pointer="/evidence",
+                ),
+            ),
+        }
+    )
+    invalid = candidate.model_copy(
+        update={"proposed_steps": (candidate.proposed_steps[0], web_research, analysis, candidate.proposed_steps[3])}
+    )
+
+    with pytest.raises(CandidateCompilationError, match="binding_schema_incompatible"):
+        compiler.compile(compilation_request(bundle, candidate=invalid))
 
 
 def test_compiler_rejects_snapshot_and_catalog_tampering() -> None:
