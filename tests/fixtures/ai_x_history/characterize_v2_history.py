@@ -9,6 +9,7 @@ constructed or called.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import json
@@ -22,8 +23,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-REPO = Path("/Users/heyunshen/work/PROJECT/jdc/ai-agentmesh-hackathon/.worktrees/ai-x-parity-gate0")
-OUTPUT = Path("/tmp/agentmesh-v2-history-gate0")
+REPO = Path(__file__).resolve().parents[3]
+DEFAULT_OUTPUT = Path("build/agentmesh-v2-history-gate0")
+OUTPUT = REPO / DEFAULT_OUTPUT
 FIXTURE = OUTPUT / "research-v2-history.sqlite3"
 ATTESTATION = OUTPUT / "attestation.json"
 HASHES = OUTPUT / "SHA256SUMS"
@@ -721,8 +723,8 @@ def sanitization_scan(database: Path) -> dict[str, Any]:
         "token",
     }
     forbidden_patterns = (
-        re.compile(r"(?i)\\bsk-[a-z0-9]{8,}"),
-        re.compile(r"(?i)\\bbearer\\s+[a-z0-9._~+/=-]{8,}"),
+        re.compile(r"(?i)(?<![a-z0-9])sk-[a-z0-9]{8,}(?![a-z0-9])"),
+        re.compile(r"(?i)\bbearer[ \t]+[a-z0-9._~+/=-]{8,}(?![a-z0-9._~+/=-])"),
         re.compile(r"(?i)-----begin (?:rsa |ec |openssh )?private key-----"),
     )
     key_hits: list[str] = []
@@ -1039,7 +1041,24 @@ def source_attestation() -> dict[str, Any]:
     }
 
 
-def main() -> int:
+def configure_output(relative_output: Path) -> None:
+    """Configure a repository-relative evidence output without machine-local paths."""
+
+    global OUTPUT, FIXTURE, ATTESTATION, HASHES
+    if relative_output.is_absolute() or ".." in relative_output.parts:
+        raise ValueError("--output must be a repository-relative path without parent traversal")
+    OUTPUT = (REPO / relative_output).resolve()
+    try:
+        OUTPUT.relative_to(REPO)
+    except ValueError as exc:
+        raise ValueError("--output must remain inside the repository") from exc
+    FIXTURE = OUTPUT / "research-v2-history.sqlite3"
+    ATTESTATION = OUTPUT / "attestation.json"
+    HASHES = OUTPUT / "SHA256SUMS"
+
+
+def main(relative_output: Path = DEFAULT_OUTPUT) -> int:
+    configure_output(relative_output)
     OUTPUT.mkdir(parents=True, exist_ok=True)
     for path in OUTPUT.iterdir():
         if path.name not in {Path(__file__).name}:
@@ -1107,7 +1126,7 @@ def main() -> int:
         },
         "sanitization": sanitization,
         "fixture": {
-            "path": str(FIXTURE),
+            "path": (OUTPUT.relative_to(REPO) / FIXTURE.name).as_posix(),
             "bytes": FIXTURE.stat().st_size,
             "sha256": fixture_hash,
             "inventory": inventory,
@@ -1136,4 +1155,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+        help="repository-relative output directory (default: build/agentmesh-v2-history-gate0)",
+    )
+    arguments = parser.parse_args()
+    raise SystemExit(main(arguments.output))

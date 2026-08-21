@@ -88,7 +88,7 @@
     "terminal_status": "completed"
   },
   "file_hashes": {
-    "characterize_v2_history.py": "c5fc3746071f5418d4e749010e4efaad531cffe2dd95662380f7f9f99ab920f1",
+    "characterize_v2_history.py": "25b82df6146a81213c6b16939bc127142468c1a686ab68327a1b70111139ea1a",
     "research-v2-history.sqlite3": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a"
   },
   "fixture": {
@@ -320,7 +320,7 @@
         "state_version": 2
       }
     },
-    "path": "/tmp/agentmesh-v2-history-gate0/research-v2-history.sqlite3",
+    "path": "tests/fixtures/ai_x_history/research-v2-history.sqlite3",
     "sha256": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a"
   },
   "generated_at": "2026-08-20T00:00:00+00:00",

@@ -1,28 +1,447 @@
 {
-  "advertised_ref": "refs/heads/agent/ai-x-parity-source-freeze-final",
+  "advertised_ref": "refs/heads/parity",
   "bundle": {
-    "bytes": 16185062,
+    "bytes": 14103048,
     "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
-    "sha256": "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f"
+    "sha256": "59169aa27438d973e2344670c7e995c937cefa68a90da5b7eddbc3eb7deb6075"
   },
-  "bundle_verify": {
-    "complete_history": true,
-    "result": "okay"
+  "content_scope": "exact_reviewed_tree_snapshot_export",
+  "determinism": {
+    "byteIdenticalSecondBundleBuild": true,
+    "fixedIdentityAndTimestamp": true,
+    "rootCommitWithoutParents": true,
+    "singlePackThread": true
   },
   "durable_retention": {
     "kind": "committed_git_blob",
     "repository": "https://github.com/yssssssssssss/ai-agentmesh-hackathon.git"
   },
-  "restored": {
-    "commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
-    "fsck_full_strict": "passed",
-    "tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
+  "history": {
+    "complete_history": false,
+    "snapshot_commit_count": 1,
+    "source_history_included": false
+  },
+  "restore": {
+    "advertisedRefCount": 1,
+    "advertisedRefs": {
+      "refs/heads/parity": "adf97f60f46ecceae5a2bc7f3d8c232484c334bd"
+    },
+    "bundle": "ai-x-parity.bundle",
+    "bundleVerify": "PASS: bundle is okay; it records complete history for the synthetic root and uses sha1.",
+    "expectedTree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
+    "fsckFullStrict": "PASS",
+    "historicalSourceCommitsPresent": false,
+    "note": "The bundle is self-contained for its one synthetic root commit. Complete history means that root snapshot only, not the source repository history.",
+    "objectTypeCounts": {
+      "blob": 912,
+      "commit": 1,
+      "tree": 239
+    },
+    "reachableObjectCount": 1152,
+    "restoredCommit": "adf97f60f46ecceae5a2bc7f3d8c232484c334bd",
+    "restoredCommitCount": 1,
+    "restoredRef": "refs/heads/parity",
+    "restoredTree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
+    "restoredWorktreeClean": true,
+    "rootCommit": true,
+    "schemaVersion": 1,
+    "treeMatchesExpected": true,
+    "verdict": "PASS"
   },
   "runtime_loading": {
     "importable_python_package": false,
     "loaded_automatically": false,
-    "policy": "evidence-only; verifier opens it only when explicitly passed or referenced by the lock"
+    "policy": "evidence-only; verifier opens only the explicit committed bundle path"
   },
-  "schema_version": "agentmesh-ai-x-source-bundle-attestation-v1",
-  "source_repository": "https://github.com/yssssssssssss/ai-x.git"
+  "scan": {
+    "checks": {
+      "credentialForms": {
+        "bcryptCandidates": {
+          "classification": "One non-production .local development/acceptance seed verifier; a verifier is not a plaintext secret.",
+          "count": 1,
+          "locations": [
+            {
+              "classification": "non-production local development/acceptance seed verifier",
+              "line": 7,
+              "path": "database/seed/002_approval_users.sql"
+            }
+          ]
+        },
+        "credentialBearingUriCandidates": {
+          "classification": "All occur in tests or loopback-only CI configuration.",
+          "count": 5,
+          "locations": [
+            {
+              "classification": "local CI/test fixture",
+              "line": 48,
+              "path": ".github/workflows/ci.yml"
+            },
+            {
+              "classification": "local CI/test fixture",
+              "line": 84,
+              "path": ".github/workflows/ci.yml"
+            },
+            {
+              "classification": "local CI/test fixture",
+              "line": 611,
+              "path": "tests/current-real-smoke.test.ts"
+            },
+            {
+              "classification": "local CI/test fixture",
+              "line": 124,
+              "path": "tests/cutover-rehearsal.test.ts"
+            },
+            {
+              "classification": "local CI/test fixture",
+              "line": 206,
+              "path": "tests/playwright-page-capture-adapter.test.ts"
+            }
+          ]
+        },
+        "credentialFilePaths": [],
+        "prohibitedMatches": 0,
+        "quotedSensitiveLiteralCandidates": {
+          "classification": "All occur in tests and are explicit fake/redaction fixtures.",
+          "count": 15,
+          "locations": [
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 72,
+              "path": "tests/audit-package-service.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 15,
+              "path": "tests/control-clarification.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 1056,
+              "path": "tests/current-deliverable-service.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 1061,
+              "path": "tests/current-deliverable-service.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 1066,
+              "path": "tests/current-deliverable-service.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 1071,
+              "path": "tests/current-deliverable-service.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 1076,
+              "path": "tests/current-deliverable-service.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 1081,
+              "path": "tests/current-deliverable-service.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 182,
+              "path": "tests/cutover-cli.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 183,
+              "path": "tests/cutover-cli.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 59,
+              "path": "tests/cutover-sensors.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 34,
+              "path": "tests/legacy-mutation-route.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 96,
+              "path": "tests/synthesis-materializer.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 121,
+              "path": "tests/tavily-adapter.test.ts"
+            },
+            {
+              "classification": "synthetic security/redaction test fixture",
+              "line": 279,
+              "path": "tests/tool-provenance.test.ts"
+            }
+          ]
+        },
+        "sensitiveEnvExampleFields": {
+          "allEmpty": true,
+          "count": 6,
+          "fields": [
+            {
+              "line": 4,
+              "path": ".env.example",
+              "valueState": "empty",
+              "variable": "JWT_SECRET"
+            },
+            {
+              "line": 14,
+              "path": ".env.example",
+              "valueState": "empty",
+              "variable": "LLM_GATEWAY_API_KEY"
+            },
+            {
+              "line": 27,
+              "path": ".env.example",
+              "valueState": "empty",
+              "variable": "TAVILY_API_KEY"
+            },
+            {
+              "line": 79,
+              "path": ".env.example",
+              "valueState": "empty",
+              "variable": "GOLD_REVIEWER_JWT"
+            },
+            {
+              "line": 87,
+              "path": ".env.example",
+              "valueState": "empty",
+              "variable": "SPIDER_PASSWORD"
+            },
+            {
+              "line": 9,
+              "path": "external-tools/virtual-user-lab/.env.example",
+              "valueState": "empty",
+              "variable": "LLM_GATEWAY_API_KEY"
+            }
+          ]
+        }
+      },
+      "dotenv": {
+        "actualOrLocalEnvFiles": [],
+        "classification": "Only .env.example templates are tracked; sensitive fields in them are empty.",
+        "prohibitedMatches": 0,
+        "templateFiles": [
+          ".env.example",
+          "external-tools/aesthetic-quant-lab/.env.example",
+          "external-tools/attention-analysis-lab/.env.example",
+          "external-tools/experience-model-lab/.env.example",
+          "external-tools/virtual-user-lab/.env.example",
+          "external-tools/vision-brand-lab/.env.example"
+        ]
+      },
+      "machineLocalPaths": {
+        "classification": "Generic /tmp literals are tests/runtime defaults and contain no machine or user identity; no /Users, /home, Windows user-home, /private/tmp, or /var/folders path was found.",
+        "genericTmpLiteralOccurrences": 18,
+        "paths": [],
+        "prohibitedMatches": 0
+      },
+      "pdfExtractedText": {
+        "extractor": "pdftotext -enc UTF-8",
+        "files": 21,
+        "matches": [],
+        "prohibitedMatches": 0
+      },
+      "runtimeState": {
+        "allowedPlaceholders": [
+          "run-workspaces/README.md",
+          "audit/gold-runs/README.md"
+        ],
+        "note": "Source directories named runtime are implementation code, not generated runtime state.",
+        "paths": [],
+        "prohibitedMatches": 0
+      },
+      "secrets": {
+        "note": "No private-key headers or known AWS, GitHub, Google, Slack, JWT, OpenAI/Anthropic, or Stripe token forms were found in raw blob bytes; extracted PDF text also had no secret-signature matches.",
+        "patterns": [
+          "aws_access_key",
+          "github_token",
+          "google_api_key",
+          "jwt_compact",
+          "openai_or_anthropic_key",
+          "private_key_header",
+          "slack_token",
+          "stripe_secret"
+        ],
+        "prohibitedMatches": 0
+      },
+      "userData": {
+        "emailCandidates": {
+          "classification": "All domains are reserved examples or explicit .local/.test fixtures.",
+          "domains": {
+            "approval.local": 1,
+            "example.com": 2,
+            "example.test": 7,
+            "test.local": 30,
+            "user-research.local": 3
+          },
+          "occurrences": 43
+        },
+        "identityNumberCandidates": {
+          "classification": "Synthetic redaction test fixture only.",
+          "locations": [
+            {
+              "classification": "synthetic redaction test fixture",
+              "path": "tests/redaction.test.ts",
+              "value": "110101199001011234"
+            },
+            {
+              "classification": "synthetic redaction test fixture",
+              "path": "tests/redaction.test.ts",
+              "value": "110101199001011234"
+            }
+          ],
+          "occurrences": 2
+        },
+        "phoneShapedCandidates": {
+          "classificationCounts": {
+            "substring of SHA-256 content hash": 2,
+            "substring of static asset URL identifier": 1,
+            "synthetic redaction/security test fixture": 11
+          },
+          "locations": [
+            {
+              "classification": "substring of SHA-256 content hash",
+              "path": "knowledge-base/.index/knowledge.json",
+              "value": "15016147400"
+            },
+            {
+              "classification": "substring of static asset URL identifier",
+              "path": "knowledge-base/methods/toolbox/collection/persona.md",
+              "value": "14367626397"
+            },
+            {
+              "classification": "substring of SHA-256 content hash",
+              "path": "knowledge-base/models/job-map.md",
+              "value": "15016147400"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/current-deliverable-service.test.ts",
+              "value": "13800138000"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/lease-execution-engine.test.ts",
+              "value": "13800138000"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/lease-execution-engine.test.ts",
+              "value": "13800138001"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/lease-execution-engine.test.ts",
+              "value": "13800138002"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/lease-execution-engine.test.ts",
+              "value": "13800138003"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/lease-execution-engine.test.ts",
+              "value": "13800138000"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/redaction.test.ts",
+              "value": "13800138000"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/redaction.test.ts",
+              "value": "13800138000"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/redaction.test.ts",
+              "value": "13800138000"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/synthesis-materializer.test.ts",
+              "value": "13800138000"
+            },
+            {
+              "classification": "synthetic redaction/security test fixture",
+              "path": "tests/synthesis-materializer.test.ts",
+              "value": "13800138000"
+            }
+          ],
+          "occurrences": 14
+        },
+        "prohibitedMatches": 0,
+        "runtimeResearchRecords": "No tracked runtime-state path or user upload/export path was found.",
+        "sourceAttributionNote": "145 owner metadata lines were retained as reviewed knowledge-source/maintainer attribution; they are not captured research-user records."
+      }
+    },
+    "coverage": {
+      "fileModes": {
+        "100644": 945
+      },
+      "nulContainingBlobEntries": 53,
+      "nulFreeBlobEntries": 892,
+      "pdfFilesTextExtracted": 21,
+      "trackedEntries": 945,
+      "trackedEntryBytes": 29202589,
+      "uniqueBlobBytes": 28522420,
+      "uniqueBlobObjects": 912
+    },
+    "limitations": "Pattern scan plus PDF text extraction; image pixels were not OCRed. Raw bytes of every image and other binary blob were still scanned for the listed signatures and identifiers.",
+    "prohibitedFindings": {
+      "actualEnvFiles": [],
+      "credentialFiles": [],
+      "machineLocalPaths": [],
+      "nonReservedEmails": [],
+      "nonemptySensitiveEnvExampleValues": [],
+      "pdfExtractedTextMatches": [],
+      "runtimeStatePaths": [],
+      "secretSignatures": [],
+      "unclassifiedBcryptVerifiers": [],
+      "unclassifiedCredentialUris": [],
+      "unclassifiedIdentityNumbers": [],
+      "unclassifiedPhoneNumbers": [],
+      "unclassifiedSensitiveLiterals": []
+    },
+    "schemaVersion": 1,
+    "scope": "Every tracked leaf/blob in the restored parity ref; raw byte patterns were applied to binary and text blobs. Text extracted from all tracked PDFs was scanned additionally.",
+    "snapshotCommit": "adf97f60f46ecceae5a2bc7f3d8c232484c334bd",
+    "tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
+    "verdict": "PASS"
+  },
+  "schema_version": "agentmesh-ai-x-minimal-snapshot-bundle-attestation-v2",
+  "snapshot": {
+    "author": {
+      "email": "ai-x-parity@example.invalid",
+      "name": "AI-X Parity Snapshot",
+      "timestamp": "2000-01-01T00:00:00Z"
+    },
+    "commit": "adf97f60f46ecceae5a2bc7f3d8c232484c334bd",
+    "commitCount": 1,
+    "committer": {
+      "email": "ai-x-parity@example.invalid",
+      "name": "AI-X Parity Snapshot",
+      "timestamp": "2000-01-01T00:00:00Z"
+    },
+    "message": "ai-x reviewed parity snapshot",
+    "parentCount": 0,
+    "tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
+  },
+  "source_origin": {
+    "commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+    "repository": "https://github.com/yssssssssssss/ai-x.git",
+    "source_ref_recorded_for_traceability_only": "refs/heads/agent/ai-x-parity-source-freeze-final",
+    "tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
+    "tree_mapping": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77^{tree} = adf97f60f46ecceae5a2bc7f3d8c232484c334bd^{tree} = ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
+  }
 }

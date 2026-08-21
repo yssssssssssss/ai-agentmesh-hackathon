@@ -5,9 +5,17 @@
     "signed_by_handle": "@heyunshen"
   },
   "bundle": {
-    "bytes": 16185062,
+    "bytes": 14103048,
     "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
-    "sha256": "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f"
+    "sha256": "59169aa27438d973e2344670c7e995c937cefa68a90da5b7eddbc3eb7deb6075"
+  },
+  "bundle_scope": {
+    "complete_history": false,
+    "content_scope": "exact_reviewed_tree_snapshot_export",
+    "snapshot_commit": "adf97f60f46ecceae5a2bc7f3d8c232484c334bd",
+    "snapshot_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
+    "source_origin_commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+    "source_origin_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
   },
   "inherited_checks": [
     {
@@ -48,6 +56,11 @@
     "node": ">=22",
     "package_json_sha256": "456340a881ad0a9b9c418c0c2941fa24a99b1a0a8e6bfd98173c878c48f1581c",
     "pnpm": "9.12.1"
+  },
+  "post_freeze_scan": {
+    "prohibited_findings": 0,
+    "scope": "Every tracked leaf/blob in the restored parity ref; raw byte patterns were applied to binary and text blobs. Text extracted from all tracked PDFs was scanned additionally.",
+    "verdict": "PASS"
   },
   "provider_calls": 0,
   "release_browser_validation_performed": false,

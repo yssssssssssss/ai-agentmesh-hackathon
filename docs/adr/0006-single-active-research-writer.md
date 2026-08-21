@@ -165,3 +165,9 @@ Gate 0 accepts this ADR's documentation boundary when:
 - `AM-ARCH` and `AM-CONTRACTS-HISTORY` have accepted this architecture/contracts package for the stated interim scope.
 
 This ADR is **Accepted** for Gate 0 and isolated Slice 1 development. The focused verifier, rather than this prose status, determines whether an isolated Slice 1 handoff is authorized. Production cutover remains separately blocked.
+
+### Closed Gate 0 evidence
+
+The Accepted decision is now backed by the exact 24-image/eight-state baseline, the independently verified ten-case accepted-target characterization, the portable and independently scanned historical SQLite fixture, and the deterministic minimal source snapshot bundle. The bundle retains synthetic orphan commit `adf97f60f46ecceae5a2bc7f3d8c232484c334bd` at tree `ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12`; origin remains reviewed source commit `d7ec877fbff0684b0886cb86a7e09eb42ebf7d77` with the same tree. It intentionally contains no source history.
+
+Final isolated-Slice handoff is evidence-driven: the release verifier must bind the complete Gate artifact manifest, including the lock, to the exact clean target commit/tree and must report all ten criteria passed. This closes Gate 0 only; it does not alter the single-active-writer decision, enable a production v3 route, or authorize production cutover.

@@ -119,14 +119,16 @@ Gate 0 固定以下 source Git 对象；读取和校验一律使用 commit blob�
 
 Source manifest 把 `approvedContentTree` 描述为 “pre-manifest/non-self-referential”，但该 parent tree 实际包含 predecessor manifest blob。Target lock 不重复这个更强的描述，只校验真实关系：final parent、parent tree 以及 final commit 仅修改 manifest。
 
-该对象由 committed Git Bundle 持久保留：
+该 source tree 由 committed、deterministic、history-minimal Git Bundle 持久保留。Bundle 中的 ref 指向一个合成 parentless snapshot commit，而不是冒充原 source commit；source owner provenance 以相同 tree ID 绑定两者：
 
 - path：`agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle`；
-- bytes：`16185062`；
-- SHA-256：`bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f`；
-- advertised ref：`refs/heads/agent/ai-x-parity-source-freeze-final`；
-- restored commit/tree：`d7ec877fbff0684b0886cb86a7e09eb42ebf7d77` / `ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12`；
-- a clean temporary clone plus `git fsck --full --strict` must pass.
+- bytes：`14103048`；
+- SHA-256：`59169aa27438d973e2344670c7e995c937cefa68a90da5b7eddbc3eb7deb6075`；
+- advertised ref：`refs/heads/parity`（唯一 ref）；
+- source origin commit/tree：`d7ec877fbff0684b0886cb86a7e09eb42ebf7d77` / `ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12`；
+- restored snapshot commit/tree：`adf97f60f46ecceae5a2bc7f3d8c232484c334bd` / `ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12`；
+- snapshot 是单一 root commit，source history 不包含在 bundle 中；
+- clean temporary mirror、`git fsck --full --strict`、reachable/physical object equality、all-blob scan 与 restore tree equality 必须通过。
 
 The bundle is evidence-only: its directory has no Python package marker, is absent from runtime package data, and is read only by the explicit Gate verifier path.
 
@@ -1205,7 +1207,7 @@ P90：
 | --- | --- | --- | --- |
 | durable source retention | `AX-SOURCE` | Gate 0 | committed bundle digest/ref/restore identity verified；后续 remote retention 变更需重签 |
 | accountable interim bindings | `AM-ARCH` | Gate 0 | 全部临时绑定 `@heyunshen`；scope 仅 Gate 0 / isolated Slice 1 |
-| exact 8×3 browser baseline | `AX-SOURCE` + `AM-WEB` | Gate 0 handoff | 缺失时 verifier HOLD；不复制不满足 exact matrix 的 blocker-only output |
+| exact 8×3 browser baseline | `AX-SOURCE` + `AM-WEB` | Gate 0 handoff | 已提交 exact 24 PNG + 8 canonical state fixtures；verifier 校验 tuple/path/hash/dimension/browser 与递归 exact inventory |
 | ai-spider endpoint/credential | `AM-RUNTIME-STORE` | Slice 6 | 未通过保持 optional unavailable |
 | 五 Lab 鉴权和生产容量 | `AM-SECURITY-RETENTION` | Slice 2/6 | 每个独立 smoke |
 | Playwright 出站隔离 | `AM-SECURITY-RETENTION` | Slice 2 execute | 无隔离仅 preview |
@@ -1250,7 +1252,7 @@ P90：
 
 ## 27. Accepted Gate 0 scope and next step
 
-This plan is Accepted by interim owner `@heyunshen` only as the governing plan for Gate 0 and isolated Slice 1 development. A prose status does not authorize handoff: the focused verifier must report `slice_1_authorized=true`. Production cutover remains a later, independent decision.
+This plan is Accepted by interim owner `@heyunshen` only as the governing plan for Gate 0 and isolated Slice 1 development. The exact visual matrix, ten-case accepted-target characterization, minimal source snapshot, independently scanned SQLite evidence, and final handoff policy are committed. A prose status still does not authorize handoff: the focused verifier must bind the exact clean target commit/tree and complete Gate artifact manifest and report `slice_1_authorized=true`. Production cutover remains a later, independent decision.
 
 The next allowed implementation step after verifier authorization is isolated Slice 1 only:
 

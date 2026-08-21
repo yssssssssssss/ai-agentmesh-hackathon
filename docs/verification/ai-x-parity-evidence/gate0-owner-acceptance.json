@@ -78,6 +78,15 @@
       "AM-RELEASE-QA"
     ]
   },
+  "final_handoff": {
+    "accepted": true,
+    "accepted_target_binding": "exact clean target commit/tree and complete Gate artifact manifest derived by the verifier after commit",
+    "required_owners": [
+      "AM-ARCH",
+      "AM-RELEASE-QA"
+    ],
+    "scope": "Gate 0 and isolated Slice 1 development only"
+  },
   "interim_binding_approved": true,
   "owner_bindings": [
     {

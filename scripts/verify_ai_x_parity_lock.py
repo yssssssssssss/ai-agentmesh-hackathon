@@ -11,8 +11,10 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import re
 import sqlite3
+import stat
 import struct
 import subprocess
 import tempfile
@@ -26,7 +28,9 @@ DEFAULT_REVISION = "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77"
 SOURCE_REPOSITORY = "https://github.com/yssssssssssss/ai-x.git"
 TARGET_REPOSITORY = "https://github.com/yssssssssssss/ai-agentmesh-hackathon.git"
 SOURCE_BRANCH_LABEL = "agent/ai-x-parity-source-freeze-final"
-SOURCE_BUNDLE_REF = f"refs/heads/{SOURCE_BRANCH_LABEL}"
+SOURCE_BUNDLE_REF = "refs/heads/parity"
+SOURCE_SNAPSHOT_COMMIT = "adf97f60f46ecceae5a2bc7f3d8c232484c334bd"
+SOURCE_SNAPSHOT_TREE = "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
 SOURCE_BUNDLE_PATH = Path("agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle")
 SOURCE_BUNDLE_ATTESTATION = Path(
     "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.attestation.json"
@@ -39,6 +43,8 @@ TARGET_BASE_TREE = "eb39f8159afb421233b657747192447734fd8b07"
 FIXTURE_ROOT = Path("tests/fixtures/ai_x_parity")
 HISTORY_ROOT = Path("tests/fixtures/ai_x_history")
 BASELINE_ROOT = Path("docs/verification/ai-x-parity-baselines")
+TARGET_CHARACTERIZATION_ROOT = Path("docs/verification/ai-x-parity-evidence/target-characterization")
+HANDOFF_PATH = Path("docs/verification/ai-x-parity-evidence/gate0-handoff.json")
 LOCK_PATH = Path("agentmesh/research_catalog/ai-x-parity-lock.json")
 
 EXACT_INCLUDED = {
@@ -139,6 +145,30 @@ REQUIRED_TARGET_CASES = {
     "v1-routing", "research-v2-routing", "client-turn-replay", "missing-runtime-fail-closed",
     "owner-hiding-404", "artifact-corruption-fail-closed", "restart-read-without-scheduling",
     "purge-tombstone", "off-rollback", "historical-database-fixture-read",
+}
+TARGET_CHARACTERIZATION_CASE_MAP = {
+    "v1-routing": "v1-routing",
+    "research-v2-routing": "research-v2-routing",
+    "client-turn-replay": "client-turn-replay",
+    "missing-runtime-fail-closed": "missing-runtime-fail-closed",
+    "off-rollback": "off-rollback",
+    "owner-read": "historical-database-fixture-read",
+    "foreign-owner-hidden": "owner-hiding-404",
+    "integrity-corruption-rejected": "artifact-corruption-fail-closed",
+    "restart-read": "restart-read-without-scheduling",
+    "purge-tombstone/history-no-mutation": "purge-tombstone",
+}
+TARGET_CHARACTERIZATION_CASE_FILES = {
+    "cases/01-v1-routing.json",
+    "cases/02-research-v2-routing.json",
+    "cases/03-client-turn-replay.json",
+    "cases/04-missing-runtime-fail-closed.json",
+    "cases/05-off-rollback.json",
+    "cases/06-owner-read.json",
+    "cases/07-foreign-owner-hidden.json",
+    "cases/08-integrity-corruption-rejected.json",
+    "cases/09-restart-read.json",
+    "cases/10-purge-tombstone-history-no-mutation.json",
 }
 REQUIRED_BASELINE_STATES = {
     "approval", "candidates", "clarify", "dag_or_executing", "idle", "paused", "plan", "text_report",
@@ -662,6 +692,167 @@ def strict_json_file(path: Path, root: Path | None = None) -> Any:
     return strict_json_bytes(path.read_bytes(), label)
 
 
+def strict_compact_json_file(path: Path, root: Path) -> Any:
+    label = path.relative_to(root).as_posix()
+    require(path.is_file() and not path.is_symlink(), f"missing regular JSON file: {label}")
+    raw = path.read_bytes()
+    value = strict_json_bytes(raw, label, require_canonical=False)
+    canonical = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    require(raw == canonical, f"JSON is not canonical compact JSON: {label}")
+    return value
+
+
+def exact_regular_inventory(
+    root: Path,
+    expected_files: set[str],
+    *,
+    allowed_directories: set[str] | None = None,
+) -> set[str]:
+    """Return an exact recursive inventory without following links or filtering entry types."""
+
+    allowed = allowed_directories or set()
+    require(root.exists() and root.is_dir() and not root.is_symlink(), f"fixture root is not a real directory: {root}")
+    for relative in expected_files | allowed:
+        validate_relative_path(relative)
+    require(not expected_files & allowed, "inventory path cannot be both a file and directory")
+    seen_files: set[str] = set()
+    seen_directories: set[str] = set()
+    normalized: dict[str, str] = {}
+
+    def walk(directory: Path, prefix: PurePosixPath) -> None:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                relative = (prefix / entry.name).as_posix()
+                validate_relative_path(relative)
+                folded = unicodedata.normalize("NFC", relative).casefold()
+                require(folded not in normalized, f"duplicate normalized/case-folded path: {normalized.get(folded)} / {relative}")
+                normalized[folded] = relative
+                mode = entry.stat(follow_symlinks=False).st_mode
+                require(not stat.S_ISLNK(mode), f"symlink is forbidden in exact inventory: {relative}")
+                if stat.S_ISDIR(mode):
+                    require(relative in allowed, f"undeclared or nested directory is forbidden: {relative}")
+                    seen_directories.add(relative)
+                    walk(Path(entry.path), PurePosixPath(relative))
+                else:
+                    require(stat.S_ISREG(mode), f"non-regular inventory entry is forbidden: {relative}")
+                    seen_files.add(relative)
+
+    walk(root, PurePosixPath())
+    require(seen_directories == allowed, f"exact directory inventory mismatch: {root}")
+    require(seen_files == expected_files, f"exact file inventory mismatch: {root}")
+    return seen_files
+
+
+def quote_sqlite_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+SENSITIVE_JSON_KEYS = {
+    "api_key", "apikey", "access_token", "authorization", "bearer_token", "client_secret",
+    "cookie", "credentials", "password", "refresh_token", "secret", "set_cookie", "token",
+}
+CREDENTIAL_TEXT_PATTERNS = (
+    ("api_key", re.compile(r"(?i)(?<![a-z0-9])sk-[a-z0-9]{8,}(?![a-z0-9])")),
+    ("bearer", re.compile(r"(?i)\bbearer[ \t]+[a-z0-9._~+/=-]{8,}(?![a-z0-9._~+/=-])")),
+    ("private_key", re.compile(r"(?i)-----begin (?:rsa |ec |openssh )?private key-----")),
+    ("machine_local_path", re.compile(r"(?:/Users/|/home/[^/\s]+/|/var/folders/|[A-Za-z]:\\\\Users\\\\)")),
+)
+CREDENTIAL_BYTE_PATTERNS = tuple(
+    (name, re.compile(pattern.pattern.encode(), pattern.flags & ~re.UNICODE))
+    for name, pattern in CREDENTIAL_TEXT_PATTERNS
+)
+SOURCE_BEARER_PATTERN = re.compile(rb"(?i)\bbearer[ \t]+(?P<token>[a-z0-9._~+/=-]{8,})(?![a-z0-9._~+/=-])")
+SOURCE_STRONG_PATTERNS = (
+    ("api_key", re.compile(rb"(?i)(?<![a-z0-9])sk-[a-z0-9]{20,}(?![a-z0-9])")),
+    ("private_key", re.compile(rb"(?i)-----begin (?:rsa |ec |openssh )?private key-----")),
+    ("machine_local_path", re.compile(rb"(?:/Users/|/home/[^/\s]+/|/var/folders/|[A-Za-z]:\\Users\\)")),
+)
+SOURCE_PLACEHOLDER_MARKERS = (b"test", b"fake", b"example", b"redacted", b"fixture", b"synthetic")
+SOURCE_BEARER_FIXTURE_BLOBS = {
+    "docs/superpowers/plans/2026-07-30-tavily-web-search.md": "f3363fd687eee4e1d084aa10f8e7341b3fd2d34fa97956a019af528acca086ce",
+    "tests/audit-package-service.test.ts": "d1a1c305202b7f7cdd7076dca89b64ea65d17a42c0a7fc1ab4bd61aff9905882",
+    "tests/current-deliverable-service.test.ts": "a4427cc6d82086f4246fbec9f2695926b882298dc3bd3a60ecc4a2aa4919161f",
+    "tests/cutover-cli.test.ts": "12a89a51036d643db589ebcfe20de0d318abeda1916d1790f6d4945f02d1c02e",
+    "tests/lease-execution-engine.test.ts": "a3a263a1afe9b1157bb5870c11e8710ec136f3cadb90a17229096f212f454a30",
+    "tests/tavily-adapter.test.ts": "fe4d7bbb8baed04fad62c00f4b09297abdd346e9b9a77a5bd8e369221e468e75",
+}
+
+
+def source_blob_credential_hits(raw: bytes) -> list[str]:
+    hits = [name for name, pattern in SOURCE_STRONG_PATTERNS if pattern.search(raw)]
+    for match in SOURCE_BEARER_PATTERN.finditer(raw):
+        token = match.group("token").lower()
+        if not any(marker in token for marker in SOURCE_PLACEHOLDER_MARKERS):
+            hits.append("bearer")
+    return hits
+
+
+def scan_sqlite_for_secrets(fixture: Path) -> dict[str, Any]:
+    """Independently scan SQLite schema plus every non-null text/blob cell."""
+
+    require(fixture.is_file() and not fixture.is_symlink(), "SQLite fixture must be a regular file")
+    hits: list[str] = []
+
+    def visit_json(value: object, location: str) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                normalized = str(key).lower().replace("-", "_").replace(" ", "_")
+                if normalized in SENSITIVE_JSON_KEYS and item not in (None, "", [], {}):
+                    hits.append(f"sensitive_json_key:{location}.{key}")
+                visit_json(item, f"{location}.{key}")
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                visit_json(item, f"{location}[{index}]")
+
+    def scan_text(value: str, location: str) -> None:
+        for name, pattern in CREDENTIAL_TEXT_PATTERNS:
+            if pattern.search(value):
+                hits.append(f"{name}:{location}")
+        try:
+            decoded = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return
+        visit_json(decoded, location)
+
+    def scan_value(value: object, location: str) -> None:
+        if isinstance(value, str):
+            scan_text(value, location)
+        elif isinstance(value, bytes):
+            for name, pattern in CREDENTIAL_BYTE_PATTERNS:
+                if pattern.search(value):
+                    hits.append(f"{name}_blob:{location}")
+            try:
+                scan_text(value.decode("utf-8"), f"{location}:utf8")
+            except UnicodeDecodeError:
+                pass
+
+    connection = sqlite3.connect(f"{fixture.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    try:
+        require(connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)], "SQLite integrity failure")
+        schema_rows = connection.execute(
+            "SELECT type, name, tbl_name, rootpage, sql FROM sqlite_schema ORDER BY type, name"
+        ).fetchall()
+        for row_index, row in enumerate(schema_rows):
+            for column_index, value in enumerate(row):
+                if value is not None:
+                    scan_value(value, f"sqlite_schema[{row_index}][{column_index}]")
+        tables = [str(row[1]) for row in schema_rows if row[0] == "table"]
+        require(len(tables) == len(set(tables)), "duplicate SQLite table metadata")
+        for table in tables:
+            columns = connection.execute(f"PRAGMA table_info({quote_sqlite_identifier(table)})").fetchall()
+            column_names = [str(row[1]) for row in columns]
+            require(column_names and len(column_names) == len(set(column_names)), f"invalid SQLite columns: {table}")
+            query = f"SELECT * FROM {quote_sqlite_identifier(table)}"
+            for row_index, row in enumerate(connection.execute(query)):
+                require(len(row) == len(column_names), f"SQLite row shape mismatch: {table}")
+                for column, value in zip(column_names, row, strict=True):
+                    if value is not None:
+                        scan_value(value, f"{table}[{row_index}].{column}")
+    finally:
+        connection.close()
+    return {"hits": byte_sorted(set(hits)), "passed": not hits}
+
+
 def source_state(source: Path, revision: str) -> dict[str, Any]:
     commit = resolve_commit(source, revision)
     tree_hash = git(source, "show", "-s", "--format=%T", commit).decode().strip()
@@ -740,26 +931,62 @@ def validate_bundle_file(project_root: Path) -> dict[str, Any]:
     attestation_path = project_root / SOURCE_BUNDLE_ATTESTATION
     attestation = strict_json_file(attestation_path, project_root)
     record = file_record(bundle_path, SOURCE_BUNDLE_PATH.as_posix())
-    require(record["sha256"] == "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f", "bundle SHA-256 mismatch")
-    require(record["size_bytes"] == 16185062, "bundle byte size mismatch")
-    require(attestation.get("schema_version") == "agentmesh-ai-x-source-bundle-attestation-v1", "bundle attestation schema mismatch")
-    require(attestation.get("source_repository") == SOURCE_REPOSITORY, "bundle repository mismatch")
+    require(
+        attestation.get("schema_version") == "agentmesh-ai-x-minimal-snapshot-bundle-attestation-v2",
+        "bundle attestation schema mismatch",
+    )
+    require(attestation.get("content_scope") == "exact_reviewed_tree_snapshot_export", "bundle scope mismatch")
+    history = attestation.get("history", {})
+    require(
+        history == {"complete_history": False, "snapshot_commit_count": 1, "source_history_included": False},
+        "bundle history declaration mismatch",
+    )
     require(attestation.get("advertised_ref") == SOURCE_BUNDLE_REF, "bundle advertised-ref declaration mismatch")
+    require(attestation.get("source_origin") == {
+        "commit": DEFAULT_REVISION,
+        "repository": SOURCE_REPOSITORY,
+        "source_ref_recorded_for_traceability_only": f"refs/heads/{SOURCE_BRANCH_LABEL}",
+        "tree": SOURCE_SNAPSHOT_TREE,
+        "tree_mapping": (
+            f"{DEFAULT_REVISION}^{{tree}} = {SOURCE_SNAPSHOT_COMMIT}^{{tree}} = {SOURCE_SNAPSHOT_TREE}"
+        ),
+    }, "bundle source-origin declaration mismatch")
+    snapshot = attestation.get("snapshot", {})
+    require(
+        snapshot.get("commit") == SOURCE_SNAPSHOT_COMMIT
+        and snapshot.get("tree") == SOURCE_SNAPSHOT_TREE
+        and snapshot.get("parentCount") == 0
+        and snapshot.get("commitCount") == 1,
+        "bundle snapshot declaration mismatch",
+    )
     declared_record = {"bytes": record["size_bytes"], "path": record["path"], "sha256": record["sha256"]}
     require(attestation.get("bundle") == declared_record, "bundle attestation file record mismatch")
-    require(attestation.get("bundle_verify") == {"complete_history": True, "result": "okay"}, "bundle verification declaration mismatch")
+    restore = attestation.get("restore", {})
     require(
-        attestation.get("restored")
-        == {
-            "commit": DEFAULT_REVISION,
-            "fsck_full_strict": "passed",
-            "tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
-        },
+        restore.get("verdict") == "PASS"
+        and restore.get("advertisedRefCount") == 1
+        and restore.get("advertisedRefs") == {SOURCE_BUNDLE_REF: SOURCE_SNAPSHOT_COMMIT}
+        and restore.get("restoredCommit") == SOURCE_SNAPSHOT_COMMIT
+        and restore.get("restoredTree") == SOURCE_SNAPSHOT_TREE
+        and restore.get("rootCommit") is True
+        and restore.get("historicalSourceCommitsPresent") is False
+        and restore.get("fsckFullStrict") == "PASS",
         "bundle restore declaration mismatch",
     )
+    scan = attestation.get("scan", {})
+    require(
+        scan.get("verdict") == "PASS"
+        and scan.get("snapshotCommit") == SOURCE_SNAPSHOT_COMMIT
+        and scan.get("tree") == SOURCE_SNAPSHOT_TREE
+        and scan.get("prohibitedFindings")
+        and all(value == [] for value in scan["prohibitedFindings"].values()),
+        "bundle content scan declaration mismatch",
+    )
     runtime = attestation.get("runtime_loading", {})
-    require(runtime.get("importable_python_package") is False and runtime.get("loaded_automatically") is False,
-            "bundle must be excluded from runtime loading")
+    require(
+        runtime.get("importable_python_package") is False and runtime.get("loaded_automatically") is False,
+        "bundle must be excluded from runtime loading",
+    )
     heads = subprocess.run(
         ("git", "bundle", "list-heads", str(bundle_path)),
         stdout=subprocess.PIPE,
@@ -767,9 +994,17 @@ def validate_bundle_file(project_root: Path) -> dict[str, Any]:
         check=False,
     )
     require(heads.returncode == 0, f"git bundle list-heads failed: {heads.stderr.decode(errors='replace').strip()}")
-    require(heads.stdout.decode().splitlines() == [f"{DEFAULT_REVISION} {SOURCE_BUNDLE_REF}"], "bundle advertised ref mismatch")
+    require(
+        heads.stdout.decode().splitlines() == [f"{SOURCE_SNAPSHOT_COMMIT} {SOURCE_BUNDLE_REF}"],
+        "bundle advertised ref mismatch",
+    )
     return {
         "attestation": file_record(attestation_path, SOURCE_BUNDLE_ATTESTATION.as_posix()),
+        "content_scope": attestation["content_scope"],
+        "origin_commit": DEFAULT_REVISION,
+        "origin_tree": SOURCE_SNAPSHOT_TREE,
+        "snapshot_commit": SOURCE_SNAPSHOT_COMMIT,
+        "snapshot_tree": SOURCE_SNAPSHOT_TREE,
         **declared_record,
     }
 
@@ -786,9 +1021,30 @@ def materialized_source_bundle(bundle_path: Path):
         )
         require(result.returncode == 0, f"self-contained bundle clone failed: {result.stderr.decode(errors='replace').strip()}")
         git(clone, "fsck", "--full", "--strict")
-        require(resolve_commit(clone, SOURCE_BUNDLE_REF) == DEFAULT_REVISION, "restored bundle commit mismatch")
-        restored_tree = git(clone, "show", "-s", "--format=%T", DEFAULT_REVISION).decode().strip()
-        require(restored_tree == "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12", "restored bundle tree mismatch")
+        require(resolve_commit(clone, SOURCE_BUNDLE_REF) == SOURCE_SNAPSHOT_COMMIT, "restored bundle commit mismatch")
+        restored_tree = git(clone, "show", "-s", "--format=%T", SOURCE_SNAPSHOT_COMMIT).decode().strip()
+        require(restored_tree == SOURCE_SNAPSHOT_TREE, "restored bundle tree mismatch")
+        require(git(clone, "show", "-s", "--format=%P", SOURCE_SNAPSHOT_COMMIT).strip() == b"", "snapshot is not orphaned")
+        refs = git(clone, "for-each-ref", "--format=%(objectname) %(refname)").decode().splitlines()
+        require(refs == [f"{SOURCE_SNAPSHOT_COMMIT} {SOURCE_BUNDLE_REF}"], "restored bundle contains extra refs")
+        commits = git(clone, "rev-list", "--all").decode().splitlines()
+        require(commits == [SOURCE_SNAPSHOT_COMMIT], "restored bundle contains source history")
+        reachable = {
+            line.split()[0]
+            for line in git(clone, "rev-list", "--objects", "--all").decode().splitlines()
+            if line
+        }
+        physical = set(git(clone, "cat-file", "--batch-all-objects", "--batch-check=%(objectname)").decode().splitlines())
+        require(reachable == physical, "restored bundle carries hidden or unreachable objects")
+        tree = read_tree(clone, SOURCE_SNAPSHOT_COMMIT)
+        require(len(tree) == 945, "restored bundle tree entry count mismatch")
+        for path, item in tree.items():
+            require(prohibited_reason(path) is None, f"prohibited exported source path: {path}")
+            raw = item["bytes"]
+            hits = source_blob_credential_hits(raw)
+            if hits and set(hits) == {"bearer"} and SOURCE_BEARER_FIXTURE_BLOBS.get(path) == item["sha256"]:
+                hits = []
+            require(not hits, f"exported source credential patterns {hits}: {path}")
         yield clone
 
 
@@ -839,8 +1095,8 @@ def validate_contract_fixtures(project_root: Path, snapshot: dict[str, Any]) -> 
     paths = [entry.get("path") for entry in declared if isinstance(entry, dict)]
     require(len(paths) == len(declared) == len(set(paths)), "duplicate or invalid fixture path")
     require(set(paths) == set(REQUIRED_FIXTURES), "fixture exact path set mismatch")
-    actual = {path.name for path in root.iterdir() if path.is_file()}
-    require(actual == {"manifest.json", *REQUIRED_FIXTURES}, "fixture directory contains omitted or undeclared files")
+    expected_files = {"manifest.json", *REQUIRED_FIXTURES}
+    exact_regular_inventory(root, expected_files)
     ids: set[str] = set()
     records = []
     for entry in declared:
@@ -886,12 +1142,16 @@ def validate_history_fixture(project_root: Path) -> dict[str, Any]:
     require(manifest.get("canonical_historical_identity_policy") == HISTORICAL_IDENTITY_POLICY,
             "history fixture identity policy mismatch")
     expected_names = {"SHA256SUMS", "attestation.json", "characterize_v2_history.py", "manifest.json", "research-v2-history.sqlite3"}
-    actual_names = {path.name for path in root.iterdir() if path.is_file()}
-    require(actual_names == expected_names, "history fixture contains omitted or undeclared files")
+    exact_regular_inventory(root, expected_names)
     entries = manifest.get("files")
-    require(isinstance(entries, list) and {entry.get("path") for entry in entries} == expected_names - {"manifest.json"},
-            "history fixture manifest exact set mismatch")
+    require(isinstance(entries, list) and len(entries) == 4, "history fixture manifest must contain four entries")
+    entry_paths = [entry.get("path") for entry in entries if isinstance(entry, dict)]
+    require(len(entry_paths) == len(entries) == len(set(entry_paths)), "duplicate or invalid history manifest path")
+    require(set(entry_paths) == expected_names - {"manifest.json"}, "history fixture manifest exact set mismatch")
     for entry in entries:
+        require(isinstance(entry, dict) and isinstance(entry.get("path"), str), "invalid history manifest entry")
+        validate_relative_path(entry["path"])
+        require(len(PurePosixPath(entry["path"]).parts) == 1, "history manifest path must be single-level")
         path = root / entry["path"]
         record = file_record(path, (HISTORY_ROOT / entry["path"]).as_posix())
         require(record["sha256"] == entry.get("sha256") and record["size_bytes"] == entry.get("bytes"),
@@ -900,6 +1160,8 @@ def validate_history_fixture(project_root: Path) -> dict[str, Any]:
     for line in (root / "SHA256SUMS").read_text().splitlines():
         parts = line.split("  ", 1)
         require(len(parts) == 2 and re.fullmatch(r"[0-9a-f]{64}", parts[0]) is not None, "invalid SHA256SUMS line")
+        require(len(PurePosixPath(parts[1]).parts) == 1, "history SHA256SUMS path must be single-level")
+        validate_relative_path(parts[1])
         require(parts[1] not in sums, "duplicate SHA256SUMS path")
         sums[parts[1]] = parts[0]
     require(set(sums) == {"attestation.json", "characterize_v2_history.py", "research-v2-history.sqlite3"},
@@ -908,7 +1170,11 @@ def validate_history_fixture(project_root: Path) -> dict[str, Any]:
         require(sha256((root / name).read_bytes()) == digest, f"history SHA256SUMS mismatch: {name}")
     attestation = strict_json_file(root / "attestation.json", project_root)
     require(attestation.get("overall") == "passed", "history attestation did not pass")
-    require(attestation.get("sanitization", {}).get("passed") is True, "history fixture sanitization failed")
+    require(
+        attestation.get("fixture", {}).get("path")
+        == "tests/fixtures/ai_x_history/research-v2-history.sqlite3",
+        "history fixture attestation path is not repository-relative",
+    )
     require(attestation.get("execution", {}).get("external_provider_calls") == 0, "history evidence used a Provider")
     require(attestation.get("execution", {}).get("network_used") is False, "history evidence used network")
     require(attestation.get("source", {}).get("target_base") == TARGET_BASE_COMMIT, "history target base mismatch")
@@ -917,11 +1183,8 @@ def validate_history_fixture(project_root: Path) -> dict[str, Any]:
     require(attestation.get("fixture", {}).get("bytes") == fixture.stat().st_size, "history fixture attested size mismatch")
     require(not (root / "research-v2-history.sqlite3-wal").exists() and not (root / "research-v2-history.sqlite3-shm").exists(),
             "history fixture WAL/SHM companion is forbidden")
-    connection = sqlite3.connect(f"file:{fixture}?mode=ro", uri=True)
-    try:
-        require(connection.execute("PRAGMA integrity_check").fetchone() == ("ok",), "history fixture SQLite integrity failure")
-    finally:
-        connection.close()
+    independent_scan = scan_sqlite_for_secrets(fixture)
+    require(independent_scan["passed"], f"history fixture independent sanitization failed: {independent_scan['hits']}")
     checks = attestation.get("checks", {})
     case_map = {
         "owner-hiding-404": checks.get("foreign_owner_hidden", {}).get("passed") is True,
@@ -935,8 +1198,189 @@ def validate_history_fixture(project_root: Path) -> dict[str, Any]:
         "attestation": file_record(root / "attestation.json", (HISTORY_ROOT / "attestation.json").as_posix()),
         "characterized_target_cases": byte_sorted({case for case, passed in case_map.items() if passed}),
         "fixture": file_record(fixture, (HISTORY_ROOT / fixture.name).as_posix()),
+        "independent_sqlite_scan": independent_scan,
         "manifest": file_record(manifest_path, (HISTORY_ROOT / "manifest.json").as_posix()),
         "status": "valid_sanitized_historical_fixture",
+    }
+
+
+def validate_target_characterization(project_root: Path) -> dict[str, Any]:
+    root = project_root / TARGET_CHARACTERIZATION_ROOT
+    expected_files = {
+        "SHA256SUMS", "attestation.json", "characterize_target.py", "environment.json",
+        "fixture.sqlite3", "manifest.json", "report.json", "source-hashes.json",
+        *TARGET_CHARACTERIZATION_CASE_FILES,
+    }
+    exact_regular_inventory(root, expected_files, allowed_directories={"cases"})
+    json_paths = {
+        "attestation.json", "environment.json", "manifest.json", "report.json", "source-hashes.json",
+        *TARGET_CHARACTERIZATION_CASE_FILES,
+    }
+    documents = {path: strict_compact_json_file(root / path, root) for path in json_paths}
+    manifest = documents["manifest.json"]
+    require(manifest.get("schema_version") == "agentmesh-target-characterization-manifest-v2", "target manifest schema mismatch")
+    require(manifest.get("overall") == "passed" and manifest.get("manifest_self_excluded") is True,
+            "target characterization manifest did not pass")
+    require(manifest.get("directory") == TARGET_CHARACTERIZATION_ROOT.as_posix(),
+            "target characterization directory is not repository-relative")
+    manifest_entries = manifest.get("files")
+    require(isinstance(manifest_entries, list) and len(manifest_entries) == 17,
+            "target characterization manifest must declare exactly 17 files")
+    manifest_paths = [entry.get("path") for entry in manifest_entries if isinstance(entry, dict)]
+    require(len(manifest_paths) == len(manifest_entries) == len(set(manifest_paths)),
+            "duplicate/invalid target characterization manifest path")
+    require(set(manifest_paths) == expected_files - {"manifest.json"}, "target characterization manifest exact set mismatch")
+    manifest_hashes: set[str] = set()
+    for entry in manifest_entries:
+        relative = entry["path"]
+        validate_relative_path(relative)
+        digest = entry.get("sha256")
+        require(isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest),
+                f"invalid target characterization SHA-256: {relative}")
+        require(digest not in manifest_hashes, f"duplicate target characterization file hash: {relative}")
+        manifest_hashes.add(digest)
+        record = file_record(root / relative, (TARGET_CHARACTERIZATION_ROOT / relative).as_posix())
+        require(record["sha256"] == digest and record["size_bytes"] == entry.get("bytes"),
+                f"target characterization hash/size mismatch: {relative}")
+    require(manifest.get("file_count_excluding_manifest") == len(manifest_entries), "target manifest count mismatch")
+
+    sums: dict[str, str] = {}
+    sum_lines = (root / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+    for line in sum_lines:
+        parts = line.split("  ", 1)
+        require(len(parts) == 2 and re.fullmatch(r"[0-9a-f]{64}", parts[0]), "invalid target SHA256SUMS line")
+        validate_relative_path(parts[1])
+        require(parts[1] not in sums, "duplicate target SHA256SUMS path")
+        sums[parts[1]] = parts[0]
+    expected_sums = expected_files - {"SHA256SUMS", "manifest.json"}
+    require(set(sums) == expected_sums and list(sums) == byte_sorted(expected_sums), "target SHA256SUMS exact/order mismatch")
+    for relative, digest in sums.items():
+        require(sha256((root / relative).read_bytes()) == digest, f"target SHA256SUMS mismatch: {relative}")
+
+    report = documents["report.json"]
+    source_case_ids = list(TARGET_CHARACTERIZATION_CASE_MAP)
+    require(
+        report.get("schema_version") == "agentmesh-accepted-target-characterization-report-v2"
+        and report.get("overall_verdict") == "passed"
+        and report.get("case_count") == 10,
+        "target characterization report did not pass ten cases",
+    )
+    required_source_cases = report.get("required_case_ids")
+    require(
+        isinstance(required_source_cases, list)
+        and len(required_source_cases) == len(set(required_source_cases)) == 10
+        and set(required_source_cases) == set(source_case_ids),
+        "target characterization required-case exact set mismatch",
+    )
+    case_rows = report.get("cases")
+    require(isinstance(case_rows, list) and len(case_rows) == 10, "target report must contain ten case rows")
+    row_ids = [row.get("case_id") for row in case_rows if isinstance(row, dict)]
+    sequences = [row.get("sequence") for row in case_rows if isinstance(row, dict)]
+    require(
+        len(row_ids) == len(set(row_ids)) == 10 and set(row_ids) == set(source_case_ids)
+        and len(sequences) == len(set(sequences)) == 10 and set(sequences) == set(range(1, 11))
+        and all(row.get("verdict") == "passed" for row in case_rows),
+        "target report duplicate/missing/failed case",
+    )
+    verdicts = report.get("verdicts")
+    require(
+        isinstance(verdicts, dict) and set(verdicts) == set(source_case_ids)
+        and all(value == "passed" for value in verdicts.values()),
+        "target characterization verdict set mismatch",
+    )
+    case_file_rows = report.get("case_files")
+    require(isinstance(case_file_rows, list) and len(case_file_rows) == 10, "target report case-file count mismatch")
+    case_file_paths = [row.get("path") for row in case_file_rows if isinstance(row, dict)]
+    require(len(case_file_paths) == len(set(case_file_paths)) == 10 and set(case_file_paths) == TARGET_CHARACTERIZATION_CASE_FILES,
+            "target report case-file exact set mismatch")
+    observed_case_ids: set[str] = set()
+    for row in case_file_rows:
+        relative = row["path"]
+        record = file_record(root / relative, (TARGET_CHARACTERIZATION_ROOT / relative).as_posix())
+        require(record["sha256"] == row.get("sha256") and record["size_bytes"] == row.get("bytes"),
+                f"target report case-file mismatch: {relative}")
+        document = documents[relative]
+        case_id = document.get("case_id")
+        require(case_id in TARGET_CHARACTERIZATION_CASE_MAP and case_id not in observed_case_ids,
+                f"duplicate/unknown target case document: {case_id}")
+        require(document.get("sequence") in range(1, 11) and document.get("verdict") == "passed",
+                f"target case document did not pass: {case_id}")
+        observed_case_ids.add(case_id)
+    require(observed_case_ids == set(source_case_ids), "target case document exact set mismatch")
+
+    execution = report.get("execution", {})
+    require(
+        execution.get("external_provider_calls") == 0
+        and execution.get("network_used") is False
+        and execution.get("network_attempts") == []
+        and execution.get("provider_adapters_constructed") is False
+        and execution.get("synthetic_ids_only") is True,
+        "target characterization used network, Provider, or nonsynthetic identities",
+    )
+    target = report.get("target", {})
+    require(
+        target.get("commit") == TARGET_BASE_COMMIT
+        and target.get("tree") == TARGET_BASE_TREE
+        and isinstance(target.get("worktree_head"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", target["worktree_head"]),
+        "target characterization target identity mismatch",
+    )
+    characterized_gate_commit = resolve_commit(project_root, target["worktree_head"])
+    characterized_gate_tree = git(project_root, "show", "-s", "--format=%T", characterized_gate_commit).decode().strip()
+    source_hashes = documents["source-hashes.json"]
+    require(
+        source_hashes.get("target", {}).get("commit") == TARGET_BASE_COMMIT
+        and source_hashes.get("target", {}).get("tree") == TARGET_BASE_TREE
+        and source_hashes.get("all_production_python_sources_match_target_base") is True
+        and source_hashes.get("production_python_file_count") == 103,
+        "target source exactness mismatch",
+    )
+    environment = documents["environment.json"]
+    require(environment.get("executable") == ".venv/bin/python", "target environment contains a machine-local executable")
+    fixture = root / "fixture.sqlite3"
+    fixture_scan = scan_sqlite_for_secrets(fixture)
+    require(fixture_scan["passed"], f"target fixture independent sanitization failed: {fixture_scan['hits']}")
+    require(not any(Path(f"{fixture}{suffix}").exists() for suffix in ("-wal", "-shm", "-journal")),
+            "target fixture companion file is forbidden")
+    require(report.get("fixture", {}).get("sha256") == sha256(fixture.read_bytes())
+            and report.get("fixture", {}).get("bytes") == fixture.stat().st_size,
+            "target report fixture identity mismatch")
+    attestation = documents["attestation.json"]
+    require(
+        attestation.get("overall") == "passed"
+        and attestation.get("case_count") == 10
+        and attestation.get("target_base") == TARGET_BASE_COMMIT
+        and attestation.get("target_tree") == TARGET_BASE_TREE
+        and attestation.get("synthetic_data_only") is True
+        and attestation.get("post_execution_sanitization", {}).get("sqlite_integrity_rechecked") is True,
+        "target characterization attestation mismatch",
+    )
+    attested_files = attestation.get("attested_files")
+    require(isinstance(attested_files, list) and len(attested_files) == 15, "target attested-file count mismatch")
+    attested_paths = [row.get("path") for row in attested_files if isinstance(row, dict)]
+    require(len(attested_paths) == len(set(attested_paths)) == 15, "duplicate/invalid target attested file")
+    for row in attested_files:
+        record = file_record(root / row["path"], (TARGET_CHARACTERIZATION_ROOT / row["path"]).as_posix())
+        require(record["sha256"] == row.get("sha256") and record["size_bytes"] == row.get("bytes"),
+                f"target attested-file mismatch: {row['path']}")
+    for relative in expected_files:
+        raw = (root / relative).read_bytes()
+        require(
+            not any(marker in raw for marker in (b"/Users/", b"/tmp/", b"/var/folders/")),
+            f"machine-local path in target characterization: {relative}",
+        )
+    mapped = {TARGET_CHARACTERIZATION_CASE_MAP[case_id] for case_id in observed_case_ids}
+    require(mapped == REQUIRED_TARGET_CASES, "target characterization Gate case mapping mismatch")
+    return {
+        "characterized_gate_commit": characterized_gate_commit,
+        "characterized_gate_tree": characterized_gate_tree,
+        "complete": True,
+        "fixture": file_record(fixture, (TARGET_CHARACTERIZATION_ROOT / "fixture.sqlite3").as_posix()),
+        "independent_sqlite_scan": fixture_scan,
+        "manifest": file_record(root / "manifest.json", (TARGET_CHARACTERIZATION_ROOT / "manifest.json").as_posix()),
+        "passing_cases": byte_sorted(mapped),
+        "report": file_record(root / "report.json", (TARGET_CHARACTERIZATION_ROOT / "report.json").as_posix()),
+        "required_cases": byte_sorted(REQUIRED_TARGET_CASES),
     }
 
 
@@ -958,21 +1402,83 @@ def validate_browser_baseline(project_root: Path, snapshot: dict[str, Any]) -> d
             "reason": "No committed baseline satisfies the exact eight-state by three-viewport Gate policy.",
             "required_screenshot_count": 24,
         }
+    expected_state_files = {f"states/{state}.json" for state in REQUIRED_BASELINE_STATES}
+    expected_screenshots = {
+        f"screenshots/{state}--{viewport}.png"
+        for state in REQUIRED_BASELINE_STATES
+        for viewport in REQUIRED_VIEWPORTS
+    }
+    exact_regular_inventory(
+        root,
+        {"manifest.json", *expected_state_files, *expected_screenshots},
+        allowed_directories={"screenshots", "states"},
+    )
     manifest = strict_json_file(root / "manifest.json", project_root)
     require(manifest.get("schema_version") == "agentmesh-ai-x-browser-baseline-v1", "baseline manifest schema mismatch")
+    require(manifest.get("status") == "PASS", "baseline source capture did not pass")
     require(manifest.get("source") == {
         "commit": DEFAULT_REVISION,
         "repository": SOURCE_REPOSITORY,
+        "root": "apps/web",
         "tree": snapshot["source"]["snapshot_tree"],
     }, "baseline source identity mismatch")
-    require(manifest.get("viewports") == [{"id": key, **REQUIRED_VIEWPORTS[key]} for key in byte_sorted(set(REQUIRED_VIEWPORTS))],
-            "baseline exact viewport set mismatch")
+    require(
+        manifest.get("viewports")
+        == [{"device_scale_factor": REQUIRED_VIEWPORTS[key]["device_scale_factor"],
+             "height": REQUIRED_VIEWPORTS[key]["height"], "id": key,
+             "width": REQUIRED_VIEWPORTS[key]["width"]}
+            for key in byte_sorted(set(REQUIRED_VIEWPORTS))],
+        "baseline exact viewport set mismatch",
+    )
+    capture = manifest.get("capture", {})
+    require(
+        capture.get("pass_count") == capture.get("browser_count") == capture.get("context_count")
+        == capture.get("page_count") == 1
+        and capture.get("providers_called") is False
+        and capture.get("backend_api_mock_rule")
+        == "url.origin === backendOrigin && url.pathname.startsWith('/api/')",
+        "baseline capture boundary mismatch",
+    )
+    state_rows = manifest.get("state_files")
+    require(isinstance(state_rows, list) and len(state_rows) == 8, "baseline must declare exactly eight state files")
+    state_ids: set[str] = set()
+    state_fixture_ids: set[str] = set()
+    state_hashes: set[str] = set()
+    state_records: dict[str, tuple[str, str]] = {}
+    state_paths: set[str] = set()
+    for row in state_rows:
+        require(isinstance(row, dict), "invalid baseline state-file entry")
+        state = row.get("state_id")
+        require(state in REQUIRED_BASELINE_STATES and state not in state_ids, f"duplicate/unknown baseline state: {state}")
+        relative = row.get("path")
+        require(relative == f"states/{state}.json" and relative not in state_paths, "noncanonical/duplicate state path")
+        fixture_id, digest = row.get("state_fixture_id"), row.get("sha256")
+        require(isinstance(fixture_id, str) and fixture_id and fixture_id not in state_fixture_ids,
+                "duplicate/invalid state fixture ID")
+        require(isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) and digest not in state_hashes,
+                "duplicate/invalid state fixture hash")
+        payload_path = root / relative
+        payload = strict_json_file(payload_path, project_root)
+        require(
+            payload.get("schema_version") == "agentmesh-ai-x-baseline-state-v1"
+            and payload.get("canonical_state_id") == state
+            and payload.get("fixture_id") == fixture_id
+            and payload.get("immutable") is True
+            and isinstance(payload.get("sanitization"), str) and payload["sanitization"],
+            f"invalid baseline state fixture: {state}",
+        )
+        actual = sha256(payload_path.read_bytes())
+        require(actual == digest, f"state fixture hash mismatch: {state}")
+        state_ids.add(state); state_fixture_ids.add(fixture_id); state_hashes.add(digest); state_paths.add(relative)
+        state_records[state] = (fixture_id, digest)
+    require(state_ids == REQUIRED_BASELINE_STATES and state_paths == expected_state_files, "baseline state exact set mismatch")
+
     screenshots = manifest.get("screenshots")
     require(isinstance(screenshots, list) and len(screenshots) == 24, "baseline must declare exactly 24 screenshots")
     tuples: set[tuple[str, str]] = set()
-    declared_files = {"manifest.json"}
+    seen_paths: set[str] = set()
+    seen_hashes: set[str] = set()
     browser_versions: set[str] = set()
-    state_fixtures: dict[str, str] = {}
     for item in screenshots:
         require(isinstance(item, dict), "invalid baseline entry")
         state, viewport_id = item.get("state_id"), item.get("viewport_id")
@@ -980,41 +1486,53 @@ def validate_browser_baseline(project_root: Path, snapshot: dict[str, Any]) -> d
         require((state, viewport_id) not in tuples, "duplicate baseline state/viewport tuple")
         tuples.add((state, viewport_id))
         relative = item.get("path")
-        require(isinstance(relative, str), "missing baseline path")
-        validate_relative_path(relative)
+        require(relative == f"screenshots/{state}--{viewport_id}.png", "baseline path is not tuple-canonical")
+        require(relative not in seen_paths, "duplicate baseline screenshot path")
+        seen_paths.add(relative)
+        declared_hash = item.get("sha256")
+        require(isinstance(declared_hash, str) and re.fullmatch(r"[0-9a-f]{64}", declared_hash),
+                "invalid baseline screenshot SHA-256")
+        require(declared_hash not in seen_hashes, "duplicate baseline screenshot hash")
+        seen_hashes.add(declared_hash)
         path = root / relative
         record = file_record(path, (BASELINE_ROOT / relative).as_posix())
-        require(record["sha256"] == item.get("sha256") and record["size_bytes"] == item.get("bytes"),
+        require(record["sha256"] == declared_hash and record["size_bytes"] == item.get("bytes"),
                 f"baseline hash/size mismatch: {relative}")
         width, height = png_dimensions(path.read_bytes(), relative)
         viewport = REQUIRED_VIEWPORTS[viewport_id]
-        require((width, height) == (viewport["width"] * viewport["device_scale_factor"],
-                                    viewport["height"] * viewport["device_scale_factor"]),
-                f"baseline PNG dimensions mismatch: {relative}")
+        require(
+            (width, height) == (viewport["width"] * viewport["device_scale_factor"],
+                                viewport["height"] * viewport["device_scale_factor"]),
+            f"baseline PNG dimensions mismatch: {relative}",
+        )
         require(item.get("browser_engine") == "chromium", "baseline browser engine mismatch")
         browser_version = item.get("browser_version")
         require(isinstance(browser_version, str) and browser_version, "missing pinned browser version")
         browser_versions.add(browser_version)
-        fixture_id, fixture_hash = item.get("state_fixture_id"), item.get("state_fixture_sha256")
-        require(isinstance(fixture_id, str) and fixture_id and re.fullmatch(r"[0-9a-f]{64}", str(fixture_hash)),
-                "invalid baseline state fixture identity")
-        previous = state_fixtures.setdefault(state, fixture_hash)
-        require(previous == fixture_hash, f"state fixture hash drift: {state}")
-        for key in ("locale", "timezone", "color_scheme", "reduced_motion", "font_fingerprint"):
-            require(isinstance(item.get(key), str) and item[key], f"missing baseline environment field: {key}")
-        require(item.get("sanitization_status") == "passed" and isinstance(item.get("sanitization_statement"), str)
-                and item["sanitization_statement"], "baseline sanitization evidence missing")
-        declared_files.add(relative)
+        fixture_id, fixture_hash = state_records[state]
+        require(
+            item.get("state_fixture_id") == fixture_id
+            and item.get("state_fixture_sha256") == fixture_hash,
+            f"state fixture identity mismatch: {relative}",
+        )
+        require(
+            item.get("sanitization_status") == "passed"
+            and isinstance(item.get("sanitization_statement"), str)
+            and item["sanitization_statement"],
+            "baseline sanitization evidence missing",
+        )
     expected_tuples = {(state, viewport) for state in REQUIRED_BASELINE_STATES for viewport in REQUIRED_VIEWPORTS}
-    require(tuples == expected_tuples and len(browser_versions) == 1, "baseline matrix/browser version mismatch")
-    actual_files = {
-        path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() and not path.is_symlink()
-    }
-    require(actual_files == declared_files, "baseline directory contains omitted or undeclared files")
+    require(
+        tuples == expected_tuples and seen_paths == expected_screenshots
+        and len(seen_hashes) == 24 and len(browser_versions) == 1,
+        "baseline matrix/path/hash/browser version mismatch",
+    )
     return {
         "available": True,
+        "browser_version": next(iter(browser_versions)),
         "manifest": file_record(root / "manifest.json", (BASELINE_ROOT / "manifest.json").as_posix()),
         "screenshot_count": 24,
+        "state_count": 8,
     }
 
 
@@ -1040,6 +1558,12 @@ def validate_owner_acceptance(project_root: Path) -> dict[str, Any]:
     production = evidence.get("production_cutover", {})
     require(production.get("authorized") is False and production.get("same_person_or_key_allowed") is False,
             "production cutover must remain separately blocked")
+    require(evidence.get("final_handoff") == {
+        "accepted": True,
+        "accepted_target_binding": "exact clean target commit/tree and complete Gate artifact manifest derived by the verifier after commit",
+        "required_owners": ["AM-ARCH", "AM-RELEASE-QA"],
+        "scope": "Gate 0 and isolated Slice 1 development only",
+    }, "owner final-handoff acceptance mismatch")
     approvals = evidence.get("approved_criteria_by_owner")
     require(isinstance(approvals, dict) and set(approvals) == set(OWNER_ACCOUNTABILITIES), "owner approvals exact set mismatch")
     for owner_id in OWNER_ACCOUNTABILITIES:
@@ -1065,6 +1589,17 @@ def validate_source_quality(project_root: Path, snapshot: dict[str, Any], bundle
     }, "source quality source identity mismatch")
     require(evidence.get("bundle") == {key: bundle[key] for key in ("bytes", "path", "sha256")},
             "source quality bundle mismatch")
+    require(evidence.get("bundle_scope") == {
+        "complete_history": False,
+        "content_scope": "exact_reviewed_tree_snapshot_export",
+        "snapshot_commit": SOURCE_SNAPSHOT_COMMIT,
+        "snapshot_tree": SOURCE_SNAPSHOT_TREE,
+        "source_origin_commit": DEFAULT_REVISION,
+        "source_origin_tree": SOURCE_SNAPSHOT_TREE,
+    }, "source quality bundle-scope mismatch")
+    scan = evidence.get("post_freeze_scan", {})
+    require(scan.get("verdict") == "PASS" and scan.get("prohibited_findings") == 0
+            and isinstance(scan.get("scope"), str) and scan["scope"], "source quality scan mismatch")
     package = evidence.get("package_contract", {})
     require(package == {"node": ">=22", "package_json_sha256": snapshot["tree"]["package.json"]["sha256"], "pnpm": "9.12.1"},
             "source quality runtime contract mismatch")
@@ -1092,6 +1627,50 @@ def validate_source_quality(project_root: Path, snapshot: dict[str, Any], bundle
     }
 
 
+def validate_handoff(project_root: Path) -> dict[str, Any]:
+    path = project_root / HANDOFF_PATH
+    evidence = strict_json_file(path, project_root)
+    require(evidence.get("schema_version") == "agentmesh-ai-x-gate0-handoff-v1", "handoff schema mismatch")
+    require(evidence.get("scope") == "Gate 0 and isolated Slice 1 development only", "handoff scope mismatch")
+    require(evidence.get("production_cutover_authorized") is False, "handoff cannot authorize production cutover")
+    require(evidence.get("slice_1_authorization_requested") is True, "isolated Slice 1 handoff was not requested")
+    require(evidence.get("criterion_owners") == CRITERION_OWNERS, "handoff criterion-owner policy mismatch")
+    require(evidence.get("target_binding") == {
+        "artifact_manifest": "verifier-derived exact A/M status, mode, SHA-256, bytes, and path including the lock",
+        "base_commit": TARGET_BASE_COMMIT,
+        "base_tree": TARGET_BASE_TREE,
+        "clean_head_required": True,
+        "commit_and_tree": "resolved from the exact clean --target-revision after commit to avoid self-reference",
+        "repository": TARGET_REPOSITORY,
+    }, "handoff target-binding policy mismatch")
+    statuses = evidence.get("evidence_status")
+    require(statuses == {
+        "architecture": "accepted",
+        "baseline": "passed",
+        "characterization": "passed",
+        "handoff": "accepted",
+        "owner_binding": "accepted",
+        "source_quality": "passed",
+    }, "handoff evidence status mismatch")
+    approvals = evidence.get("final_approvals")
+    require(isinstance(approvals, list) and len(approvals) == 2, "handoff requires two accountable role approvals")
+    observed: set[str] = set()
+    for approval in approvals:
+        owner_id = approval.get("owner_id")
+        require(owner_id in {"AM-ARCH", "AM-RELEASE-QA"} and owner_id not in observed,
+                f"duplicate/unknown handoff owner: {owner_id}")
+        require(
+            approval.get("handle") == "@heyunshen"
+            and approval.get("method") == "authenticated Gate 0 work instruction"
+            and approval.get("criterion") == "gate0-10-handoff-and-authorization"
+            and approval.get("approved") is True,
+            f"handoff owner approval mismatch: {owner_id}",
+        )
+        observed.add(owner_id)
+    require(observed == {"AM-ARCH", "AM-RELEASE-QA"}, "handoff owner exact set mismatch")
+    return {"evidence": file_record(path, HANDOFF_PATH.as_posix()), "passed": True, "scope": evidence["scope"]}
+
+
 def gate0_changed_paths(project_root: Path) -> list[str]:
     tracked = git(project_root, "diff", "--name-only", TARGET_BASE_COMMIT, "--", ".").decode().splitlines()
     untracked = git(project_root, "ls-files", "--others", "--exclude-standard").decode().splitlines()
@@ -1105,6 +1684,8 @@ def allowed_gate0_path(path: str) -> bool:
 def working_gate_artifact_manifest(project_root: Path) -> dict[str, Any]:
     names = gate0_changed_paths(project_root)
     require(names and all(allowed_gate0_path(path) for path in names), "target change set escapes the Gate 0 allowlist")
+    require(len({unicodedata.normalize("NFC", path).casefold() for path in names}) == len(names),
+            "target working artifact paths collide after normalization/case-folding")
     records = []
     for path in names:
         validate_relative_path(path)
@@ -1140,12 +1721,18 @@ def committed_gate_artifact_manifest(project_root: Path, revision: str) -> dict[
     raw = git(project_root, "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", TARGET_BASE_COMMIT, commit)
     fields = raw.split(b"\0")
     records: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    seen_folded: set[str] = set()
     index = 0
     while index < len(fields) and fields[index]:
         status = fields[index].decode(); index += 1
         require(status in {"A", "M"}, f"unsupported Gate change status: {status}")
         path = fields[index].decode(); index += 1
         validate_relative_path(path)
+        require(path not in seen_paths, f"duplicate target artifact path: {path}")
+        folded = unicodedata.normalize("NFC", path).casefold()
+        require(folded not in seen_folded, f"target artifact path collision: {path}")
+        seen_paths.add(path); seen_folded.add(folded)
         require(allowed_gate0_path(path), f"target change escapes Gate 0 allowlist: {path}")
         ls = git(project_root, "ls-tree", commit, "--", path).decode().rstrip("\n")
         metadata, listed_path = ls.split("\t", 1)
@@ -1175,16 +1762,12 @@ def build_evidence(project_root: Path, snapshot: dict[str, Any]) -> dict[str, An
     fixtures = validate_contract_fixtures(project_root, snapshot)
     history = validate_history_fixture(project_root)
     browser = validate_browser_baseline(project_root, snapshot)
-    characterized = set(history["characterized_target_cases"])
-    target_characterization = {
-        "complete": characterized == REQUIRED_TARGET_CASES,
-        "missing_cases": byte_sorted(REQUIRED_TARGET_CASES - characterized),
-        "passing_cases": byte_sorted(characterized),
-        "required_cases": byte_sorted(REQUIRED_TARGET_CASES),
-    }
+    target_characterization = validate_target_characterization(project_root)
+    handoff = validate_handoff(project_root)
     return {
         "browser_baseline": browser,
         "contract_fixtures": fixtures,
+        "handoff": handoff,
         "historical_database_fixture": history,
         "owner_acceptance": owners,
         "source_bundle": bundle,
@@ -1197,8 +1780,8 @@ def criterion_assessment(evidence: dict[str, Any], artifact_manifest: dict[str, 
     owner_ok = len(evidence["owner_acceptance"]["bindings"]) == len(OWNER_ACCOUNTABILITIES)
     facts = {
         "gate0-01-ownership-ledger": owner_ok,
-        "gate0-02-final-source-authority-and-durable-retention": evidence["source_bundle"]["sha256"]
-        == "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f",
+        "gate0-02-final-source-authority-and-durable-retention":
+        evidence["source_bundle"]["content_scope"] == "exact_reviewed_tree_snapshot_export",
         "gate0-03-authoritative-parity-lock": evidence["contract_fixtures"]["status"] == "valid_characterization_only",
         "gate0-04-offline-source-quality": evidence["source_quality"]["passed"],
         "gate0-05-visual-identity": evidence["browser_baseline"]["available"],
@@ -1208,7 +1791,7 @@ def criterion_assessment(evidence: dict[str, Any], artifact_manifest: dict[str, 
         "gate0-09-v2-compatibility-and-slice-1-work-plan":
         evidence["historical_database_fixture"]["status"] == "valid_sanitized_historical_fixture",
     }
-    facts["gate0-10-handoff-and-authorization"] = all(facts.values())
+    facts["gate0-10-handoff-and-authorization"] = evidence["handoff"]["passed"] and all(facts.values())
     return [
         {
             "id": criterion,
@@ -1240,10 +1823,10 @@ def build_lock(project_root: Path, source: Path, revision: str = DEFAULT_REVISIO
             "path_order": "repository-relative NFC UTF-8 POSIX paths sorted by encoded bytes",
         },
         "excluded_assets": snapshot["excluded"],
-        "generator": {"id": "agentmesh-gate0-evidence-lock", "version": 3},
+        "generator": {"id": "agentmesh-gate0-evidence-lock", "version": 4},
         "included_assets": snapshot["included"],
         "integrity": snapshot["integrity"],
-        "lock_version": "ai-x-parity-lock-v3",
+        "lock_version": "ai-x-parity-lock-v4",
         "normalized_inventory": snapshot["normalized"],
         "owner_policy": {
             "accountabilities": OWNER_ACCOUNTABILITIES,
@@ -1302,7 +1885,7 @@ def validate(
     project_root = lock_path.resolve().parents[2]
     raw = lock_path.read_bytes()
     lock = strict_json_bytes(raw, LOCK_PATH.as_posix())
-    require(lock.get("lock_version") == "ai-x-parity-lock-v3", "unsupported lock version")
+    require(lock.get("lock_version") == "ai-x-parity-lock-v4", "unsupported lock version")
     effective_revision = revision or lock["source"]["snapshot_commit"]
     require(effective_revision == DEFAULT_REVISION, "source revision mismatch")
     expected = build_lock(project_root, source, effective_revision)
@@ -1329,6 +1912,11 @@ def validate(
             "target base tree mismatch")
     source_clean = resolve_commit(source, "HEAD") == effective_revision and git(source, "status", "--porcelain=v1", "-z") == b""
     target_clean = resolve_commit(project_root, "HEAD") == target["commit"] and git(project_root, "status", "--porcelain=v1", "-z") == b""
+    verifier_blob = git(project_root, "show", f"{target['commit']}:scripts/verify_ai_x_parity_lock.py")
+    verifier_exact = Path(__file__).resolve().read_bytes() == verifier_blob
+    require(verifier_exact, "executing verifier differs from the accepted target blob")
+    require(lock["authorization"]["production_cutover_authorized"] is False,
+            "production cutover must remain unauthorized")
     if require_clean_source:
         require(source_clean, "source checkout is not clean at the frozen commit")
     if require_clean_target:
@@ -1337,14 +1925,18 @@ def validate(
     for item in lock["authorization"]["criteria"]:
         passed = item["satisfied_by_committed_evidence"]
         if item["id"] == "gate0-08-zero-production-behavior-diff":
-            passed = passed and target_clean
-        if item["id"] == "gate0-10-handoff-and-authorization":
-            passed = False
+            passed = passed and target_clean and verifier_exact
         criteria.append({"id": item["id"], "owner_ids": item["owner_ids"], "passed": passed})
     prior_pass = all(item["passed"] for item in criteria if item["id"] != "gate0-10-handoff-and-authorization")
     for item in criteria:
         if item["id"] == "gate0-10-handoff-and-authorization":
-            item["passed"] = prior_pass and target_clean
+            item["passed"] = (
+                item["passed"]
+                and prior_pass
+                and target_clean
+                and verifier_exact
+                and lock["target_evidence"]["handoff"]["passed"]
+            )
     blockers = [item["id"] for item in criteria if not item["passed"]]
     authorized = not blockers
     if require_slice_1_authorized:
@@ -1367,6 +1959,7 @@ def validate(
         "target_commit": target["commit"],
         "target_tree": target["tree"],
         "tree_files": lock["tree_manifest"]["file_count"],
+        "verifier_exact": verifier_exact,
     }
 
 

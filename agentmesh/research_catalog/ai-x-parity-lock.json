@@ -1,10 +1,6 @@
 {
   "authorization": {
-    "blocking_criteria": [
-      "gate0-05-visual-identity",
-      "gate0-07-target-characterization",
-      "gate0-10-handoff-and-authorization"
-    ],
+    "blocking_criteria": [],
     "criteria": [
       {
         "id": "gate0-01-ownership-ledger",
@@ -42,7 +38,7 @@
           "AX-SOURCE",
           "AM-WEB"
         ],
-        "satisfied_by_committed_evidence": false
+        "satisfied_by_committed_evidence": true
       },
       {
         "id": "gate0-06-accepted-architecture-and-exact-contracts",
@@ -57,7 +53,7 @@
         "owner_ids": [
           "AM-RELEASE-QA"
         ],
-        "satisfied_by_committed_evidence": false
+        "satisfied_by_committed_evidence": true
       },
       {
         "id": "gate0-08-zero-production-behavior-diff",
@@ -83,12 +79,12 @@
           "AM-ARCH",
           "AM-RELEASE-QA"
         ],
-        "satisfied_by_committed_evidence": false
+        "satisfied_by_committed_evidence": true
       }
     ],
     "production_cutover_authorized": false,
     "scope": "Gate 0 and isolated Slice 1 development only",
-    "slice_1_authorized": false
+    "slice_1_authorized": true
   },
   "canonicalization": {
     "file_hash": "SHA-256 of exact bytes",
@@ -1772,7 +1768,7 @@
   },
   "generator": {
     "id": "agentmesh-gate0-evidence-lock",
-    "version": 3
+    "version": 4
   },
   "included_assets": {
     "category_manifests": {
@@ -11557,7 +11553,7 @@
       ]
     }
   },
-  "lock_version": "ai-x-parity-lock-v3",
+  "lock_version": "ai-x-parity-lock-v4",
   "normalized_inventory": {
     "capability_counts": {
       "canonical_schemas": 22,
@@ -12841,12 +12837,17 @@
     "bundle": {
       "attestation": {
         "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.attestation.json",
-        "sha256": "82397ef474030b5993501b058daeb40285aab67c40c8be30cdbb21c800e08dac",
-        "size_bytes": 1019
+        "sha256": "97b838f2f82e40558d9947ff55303fc925ca7aecd8e167d32894bd2a512495e7",
+        "size_bytes": 16709
       },
-      "bytes": 16185062,
+      "bytes": 14103048,
+      "content_scope": "exact_reviewed_tree_snapshot_export",
+      "origin_commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "origin_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
       "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
-      "sha256": "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f"
+      "sha256": "59169aa27438d973e2344670c7e995c937cefa68a90da5b7eddbc3eb7deb6075",
+      "snapshot_commit": "adf97f60f46ecceae5a2bc7f3d8c232484c334bd",
+      "snapshot_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
     },
     "commit_subject": "Freeze portable parity source",
     "freeze_manifest": {
@@ -12867,13 +12868,13 @@
     },
     "owner_acceptance": {
       "path": "docs/verification/ai-x-parity-evidence/gate0-owner-acceptance.json",
-      "sha256": "9cf05c50888c7ea97f64caba95348d0a67626e17d0862afb93e329a9b847008b",
-      "size_bytes": 4626
+      "sha256": "57cb5f0d56b3c89b793918d171490dc9895c66598ffa30cc51486e045d4d5a33",
+      "size_bytes": 4943
     },
     "quality_evidence": {
       "path": "docs/verification/ai-x-parity-evidence/source-quality.json",
-      "sha256": "a6db43903b9f9149fe9a47d49215b92ab034afa6c114c8066f81d7a05fd45906",
-      "size_bytes": 2102
+      "sha256": "4cc79922eecb05f4f737a6694d70147783a84465b53d37483cf8fbec628724f3",
+      "size_bytes": 2760
     },
     "repository": "https://github.com/yssssssssssss/ai-x.git",
     "snapshot_commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
@@ -12883,62 +12884,426 @@
   "target": {
     "artifact_manifest_without_generated_lock": {
       "algorithm": "SHA-256 over '<A-or-M> <mode> <sha256> <bytes>  <path>\\n' in bytewise path order; generated lock excluded to avoid self-reference",
-      "file_count": 24,
+      "file_count": 76,
       "files": [
         {
-          "bytes": 366,
+          "bytes": 872,
           "mode": "100644",
           "path": "agentmesh/research_catalog/source-bundles/README.md",
-          "sha256": "71ace08db2cde0a2434518bf18884f72d8d275de65ebf9693d9426207dcc49ee",
+          "sha256": "b20ca40ded17ea3d8c7911b008cf771350f3c5fae504c74f4e3a47211b146be6",
           "status": "A"
         },
         {
-          "bytes": 1019,
+          "bytes": 16709,
           "mode": "100644",
           "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.attestation.json",
-          "sha256": "82397ef474030b5993501b058daeb40285aab67c40c8be30cdbb21c800e08dac",
+          "sha256": "97b838f2f82e40558d9947ff55303fc925ca7aecd8e167d32894bd2a512495e7",
           "status": "A"
         },
         {
-          "bytes": 16185062,
+          "bytes": 14103048,
           "mode": "100644",
           "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
-          "sha256": "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f",
+          "sha256": "59169aa27438d973e2344670c7e995c937cefa68a90da5b7eddbc3eb7deb6075",
           "status": "A"
         },
         {
-          "bytes": 14159,
+          "bytes": 15100,
           "mode": "100644",
           "path": "docs/adr/0006-single-active-research-writer.md",
-          "sha256": "7357302a1495afe9589ba1f8228e57198fe6cf3f4c502a2cfd41d5686dc0616d",
+          "sha256": "3702e260e65be5c5caf582f6ad9eb11b6142c46fde60c018f8928825ff72cde3",
           "status": "A"
         },
         {
-          "bytes": 43456,
+          "bytes": 44233,
           "mode": "100644",
           "path": "docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md",
-          "sha256": "e6cf96831ca7b64def9810424c99961b7c762db69f1f3de6adb6a4fbdbdd6968",
+          "sha256": "91c212f20a53680528fd664f5b93149cc940855e5be64863499661f822eb99f0",
           "status": "A"
         },
         {
-          "bytes": 10274,
+          "bytes": 7379,
           "mode": "100644",
           "path": "docs/verification/2026-08-20-ai-x-parity-gate0.md",
-          "sha256": "05e8fd9a7bbb8751032de486a0eb202aacdb69768300ecce8dd3f932caa5666f",
+          "sha256": "10e159a880b3843ecaf2579f06733567ad1578bf37b4ec00eba682826bb7afa8",
           "status": "A"
         },
         {
-          "bytes": 4626,
+          "bytes": 20489,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/manifest.json",
+          "sha256": "54c39057c9d43b03459adb9b20c87481f8ed49dd9aeed7ebb21e40dc2d0e164f",
+          "status": "A"
+        },
+        {
+          "bytes": 101608,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/approval--desktop.png",
+          "sha256": "a656943fd73841ec8748948dd9ae950ca770cf685afc66ec85e2214aff7b73e0",
+          "status": "A"
+        },
+        {
+          "bytes": 60044,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/approval--mobile.png",
+          "sha256": "e243456079840e34e1ab20a39a759e7fe6ee8b7de0d38c2b5a34cad43f445471",
+          "status": "A"
+        },
+        {
+          "bytes": 122158,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/approval--wide.png",
+          "sha256": "1f2045771ae11eff0891a82e8e3e60ba51514669a20149090a7881630bd2f81f",
+          "status": "A"
+        },
+        {
+          "bytes": 124305,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/candidates--desktop.png",
+          "sha256": "6220ab52a6d01113716b202aa6f14e7fa128a57efeaf31b7c11b89bf6c3c87b5",
+          "status": "A"
+        },
+        {
+          "bytes": 66036,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/candidates--mobile.png",
+          "sha256": "1d1403835e5b58561be29dc95e5a2dbdbe39c99a55516f405e91179a308b042c",
+          "status": "A"
+        },
+        {
+          "bytes": 162281,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/candidates--wide.png",
+          "sha256": "84558373d7473ba19a599e1ac66e6845203885497e6e9f4b52228e321cd52919",
+          "status": "A"
+        },
+        {
+          "bytes": 131514,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/clarify--desktop.png",
+          "sha256": "04bcf4b57f47a238523d66acea2f21e34c8d86d3a009fb22645f655e10a479c1",
+          "status": "A"
+        },
+        {
+          "bytes": 73222,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/clarify--mobile.png",
+          "sha256": "4acff9df48745411e5cca1d014fc397f35d95204299966d39c24845ccb2a915c",
+          "status": "A"
+        },
+        {
+          "bytes": 143139,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/clarify--wide.png",
+          "sha256": "876217ac54de85c7b8b2ca8342c7f26e5788ee3d11f47f9ba3c7724cded24235",
+          "status": "A"
+        },
+        {
+          "bytes": 88608,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/dag_or_executing--desktop.png",
+          "sha256": "dc4e5b84db62809cc3f4559d69035992c68382de73cbab9dbed3a0a29c417af6",
+          "status": "A"
+        },
+        {
+          "bytes": 34725,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/dag_or_executing--mobile.png",
+          "sha256": "64feed5873828250d594284bd87d6e2c6449a1c1b57989531cb0ac1531a824fe",
+          "status": "A"
+        },
+        {
+          "bytes": 86161,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/dag_or_executing--wide.png",
+          "sha256": "46b069f5aeb3b217da9e3c056cd2f8eaa6d9e4088361eab9b34ed91dcf0c9e35",
+          "status": "A"
+        },
+        {
+          "bytes": 74719,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/idle--desktop.png",
+          "sha256": "64b926ee169509fdbeb4c001250c7c6cc85fb0279f148c47a62f9e03c068428d",
+          "status": "A"
+        },
+        {
+          "bytes": 62416,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/idle--mobile.png",
+          "sha256": "5ec7775c1c2bd11c04af04e408db1b2ae8e7377e448dbb9537abce2d0deafbeb",
+          "status": "A"
+        },
+        {
+          "bytes": 77143,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/idle--wide.png",
+          "sha256": "2ffd556e2e7a877b518203d5d501c06868c0212c6e9169570e403fe596b23da3",
+          "status": "A"
+        },
+        {
+          "bytes": 76618,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/paused--desktop.png",
+          "sha256": "ec246325dbba9a407f96c750fadb87c528e1873f91c9f693fa32352b87c91702",
+          "status": "A"
+        },
+        {
+          "bytes": 58265,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/paused--mobile.png",
+          "sha256": "6b7fb75c55bfd8decba77a46299b536e22286e6f15b8568f894c777ad18768ea",
+          "status": "A"
+        },
+        {
+          "bytes": 75538,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/paused--wide.png",
+          "sha256": "ee871744ac128622fe191c882cc256388652b867ae024a0a61ba9957e3931a8c",
+          "status": "A"
+        },
+        {
+          "bytes": 127126,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/plan--desktop.png",
+          "sha256": "dd35a2d3ffb36147f9329cf2786f7b46d77a8eaf95d7b4d173dad3aa9e9fa2ef",
+          "status": "A"
+        },
+        {
+          "bytes": 52819,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/plan--mobile.png",
+          "sha256": "f9f1599fb72c465ce7c6d492094d4159e656cf0c629d5143209f34beed5669a3",
+          "status": "A"
+        },
+        {
+          "bytes": 132262,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/plan--wide.png",
+          "sha256": "82853349619ace1901c53709e25fcb91b8e3ab0f1f4cbc67676a84fbccd1ae47",
+          "status": "A"
+        },
+        {
+          "bytes": 132031,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/text_report--desktop.png",
+          "sha256": "90ad46aad6564a595ce4414a950c4fbb2de73407ec34bec7f5d3260112f66195",
+          "status": "A"
+        },
+        {
+          "bytes": 73380,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/text_report--mobile.png",
+          "sha256": "0102a8e33d8fd1d1148969d12695c71535dad165ebd906245b691cefbe5fc9a9",
+          "status": "A"
+        },
+        {
+          "bytes": 149170,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/screenshots/text_report--wide.png",
+          "sha256": "1f6d62cb5756fc22af3e3e4ef26fe9de9f80e1f4e4245375721d3e9206cd84b2",
+          "status": "A"
+        },
+        {
+          "bytes": 351,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/states/approval.json",
+          "sha256": "4362a51722d195c187d6860a0fa5cdf7797aab29b174e4ee04b69eede58cd444",
+          "status": "A"
+        },
+        {
+          "bytes": 357,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/states/candidates.json",
+          "sha256": "3f82e81cd40acb25bcd3375ad4d2e7d53deb4fbbaac53295ebf4ed188189efab",
+          "status": "A"
+        },
+        {
+          "bytes": 360,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/states/clarify.json",
+          "sha256": "30fe9455219b597a2183cb0e6dd8b9d537e50f7fd44e8c1aac8abf9b3c03c410",
+          "status": "A"
+        },
+        {
+          "bytes": 369,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/states/dag_or_executing.json",
+          "sha256": "b7a7d1aef139fc1cadabf8e0a1f887f5aa231bb5f970db8af7efbad1b56a0886",
+          "status": "A"
+        },
+        {
+          "bytes": 339,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/states/idle.json",
+          "sha256": "e32713f205d82047b0a15d60429a9074b10c21f4e93a5bb6332154b0c019bd64",
+          "status": "A"
+        },
+        {
+          "bytes": 345,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/states/paused.json",
+          "sha256": "5452b63eda50200f89609724ec47cc682e88cd6499e3639ff48e8a35ca0faa08",
+          "status": "A"
+        },
+        {
+          "bytes": 365,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/states/plan.json",
+          "sha256": "2f3fdc51750be0d072ab2f0205a39f7669ba02d72c848f89fa84ec90f11fa1a5",
+          "status": "A"
+        },
+        {
+          "bytes": 360,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-baselines/states/text_report.json",
+          "sha256": "ea00aabc0024d13d8fd101fc4977a333800fc5cd008bc95771fff6be19be7a24",
+          "status": "A"
+        },
+        {
+          "bytes": 2316,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/gate0-handoff.json",
+          "sha256": "cfc8ec367c9c66e929d8dd695c297bdf4392a817eddb5c498b86019621123529",
+          "status": "A"
+        },
+        {
+          "bytes": 4943,
           "mode": "100644",
           "path": "docs/verification/ai-x-parity-evidence/gate0-owner-acceptance.json",
-          "sha256": "9cf05c50888c7ea97f64caba95348d0a67626e17d0862afb93e329a9b847008b",
+          "sha256": "57cb5f0d56b3c89b793918d171490dc9895c66598ffa30cc51486e045d4d5a33",
           "status": "A"
         },
         {
-          "bytes": 2102,
+          "bytes": 2760,
           "mode": "100644",
           "path": "docs/verification/ai-x-parity-evidence/source-quality.json",
-          "sha256": "a6db43903b9f9149fe9a47d49215b92ab034afa6c114c8066f81d7a05fd45906",
+          "sha256": "4cc79922eecb05f4f737a6694d70147783a84465b53d37483cf8fbec628724f3",
+          "status": "A"
+        },
+        {
+          "bytes": 1502,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/SHA256SUMS",
+          "sha256": "1798394f269cfb691e1e99ace755c19cb892308bec62cc0845e10ad22c27858e",
+          "status": "A"
+        },
+        {
+          "bytes": 3417,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/attestation.json",
+          "sha256": "e878730676016d67ae633ae0a1bbfebe36f866a57a9b6ecfb48ecd2660540a4d",
+          "status": "A"
+        },
+        {
+          "bytes": 653,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/01-v1-routing.json",
+          "sha256": "bf2d86709e9c70ce9dd7bfc2edb4a01b623b6d9e9c3ca02649215893f6656142",
+          "status": "A"
+        },
+        {
+          "bytes": 638,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/02-research-v2-routing.json",
+          "sha256": "742917ac1d9f5c8a1616b8e16acc9fd743156accf956f690493f675e0b98aaf6",
+          "status": "A"
+        },
+        {
+          "bytes": 555,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/03-client-turn-replay.json",
+          "sha256": "2132f697bb621c04c81e44a8aa888cb3500c6ce6bb800ab9c3612e2649c9a063",
+          "status": "A"
+        },
+        {
+          "bytes": 509,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/04-missing-runtime-fail-closed.json",
+          "sha256": "163bd539ef7291292cc2ddecdd042d8f69c94500741b8a8155ea2557385a578e",
+          "status": "A"
+        },
+        {
+          "bytes": 562,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/05-off-rollback.json",
+          "sha256": "48a904d4cfa978a81e03ed903e6683cb370d4cc8a76222896ee51dee628182c1",
+          "status": "A"
+        },
+        {
+          "bytes": 968,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/06-owner-read.json",
+          "sha256": "4b2d7f7087d2f49315607c0c2b5403f59ed214eaa4c36a1f39c9a5214c78dc19",
+          "status": "A"
+        },
+        {
+          "bytes": 499,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/07-foreign-owner-hidden.json",
+          "sha256": "28fa03effe583680747c6fbf5c5295b7b6d7a8c71b4f17115c8561ff35a84d0e",
+          "status": "A"
+        },
+        {
+          "bytes": 629,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/08-integrity-corruption-rejected.json",
+          "sha256": "44de0ee87060e3db4d88a3e9c1c6e4e185dc1f04758b4c377a2a27dfcd53f3df",
+          "status": "A"
+        },
+        {
+          "bytes": 524,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/09-restart-read.json",
+          "sha256": "cff07c232075d9c7ce67371fcd2b22531080b6f3420895f61ae01fb4a2d27ce0",
+          "status": "A"
+        },
+        {
+          "bytes": 1175,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/cases/10-purge-tombstone-history-no-mutation.json",
+          "sha256": "37612e1e175f75bec03b034dc663dcfc35d1eb831c89cec457673509ac3893b2",
+          "status": "A"
+        },
+        {
+          "bytes": 39476,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/characterize_target.py",
+          "sha256": "7417130aa8a6ccf91cef7ef71845021a03fb980319b4e03c5372cd34a7b439d7",
+          "status": "A"
+        },
+        {
+          "bytes": 518,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/environment.json",
+          "sha256": "99f57164979b76cbaee0be2c6a86f1e5bb5c9ec64de40d62b9c9007464664267",
+          "status": "A"
+        },
+        {
+          "bytes": 741376,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/fixture.sqlite3",
+          "sha256": "2825e0ea0bc812a4eef10cca08cd4684d1da358f994f37dc6a89f3eb47c95606",
+          "status": "A"
+        },
+        {
+          "bytes": 2927,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/manifest.json",
+          "sha256": "983735a519cad0a05882a39c1835474eb96cde77c74bf1004ae3e84b7ed9d3a8",
+          "status": "A"
+        },
+        {
+          "bytes": 4252,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/report.json",
+          "sha256": "6cf64fcc8306f60e42e2c8cf279c541071873a215c6fbd6c259a32541a537c2d",
+          "status": "A"
+        },
+        {
+          "bytes": 30125,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/target-characterization/source-hashes.json",
+          "sha256": "b31ef8f9519945f7fa2cae1660dd9c945628ef0502366a564059773ab272327a",
           "status": "A"
         },
         {
@@ -12949,38 +13314,38 @@
           "status": "A"
         },
         {
-          "bytes": 77938,
+          "bytes": 109910,
           "mode": "100755",
           "path": "scripts/verify_ai_x_parity_lock.py",
-          "sha256": "4c542d109c2eedd992e5516cd6c05eb27c995f283f4a88bd16027248ad8427a2",
+          "sha256": "1c24c28e50c9aa82bcff53d814d31918ba9381341c5c5ae80d15ea91c8e2bd3e",
           "status": "A"
         },
         {
           "bytes": 270,
           "mode": "100644",
           "path": "tests/fixtures/ai_x_history/SHA256SUMS",
-          "sha256": "7fd3db44fdf20dcefc17fc126598de4be37ee8bf654ee46c577e7a3de56aec09",
+          "sha256": "6ec88ba40b81d4d4cde34cc67629dc4eb41c75493e04d77f6b4b458d6d738160",
           "status": "A"
         },
         {
-          "bytes": 15845,
+          "bytes": 15841,
           "mode": "100644",
           "path": "tests/fixtures/ai_x_history/attestation.json",
-          "sha256": "045924807ccb915bb161372211979251717da8092ba921b75d2808d197b52869",
+          "sha256": "455f6b47bf729a9fc6dcd1049fb3195583bf28d68708ccbb4d484fcf121fc135",
           "status": "A"
         },
         {
-          "bytes": 44837,
+          "bytes": 45976,
           "mode": "100755",
           "path": "tests/fixtures/ai_x_history/characterize_v2_history.py",
-          "sha256": "c5fc3746071f5418d4e749010e4efaad531cffe2dd95662380f7f9f99ab920f1",
+          "sha256": "25b82df6146a81213c6b16939bc127142468c1a686ab68327a1b70111139ea1a",
           "status": "A"
         },
         {
           "bytes": 2177,
           "mode": "100644",
           "path": "tests/fixtures/ai_x_history/manifest.json",
-          "sha256": "6d53f8f56f87ff882a8e24917f89071baffc6c9d8158e7b74f71303eee38b06c",
+          "sha256": "f7fd6c8a9bdbfe94afb8393ecb774da44ea74e6bfd0dcbdcbf435da90704868d",
           "status": "A"
         },
         {
@@ -13047,14 +13412,14 @@
           "status": "A"
         },
         {
-          "bytes": 2067,
+          "bytes": 11112,
           "mode": "100644",
           "path": "tests/test_ai_x_parity_lock_verifier.py",
-          "sha256": "28f6b04c9abde8207cca57ab7fdc397817ae1eefffcc37c7c2183ab969f00ed1",
+          "sha256": "f6eca03ce45c0b379ea2657cf9f4ebbe17ab57178c78323051b9d824105f6aa5",
           "status": "A"
         }
       ],
-      "manifest_sha256": "1479e12dedb89774b9aac8fb65de539abf47c874a65050d4cd0b64098bfa333c"
+      "manifest_sha256": "8ea758d1e6fa37bab169ede6dab6b6bc99e07fc25364feb30c43d6057471e2e1"
     },
     "base_commit": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
     "base_tree": "eb39f8159afb421233b657747192447734fd8b07",
@@ -13116,35 +13481,15 @@
   },
   "target_evidence": {
     "browser_baseline": {
-      "available": false,
-      "missing_state_viewport_pairs": [
-        "approval/desktop",
-        "approval/mobile",
-        "approval/wide",
-        "candidates/desktop",
-        "candidates/mobile",
-        "candidates/wide",
-        "clarify/desktop",
-        "clarify/mobile",
-        "clarify/wide",
-        "dag_or_executing/desktop",
-        "dag_or_executing/mobile",
-        "dag_or_executing/wide",
-        "idle/desktop",
-        "idle/mobile",
-        "idle/wide",
-        "paused/desktop",
-        "paused/mobile",
-        "paused/wide",
-        "plan/desktop",
-        "plan/mobile",
-        "plan/wide",
-        "text_report/desktop",
-        "text_report/mobile",
-        "text_report/wide"
-      ],
-      "reason": "No committed baseline satisfies the exact eight-state by three-viewport Gate policy.",
-      "required_screenshot_count": 24
+      "available": true,
+      "browser_version": "151.0.7922.170",
+      "manifest": {
+        "path": "docs/verification/ai-x-parity-baselines/manifest.json",
+        "sha256": "54c39057c9d43b03459adb9b20c87481f8ed49dd9aeed7ebb21e40dc2d0e164f",
+        "size_bytes": 20489
+      },
+      "screenshot_count": 24,
+      "state_count": 8
     },
     "contract_fixtures": {
       "contract_source_count": 33,
@@ -13199,11 +13544,20 @@
       },
       "status": "valid_characterization_only"
     },
+    "handoff": {
+      "evidence": {
+        "path": "docs/verification/ai-x-parity-evidence/gate0-handoff.json",
+        "sha256": "cfc8ec367c9c66e929d8dd695c297bdf4392a817eddb5c498b86019621123529",
+        "size_bytes": 2316
+      },
+      "passed": true,
+      "scope": "Gate 0 and isolated Slice 1 development only"
+    },
     "historical_database_fixture": {
       "attestation": {
         "path": "tests/fixtures/ai_x_history/attestation.json",
-        "sha256": "045924807ccb915bb161372211979251717da8092ba921b75d2808d197b52869",
-        "size_bytes": 15845
+        "sha256": "455f6b47bf729a9fc6dcd1049fb3195583bf28d68708ccbb4d484fcf121fc135",
+        "size_bytes": 15841
       },
       "characterized_target_cases": [
         "artifact-corruption-fail-closed",
@@ -13217,9 +13571,13 @@
         "sha256": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a",
         "size_bytes": 425984
       },
+      "independent_sqlite_scan": {
+        "hits": [],
+        "passed": true
+      },
       "manifest": {
         "path": "tests/fixtures/ai_x_history/manifest.json",
-        "sha256": "6d53f8f56f87ff882a8e24917f89071baffc6c9d8158e7b74f71303eee38b06c",
+        "sha256": "f7fd6c8a9bdbfe94afb8393ecb774da44ea74e6bfd0dcbdcbf435da90704868d",
         "size_bytes": 2177
       },
       "status": "valid_sanitized_historical_fixture"
@@ -13261,8 +13619,8 @@
       ],
       "evidence": {
         "path": "docs/verification/ai-x-parity-evidence/gate0-owner-acceptance.json",
-        "sha256": "9cf05c50888c7ea97f64caba95348d0a67626e17d0862afb93e329a9b847008b",
-        "size_bytes": 4626
+        "sha256": "57cb5f0d56b3c89b793918d171490dc9895c66598ffa30cc51486e045d4d5a33",
+        "size_bytes": 4943
       },
       "scope": "Gate 0 and isolated Slice 1 development only",
       "signed_by_handle": "@heyunshen"
@@ -13270,12 +13628,17 @@
     "source_bundle": {
       "attestation": {
         "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.attestation.json",
-        "sha256": "82397ef474030b5993501b058daeb40285aab67c40c8be30cdbb21c800e08dac",
-        "size_bytes": 1019
+        "sha256": "97b838f2f82e40558d9947ff55303fc925ca7aecd8e167d32894bd2a512495e7",
+        "size_bytes": 16709
       },
-      "bytes": 16185062,
+      "bytes": 14103048,
+      "content_scope": "exact_reviewed_tree_snapshot_export",
+      "origin_commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "origin_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
       "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
-      "sha256": "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f"
+      "sha256": "59169aa27438d973e2344670c7e995c937cefa68a90da5b7eddbc3eb7deb6075",
+      "snapshot_commit": "adf97f60f46ecceae5a2bc7f3d8c232484c334bd",
+      "snapshot_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
     },
     "source_quality": {
       "commands": [
@@ -13292,28 +13655,47 @@
       ],
       "evidence": {
         "path": "docs/verification/ai-x-parity-evidence/source-quality.json",
-        "sha256": "a6db43903b9f9149fe9a47d49215b92ab034afa6c114c8066f81d7a05fd45906",
-        "size_bytes": 2102
+        "sha256": "4cc79922eecb05f4f737a6694d70147783a84465b53d37483cf8fbec628724f3",
+        "size_bytes": 2760
       },
       "kind": "inherited_frozen_lineage",
       "passed": true
     },
     "target_characterization": {
-      "complete": false,
-      "missing_cases": [
-        "client-turn-replay",
-        "missing-runtime-fail-closed",
-        "off-rollback",
-        "research-v2-routing",
-        "v1-routing"
-      ],
+      "characterized_gate_commit": "2ae099b0870b1502dd7029f910b9a12c07863792",
+      "characterized_gate_tree": "51864f2b7bf6bc60eb42f676645d52f101e4a961",
+      "complete": true,
+      "fixture": {
+        "path": "docs/verification/ai-x-parity-evidence/target-characterization/fixture.sqlite3",
+        "sha256": "2825e0ea0bc812a4eef10cca08cd4684d1da358f994f37dc6a89f3eb47c95606",
+        "size_bytes": 741376
+      },
+      "independent_sqlite_scan": {
+        "hits": [],
+        "passed": true
+      },
+      "manifest": {
+        "path": "docs/verification/ai-x-parity-evidence/target-characterization/manifest.json",
+        "sha256": "983735a519cad0a05882a39c1835474eb96cde77c74bf1004ae3e84b7ed9d3a8",
+        "size_bytes": 2927
+      },
       "passing_cases": [
         "artifact-corruption-fail-closed",
+        "client-turn-replay",
         "historical-database-fixture-read",
+        "missing-runtime-fail-closed",
+        "off-rollback",
         "owner-hiding-404",
         "purge-tombstone",
-        "restart-read-without-scheduling"
+        "research-v2-routing",
+        "restart-read-without-scheduling",
+        "v1-routing"
       ],
+      "report": {
+        "path": "docs/verification/ai-x-parity-evidence/target-characterization/report.json",
+        "sha256": "6cf64fcc8306f60e42e2c8cf279c541071873a215c6fbd6c259a32541a537c2d",
+        "size_bytes": 4252
+      },
       "required_cases": [
         "artifact-corruption-fail-closed",
         "client-turn-replay",

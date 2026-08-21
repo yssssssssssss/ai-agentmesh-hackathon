@@ -1,0 +1,8 @@
+{
+  "canonical_state_id": "approval",
+  "fixture_id": "ai-x-gate0-fixture-v3/approval",
+  "immutable": true,
+  "sanitization": "Synthetic local fixture only; contains no cookies, user data, secrets, local absolute paths, Provider payloads, or Provider calls.",
+  "schema_version": "agentmesh-ai-x-baseline-state-v1",
+  "source_state_id": "approval"
+}
