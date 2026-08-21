@@ -209,29 +209,30 @@ def _section_content(
             )
         )
 
-    matrix_items = tuple(
-        f"{row.dimension}: "
-        + "; ".join(
-            f"{value.sample_id}={value.value}"
-            + (f" (score {value.score})" if value.score is not None else "")
-            for value in row.values
+    sample_blocks: tuple[ReportBlockV3, ...] = tuple(
+        FactBlockV3(
+            id=f"scope-sample-{index}",
+            type="fact",
+            text=f"{sample.name}: {sample.rationale}",
+            evidence_ids=_stable_unique(sample.evidence_ids),
         )
-        + (f"; weight={row.weight}" if row.weight is not None else "")
-        for row in payload.dimension_matrix
+        for index, sample in enumerate(payload.competitor_samples, start=1)
     )
-    evidence_ids = sorted(
-        {
-            evidence_id
-            for finding in deliverable.finding_graph.findings
-            if isinstance(finding, FactFindingV3)
-            for evidence_id in finding.evidence_ids
-        }
-        | {
-            evidence_id
-            for difference in payload.differences
-            for evidence_id in difference.evidence_ids
-        }
+    matrix_blocks: tuple[ReportBlockV3, ...] = tuple(
+        FactBlockV3(
+            id=f"comparison-metric-{row_index}-{value_index}",
+            type="fact",
+            text=(
+                f"{row.dimension}: {value.sample_id}={value.value}"
+                + (f" (score {value.score})" if value.score is not None else "")
+                + (f"; weight={row.weight}" if row.weight is not None else "")
+            ),
+            evidence_ids=_stable_unique(value.evidence_ids),
+        )
+        for row_index, row in enumerate(payload.dimension_matrix, start=1)
+        for value_index, value in enumerate(row.values, start=1)
     )
+    evidence_ids = sorted(_deliverable_evidence_ids(deliverable))
 
     return {
         "cover": (
@@ -265,25 +266,8 @@ def _section_content(
                 ),
             ),
         ),
-        "scope-method": (
-            (),
-            (
-                ListBlockV3(
-                    id="scope-samples",
-                    type="list",
-                    items=_stable_unique(
-                        tuple(
-                            f"{sample.name}: {sample.rationale}"
-                            for sample in payload.competitor_samples
-                        )
-                    ),
-                ),
-            ),
-        ),
-        "key-metrics": (
-            (),
-            (ListBlockV3(id="comparison-metrics", type="list", items=_stable_unique(matrix_items)),),
-        ),
+        "scope-method": ((), sample_blocks),
+        "key-metrics": ((), matrix_blocks),
         "findings": (tuple(question_ids), tuple(findings)),
         "question-analysis": (tuple(question_ids), tuple(question_blocks)),
         "visual-evidence": (
@@ -348,6 +332,32 @@ def _section_content(
             ),
         ),
     }
+
+
+def _deliverable_evidence_ids(deliverable: ResearchDeliverableV3) -> set[str]:
+    identifiers = {
+        evidence_id
+        for finding in deliverable.finding_graph.findings
+        if isinstance(finding, FactFindingV3)
+        for evidence_id in finding.evidence_ids
+    }
+    identifiers.update(
+        evidence_id
+        for sample in deliverable.payload.competitor_samples
+        for evidence_id in sample.evidence_ids
+    )
+    identifiers.update(
+        evidence_id
+        for row in deliverable.payload.dimension_matrix
+        for value in row.values
+        for evidence_id in value.evidence_ids
+    )
+    identifiers.update(
+        evidence_id
+        for difference in deliverable.payload.differences
+        for evidence_id in difference.evidence_ids
+    )
+    return identifiers
 
 
 def _list_or_fallback(

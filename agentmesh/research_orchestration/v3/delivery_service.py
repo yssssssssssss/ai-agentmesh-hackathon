@@ -16,10 +16,15 @@ from agentmesh.research_orchestration.v3.deliverable import (
     ResearchDeliverableV3,
     RecommendationV3,
 )
-from agentmesh.research_orchestration.v3.evidence import EvidenceManifestV3
+from agentmesh.research_orchestration.v3.evidence import (
+    EvidenceManifestV3,
+    VerifiedArtifactContentV3,
+)
+from agentmesh.research_orchestration.v3.evidence_materializer import read_verified_actor_artifacts
 from agentmesh.research_orchestration.v3.execution_plan import ExecutionPlanVersionV3
 from agentmesh.research_orchestration.v3.ports import (
     ActorExecutionResultV3,
+    ArtifactReadPort,
     validate_delivery_inputs,
 )
 from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3
@@ -43,6 +48,7 @@ class CompetitiveTextSynthesisPort(Protocol):
         requirement: RequirementVersionV3,
         plan: ExecutionPlanVersionV3,
         actor_results: tuple[ActorExecutionResultV3, ...],
+        actor_artifacts: tuple[VerifiedArtifactContentV3, ...],
         evidence_manifest: EvidenceManifestV3,
     ) -> CompetitiveDeliverableDraftV3: ...
 
@@ -54,8 +60,14 @@ class DeliverableValidationError(ValueError):
 class CompetitiveTextDeliverableService:
     """Create the Competitive Text Deliverable around an injected synthesis seam."""
 
-    def __init__(self, synthesis: CompetitiveTextSynthesisPort) -> None:
+    def __init__(
+        self,
+        synthesis: CompetitiveTextSynthesisPort,
+        *,
+        artifacts: ArtifactReadPort,
+    ) -> None:
         self._synthesis = synthesis
+        self._artifacts = artifacts
 
     async def create_deliverable(
         self,
@@ -76,10 +88,12 @@ class CompetitiveTextDeliverableService:
             evidence_manifest_artifact=evidence_manifest_artifact,
         )
         self._validate_evidence_policy(plan, evidence_manifest)
+        actor_artifacts = read_verified_actor_artifacts(self._artifacts, actor_results)
         draft = await self._synthesis.synthesize(
             requirement=requirement,
             plan=plan,
             actor_results=actor_results,
+            actor_artifacts=actor_artifacts,
             evidence_manifest=evidence_manifest,
         )
         self._validate_draft(

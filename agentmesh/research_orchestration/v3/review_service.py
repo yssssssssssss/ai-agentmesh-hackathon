@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Mapping
 from typing import Literal, Protocol
 
 from pydantic import model_validator
 
 from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
-from agentmesh.research_orchestration.v3.catalog import CompetitiveTextCatalog
+from agentmesh.research_orchestration.v3.catalog import (
+    CompetitiveTextCatalog,
+    load_catalog_document,
+    read_catalog_document,
+)
 from agentmesh.research_orchestration.v3.common import (
     EvidenceManifestArtifactRefV3,
     Identifier,
@@ -20,9 +26,11 @@ from agentmesh.research_orchestration.v3.evidence import (
     VerifiedArtifactContentV3,
     verify_evidence_manifest_artifacts,
 )
+from agentmesh.research_orchestration.v3.evidence_materializer import read_verified_actor_artifacts
 from agentmesh.research_orchestration.v3.execution_plan import ExecutionPlanVersionV3
 from agentmesh.research_orchestration.v3.ports import (
     ActorExecutionResultV3,
+    ArtifactReadPort,
     validate_review_inputs,
 )
 from agentmesh.research_orchestration.v3.problem_graph import ProblemGraphV1
@@ -64,6 +72,7 @@ _CHECK_DIMENSIONS = {
 
 class SemanticReviewResultV3(StrictFrozenModel):
     receipt_id: Identifier
+    rubric_snapshot_hash: Sha256Hex
     verdict: Literal["pass", "revise", "block"]
     dimensions: tuple[ReviewDimensionV3, ...]
 
@@ -91,21 +100,37 @@ class SemanticReviewPort(Protocol):
         problem_graph: ProblemGraphV1,
         deliverable: ResearchDeliverableV3,
         evidence_manifest: EvidenceManifestV3,
+        actor_artifacts: tuple[VerifiedArtifactContentV3, ...],
+        rubric_content: str,
+        rubric_snapshot_hash: Sha256Hex,
     ) -> SemanticReviewResultV3: ...
 
 
 class ReportReviewService:
     """Run fail-closed deterministic checks before an injected semantic Review."""
 
-    def __init__(self, semantic_review: SemanticReviewPort, *, rubric_snapshot_hash: Sha256Hex) -> None:
+    def __init__(
+        self,
+        semantic_review: SemanticReviewPort,
+        *,
+        rubric_snapshot_hash: Sha256Hex,
+        rubric_content: str,
+        artifacts: ArtifactReadPort,
+    ) -> None:
+        if hashlib.sha256(rubric_content.encode("utf-8")).hexdigest() != rubric_snapshot_hash:
+            raise ValueError("Review rubric content does not match its frozen snapshot hash")
         self._semantic_review = semantic_review
         self._rubric_snapshot_hash = rubric_snapshot_hash
+        self._rubric_content = rubric_content
+        self._artifacts = artifacts
 
     @classmethod
     def from_catalog(
         cls,
         semantic_review: SemanticReviewPort,
         catalog: CompetitiveTextCatalog,
+        *,
+        artifacts: ArtifactReadPort,
     ) -> ReportReviewService:
         deliverable = next(
             (item for item in catalog.deliverables if item.id == "competitive_analysis_report"),
@@ -119,7 +144,21 @@ class ReportReviewService:
         )
         if document is None:
             raise ValueError("Competitive Text catalog lacks its frozen Review rubric")
-        return cls(semantic_review, rubric_snapshot_hash=document.sha256)
+        raw_rubric = load_catalog_document(catalog, document.id)
+        if not isinstance(raw_rubric, Mapping):
+            raise ValueError("frozen Review rubric is not an object")
+        raw_dimensions = raw_rubric.get("dimensions")
+        if not isinstance(raw_dimensions, list) or tuple(
+            item.get("id") for item in raw_dimensions if isinstance(item, Mapping)
+        ) != REVIEW_DIMENSIONS:
+            raise ValueError("frozen Review rubric dimensions do not match the Review contract")
+        rubric_content = read_catalog_document(catalog, document.id).decode("utf-8", errors="strict")
+        return cls(
+            semantic_review,
+            rubric_snapshot_hash=document.sha256,
+            rubric_content=rubric_content,
+            artifacts=artifacts,
+        )
 
     async def review(
         self,
@@ -137,6 +176,12 @@ class ReportReviewService:
     ) -> ReportReviewV3:
         if revision_round not in (0, 1):
             raise ValueError("Competitive Text Review permits only revision rounds zero and one")
+        try:
+            actor_artifacts = read_verified_actor_artifacts(self._artifacts, actor_results)
+            actor_artifact_error: str | None = None
+        except ValueError as exc:
+            actor_artifacts = ()
+            actor_artifact_error = str(exc)
         checks = self._deterministic_checks(
             requirement=requirement,
             plan=plan,
@@ -147,6 +192,7 @@ class ReportReviewService:
             evidence_manifest=evidence_manifest,
             evidence_manifest_artifact=evidence_manifest_artifact,
             evidence_artifacts=evidence_artifacts,
+            actor_artifact_error=actor_artifact_error,
         )
         if any(not check.passed for check in checks):
             return ReportReviewV3(
@@ -170,7 +216,12 @@ class ReportReviewService:
             problem_graph=problem_graph,
             deliverable=deliverable,
             evidence_manifest=evidence_manifest,
+            actor_artifacts=actor_artifacts,
+            rubric_content=self._rubric_content,
+            rubric_snapshot_hash=self._rubric_snapshot_hash,
         )
+        if semantic.rubric_snapshot_hash != self._rubric_snapshot_hash:
+            raise ValueError("semantic Review response does not bind the frozen rubric")
         verdict = semantic.verdict
         dimensions = semantic.dimensions
         if revision_round == 1 and verdict == "revise":
@@ -202,6 +253,7 @@ class ReportReviewService:
         evidence_manifest: EvidenceManifestV3,
         evidence_manifest_artifact: EvidenceManifestArtifactRefV3,
         evidence_artifacts: tuple[VerifiedArtifactContentV3, ...],
+        actor_artifact_error: str | None,
     ) -> tuple[DeterministicReviewCheckV3, ...]:
         issues: dict[str, list[str]] = {code: [] for code in _CHECK_ORDER}
 
@@ -335,6 +387,10 @@ class ReportReviewService:
                 "Competitive Text contains non-public Evidence"
             )
 
+        if actor_artifact_error is not None:
+            issues["artifact_hash_valid"].append(
+                f"Actor Artifact verification failed: {actor_artifact_error}"
+            )
         if (
             canonical_json_v3_sha256(deliverable) != deliverable_artifact.content_hash
             or canonical_json_v3_sha256(evidence_manifest)
