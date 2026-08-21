@@ -4,7 +4,9 @@ Date: 2026-08-21
 
 ## Decision
 
-The isolated Slice 1 production-shaped integration gate is **code PASS / visual HOLD**.
+The isolated Slice 1 production-shaped integration gate is **PASS**.
+
+Code verification passed and the user recorded human visual semantic **PASS** on 2026-08-21 for the wide, desktop, and mobile Contact Sheets. Slice 1 is complete and paused at this boundary.
 
 The integrated branch remains unreachable from production. No research-v3 router is mounted, no production `SQLiteStore` or startup migration is changed, no real Provider is called, and research-v2 remains the active production writer.
 
@@ -64,16 +66,16 @@ No full repository test suite, E2E suite, or live Provider smoke was run.
 
 A diagnostic package-wide Ruff invocation reported 26 pre-existing findings across frozen Foundation and previously approved Slice 1 files. They include import ordering, Python 3.12 generic-style upgrades, simplification suggestions, one unused source-contract import, and one constant-attribute `getattr`. They did not affect the 214 passing research-v3 tests and are non-blocking under the agreed convergence policy. They must not reopen Gate 0 or Foundation; address them only in a later bounded lint-debt package.
 
-## Remaining human gate
+## Human visual gate
 
-Human visual semantic review is still required for:
+The user recorded **PASS** on 2026-08-21 after reviewing:
 
 - `/tmp/agentmesh-slice1-visual-review/contact-sheets/wide.png`
 - `/tmp/agentmesh-slice1-visual-review/contact-sheets/desktop.png`
 - `/tmp/agentmesh-slice1-visual-review/contact-sheets/mobile.png`
 
-Checklist:
+The required mobile candidates, DAG, paused, and report right-edge checks were accepted. The signed checklist remains at:
 
 - `/tmp/agentmesh-slice1-visual-review/HUMAN_REVIEW_CHECKLIST.md`
 
-Until visual review records PASS, Slice 1 remains on HOLD. Gate 2, production wiring, real Providers, and research-v2 cutover remain unauthorized.
+Slice 1 stops here. Gate 2, production wiring, real Providers, and research-v2 cutover remain unauthorized.
