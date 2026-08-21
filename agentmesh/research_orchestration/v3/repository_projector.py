@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from agentmesh.research_orchestration.v3.sqlite_repository import (
     RepositoryProjectionSnapshotV3,
@@ -25,6 +26,9 @@ from agentmesh.research_orchestration.v3.web_projection import (
     project_verified_evidence_for_workbench,
 )
 
+if TYPE_CHECKING:
+    from agentmesh.research_orchestration.v3.api import ResearchV3AggregateReadRequest
+
 
 class ResearchV3RepositoryProjector:
     """Pure reader that rebuilds the Web aggregate only from verified persisted state."""
@@ -44,6 +48,33 @@ class ResearchV3RepositoryProjector:
             return None
         aggregate = self._build(source)
         return WorkbenchAggregateV1.model_validate(aggregate.model_dump(mode="python"))
+
+    def project_authoritative(
+        self,
+        request: ResearchV3AggregateReadRequest,
+    ) -> ResearchV3WorkbenchAggregateV1:
+        """Satisfy the isolated API read port without weakening repository scope."""
+
+        expected_scope = (
+            self._repository.scope.owner_id,
+            self._repository.scope.workspace_id,
+            self._repository.scope.project_id,
+        )
+        requested_scope = (
+            request.owner.user_id,
+            request.owner.workspace_id,
+            request.owner.project_id,
+        )
+        if requested_scope != expected_scope:
+            from agentmesh.research_orchestration.v3.api import ResearchV3NotFoundError
+
+            raise ResearchV3NotFoundError
+        aggregate = self.project(request.run_id)
+        if aggregate is None:
+            from agentmesh.research_orchestration.v3.api import ResearchV3NotFoundError
+
+            raise ResearchV3NotFoundError
+        return ResearchV3WorkbenchAggregateV1.model_validate(aggregate.model_dump(mode="python"))
 
     def _build(self, source: RepositoryProjectionSnapshotV3) -> ResearchV3WorkbenchAggregateV1:
         if source.run.orchestration_version != "research-v3":
