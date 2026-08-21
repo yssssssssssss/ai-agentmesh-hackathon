@@ -154,9 +154,17 @@ class PlanCandidateV3(StrictFrozenModel):
         return self
 
 
+class DepthPlanCandidateV3(PlanCandidateV3):
+    candidate_id: Literal["depth"]
+
+
+class SpeedPlanCandidateV3(PlanCandidateV3):
+    candidate_id: Literal["speed"]
+
+
 class PlanCandidateSetV3(StrictFrozenModel):
     schema_version: Literal["plan-candidates-v3"]
-    candidates: tuple[PlanCandidateV3, PlanCandidateV3]
+    candidates: tuple[DepthPlanCandidateV3, SpeedPlanCandidateV3]
 
     @model_validator(mode="after")
     def validate_candidate_order(self) -> PlanCandidateSetV3:

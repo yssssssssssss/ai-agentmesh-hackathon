@@ -1,29 +1,6 @@
 {
   "$defs": {
-    "ExpectedOutputV3": {
-      "additionalProperties": false,
-      "properties": {
-        "description": {
-          "maxLength": 500,
-          "pattern": "\\S",
-          "title": "Description",
-          "type": "string"
-        },
-        "pointer": {
-          "maxLength": 500,
-          "pattern": "^/",
-          "title": "Pointer",
-          "type": "string"
-        }
-      },
-      "required": [
-        "pointer",
-        "description"
-      ],
-      "title": "ExpectedOutputV3",
-      "type": "object"
-    },
-    "PlanCandidateV3": {
+    "DepthPlanCandidateV3": {
       "additionalProperties": false,
       "properties": {
         "assumptions": {
@@ -34,10 +11,7 @@
           "type": "array"
         },
         "candidate_id": {
-          "enum": [
-            "depth",
-            "speed"
-          ],
+          "const": "depth",
           "title": "Candidate Id",
           "type": "string"
         },
@@ -77,7 +51,30 @@
         "assumptions",
         "proposed_steps"
       ],
-      "title": "PlanCandidateV3",
+      "title": "DepthPlanCandidateV3",
+      "type": "object"
+    },
+    "ExpectedOutputV3": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 500,
+          "pattern": "\\S",
+          "title": "Description",
+          "type": "string"
+        },
+        "pointer": {
+          "maxLength": 500,
+          "pattern": "^/",
+          "title": "Pointer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer",
+        "description"
+      ],
+      "title": "ExpectedOutputV3",
       "type": "object"
     },
     "PlanInputBindingV3": {
@@ -248,6 +245,60 @@
       ],
       "title": "ResearchAssumptionV3",
       "type": "object"
+    },
+    "SpeedPlanCandidateV3": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions": {
+          "items": {
+            "$ref": "#/$defs/ResearchAssumptionV3"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "candidate_id": {
+          "const": "speed",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "proposed_steps": {
+          "items": {
+            "$ref": "#/$defs/PlanStepProposalV3"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Proposed Steps",
+          "type": "array"
+        },
+        "rationale": {
+          "maxLength": 2000,
+          "pattern": "\\S",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 240,
+          "pattern": "\\S",
+          "title": "Title",
+          "type": "string"
+        },
+        "tradeoffs": {
+          "maxLength": 2000,
+          "pattern": "\\S",
+          "title": "Tradeoffs",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "title",
+        "rationale",
+        "tradeoffs",
+        "assumptions",
+        "proposed_steps"
+      ],
+      "title": "SpeedPlanCandidateV3",
+      "type": "object"
     }
   },
   "$id": "plan-candidates-v3",
@@ -259,10 +310,10 @@
       "minItems": 2,
       "prefixItems": [
         {
-          "$ref": "#/$defs/PlanCandidateV3"
+          "$ref": "#/$defs/DepthPlanCandidateV3"
         },
         {
-          "$ref": "#/$defs/PlanCandidateV3"
+          "$ref": "#/$defs/SpeedPlanCandidateV3"
         }
       ],
       "title": "Candidates",

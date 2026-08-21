@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.research_orchestration.v3.common import (
     FrozenJsonObject,
     Identifier,
@@ -31,6 +32,25 @@ COMPETITIVE_TEXT_SECTION_ORDER = (
     "risks",
     "appendix",
 )
+
+
+def _add_report_section_order_to_schema(schema: dict[str, Any]) -> None:
+    sections = schema["properties"]["sections"]
+    section_items = sections["items"]
+    sections["prefixItems"] = [
+        {
+            "allOf": [
+                section_items,
+                {
+                    "type": "object",
+                    "properties": {"id": {"const": section_id}},
+                    "required": ["id"],
+                },
+            ]
+        }
+        for section_id in COMPETITIVE_TEXT_SECTION_ORDER
+    ]
+    sections["items"] = False
 
 
 class AssetRefV3(StrictFrozenModel):
@@ -84,7 +104,15 @@ class MetricBlockV3(StrictFrozenModel):
 class ListBlockV3(StrictFrozenModel):
     id: Identifier
     type: Literal["list"]
-    items: tuple[Text, ...] = Field(min_length=1)
+    items: tuple[Text, ...] = Field(
+        min_length=1,
+        json_schema_extra={"uniqueItems": True},
+    )
+
+    @model_validator(mode="after")
+    def validate_items(self) -> ListBlockV3:
+        require_unique(self.items, "list block items")
+        return self
 
 
 class ImageBlockV3(StrictFrozenModel):
@@ -132,15 +160,15 @@ class ChartBlockV3(StrictFrozenModel):
     caption: Text
     alt_text: Text
 
+    @model_validator(mode="after")
+    def validate_spec_hash(self) -> ChartBlockV3:
+        if self.spec_hash != canonical_json_v3_sha256(self.spec):
+            raise ValueError("chart spec_hash does not match the canonical frozen spec")
+        return self
+
 
 ReportBlockV3 = Annotated[
-    ParagraphBlockV3
-    | FactBlockV3
-    | MetricBlockV3
-    | ListBlockV3
-    | ImageBlockV3
-    | ImageComparisonBlockV3
-    | ChartBlockV3,
+    ParagraphBlockV3 | FactBlockV3 | MetricBlockV3 | ListBlockV3,
     Field(discriminator="type"),
 ]
 
@@ -159,6 +187,8 @@ class ReportSectionV3(StrictFrozenModel):
 
 
 class ReportDocumentV3(StrictFrozenModel):
+    model_config = ConfigDict(json_schema_extra=_add_report_section_order_to_schema)
+
     schema_version: Literal["report-document-v3"]
     presentation_mode: Literal["text"]
     review_verdict: Literal["pass"]
@@ -172,7 +202,10 @@ class ReportDocumentV3(StrictFrozenModel):
     title: Annotated[NonBlankString, Field(max_length=500)]
     subtitle: Annotated[NonBlankString, Field(max_length=1000)]
     executive_summary: Text
-    sections: tuple[ReportSectionV3, ...] = Field(min_length=1)
+    sections: tuple[ReportSectionV3, ...] = Field(
+        min_length=len(COMPETITIVE_TEXT_SECTION_ORDER),
+        max_length=len(COMPETITIVE_TEXT_SECTION_ORDER),
+    )
 
     @model_validator(mode="after")
     def validate_document(self) -> ReportDocumentV3:

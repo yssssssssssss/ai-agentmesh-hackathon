@@ -108,6 +108,16 @@ def test_catalog_preflight_enforces_file_count_size_and_aggregate_limits(tmp_pat
         _read_resource(tmp_path, "second.yaml", inventory, max_bytes=4)
 
 
+def test_catalog_preflight_enforces_visited_entry_and_directory_budgets(tmp_path: Path) -> None:
+    for index in range(6):
+        (tmp_path / f"empty_{index}").mkdir()
+
+    with pytest.raises(ValueError, match="visited entry count"):
+        _preflight_inventory(tmp_path, max_visited_entries=3, max_directories=20)
+    with pytest.raises(ValueError, match="directory count"):
+        _preflight_inventory(tmp_path, max_visited_entries=20, max_directories=3)
+
+
 def test_catalog_yaml_and_json_depth_limits_are_fail_closed() -> None:
     yaml_lines = ["value:"]
     yaml_lines.extend(f"{'  ' * depth}child:" for depth in range(1, CATALOG_MAX_DOCUMENT_DEPTH + 2))

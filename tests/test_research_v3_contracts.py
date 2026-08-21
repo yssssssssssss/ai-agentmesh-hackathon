@@ -36,7 +36,7 @@ from agentmesh.research_orchestration.v3.problem_graph import (
     ProblemGraphV1,
     validate_problem_graph_for_task,
 )
-from agentmesh.research_orchestration.v3.report_document import ReportDocumentV3
+from agentmesh.research_orchestration.v3.report_document import ChartBlockV3, ReportDocumentV3
 from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3, ResearchTaskV3
 from agentmesh.research_orchestration.v3.review import PassedReportReviewV3, ReportReviewV3
 from agentmesh.research_orchestration.v3.schema_registry import (
@@ -319,6 +319,32 @@ def test_candidate_compiler_boundary_requires_and_hash_validates_problem_graph_a
             capabilities=request.capabilities,
             candidate=request.candidate,
         )
+
+    wrong_requirement_graph = graph.model_copy(update={"requirement_version_id": "requirement_other"})
+    with pytest.raises(ValidationError, match="supplied Requirement version"):
+        CandidateCompilationRequestV3(
+            requirement=request.requirement,
+            problem_graph=wrong_requirement_graph,
+            problem_graph_artifact=artifact.model_copy(
+                update={"content_hash": canonical_json_v3_sha256(wrong_requirement_graph)}
+            ),
+            capabilities=request.capabilities,
+            candidate=request.candidate,
+        )
+
+    uncovered_body = problem_graph_body()
+    uncovered_body["questions"][0]["success_criterion_ids"] = ["criterion_other"]
+    uncovered_graph = ProblemGraphV1.model_validate(uncovered_body)
+    with pytest.raises(ValidationError, match="unknown success criterion"):
+        CandidateCompilationRequestV3(
+            requirement=request.requirement,
+            problem_graph=uncovered_graph,
+            problem_graph_artifact=artifact.model_copy(
+                update={"content_hash": canonical_json_v3_sha256(uncovered_graph)}
+            ),
+            capabilities=request.capabilities,
+            candidate=request.candidate,
+        )
     with pytest.raises(ValidationError):
         ProblemGraphArtifactRefV3(
             artifact_id="artifact_graph",
@@ -326,6 +352,30 @@ def test_candidate_compiler_boundary_requires_and_hash_validates_problem_graph_a
             schema_version="problem-graph-v1",
             content_hash=canonical_json_v3_sha256(graph),
         )
+
+
+def test_chart_block_hash_is_bound_to_its_frozen_spec() -> None:
+    spec = {"version": "chart-spec-v1", "series": [{"key": "score", "values": [4]}]}
+    body = {
+        "id": "chart_1",
+        "type": "chart",
+        "chart_ref": {
+            "chart_id": "chart_1",
+            "asset_id": "asset_chart_1",
+            "manifest_artifact_id": "manifest_1",
+        },
+        "spec_hash": canonical_json_v3_sha256(spec),
+        "spec": spec,
+        "table": {"columns": ["Competitor", "Score"], "rows": [["Alpha", 4]]},
+        "caption": "Comparison chart.",
+        "alt_text": "Alpha has score four.",
+    }
+    chart = ChartBlockV3.model_validate(body)
+    assert chart.spec_hash == canonical_json_v3_sha256(chart.spec)
+
+    body["spec_hash"] = "f" * 64
+    with pytest.raises(ValidationError, match="frozen spec"):
+        ChartBlockV3.model_validate(body)
 
 
 def test_foundation_does_not_make_research_v3_reachable() -> None:

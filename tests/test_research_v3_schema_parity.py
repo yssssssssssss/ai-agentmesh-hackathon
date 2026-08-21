@@ -256,6 +256,102 @@ def test_unique_items_are_enforced_by_models_and_supporting_schemas() -> None:
     )
 
 
+def _assert_schema_rejects(filename: str, sample: dict) -> None:
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft202012Validator(_schema(filename)).validate(sample)
+
+
+def test_schema_only_rejects_candidate_order_drift_and_missing_discriminators() -> None:
+    candidates = candidate_set_body()
+    candidates["candidates"].reverse()
+    _assert_schema_rejects("plan-candidates-v3.schema.json", candidates)
+
+    candidates = candidate_set_body()
+    candidates["candidates"][0].pop("candidate_id")
+    _assert_schema_rejects("plan-candidates-v3.schema.json", candidates)
+
+
+def test_schema_only_rejects_report_section_order_and_duplicate_items() -> None:
+    report = report_body()
+    report["sections"][0], report["sections"][1] = report["sections"][1], report["sections"][0]
+    _assert_schema_rejects("report-document-v3.schema.json", report)
+
+    report = report_body()
+    report["sections"][2]["blocks"] = [
+        {"id": "list_1", "type": "list", "items": ["Duplicate", "Duplicate"]}
+    ]
+    _assert_schema_rejects("report-document-v3.schema.json", report)
+
+    requirement = requirement_body()
+    requirement["comparison_dimensions"] = ["capabilities", "capabilities"]
+    _assert_schema_rejects("research-task-v3.schema.json", requirement)
+
+
+@pytest.mark.parametrize(
+    "visual_block",
+    [
+        {
+            "id": "image_1",
+            "type": "image",
+            "asset_ref": {"asset_id": "asset_1", "manifest_artifact_id": "manifest_1"},
+            "caption": "Image caption.",
+            "alt_text": "Image alternative.",
+            "evidence_ids": ["evidence_1"],
+        },
+        {
+            "id": "comparison_1",
+            "type": "image-comparison",
+            "before_asset_ref": {"asset_id": "asset_1", "manifest_artifact_id": "manifest_1"},
+            "after_asset_ref": {"asset_id": "asset_2", "manifest_artifact_id": "manifest_1"},
+            "caption": "Comparison caption.",
+            "alt_text": "Comparison alternative.",
+            "evidence_ids": ["evidence_1"],
+        },
+        {
+            "id": "chart_1",
+            "type": "chart",
+            "chart_ref": {
+                "chart_id": "chart_1",
+                "asset_id": "asset_3",
+                "manifest_artifact_id": "manifest_1",
+            },
+            "spec_hash": "a" * 64,
+            "spec": {"version": "chart-spec-v1"},
+            "table": {"columns": ["Name", "Value"]},
+            "caption": "Chart caption.",
+            "alt_text": "Chart alternative.",
+        },
+    ],
+    ids=("image", "image-comparison", "chart"),
+)
+def test_schema_only_rejects_each_visual_report_block(visual_block: dict) -> None:
+    report = report_body()
+    report["sections"][1]["blocks"] = [visual_block]
+    _assert_schema_rejects("report-document-v3.schema.json", report)
+
+
+def test_schema_only_rejects_review_duplicates_cardinality_and_missing_identities() -> None:
+    review = review_body()
+    review["dimensions"].pop()
+    _assert_schema_rejects("report-review-v3.schema.json", review)
+
+    review = review_body()
+    replacement = deepcopy(review["dimensions"][0])
+    replacement["passed"] = False
+    replacement["issues"] = ["Duplicate identity."]
+    review["dimensions"][-1] = replacement
+    review["verdict"] = "block"
+    _assert_schema_rejects("report-review-v3.schema.json", review)
+
+    review = review_body()
+    replacement = deepcopy(review["deterministic_checks"][0])
+    replacement["passed"] = False
+    replacement["issues"] = ["Duplicate identity."]
+    review["deterministic_checks"][-1] = replacement
+    review["verdict"] = "block"
+    _assert_schema_rejects("report-review-v3.schema.json", review)
+
+
 def test_nested_discriminators_and_review_cardinality_have_structural_parity() -> None:
     deliverable = deliverable_body()
     deliverable["finding_graph"]["findings"][0].pop("kind")

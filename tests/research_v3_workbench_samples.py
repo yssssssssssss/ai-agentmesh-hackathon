@@ -236,6 +236,7 @@ def workbench_fixture_bodies() -> dict[str, dict]:
 
 
 def _result(step: dict, artifact: dict, receipt_id: str) -> dict:
+    is_tool = step["actor_type"] == "tool"
     return {
         "run_id": "run_1",
         "plan_version_id": "plan_1",
@@ -246,6 +247,8 @@ def _result(step: dict, artifact: dict, receipt_id: str) -> dict:
         "step_contract_hash": step["contract_hash"],
         "result_artifact": artifact,
         "receipt_id": receipt_id,
+        "implementation_id": "tavily-v1" if is_tool else "competitive-analysis-v1",
+        "execution_mode": "real" if is_tool else "deterministic",
     }
 
 

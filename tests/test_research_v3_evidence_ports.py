@@ -166,6 +166,8 @@ def test_actor_results_retain_request_lineage_when_parallel_completion_is_reorde
                 "actor-result-v1",
             ),
             receipt_id=f"receipt_{request.step.step_number}",
+            implementation_id=f"{request.step.actor_id}-v1",
+            execution_mode="real" if request.step.actor_type == "tool" else "deterministic",
         )
         for request in reversed(requests)
     )
@@ -199,6 +201,7 @@ def test_ports_require_typed_repository_and_explicit_verified_review_inputs() ->
         "problem_graph",
         "deliverable",
         "deliverable_artifact",
+        "actor_results",
         "evidence_manifest",
         "evidence_manifest_artifact",
         "evidence_artifacts",
@@ -266,6 +269,8 @@ def test_delivery_and_review_boundary_validators_reject_selected_lineage_drift()
                 )
             ),
             receipt_id="receipt_tool_1" if step.step_number == 1 else "receipt_skill_2",
+            implementation_id="tavily-v1" if step.step_number == 1 else "competitive-analysis-v1",
+            execution_mode="real" if step.step_number == 1 else "deterministic",
         )
         for step in plan.payload.steps
     )
@@ -289,6 +294,22 @@ def test_delivery_and_review_boundary_validators_reject_selected_lineage_drift()
             evidence_manifest_artifact=manifest_artifact,
         )
 
+    drifted_manifest_value = evidence_body()
+    drifted_manifest_value["evidence"][0]["proof"]["receipt_id"] = "receipt_drifted"
+    drifted_manifest = EvidenceManifestV3.model_validate(drifted_manifest_value)
+    drifted_manifest_artifact = manifest_artifact.model_copy(
+        update={"content_hash": canonical_json_v3_sha256(drifted_manifest)}
+    )
+    with pytest.raises(ValueError, match="Actor execution result"):
+        validate_delivery_inputs(
+            requirement=requirement,
+            plan=plan,
+            attempt_id="attempt_1",
+            actor_results=results,
+            evidence_manifest=drifted_manifest,
+            evidence_manifest_artifact=drifted_manifest_artifact,
+        )
+
     deliverable_value = deliverable_body()
     deliverable_value["evidence_manifest_artifact"] = manifest_artifact.model_dump(mode="python")
     deliverable = ResearchDeliverableV3.model_validate(deliverable_value)
@@ -304,10 +325,31 @@ def test_delivery_and_review_boundary_validators_reject_selected_lineage_drift()
         problem_graph=ProblemGraphV1.model_validate(problem_graph_body()),
         deliverable=deliverable,
         deliverable_artifact=deliverable_artifact,
+        actor_results=results,
         evidence_manifest=manifest,
         evidence_manifest_artifact=manifest_artifact,
         evidence_artifacts=(verified,),
     )
+
+    pair_drift_deliverable = deliverable.model_copy(
+        update={"evidence_manifest_artifact": drifted_manifest_artifact}
+    )
+    pair_drift_deliverable_artifact = deliverable_artifact.model_copy(
+        update={"content_hash": canonical_json_v3_sha256(pair_drift_deliverable)}
+    )
+    pair_drift_verified = verified.model_copy(update={"receipt_id": "receipt_drifted"})
+    with pytest.raises(ValueError, match="Actor execution result"):
+        validate_review_inputs(
+            requirement=requirement,
+            plan=plan,
+            problem_graph=ProblemGraphV1.model_validate(problem_graph_body()),
+            deliverable=pair_drift_deliverable,
+            deliverable_artifact=pair_drift_deliverable_artifact,
+            actor_results=results,
+            evidence_manifest=drifted_manifest,
+            evidence_manifest_artifact=drifted_manifest_artifact,
+            evidence_artifacts=(pair_drift_verified,),
+        )
 
     drifted_deliverable = deliverable.model_copy(update={"requirement_version_id": "requirement_other"})
     drifted_artifact = deliverable_artifact.model_copy(
@@ -320,6 +362,7 @@ def test_delivery_and_review_boundary_validators_reject_selected_lineage_drift()
             problem_graph=ProblemGraphV1.model_validate(problem_graph_body()),
             deliverable=drifted_deliverable,
             deliverable_artifact=drifted_artifact,
+            actor_results=results,
             evidence_manifest=manifest,
             evidence_manifest_artifact=manifest_artifact,
             evidence_artifacts=(verified,),

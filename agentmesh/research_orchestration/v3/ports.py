@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Protocol
+from typing import Annotated, Literal, Protocol
 
 from pydantic import Field
 
@@ -98,6 +98,9 @@ class CandidateCompilationRequestV3(StrictFrozenModel):
 
     def model_post_init(self, context: object) -> None:
         del context
+        if self.problem_graph.requirement_version_id != self.requirement.id:
+            raise ValueError("ProblemGraph does not belong to the supplied Requirement version")
+        validate_problem_graph_for_task(self.problem_graph, self.requirement.payload)
         if self.problem_graph_artifact.content_hash != canonical_json_v3_sha256(self.problem_graph):
             raise ValueError("ProblemGraph Artifact hash does not match the canonical ProblemGraph body")
 
@@ -126,6 +129,8 @@ class ActorExecutionResultV3(StrictFrozenModel):
     step_contract_hash: Sha256Hex
     result_artifact: SealedArtifactRefV3
     receipt_id: Identifier
+    implementation_id: Identifier
+    execution_mode: Literal["real", "model", "deterministic"]
 
 
 def validate_actor_result_for_request(
@@ -170,6 +175,75 @@ def _validate_plan_requirement_lineage(
         raise ValueError("selected Plan does not match the Requirement version and content")
 
 
+def _validate_actor_results_for_plan(
+    *,
+    requirement: RequirementVersionV3,
+    plan: ExecutionPlanVersionV3,
+    attempt_id: Identifier,
+    actor_results: tuple[ActorExecutionResultV3, ...],
+    boundary: str,
+) -> dict[int, ActorExecutionResultV3]:
+    result_steps = tuple(result.step_number for result in actor_results)
+    require_unique(result_steps, f"{boundary} actor result step numbers")
+    if set(result_steps) != {step.step_number for step in plan.payload.steps}:
+        raise ValueError(f"{boundary} actor results must exactly cover selected Plan steps")
+    steps = {step.step_number: step for step in plan.payload.steps}
+    for result in actor_results:
+        step = steps[result.step_number]
+        if (
+            result.run_id,
+            result.plan_version_id,
+            result.attempt_id,
+            result.actor_type,
+            result.actor_id,
+            result.step_contract_hash,
+        ) != (
+            requirement.run_id,
+            plan.id,
+            attempt_id,
+            step.actor_type,
+            step.actor_id,
+            step.contract_hash,
+        ):
+            raise ValueError(f"{boundary} actor result drifted from the selected Plan")
+    return {result.step_number: result for result in actor_results}
+
+
+def _validate_evidence_proofs_against_actor_results(
+    evidence_manifest: EvidenceManifestV3,
+    results_by_step: dict[int, ActorExecutionResultV3],
+) -> None:
+    for evidence in evidence_manifest.evidence:
+        proof = evidence.proof
+        result = results_by_step.get(proof.step_number)
+        if result is None or (
+            result.run_id,
+            result.plan_version_id,
+            result.attempt_id,
+            result.step_number,
+            result.actor_type,
+            result.actor_id,
+            result.step_contract_hash,
+            result.receipt_id,
+            result.result_artifact,
+            result.implementation_id,
+            result.execution_mode,
+        ) != (
+            proof.run_id,
+            proof.plan_version_id,
+            proof.attempt_id,
+            proof.step_number,
+            proof.actor_type,
+            proof.actor_id,
+            proof.step_contract_hash,
+            proof.receipt_id,
+            evidence.pointer.artifact,
+            proof.implementation_id,
+            proof.execution_mode,
+        ):
+            raise ValueError("Evidence proof does not match its selected-Plan Actor execution result")
+
+
 def validate_delivery_inputs(
     *,
     requirement: RequirementVersionV3,
@@ -190,33 +264,14 @@ def validate_delivery_inputs(
         evidence_manifest.attempt_id,
     ) != (requirement.run_id, plan.id, attempt_id):
         raise ValueError("Evidence Manifest does not match the selected Plan attempt")
-    result_steps = tuple(result.step_number for result in actor_results)
-    require_unique(result_steps, "delivery actor result step numbers")
-    if set(result_steps) != {step.step_number for step in plan.payload.steps}:
-        raise ValueError("delivery actor results must exactly cover selected Plan steps")
-    steps = {step.step_number: step for step in plan.payload.steps}
-    for result in actor_results:
-        step = steps[result.step_number]
-        if (
-            result.run_id,
-            result.plan_version_id,
-            result.attempt_id,
-            result.actor_type,
-            result.actor_id,
-            result.step_contract_hash,
-        ) != (
-            requirement.run_id,
-            plan.id,
-            attempt_id,
-            step.actor_type,
-            step.actor_id,
-            step.contract_hash,
-        ):
-            raise ValueError("delivery actor result drifted from the selected Plan")
-    result_artifacts = {result.result_artifact for result in actor_results}
-    for evidence in evidence_manifest.evidence:
-        if evidence.pointer.artifact not in result_artifacts:
-            raise ValueError("Evidence Artifact is not a successful selected-Plan result")
+    results_by_step = _validate_actor_results_for_plan(
+        requirement=requirement,
+        plan=plan,
+        attempt_id=attempt_id,
+        actor_results=actor_results,
+        boundary="delivery",
+    )
+    _validate_evidence_proofs_against_actor_results(evidence_manifest, results_by_step)
 
 
 def validate_review_inputs(
@@ -226,6 +281,7 @@ def validate_review_inputs(
     problem_graph: ProblemGraphV1,
     deliverable: ResearchDeliverableV3,
     deliverable_artifact: SealedArtifactRefV3,
+    actor_results: tuple[ActorExecutionResultV3, ...],
     evidence_manifest: EvidenceManifestV3,
     evidence_manifest_artifact: EvidenceManifestArtifactRefV3,
     evidence_artifacts: tuple[VerifiedArtifactContentV3, ...],
@@ -271,6 +327,14 @@ def validate_review_inputs(
         evidence_manifest.attempt_id,
     ) != (requirement.run_id, plan.id, deliverable.attempt_id):
         raise ValueError("Evidence Manifest does not match the reviewed execution lineage")
+    results_by_step = _validate_actor_results_for_plan(
+        requirement=requirement,
+        plan=plan,
+        attempt_id=deliverable.attempt_id,
+        actor_results=actor_results,
+        boundary="review",
+    )
+    _validate_evidence_proofs_against_actor_results(evidence_manifest, results_by_step)
     verify_evidence_manifest_artifacts(evidence_manifest, evidence_artifacts)
     planned_questions = {
         question_id for step in plan.payload.steps for question_id in step.question_ids
@@ -316,6 +380,7 @@ class ReviewPort(Protocol):
         problem_graph: ProblemGraphV1,
         deliverable: ResearchDeliverableV3,
         deliverable_artifact: SealedArtifactRefV3,
+        actor_results: tuple[ActorExecutionResultV3, ...],
         evidence_manifest: EvidenceManifestV3,
         evidence_manifest_artifact: EvidenceManifestArtifactRefV3,
         evidence_artifacts: tuple[VerifiedArtifactContentV3, ...],

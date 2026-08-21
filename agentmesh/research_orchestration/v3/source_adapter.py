@@ -3,9 +3,15 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Mapping
-from typing import Any, Literal, cast
+from functools import lru_cache
+from typing import Any, Literal, TypeVar, cast
+from uuid import UUID
 
-from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
+import jsonschema
+from pydantic import BaseModel
+
+from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256, strict_json_v3_loads
+from agentmesh.research_orchestration.v3.catalog import load_catalog_document, load_competitive_text_catalog
 from agentmesh.research_orchestration.v3.common import (
     ActorType,
     EvidenceManifestArtifactRefV3,
@@ -89,9 +95,62 @@ from agentmesh.research_orchestration.v3.source_contracts import (
 )
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
+_SourceModel = TypeVar("_SourceModel", bound=BaseModel)
+SourceJsonObject = Mapping[str, Any] | str | bytes | bytearray
 
 
-def _source(value: Any, model_type: type[Any]) -> Any:
+@lru_cache(maxsize=6)
+def _source_schema_validator(document_id: str) -> jsonschema.Draft7Validator:
+    catalog = load_competitive_text_catalog()
+    schema = load_catalog_document(catalog, document_id)
+    if not isinstance(schema, Mapping):
+        raise ValueError(f"source schema document is not an object: {document_id}")
+    jsonschema.Draft7Validator.check_schema(schema)
+    return jsonschema.Draft7Validator(
+        schema,
+        format_checker=jsonschema.Draft7Validator.FORMAT_CHECKER,
+    )
+
+
+def _schema_json_value(value: Any) -> Any:
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {key: _schema_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_schema_json_value(item) for item in value]
+    return value
+
+
+def _source(
+    value: _SourceModel | SourceJsonObject,
+    model_type: type[_SourceModel],
+    *,
+    schema_document_id: str,
+    schema_value_key: str | None = None,
+) -> _SourceModel:
+    """Validate locked source JSON before constructing its typed representation."""
+
+    if isinstance(value, model_type):
+        raw: Any = _schema_json_value(value.model_dump(mode="python", exclude_none=True))
+    elif isinstance(value, (str, bytes, bytearray)):
+        raw = strict_json_v3_loads(value)
+    elif isinstance(value, Mapping):
+        raw = value
+    else:
+        raise TypeError("source contract input must be a JSON object or encoded JSON object")
+    if not isinstance(raw, Mapping):
+        raise ValueError("source contract input must be a JSON object")
+    schema_value: Any = raw
+    if schema_value_key is not None:
+        schema_value = raw.get(schema_value_key)
+        if not isinstance(schema_value, Mapping):
+            raise jsonschema.ValidationError(f"source contract requires object property {schema_value_key!r}")
+    _source_schema_validator(schema_document_id).validate(schema_value)
+    return model_type.model_validate(raw)
+
+
+def _typed_model(value: Any, model_type: type[_SourceModel]) -> _SourceModel:
     if isinstance(value, model_type):
         return value
     return model_type.model_validate(value)
@@ -112,16 +171,22 @@ def _artifact_ref(
     kind: str,
     schema_version: str,
 ) -> SealedArtifactRefV3:
-    artifact = _source(value, SealedArtifactRefV3)
+    artifact = _typed_model(value, SealedArtifactRefV3)
     if artifact.kind != kind or artifact.schema_version != schema_version:
         raise ValueError(f"expected a sealed {schema_version} {kind} Artifact")
     return artifact
 
 
-def translate_ai_x_research_task_v2(source: AiXResearchTaskV2 | Mapping[str, Any]) -> ResearchTaskV3:
+def translate_ai_x_research_task_v2(
+    source: AiXResearchTaskV2 | SourceJsonObject,
+) -> ResearchTaskV3:
     """Translate the colliding ai-x research-task-v2 name before target validation."""
 
-    item = _source(source, AiXResearchTaskV2)
+    item = _source(
+        source,
+        AiXResearchTaskV2,
+        schema_document_id="source-research-task-v2-schema",
+    )
     if item.task_type != "competitive_research":
         raise ValueError("Slice 1 accepts only competitive_research source tasks")
     return ResearchTaskV3(
@@ -186,7 +251,7 @@ def translate_ai_x_research_task_v2(source: AiXResearchTaskV2 | Mapping[str, Any
 
 
 def translate_ai_x_problem_graph_v1(
-    source: AiXProblemGraphV1 | Mapping[str, Any],
+    source: AiXProblemGraphV1 | SourceJsonObject,
     *,
     requirement_version_id: str,
     model_call_receipt_id: str,
@@ -196,7 +261,11 @@ def translate_ai_x_problem_graph_v1(
     trace_id: str,
     context_manifest_hash: str,
 ) -> ProblemGraphV1:
-    item = _source(source, AiXProblemGraphV1)
+    item = _source(
+        source,
+        AiXProblemGraphV1,
+        schema_document_id="source-problem-graph-schema",
+    )
     question_id_map = {value.id: _identifier(value.id, "question") for value in item.questions}
     return ProblemGraphV1(
         schema_version="problem-graph-v1",
@@ -236,7 +305,7 @@ def translate_ai_x_problem_graph_v1(
 
 
 def translate_ai_x_current_execution_plan(
-    source: AiXCurrentExecutionPlan | Mapping[str, Any],
+    source: AiXCurrentExecutionPlan | SourceJsonObject,
     *,
     candidate_id: Literal["depth", "speed"],
 ) -> PlanCandidateV3:
@@ -246,7 +315,11 @@ def translate_ai_x_current_execution_plan(
     behind the later CandidateCompilerPort; this adapter cannot create a persisted plan.
     """
 
-    item = _source(source, AiXCurrentExecutionPlan)
+    item = _source(
+        source,
+        AiXCurrentExecutionPlan,
+        schema_document_id="source-current-execution-plan-schema",
+    )
     if item.deliverable_type != "competitive_analysis_report":
         raise ValueError("Slice 1 accepts only the competitive_analysis_report deliverable")
     if any(step.fallback_actor_ids for step in item.steps):
@@ -366,7 +439,7 @@ def _translate_competitive_payload(item: AiXResearchDeliverableV1) -> Competitiv
 
 
 def translate_ai_x_research_deliverable_v1(
-    source: AiXResearchDeliverableV1 | Mapping[str, Any],
+    source: AiXResearchDeliverableV1 | SourceJsonObject,
     *,
     requirement_version_id: str,
     evidence_manifest_artifact: SealedArtifactRefV3 | Mapping[str, Any],
@@ -375,7 +448,12 @@ def translate_ai_x_research_deliverable_v1(
 ) -> ResearchDeliverableV3:
     """Translate the complete Competitive source envelope with explicit sealed references."""
 
-    item = _source(source, AiXResearchDeliverableV1)
+    item = _source(
+        source,
+        AiXResearchDeliverableV1,
+        schema_document_id="source-competitive-report-schema",
+        schema_value_key="payload",
+    )
     manifest = _artifact_ref(
         evidence_manifest_artifact,
         kind="evidence_manifest",
@@ -475,7 +553,7 @@ def translate_ai_x_research_deliverable_v1(
         artifact_value = capability_result_artifacts.get(value.id)
         if artifact_value is None:
             raise ValueError(f"missing sealed result Artifact for source capability {value.id}")
-        artifact = _source(artifact_value, SealedArtifactRefV3)
+        artifact = _typed_model(artifact_value, SealedArtifactRefV3)
         capability_provenance.append(
             CapabilityProvenanceV3(
                 actor_type=cast(ActorType, value.type),
@@ -527,7 +605,7 @@ def translate_ai_x_research_deliverable_v1(
 
 
 def translate_ai_x_report_review_v1(
-    source: AiXReportReviewV1 | Mapping[str, Any],
+    source: AiXReportReviewV1 | SourceJsonObject,
     *,
     requirement_version_id: str,
     deliverable_artifact: SealedArtifactRefV3 | Mapping[str, Any],
@@ -535,7 +613,11 @@ def translate_ai_x_report_review_v1(
     deterministic_checks: tuple[DeterministicReviewCheckV3, ...],
     semantic_model_call_receipt_id: str | None,
 ) -> ReportReviewV3:
-    item = _source(source, AiXReportReviewV1)
+    item = _source(
+        source,
+        AiXReportReviewV1,
+        schema_document_id="source-report-review-schema",
+    )
     artifact = _artifact_ref(
         deliverable_artifact,
         kind="research_deliverable",
@@ -588,7 +670,7 @@ def _translate_report_block(value: AiXReportBlockV1) -> ReportBlockV3:
 
 
 def translate_ai_x_report_document_v1(
-    source: AiXReportDocumentV1 | Mapping[str, Any],
+    source: AiXReportDocumentV1 | SourceJsonObject,
     *,
     presentation_mode: Literal["text"],
     run_id: str,
@@ -628,7 +710,11 @@ def translate_ai_x_report_document_v1(
         deliverable_ref,
     ):
         raise ValueError("source report Review lineage does not match its composition inputs")
-    item = _source(source, AiXReportDocumentV1)
+    item = _source(
+        source,
+        AiXReportDocumentV1,
+        schema_document_id="source-report-document-schema",
+    )
     return ReportDocumentV3(
         schema_version="report-document-v3",
         presentation_mode=presentation_mode,

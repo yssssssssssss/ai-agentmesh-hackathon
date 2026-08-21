@@ -327,12 +327,12 @@ def test_source_capability_decisions_reject_shape_fallbacks() -> None:
     jsonschema.Draft7Validator(_source_schema("current-execution-plan.schema.json")).validate(source)
 
     source["capability_decisions"]["eligible"][0]["skill"]["unknown"] = True
-    with pytest.raises(ValidationError, match="unknown"):
+    with pytest.raises(jsonschema.ValidationError, match="Additional properties"):
         translate_ai_x_current_execution_plan(source, candidate_id="depth")
 
     source = _source_execution_plan()
     source["capability_decisions"]["eligible"][0]["optional_tool_decisions"][0].pop("reason_code")
-    with pytest.raises(ValidationError, match="reason"):
+    with pytest.raises(jsonschema.ValidationError, match="required"):
         translate_ai_x_current_execution_plan(source, candidate_id="depth")
 
     source = _source_execution_plan()
@@ -400,7 +400,7 @@ def test_source_review_adapter_requires_exact_sealed_deliverable(
 
     malformed = deepcopy(source_review_fixture)
     malformed["dimensions"][0]["passed"] = False
-    with pytest.raises(ValidationError, match="pass verdict"):
+    with pytest.raises(jsonschema.ValidationError):
         translate_ai_x_report_review_v1(
             malformed,
             requirement_version_id="requirement_1",
@@ -453,7 +453,7 @@ def test_source_optional_properties_reject_explicit_null() -> None:
         jsonschema.Draft7Validator(_source_schema("current-execution-plan.schema.json")).validate(source)
 
 
-def _translate_source_report(source: dict, *, presentation_mode: str = "text"):
+def _translate_source_report(source: dict | str | bytes, *, presentation_mode: str = "text"):
     deliverable_artifact = artifact_ref(
         "artifact_deliverable", "research_deliverable", "research-deliverable-v3"
     )
@@ -477,6 +477,96 @@ def _translate_source_report(source: dict, *, presentation_mode: str = "text"):
         ),
         template_snapshot_hash=HASH,
     )
+
+
+def test_source_adapters_apply_locked_json_schemas_before_typed_translation() -> None:
+    requirement = json.loads(
+        Path("tests/fixtures/ai_x_parity/requirement.json").read_text(encoding="utf-8")
+    )["source_normalized_example"]
+    requirement["pii_detected"] = "false"
+    with pytest.raises(jsonschema.ValidationError):
+        translate_ai_x_research_task_v2(requirement)
+
+    graph = json.loads(
+        Path("tests/fixtures/ai_x_parity/problem-graph-problem-contract.json").read_text(encoding="utf-8")
+    )["source_normalized_example"]
+    graph["questions"][0]["evidence_requirements"][0]["minimumCount"] = 0
+    with pytest.raises(jsonschema.ValidationError):
+        translate_ai_x_problem_graph_v1(
+            graph,
+            requirement_version_id="requirement_1",
+            model_call_receipt_id="receipt_1",
+            model_name="planner",
+            model_version="1",
+            prompt_hash=HASH,
+            trace_id="trace_1",
+            context_manifest_hash=HASH,
+        )
+
+    plan = _source_execution_plan()
+    plan["steps"][0]["requires_approval"] = "false"
+    with pytest.raises(jsonschema.ValidationError):
+        translate_ai_x_current_execution_plan(plan, candidate_id="depth")
+
+    deliverable = source_deliverable_body()
+    deliverable["payload"]["competitorSamples"][0]["evidenceIds"] = []
+    with pytest.raises(jsonschema.ValidationError):
+        translate_ai_x_research_deliverable_v1(
+            deliverable,
+            requirement_version_id="requirement_1",
+            evidence_manifest_artifact=artifact_ref(
+                "artifact_evidence", "evidence_manifest", "evidence-manifest-v3"
+            ),
+            capability_result_artifacts={
+                "competitive-analysis": artifact_ref(
+                    "artifact_skill", "skill_result", "skill-output-v2"
+                )
+            },
+            recommendation_priorities={"recommendation_1": "P1"},
+        )
+
+    review = source_review_body()
+    review["dimensions"][0]["passed"] = "true"
+    checks = tuple(
+        DeterministicReviewCheckV3.model_validate(value) for value in review_body()["deterministic_checks"]
+    )
+    with pytest.raises(jsonschema.ValidationError):
+        translate_ai_x_report_review_v1(
+            review,
+            requirement_version_id="requirement_1",
+            deliverable_artifact=artifact_ref(
+                "artifact_deliverable", "research_deliverable", "research-deliverable-v3"
+            ),
+            rubric_snapshot_hash=HASH,
+            deterministic_checks=checks,
+            semantic_model_call_receipt_id="receipt_review_1",
+        )
+
+    report = source_report_body()
+    report["sections"][1]["blocks"] = [
+        {
+            "id": "metric_1",
+            "type": "metric",
+            "label": "Score",
+            "value": "4",
+            "evidenceIds": ["evidence_1"],
+        }
+    ]
+    with pytest.raises(jsonschema.ValidationError):
+        _translate_source_report(report)
+
+
+def test_source_adapter_rejects_duplicate_json_keys_before_model_parsing() -> None:
+    requirement = json.loads(
+        Path("tests/fixtures/ai_x_parity/requirement.json").read_text(encoding="utf-8")
+    )["source_normalized_example"]
+    encoded = json.dumps(requirement, separators=(",", ":"))
+    encoded = encoded.replace(
+        '"pii_detected":false',
+        '"pii_detected":false,"pii_detected":true',
+    )
+    with pytest.raises(ValueError, match="duplicate normalized keys"):
+        translate_ai_x_research_task_v2(encoded)
 
 
 def test_source_report_contract_accepts_every_locked_block_variant() -> None:
@@ -510,5 +600,5 @@ def test_source_report_adapter_rejects_multimodal_presentation_and_unknown_field
 
     malformed = deepcopy(source_report_fixture)
     malformed["sections"][1]["blocks"][0]["fallback_payload"] = {}
-    with pytest.raises(ValidationError, match="fallback_payload"):
+    with pytest.raises(jsonschema.ValidationError):
         _translate_source_report(malformed)

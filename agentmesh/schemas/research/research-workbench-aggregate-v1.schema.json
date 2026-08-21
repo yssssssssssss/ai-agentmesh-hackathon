@@ -67,6 +67,20 @@
           "title": "Attempt Id",
           "type": "string"
         },
+        "execution_mode": {
+          "enum": [
+            "real",
+            "model",
+            "deterministic"
+          ],
+          "title": "Execution Mode",
+          "type": "string"
+        },
+        "implementation_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Implementation Id",
+          "type": "string"
+        },
         "plan_version_id": {
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
           "title": "Plan Version Id",
@@ -106,7 +120,9 @@
         "actor_id",
         "step_contract_hash",
         "result_artifact",
-        "receipt_id"
+        "receipt_id",
+        "implementation_id",
+        "execution_mode"
       ],
       "title": "ActorExecutionResultV3",
       "type": "object"
@@ -141,27 +157,6 @@
         "statement"
       ],
       "title": "AnalysisNodeV3",
-      "type": "object"
-    },
-    "AssetRefV3": {
-      "additionalProperties": false,
-      "properties": {
-        "asset_id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-          "title": "Asset Id",
-          "type": "string"
-        },
-        "manifest_artifact_id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-          "title": "Manifest Artifact Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "asset_id",
-        "manifest_artifact_id"
-      ],
-      "title": "AssetRefV3",
       "type": "object"
     },
     "BlockingIssueV3": {
@@ -444,90 +439,6 @@
       "title": "CapabilityReasonV3",
       "type": "object"
     },
-    "ChartBlockV3": {
-      "additionalProperties": false,
-      "properties": {
-        "alt_text": {
-          "maxLength": 20000,
-          "pattern": "\\S",
-          "title": "Alt Text",
-          "type": "string"
-        },
-        "caption": {
-          "maxLength": 20000,
-          "pattern": "\\S",
-          "title": "Caption",
-          "type": "string"
-        },
-        "chart_ref": {
-          "$ref": "#/$defs/ChartRefV3"
-        },
-        "id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-          "title": "Id",
-          "type": "string"
-        },
-        "spec": {
-          "additionalProperties": true,
-          "title": "Spec",
-          "type": "object"
-        },
-        "spec_hash": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Spec Hash",
-          "type": "string"
-        },
-        "table": {
-          "additionalProperties": true,
-          "title": "Table",
-          "type": "object"
-        },
-        "type": {
-          "const": "chart",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "type",
-        "chart_ref",
-        "spec_hash",
-        "spec",
-        "table",
-        "caption",
-        "alt_text"
-      ],
-      "title": "ChartBlockV3",
-      "type": "object"
-    },
-    "ChartRefV3": {
-      "additionalProperties": false,
-      "properties": {
-        "asset_id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-          "title": "Asset Id",
-          "type": "string"
-        },
-        "chart_id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-          "title": "Chart Id",
-          "type": "string"
-        },
-        "manifest_artifact_id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-          "title": "Manifest Artifact Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "chart_id",
-        "asset_id",
-        "manifest_artifact_id"
-      ],
-      "title": "ChartRefV3",
-      "type": "object"
-    },
     "ClarificationQuestionV3": {
       "additionalProperties": false,
       "properties": {
@@ -788,6 +699,60 @@
         "statement"
       ],
       "title": "ConclusionNodeV3",
+      "type": "object"
+    },
+    "DepthPlanCandidateV3": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions": {
+          "items": {
+            "$ref": "#/$defs/ResearchAssumptionV3"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "candidate_id": {
+          "const": "depth",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "proposed_steps": {
+          "items": {
+            "$ref": "#/$defs/PlanStepProposalV3"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Proposed Steps",
+          "type": "array"
+        },
+        "rationale": {
+          "maxLength": 2000,
+          "pattern": "\\S",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 240,
+          "pattern": "\\S",
+          "title": "Title",
+          "type": "string"
+        },
+        "tradeoffs": {
+          "maxLength": 2000,
+          "pattern": "\\S",
+          "title": "Tradeoffs",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "title",
+        "rationale",
+        "tradeoffs",
+        "assumptions",
+        "proposed_steps"
+      ],
+      "title": "DepthPlanCandidateV3",
       "type": "object"
     },
     "DeterministicReviewCheckV3": {
@@ -1402,110 +1367,6 @@
       "title": "FindingGraphV3",
       "type": "object"
     },
-    "ImageBlockV3": {
-      "additionalProperties": false,
-      "properties": {
-        "alt_text": {
-          "maxLength": 20000,
-          "pattern": "\\S",
-          "title": "Alt Text",
-          "type": "string"
-        },
-        "asset_ref": {
-          "$ref": "#/$defs/AssetRefV3"
-        },
-        "caption": {
-          "maxLength": 20000,
-          "pattern": "\\S",
-          "title": "Caption",
-          "type": "string"
-        },
-        "evidence_ids": {
-          "items": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Evidence Ids",
-          "type": "array",
-          "uniqueItems": true
-        },
-        "id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-          "title": "Id",
-          "type": "string"
-        },
-        "type": {
-          "const": "image",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "type",
-        "asset_ref",
-        "caption",
-        "alt_text",
-        "evidence_ids"
-      ],
-      "title": "ImageBlockV3",
-      "type": "object"
-    },
-    "ImageComparisonBlockV3": {
-      "additionalProperties": false,
-      "properties": {
-        "after_asset_ref": {
-          "$ref": "#/$defs/AssetRefV3"
-        },
-        "alt_text": {
-          "maxLength": 20000,
-          "pattern": "\\S",
-          "title": "Alt Text",
-          "type": "string"
-        },
-        "before_asset_ref": {
-          "$ref": "#/$defs/AssetRefV3"
-        },
-        "caption": {
-          "maxLength": 20000,
-          "pattern": "\\S",
-          "title": "Caption",
-          "type": "string"
-        },
-        "evidence_ids": {
-          "items": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Evidence Ids",
-          "type": "array",
-          "uniqueItems": true
-        },
-        "id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
-          "title": "Id",
-          "type": "string"
-        },
-        "type": {
-          "const": "image-comparison",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "type",
-        "before_asset_ref",
-        "after_asset_ref",
-        "caption",
-        "alt_text",
-        "evidence_ids"
-      ],
-      "title": "ImageComparisonBlockV3",
-      "type": "object"
-    },
     "ImpactV1": {
       "additionalProperties": false,
       "properties": {
@@ -1589,7 +1450,8 @@
           },
           "minItems": 1,
           "title": "Items",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "type": {
           "const": "list",
@@ -1741,10 +1603,10 @@
           "minItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/PlanCandidateV3"
+              "$ref": "#/$defs/DepthPlanCandidateV3"
             },
             {
-              "$ref": "#/$defs/PlanCandidateV3"
+              "$ref": "#/$defs/SpeedPlanCandidateV3"
             }
           ],
           "title": "Candidates",
@@ -1761,63 +1623,6 @@
         "candidates"
       ],
       "title": "PlanCandidateSetV3",
-      "type": "object"
-    },
-    "PlanCandidateV3": {
-      "additionalProperties": false,
-      "properties": {
-        "assumptions": {
-          "items": {
-            "$ref": "#/$defs/ResearchAssumptionV3"
-          },
-          "title": "Assumptions",
-          "type": "array"
-        },
-        "candidate_id": {
-          "enum": [
-            "depth",
-            "speed"
-          ],
-          "title": "Candidate Id",
-          "type": "string"
-        },
-        "proposed_steps": {
-          "items": {
-            "$ref": "#/$defs/PlanStepProposalV3"
-          },
-          "maxItems": 8,
-          "minItems": 1,
-          "title": "Proposed Steps",
-          "type": "array"
-        },
-        "rationale": {
-          "maxLength": 2000,
-          "pattern": "\\S",
-          "title": "Rationale",
-          "type": "string"
-        },
-        "title": {
-          "maxLength": 240,
-          "pattern": "\\S",
-          "title": "Title",
-          "type": "string"
-        },
-        "tradeoffs": {
-          "maxLength": 2000,
-          "pattern": "\\S",
-          "title": "Tradeoffs",
-          "type": "string"
-        }
-      },
-      "required": [
-        "candidate_id",
-        "title",
-        "rationale",
-        "tradeoffs",
-        "assumptions",
-        "proposed_steps"
-      ],
-      "title": "PlanCandidateV3",
       "type": "object"
     },
     "PlanInputBindingV3": {
@@ -2288,10 +2093,245 @@
           "type": "string"
         },
         "sections": {
-          "items": {
-            "$ref": "#/$defs/ReportSectionV3"
-          },
-          "minItems": 1,
+          "items": false,
+          "maxItems": 13,
+          "minItems": 13,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "cover"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "executive-summary"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "background"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "scope-method"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "key-metrics"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "findings"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "question-analysis"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "visual-evidence"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "comparison"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "conclusion"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "recommendations"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "risks"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/ReportSectionV3"
+                },
+                {
+                  "properties": {
+                    "id": {
+                      "const": "appendix"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              ]
+            }
+          ],
           "title": "Sections",
           "type": "array"
         },
@@ -2716,10 +2756,7 @@
           "items": {
             "discriminator": {
               "mapping": {
-                "chart": "#/$defs/ChartBlockV3",
                 "fact": "#/$defs/FactBlockV3",
-                "image": "#/$defs/ImageBlockV3",
-                "image-comparison": "#/$defs/ImageComparisonBlockV3",
                 "list": "#/$defs/ListBlockV3",
                 "metric": "#/$defs/MetricBlockV3",
                 "paragraph": "#/$defs/ParagraphBlockV3"
@@ -2738,15 +2775,6 @@
               },
               {
                 "$ref": "#/$defs/ListBlockV3"
-              },
-              {
-                "$ref": "#/$defs/ImageBlockV3"
-              },
-              {
-                "$ref": "#/$defs/ImageComparisonBlockV3"
-              },
-              {
-                "$ref": "#/$defs/ChartBlockV3"
               }
             ]
           },
@@ -3512,6 +3540,60 @@
         "content_hash"
       ],
       "title": "SealedArtifactRefV3",
+      "type": "object"
+    },
+    "SpeedPlanCandidateV3": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions": {
+          "items": {
+            "$ref": "#/$defs/ResearchAssumptionV3"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "candidate_id": {
+          "const": "speed",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "proposed_steps": {
+          "items": {
+            "$ref": "#/$defs/PlanStepProposalV3"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Proposed Steps",
+          "type": "array"
+        },
+        "rationale": {
+          "maxLength": 2000,
+          "pattern": "\\S",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 240,
+          "pattern": "\\S",
+          "title": "Title",
+          "type": "string"
+        },
+        "tradeoffs": {
+          "maxLength": 2000,
+          "pattern": "\\S",
+          "title": "Tradeoffs",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "title",
+        "rationale",
+        "tradeoffs",
+        "assumptions",
+        "proposed_steps"
+      ],
+      "title": "SpeedPlanCandidateV3",
       "type": "object"
     },
     "SuccessCriterionCoverageV3": {

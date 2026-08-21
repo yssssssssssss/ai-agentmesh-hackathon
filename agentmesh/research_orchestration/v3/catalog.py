@@ -26,6 +26,8 @@ CATALOG_RELATIVE_ROOT = ("research_catalog", "research-v3", "competitive-text-v1
 CATALOG_MAX_FILES = 64
 CATALOG_MAX_FILE_BYTES = 262_144
 CATALOG_MAX_AGGREGATE_BYTES = 2_097_152
+CATALOG_MAX_VISITED_ENTRIES = 256
+CATALOG_MAX_DIRECTORIES = 64
 CATALOG_MAX_DIRECTORY_DEPTH = 16
 CATALOG_MAX_DOCUMENT_DEPTH = 32
 CATALOG_MAX_DOCUMENT_NODES = 50_000
@@ -307,6 +309,8 @@ def _preflight_inventory(
     max_files: int = CATALOG_MAX_FILES,
     max_aggregate_bytes: int = CATALOG_MAX_AGGREGATE_BYTES,
     max_file_bytes: int = CATALOG_MAX_FILE_BYTES,
+    max_visited_entries: int = CATALOG_MAX_VISITED_ENTRIES,
+    max_directories: int = CATALOG_MAX_DIRECTORIES,
 ) -> dict[str, int]:
     """Bound the entire filesystem-backed inventory before reading any resource bytes."""
 
@@ -321,17 +325,27 @@ def _preflight_inventory(
 
     inventory: dict[str, int] = {}
     aggregate_bytes = 0
+    visited_entries = 0
+    directory_count = 1
+    if directory_count > max_directories:
+        raise ValueError("catalog directory count exceeds the resource limit")
     pending = [(root, "", 0)]
     while pending:
         directory, prefix, depth = pending.pop()
         if depth > CATALOG_MAX_DIRECTORY_DEPTH:
             raise ValueError("catalog directory depth exceeds the resource limit")
         for child in directory.iterdir():
+            visited_entries += 1
+            if visited_entries > max_visited_entries:
+                raise ValueError("catalog visited entry count exceeds the resource limit")
             relative = f"{prefix}/{child.name}" if prefix else child.name
             metadata = child.lstat()
             if stat.S_ISLNK(metadata.st_mode):
                 raise ValueError(f"catalog resources must not be symlinks: {relative}")
             if stat.S_ISDIR(metadata.st_mode):
+                directory_count += 1
+                if directory_count > max_directories:
+                    raise ValueError("catalog directory count exceeds the resource limit")
                 pending.append((child, relative, depth + 1))
                 continue
             if not stat.S_ISREG(metadata.st_mode):
