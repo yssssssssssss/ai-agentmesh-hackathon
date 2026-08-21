@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import idleFixture from '../../../../tests/fixtures/research_v3_workbench/idle.json'
-import { createResearchV3ApiClient, researchV3AggregateQuery } from './apiClient'
+import {
+  buildResearchV3Request,
+  createResearchV3ApiClient,
+  researchV3AggregateQuery,
+  researchV3IdempotencyKey,
+} from './apiClient'
 
 const repositoryFixture = {
   ...idleFixture,
@@ -57,6 +62,18 @@ describe('feature-local research-v3 API client', () => {
     )
     await expect(extraClient.readAggregate('run_1')).rejects.toThrow(
       'Invalid research-workbench-aggregate-v1',
+    )
+  })
+
+  it('builds the same canonical request hash as the backend contract', () => {
+    const request = buildResearchV3Request('run_1', 'select_candidate', {
+      expected_state_version: 1,
+      candidate_id: 'speed',
+    })
+
+    expect(request.request_hash).toBe('4598956c53d7cf83ee0c324e97fa82ee4ee86eec8cd15d3a6249114974edcc35')
+    expect(researchV3IdempotencyKey('select_candidate', request)).toBe(
+      'web:select_candidate:1:4598956c53d7cf83ee0c324e',
     )
   })
 

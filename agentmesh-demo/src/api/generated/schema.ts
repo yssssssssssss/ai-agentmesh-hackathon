@@ -552,6 +552,176 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/runs/{run_id}/research/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Refresh Research V3 */
+        get: operations["refresh_research_v3_api_agent_runs__run_id__research_refresh_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/research/plan/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream Research V3 Plan */
+        get: operations["stream_research_v3_plan_api_agent_runs__run_id__research_plan_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/research/candidates/select": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Select Research V3 Candidate */
+        post: operations["select_research_v3_candidate_api_agent_runs__run_id__research_candidates_select_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/research/plans/revise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revise Research V3 Plan */
+        post: operations["revise_research_v3_plan_api_agent_runs__run_id__research_plans_revise_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/research/plans/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Research V3 Plan */
+        post: operations["confirm_research_v3_plan_api_agent_runs__run_id__research_plans_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/research/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Research V3 Plan */
+        post: operations["approve_research_v3_plan_api_agent_runs__run_id__research_approvals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/research/recovery/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Research V3 */
+        post: operations["retry_research_v3_api_agent_runs__run_id__research_recovery_retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/research/recovery/skip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Skip Research V3 */
+        post: operations["skip_research_v3_api_agent_runs__run_id__research_recovery_skip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/research/recovery/abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Abort Research V3 */
+        post: operations["abort_research_v3_api_agent_runs__run_id__research_recovery_abort_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/research/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Research V3 */
+        post: operations["cancel_research_v3_api_agent_runs__run_id__research_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/artifacts/{artifact_id}": {
         parameters: {
             query?: never;
@@ -2227,6 +2397,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActionRecommendationV1 */
+        ActionRecommendationV1: {
+            /** Id */
+            id: string;
+            /** Difference Ids */
+            difference_ids: string[];
+            /**
+             * Priority
+             * @enum {string}
+             */
+            priority: "P0" | "P1" | "P2" | "P3";
+            /** Statement */
+            statement: string;
+        };
         /** ActivityLog */
         ActivityLog: {
             /** Id */
@@ -2262,6 +2446,39 @@ export interface components {
             personal: components["schemas"]["ActivityLog"][];
             /** External */
             external: components["schemas"]["ActivityLog"][];
+        };
+        /**
+         * ActorExecutionResultV3
+         * @description A completion envelope that retains identity even when parallel results are reordered.
+         */
+        ActorExecutionResultV3: {
+            /** Run Id */
+            run_id: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /** Attempt Id */
+            attempt_id: string;
+            /** Step Number */
+            step_number: number;
+            /**
+             * Actor Type
+             * @enum {string}
+             */
+            actor_type: "tool" | "skill" | "llm" | "reviewer";
+            /** Actor Id */
+            actor_id: string;
+            /** Step Contract Hash */
+            step_contract_hash: string;
+            result_artifact: components["schemas"]["SealedArtifactRefV3"];
+            /** Receipt Id */
+            receipt_id: string;
+            /** Implementation Id */
+            implementation_id: string;
+            /**
+             * Execution Mode
+             * @enum {string}
+             */
+            execution_mode: "real" | "model" | "deterministic";
         };
         /** Agent */
         Agent: {
@@ -2382,13 +2599,15 @@ export interface components {
              * @default v1
              * @enum {string}
              */
-            orchestration_version: "v1" | "research-v2";
+            orchestration_version: "v1" | "research-v2" | "research-v3";
             /**
              * Orchestration Mode
              * @default off
              * @enum {string}
              */
             orchestration_mode: "off" | "preview" | "execute";
+            /** Writer Generation Epoch */
+            writer_generation_epoch?: number | null;
             requested_orchestration_mode?: components["schemas"]["SkillOrchestrationRequestMode"] | null;
             /**
              * Agent Definition Version
@@ -2496,6 +2715,15 @@ export interface components {
         AgentsResponse: {
             /** Items */
             items: components["schemas"]["Agent"][];
+        };
+        /** AnalysisNodeV3 */
+        AnalysisNodeV3: {
+            /** Id */
+            id: string;
+            /** Finding Ids */
+            finding_ids: string[];
+            /** Statement */
+            statement: string;
         };
         /** AuditEvent */
         AuditEvent: {
@@ -2804,6 +3032,15 @@ export interface components {
             /** Posts */
             posts: components["schemas"]["BlackboardPostView"][];
         };
+        /** BlockingIssueV3 */
+        BlockingIssueV3: {
+            /** Key */
+            key: string;
+            /** Reason */
+            reason: string;
+            /** Kind */
+            kind: string;
+        };
         /** Body_import_skill_package_api_skills_packages_import_post */
         Body_import_skill_package_api_skills_packages_import_post: {
             /** File */
@@ -2861,6 +3098,96 @@ export interface components {
             text: string;
             /** Expected Document Version */
             expected_document_version: number;
+        };
+        /** CapabilityApprovalV3 */
+        CapabilityApprovalV3: {
+            /**
+             * Capability Type
+             * @enum {string}
+             */
+            capability_type: "skill" | "tool";
+            /** Capability Id */
+            capability_id: string;
+            /**
+             * Authority
+             * @enum {string}
+             */
+            authority: "owner" | "legal" | "security";
+        };
+        /** CapabilityDecisionV3 */
+        CapabilityDecisionV3: {
+            /**
+             * Actor Type
+             * @enum {string}
+             */
+            actor_type: "tool" | "skill";
+            /** Actor Id */
+            actor_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "eligible" | "rejected";
+            /** Required Approvals */
+            required_approvals: components["schemas"]["CapabilityApprovalV3"][];
+            /** Reasons */
+            reasons: components["schemas"]["CapabilityReasonV3"][];
+            /** Pending Inputs */
+            pending_inputs: components["schemas"]["CapabilityPendingInputV3"][];
+            /** Optional Tool Decisions */
+            optional_tool_decisions: components["schemas"]["OptionalToolDecisionV3"][];
+        };
+        /** CapabilityGapV3 */
+        CapabilityGapV3: {
+            /**
+             * Capability Type
+             * @enum {string}
+             */
+            capability_type: "tool" | "skill" | "llm" | "reviewer";
+            /** Capability Id */
+            capability_id: string;
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Required */
+            required: boolean;
+        };
+        /** CapabilityPendingInputV3 */
+        CapabilityPendingInputV3: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "value" | "visual";
+            /** Role */
+            role: string;
+            /** Label */
+            label: string;
+            /** Multiple */
+            multiple: boolean;
+            /** Capability Id */
+            capability_id: string;
+        };
+        /** CapabilityProvenanceV3 */
+        CapabilityProvenanceV3: {
+            /**
+             * Actor Type
+             * @enum {string}
+             */
+            actor_type: "tool" | "skill" | "llm" | "reviewer";
+            /** Actor Id */
+            actor_id: string;
+            result_artifact: components["schemas"]["SealedArtifactRefV3"];
+        };
+        /** CapabilityReasonV3 */
+        CapabilityReasonV3: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Related Id */
+            related_id?: string | null;
         };
         /** ChatMessage */
         ChatMessage: {
@@ -3062,11 +3389,71 @@ export interface components {
             /** Model Fallback Reason */
             model_fallback_reason?: string | null;
         };
+        /** ClarificationQuestionV3 */
+        ClarificationQuestionV3: {
+            /** Key */
+            key: string;
+            /** Question */
+            question: string;
+            /** Rationale */
+            rationale: string;
+        };
         /**
          * CollaborationStage
          * @enum {string}
          */
         CollaborationStage: "discussion" | "execution" | "review" | "blocked" | "completed";
+        /** CompetitiveAnalysisTextPayloadV1 */
+        CompetitiveAnalysisTextPayloadV1: {
+            /** Competitor Samples */
+            competitor_samples: components["schemas"]["CompetitorSampleV1"][];
+            /** Dimension Matrix */
+            dimension_matrix: components["schemas"]["DimensionMatrixRowV1"][];
+            /** Differences */
+            differences: components["schemas"]["DifferenceV1"][];
+            /** Impacts */
+            impacts: components["schemas"]["ImpactV1"][];
+            /** Action Recommendations */
+            action_recommendations: components["schemas"]["ActionRecommendationV1"][];
+            /** Management Summary */
+            management_summary?: string[] | null;
+            /** Scoring Method */
+            scoring_method?: string[] | null;
+            /** Roadmap */
+            roadmap?: components["schemas"]["RoadmapItemV1"][] | null;
+            /** Instrumentation Plan */
+            instrumentation_plan?: string[] | null;
+            /** User Test Script */
+            user_test_script?: string[] | null;
+            /** Visual Evidence */
+            visual_evidence: {
+                [key: string]: unknown;
+            }[];
+            /** Screenshot Comparisons */
+            screenshot_comparisons: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** CompetitorSampleV1 */
+        CompetitorSampleV1: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Rationale */
+            rationale: string;
+            /** Evidence Ids */
+            evidence_ids: string[];
+        };
+        /** ConclusionNodeV3 */
+        ConclusionNodeV3: {
+            /** Id */
+            id: string;
+            /** Summary Ids */
+            summary_ids: string[];
+            /** Statement */
+            statement: string;
+        };
         /** DailyMemorySummaryRequest */
         DailyMemorySummaryRequest: {
             /** Date */
@@ -3088,6 +3475,72 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** DepthPlanCandidateV3 */
+        DepthPlanCandidateV3: {
+            /**
+             * Candidate Id
+             * @constant
+             */
+            candidate_id: "depth";
+            /** Title */
+            title: string;
+            /** Rationale */
+            rationale: string;
+            /** Tradeoffs */
+            tradeoffs: string;
+            /** Assumptions */
+            assumptions: components["schemas"]["ResearchAssumptionV3"][];
+            /** Proposed Steps */
+            proposed_steps: components["schemas"]["PlanStepProposalV3"][];
+        };
+        /** DeterministicReviewCheckV3 */
+        DeterministicReviewCheckV3: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "schema_valid" | "lineage_binding_valid" | "requirement_coverage" | "question_coverage" | "evidence_coverage" | "finding_graph_valid" | "recommendation_roots_valid" | "gap_disclosure" | "sensitive_content_absent" | "artifact_hash_valid" | "text_mode_no_visual_references";
+            /**
+             * Dimension Id
+             * @enum {string}
+             */
+            dimension_id: "requirement_coverage" | "question_coverage" | "evidence_coverage" | "reasoning_quality" | "recommendation_quality" | "visual_quality" | "risk_disclosure";
+            /** Passed */
+            passed: boolean;
+            /** Issues */
+            issues: string[];
+        };
+        /** DifferenceV1 */
+        DifferenceV1: {
+            /** Id */
+            id: string;
+            /** Dimension */
+            dimension: string;
+            /** Statement */
+            statement: string;
+            /** Evidence Ids */
+            evidence_ids: string[];
+        };
+        /** DimensionMatrixRowV1 */
+        DimensionMatrixRowV1: {
+            /** Dimension */
+            dimension: string;
+            /** Weight */
+            weight?: number | null;
+            /** Values */
+            values: components["schemas"]["DimensionValueV1"][];
+        };
+        /** DimensionValueV1 */
+        DimensionValueV1: {
+            /** Sample Id */
+            sample_id: string;
+            /** Value */
+            value: string;
+            /** Score */
+            score?: number | null;
+            /** Evidence Ids */
+            evidence_ids: string[];
+        };
         /** DocumentUpdateRequest */
         DocumentUpdateRequest: {
             /** Expected Version */
@@ -3104,6 +3557,34 @@ export interface components {
             posted: number;
             /** Items */
             items: components["schemas"]["AutoBlackboardPostRequest"][];
+        };
+        /** EvidenceManifestArtifactRefV3 */
+        EvidenceManifestArtifactRefV3: {
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "evidence_manifest";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "evidence-manifest-v3";
+            /** Content Hash */
+            content_hash: string;
+        };
+        /** EvidenceRequirementV1 */
+        EvidenceRequirementV1: {
+            /** Id */
+            id: string;
+            /** Accepted Classes */
+            accepted_classes: ("public_source" | "screenshot" | "user_input" | "knowledge" | "dataset" | "simulation" | "derived")[];
+            /** Minimum Count */
+            minimum_count: number;
+            /** Required */
+            required: boolean;
         };
         /** ExecutionLock */
         ExecutionLock: {
@@ -3136,6 +3617,144 @@ export interface components {
              */
             reason: string;
         };
+        /** ExecutionPlanV3 */
+        ExecutionPlanV3: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "execution-plan-v3";
+            /**
+             * Task Type
+             * @constant
+             */
+            task_type: "competitive_research";
+            /** Requirement Version Id */
+            requirement_version_id: string;
+            /** Requirement Content Hash */
+            requirement_content_hash: string;
+            problem_graph_artifact: components["schemas"]["ProblemGraphArtifactRefV3"];
+            /**
+             * Candidate Id
+             * @enum {string}
+             */
+            candidate_id: "depth" | "speed";
+            /**
+             * Deliverable Type
+             * @constant
+             */
+            deliverable_type: "competitive_analysis_report";
+            /**
+             * Payload Schema Version
+             * @constant
+             */
+            payload_schema_version: "competitive-analysis-text-v1";
+            /** Evidence Requirements */
+            evidence_requirements: components["schemas"]["EvidenceRequirementV1"][];
+            /** Capability Decisions */
+            capability_decisions: components["schemas"]["CapabilityDecisionV3"][];
+            /** Capability Gaps */
+            capability_gaps: components["schemas"]["CapabilityGapV3"][];
+            /** Steps */
+            steps: components["schemas"]["PlanStepV3"][];
+            /** Candidate Title */
+            candidate_title: string;
+            /** Candidate Rationale */
+            candidate_rationale: string;
+            /** Candidate Tradeoffs */
+            candidate_tradeoffs: string;
+            /** Activated Nodes */
+            activated_nodes: string[];
+            control_snapshot_artifact: components["schemas"]["SealedArtifactRefV3"];
+            /**
+             * Execution Budget Seconds
+             * @default 300
+             * @constant
+             */
+            execution_budget_seconds: 300;
+            /**
+             * Max Tool Calls
+             * @default 24
+             * @constant
+             */
+            max_tool_calls: 24;
+            /**
+             * Max Wave Concurrency
+             * @default 3
+             * @constant
+             */
+            max_wave_concurrency: 3;
+        } & unknown;
+        /** ExecutionPlanVersionV3 */
+        ExecutionPlanVersionV3: {
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Requirement Version Id */
+            requirement_version_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "execution-plan-v3";
+            /** Plan Hash */
+            plan_hash: string;
+            payload: components["schemas"]["ExecutionPlanV3"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ExpectedOutputV3 */
+        ExpectedOutputV3: {
+            /** Pointer */
+            pointer: string;
+            /** Description */
+            description: string;
+        };
+        /** FactBlockV3 */
+        FactBlockV3: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "fact";
+            /** Text */
+            text: string;
+            /** Evidence Ids */
+            evidence_ids: string[];
+        };
+        /** FactFindingV3 */
+        FactFindingV3: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fact";
+            /** Evidence Ids */
+            evidence_ids: string[];
+            /** Statement */
+            statement: string;
+        };
+        /** FindingGraphV3 */
+        FindingGraphV3: {
+            /** Findings */
+            findings: (components["schemas"]["FactFindingV3"] | components["schemas"]["InferenceFindingV3"])[];
+            /** Analyses */
+            analyses: components["schemas"]["AnalysisNodeV3"][];
+            /** Sub Question Summaries */
+            sub_question_summaries: components["schemas"]["SummaryNodeV3"][];
+            /** Overall Conclusions */
+            overall_conclusions: components["schemas"]["ConclusionNodeV3"][];
+        };
         /** GroupMemorySummaryRequest */
         GroupMemorySummaryRequest: {
             /** Project Id */
@@ -3158,6 +3777,15 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** ImpactV1 */
+        ImpactV1: {
+            /** Difference Id */
+            difference_id: string;
+            /** Audience */
+            audience: string;
+            /** Statement */
+            statement: string;
         };
         /** InboxItem */
         InboxItem: {
@@ -3264,6 +3892,20 @@ export interface components {
             /** Snooze Until */
             snooze_until?: string | null;
         };
+        /** InferenceFindingV3 */
+        InferenceFindingV3: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "inference";
+            /** Finding Ids */
+            finding_ids: string[];
+            /** Statement */
+            statement: string;
+        };
         /**
          * Intent
          * @enum {string}
@@ -3284,6 +3926,18 @@ export interface components {
         ItemsResponse: {
             /** Items */
             items: unknown[];
+        };
+        /** ListBlockV3 */
+        ListBlockV3: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "list";
+            /** Items */
+            items: string[];
         };
         /** LoginRequest */
         LoginRequest: {
@@ -3730,6 +4384,22 @@ export interface components {
             status?: components["schemas"]["MemoryStatus"] | null;
             scope?: components["schemas"]["Scope"] | null;
         };
+        /** MetricBlockV3 */
+        MetricBlockV3: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "metric";
+            /** Label */
+            label: string;
+            /** Value */
+            value: number;
+            /** Evidence Ids */
+            evidence_ids: string[];
+        };
         /** ModelDefinition */
         ModelDefinition: {
             /** Id */
@@ -3796,6 +4466,32 @@ export interface components {
             items: components["schemas"]["ToolDefinition"][];
             /** Count */
             count: number;
+        };
+        /** OptionalToolDecisionV3 */
+        OptionalToolDecisionV3: {
+            /** Tool Id */
+            tool_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "unavailable";
+            /** Reason Code */
+            reason_code?: ("optional_tool_health_unknown" | "optional_tool_unhealthy" | "optional_tool_real_adapter_unavailable" | "not_enabled_in_slice") | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** ParagraphBlockV3 */
+        ParagraphBlockV3: {
+            /** Id */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "paragraph";
+            /** Text */
+            text: string;
         };
         /** PasswordChangeRequest */
         PasswordChangeRequest: {
@@ -3879,6 +4575,128 @@ export interface components {
             enabled?: boolean | null;
             /** Description */
             description?: string | null;
+        };
+        /** PlanCandidateSetV3 */
+        PlanCandidateSetV3: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "plan-candidates-v3";
+            /** Candidates */
+            candidates: [
+                components["schemas"]["DepthPlanCandidateV3"],
+                components["schemas"]["SpeedPlanCandidateV3"]
+            ];
+        };
+        /** PlanInputBindingV3 */
+        PlanInputBindingV3: {
+            /** Source Step Number */
+            source_step_number: number;
+            /** Source Pointer */
+            source_pointer: string;
+            /** Target Pointer */
+            target_pointer: string;
+        };
+        /** PlanStepProposalV3 */
+        PlanStepProposalV3: {
+            /** Proposed Step Number */
+            proposed_step_number: number;
+            /** Name */
+            name: string;
+            /**
+             * Actor Type
+             * @enum {string}
+             */
+            actor_type: "tool" | "skill" | "llm" | "reviewer";
+            /** Actor Id */
+            actor_id: string;
+            /** Question Ids */
+            question_ids: string[];
+            /** Depends On */
+            depends_on: number[];
+            /** Input */
+            input: {
+                [key: string]: unknown;
+            };
+            /** Input Bindings */
+            input_bindings: components["schemas"]["PlanInputBindingV3"][];
+            /** Expected Outputs */
+            expected_outputs: components["schemas"]["ExpectedOutputV3"][];
+            /** Acceptance Criteria */
+            acceptance_criteria: string[];
+            /** Requires Approval */
+            requires_approval: boolean;
+            /** Approval Role */
+            approval_role?: ("owner" | "legal" | "security") | null;
+        };
+        /** PlanStepV3 */
+        PlanStepV3: {
+            /** Step Number */
+            step_number: number;
+            /** Name */
+            name: string;
+            /**
+             * Actor Type
+             * @enum {string}
+             */
+            actor_type: "tool" | "skill" | "llm" | "reviewer";
+            /** Actor Id */
+            actor_id: string;
+            /** Question Ids */
+            question_ids: string[];
+            /** Depends On */
+            depends_on: number[];
+            /** Input */
+            input: {
+                [key: string]: unknown;
+            };
+            /** Input Bindings */
+            input_bindings: components["schemas"]["PlanInputBindingV3"][];
+            /** Expected Outputs */
+            expected_outputs: components["schemas"]["ExpectedOutputV3"][];
+            /** Acceptance Criteria */
+            acceptance_criteria: string[];
+            /** Required */
+            required: boolean;
+            /** Requires Approval */
+            requires_approval: boolean;
+            /** Approval Role */
+            approval_role?: ("owner" | "legal" | "security") | null;
+            /** Timeout Seconds */
+            timeout_seconds: number;
+            /** Max Sends */
+            max_sends: number;
+            /**
+             * Invocation Semantics
+             * @enum {string}
+             */
+            invocation_semantics: "tool_read" | "skill_once" | "llm_once" | "reviewer_once";
+            /** Actor Snapshot Hash */
+            actor_snapshot_hash: string;
+            /** Input Schema Hash */
+            input_schema_hash: string;
+            /** Output Schema Hash */
+            output_schema_hash: string;
+            /** Contract Hash */
+            contract_hash: string;
+        };
+        /** ProblemGraphArtifactRefV3 */
+        ProblemGraphArtifactRefV3: {
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "problem_graph";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "problem-graph-v1";
+            /** Content Hash */
+            content_hash: string;
         };
         /** Project */
         Project: {
@@ -3965,6 +4783,200 @@ export interface components {
             /** Providers */
             providers: components["schemas"]["ProviderDiagnostic"][];
         };
+        /** QuestionCoverageV3 */
+        QuestionCoverageV3: {
+            /** Question Id */
+            question_id: string;
+            /** Summary Ids */
+            summary_ids: string[];
+        };
+        /** RecommendationV3 */
+        RecommendationV3: {
+            /** Id */
+            id: string;
+            /**
+             * Priority
+             * @enum {string}
+             */
+            priority: "P0" | "P1" | "P2" | "P3";
+            /** Statement */
+            statement: string;
+            /** Finding Ids */
+            finding_ids: string[];
+        };
+        /** ReportDocumentV3 */
+        ReportDocumentV3: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "report-document-v3";
+            /**
+             * Presentation Mode
+             * @constant
+             */
+            presentation_mode: "text";
+            /**
+             * Review Verdict
+             * @constant
+             */
+            review_verdict: "pass";
+            /** Run Id */
+            run_id: string;
+            /** Requirement Version Id */
+            requirement_version_id: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /** Attempt Id */
+            attempt_id: string;
+            deliverable_artifact: components["schemas"]["SealedArtifactRefV3"];
+            review_artifact: components["schemas"]["SealedArtifactRefV3"];
+            /** Template Snapshot Hash */
+            template_snapshot_hash: string;
+            /** Title */
+            title: string;
+            /** Subtitle */
+            subtitle: string;
+            /** Executive Summary */
+            executive_summary: string;
+            /** Sections */
+            sections: [
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "cover";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "executive-summary";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "background";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "scope-method";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "key-metrics";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "findings";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "question-analysis";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "visual-evidence";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "comparison";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "conclusion";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "recommendations";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "risks";
+                },
+                components["schemas"]["ReportSectionV3"] & {
+                    /** @constant */
+                    id: "appendix";
+                }
+            ];
+        };
+        /** ReportReviewV3 */
+        ReportReviewV3: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "report-review-v3";
+            /** Run Id */
+            run_id: string;
+            /** Requirement Version Id */
+            requirement_version_id: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /** Attempt Id */
+            attempt_id: string;
+            deliverable_artifact: components["schemas"]["SealedArtifactRefV3"];
+            /** Rubric Snapshot Hash */
+            rubric_snapshot_hash: string;
+            /** Deterministic Checks */
+            deterministic_checks: components["schemas"]["DeterministicReviewCheckV3"][] & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+            /** Semantic Model Call Receipt Id */
+            semantic_model_call_receipt_id: string | null;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "pass" | "revise" | "block";
+            /** Dimensions */
+            dimensions: components["schemas"]["ReviewDimensionV3"][] & (unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+            /**
+             * Revision Round
+             * @enum {integer}
+             */
+            revision_round: 0 | 1;
+        };
+        /** ReportSectionV3 */
+        ReportSectionV3: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Question Ids */
+            question_ids: string[];
+            /** Blocks */
+            blocks: (components["schemas"]["ParagraphBlockV3"] | components["schemas"]["FactBlockV3"] | components["schemas"]["MetricBlockV3"] | components["schemas"]["ListBlockV3"])[];
+        };
+        /** RequirementVersionV3 */
+        RequirementVersionV3: {
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "research-task-v3";
+            /**
+             * Task Type
+             * @constant
+             */
+            task_type: "competitive_research";
+            payload: components["schemas"]["ResearchTaskV3"];
+            /** Content Hash */
+            content_hash: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ResearchAmbiguityV3 */
+        ResearchAmbiguityV3: {
+            /** Id */
+            id: string;
+            /** Statement */
+            statement: string;
+            /** Blocking */
+            blocking: boolean;
+        };
         /** ResearchArtifactProjection */
         ResearchArtifactProjection: {
             /** Evidence Manifest Id */
@@ -3986,6 +4998,15 @@ export interface components {
             statement?: string | null;
             /** Accepted By User */
             accepted_by_user?: boolean | null;
+        };
+        /** ResearchAssumptionV3 */
+        ResearchAssumptionV3: {
+            /** Key */
+            key: string;
+            /** Value */
+            value: string;
+            /** Editable */
+            editable: boolean;
         };
         /** ResearchAttemptProjection */
         ResearchAttemptProjection: {
@@ -4076,6 +5097,25 @@ export interface components {
             /** Expected State Version */
             expected_state_version: number;
         };
+        /** ResearchConstraintV3 */
+        ResearchConstraintV3: {
+            /** Id */
+            id: string;
+            /** Statement */
+            statement: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "user" | "policy";
+        };
+        /** ResearchDeliverableCoverageV3 */
+        ResearchDeliverableCoverageV3: {
+            /** Question Coverage */
+            question_coverage: components["schemas"]["QuestionCoverageV3"][];
+            /** Success Criterion Coverage */
+            success_criterion_coverage: components["schemas"]["SuccessCriterionCoverageV3"][];
+        };
         /** ResearchDeliverableProjection */
         ResearchDeliverableProjection: {
             /** Summary */
@@ -4088,6 +5128,44 @@ export interface components {
             recommendations?: components["schemas"]["ResearchClaimProjection"][];
             /** Limitations */
             limitations?: string[];
+        };
+        /** ResearchDeliverableV3 */
+        ResearchDeliverableV3: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "research-deliverable-v3";
+            /** Run Id */
+            run_id: string;
+            /** Requirement Version Id */
+            requirement_version_id: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /** Attempt Id */
+            attempt_id: string;
+            /**
+             * Deliverable Type
+             * @constant
+             */
+            deliverable_type: "competitive_analysis_report";
+            /**
+             * Payload Schema Version
+             * @constant
+             */
+            payload_schema_version: "competitive-analysis-text-v1";
+            evidence_manifest_artifact: components["schemas"]["EvidenceManifestArtifactRefV3"];
+            /** Method Summary */
+            method_summary: string;
+            finding_graph: components["schemas"]["FindingGraphV3"];
+            payload: components["schemas"]["CompetitiveAnalysisTextPayloadV1"];
+            /** Recommendations */
+            recommendations: components["schemas"]["RecommendationV3"][];
+            coverage: components["schemas"]["ResearchDeliverableCoverageV3"];
+            /** Risks And Open Issues */
+            risks_and_open_issues: string[];
+            /** Capability Provenance */
+            capability_provenance: components["schemas"]["CapabilityProvenanceV3"][];
         };
         /** ResearchEvidenceProjection */
         ResearchEvidenceProjection: {
@@ -4329,6 +5407,50 @@ export interface components {
             /** Error Code */
             error_code?: string | null;
         };
+        /** ResearchTaskV3 */
+        ResearchTaskV3: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "research-task-v3";
+            /**
+             * Task Type
+             * @constant
+             */
+            task_type: "competitive_research";
+            /** Business Domain */
+            business_domain: string;
+            /** Research Goal */
+            research_goal: string;
+            /** Comparison Dimensions */
+            comparison_dimensions?: string[] | null;
+            /** Target Audience */
+            target_audience: string[];
+            /** Scope */
+            scope: string[];
+            /** Constraints */
+            constraints: components["schemas"]["ResearchConstraintV3"][];
+            /** Success Criteria */
+            success_criteria: components["schemas"]["SuccessCriterionV3"][];
+            /** Expected Deliverables */
+            expected_deliverables: "competitive_analysis_report"[];
+            /** Assumptions */
+            assumptions: components["schemas"]["ResearchAssumptionV3"][];
+            /** Ambiguities */
+            ambiguities: components["schemas"]["ResearchAmbiguityV3"][];
+            /** Clarification Questions */
+            clarification_questions: components["schemas"]["ClarificationQuestionV3"][];
+            /** Blocking Issues */
+            blocking_issues: components["schemas"]["BlockingIssueV3"][];
+            /**
+             * Sensitivity
+             * @enum {string}
+             */
+            sensitivity: "public" | "internal" | "confidential";
+            /** Pii Detected */
+            pii_detected: boolean;
+        };
         /** ResearchToolApprovalProjection */
         ResearchToolApprovalProjection: {
             /** Inbox Item Id */
@@ -4337,6 +5459,476 @@ export interface components {
             call_id: string;
             /** Tool Name */
             tool_name: string;
+        };
+        /** ResearchV3AbortRequest */
+        ResearchV3AbortRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Attempt Id */
+            attempt_id: string;
+            /** Failed Step Number */
+            failed_step_number: number;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** ResearchV3AbortResponse */
+        ResearchV3AbortResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default abort
+             * @constant
+             */
+            command_type: "abort";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /**
+         * ResearchV3AggregateReadResponse
+         * @description A direct, exact aggregate response restricted to repository projections.
+         */
+        ResearchV3AggregateReadResponse: components["schemas"]["ResearchV3WorkbenchAggregateV1"];
+        /** ResearchV3ApprovalRequest */
+        ResearchV3ApprovalRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Gate Key */
+            gate_key: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "legal" | "security";
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+        };
+        /** ResearchV3ApprovalResponse */
+        ResearchV3ApprovalResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default approval
+             * @constant
+             */
+            command_type: "approval";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** ResearchV3AssumptionRevision */
+        ResearchV3AssumptionRevision: {
+            /** Key */
+            key: string;
+            /** Value */
+            value: string;
+        };
+        /** ResearchV3CancelRequest */
+        ResearchV3CancelRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** ResearchV3CancelResponse */
+        ResearchV3CancelResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default cancel
+             * @constant
+             */
+            command_type: "cancel";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** ResearchV3CandidateSelectRequest */
+        ResearchV3CandidateSelectRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /**
+             * Candidate Id
+             * @enum {string}
+             */
+            candidate_id: "depth" | "speed";
+        };
+        /** ResearchV3CandidateSelectResponse */
+        ResearchV3CandidateSelectResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default select_candidate
+             * @constant
+             */
+            command_type: "select_candidate";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** ResearchV3ClarificationAnswer */
+        ResearchV3ClarificationAnswer: {
+            /** Question Key */
+            question_key: string;
+            /** Answer */
+            answer: string;
+        };
+        /** ResearchV3ClarifyRequest */
+        ResearchV3ClarifyRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Answers */
+            answers: components["schemas"]["ResearchV3ClarificationAnswer"][];
+        };
+        /** ResearchV3ClarifyResponse */
+        ResearchV3ClarifyResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default clarify
+             * @constant
+             */
+            command_type: "clarify";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** ResearchV3ConfirmRequest */
+        ResearchV3ConfirmRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+        };
+        /** ResearchV3ConfirmResponse */
+        ResearchV3ConfirmResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default confirm_plan
+             * @constant
+             */
+            command_type: "confirm_plan";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** ResearchV3ExecuteRequest */
+        ResearchV3ExecuteRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+        };
+        /** ResearchV3ExecuteResponse */
+        ResearchV3ExecuteResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default execute
+             * @constant
+             */
+            command_type: "execute";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** ResearchV3PurgeRequest */
+        ResearchV3PurgeRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "PURGE";
+        };
+        /** ResearchV3PurgeResponse */
+        ResearchV3PurgeResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default purge
+             * @constant
+             */
+            command_type: "purge";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+            /** Purged Artifact Count */
+            purged_artifact_count: number;
+        };
+        /** ResearchV3RetryRequest */
+        ResearchV3RetryRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Attempt Id */
+            attempt_id: string;
+            /** Failed Step Number */
+            failed_step_number: number;
+        };
+        /** ResearchV3RetryResponse */
+        ResearchV3RetryResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default retry
+             * @constant
+             */
+            command_type: "retry";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** ResearchV3ReviseRequest */
+        ResearchV3ReviseRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /** Candidate Id */
+            candidate_id?: ("depth" | "speed") | null;
+            /** Revision Note */
+            revision_note?: string | null;
+            /**
+             * Assumptions
+             * @default []
+             */
+            assumptions: components["schemas"]["ResearchV3AssumptionRevision"][];
+            /**
+             * Remove Optional Step Numbers
+             * @default []
+             */
+            remove_optional_step_numbers: number[];
+        };
+        /** ResearchV3ReviseResponse */
+        ResearchV3ReviseResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default revise_plan
+             * @constant
+             */
+            command_type: "revise_plan";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** ResearchV3SkipRequest */
+        ResearchV3SkipRequest: {
+            /** Expected State Version */
+            expected_state_version: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Attempt Id */
+            attempt_id: string;
+            /** Failed Step Number */
+            failed_step_number: number;
+            /** Reason */
+            reason: string;
+        };
+        /** ResearchV3SkipResponse */
+        ResearchV3SkipResponse: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Command Type
+             * @default skip
+             * @constant
+             */
+            command_type: "skip";
+            /** Request Hash */
+            request_hash: string;
+            /** Previous State Version */
+            previous_state_version: number;
+            /** State Version */
+            state_version: number;
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** ResearchV3WorkbenchAggregateV1 */
+        ResearchV3WorkbenchAggregateV1: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "research-workbench-aggregate-v1";
+            /**
+             * Projection Kind
+             * @constant
+             */
+            projection_kind: "research-v3-current";
+            /**
+             * Orchestration Version
+             * @constant
+             */
+            orchestration_version: "research-v3";
+            /** Run Id */
+            run_id: string;
+            workflow: components["schemas"]["WorkbenchWorkflowV1"];
+            requirement: components["schemas"]["RequirementVersionV3"] | null;
+            candidates: components["schemas"]["PlanCandidateSetV3"] | null;
+            selected_plan: components["schemas"]["ExecutionPlanVersionV3"] | null;
+            /** Approvals */
+            approvals: components["schemas"]["WorkbenchApprovalV1"][];
+            attempt: components["schemas"]["WorkbenchAttemptV1"] | null;
+            recovery: components["schemas"]["WorkbenchRecoveryV1"] | null;
+            evidence: components["schemas"]["WorkbenchEvidenceV1"] | null;
+            deliverable: components["schemas"]["WorkbenchDeliverableV1"] | null;
+            review: components["schemas"]["WorkbenchReviewV1"] | null;
+            report: components["schemas"]["WorkbenchReportV1"] | null;
+            provenance: components["schemas"]["WorkbenchProjectionProvenanceV1"];
         };
         /** ResearchWorkflowProjection */
         ResearchWorkflowProjection: {
@@ -4375,6 +5967,18 @@ export interface components {
             team_id?: string | null;
             /** Sources */
             sources?: components["schemas"]["Source"][];
+        };
+        /** ReviewDimensionV3 */
+        ReviewDimensionV3: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "requirement_coverage" | "question_coverage" | "evidence_coverage" | "reasoning_quality" | "recommendation_quality" | "visual_quality" | "risk_disclosure";
+            /** Passed */
+            passed: boolean;
+            /** Issues */
+            issues: string[];
         };
         /** RiskPoliciesResponse */
         RiskPoliciesResponse: {
@@ -4450,6 +6054,20 @@ export interface components {
             /** Enabled */
             enabled?: boolean | null;
         };
+        /** RoadmapItemV1 */
+        RoadmapItemV1: {
+            /**
+             * Priority
+             * @enum {string}
+             */
+            priority: "P0" | "P1" | "P2";
+            /** Statement */
+            statement: string;
+            /** Metric */
+            metric: string;
+            /** Validation Method */
+            validation_method: string;
+        };
         /** ScheduledAgentTaskCreateRequest */
         ScheduledAgentTaskCreateRequest: {
             /** Agent Id */
@@ -4514,6 +6132,17 @@ export interface components {
          * @enum {string}
          */
         Scope: "private" | "project" | "team_candidate" | "team_accepted";
+        /** SealedArtifactRefV3 */
+        SealedArtifactRefV3: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Kind */
+            kind: string;
+            /** Schema Version */
+            schema_version: string;
+            /** Content Hash */
+            content_hash: string;
+        };
         /** SearchResult */
         SearchResult: {
             /** Id */
@@ -5071,6 +6700,24 @@ export interface components {
              */
             created_at?: string;
         };
+        /** SpeedPlanCandidateV3 */
+        SpeedPlanCandidateV3: {
+            /**
+             * Candidate Id
+             * @constant
+             */
+            candidate_id: "speed";
+            /** Title */
+            title: string;
+            /** Rationale */
+            rationale: string;
+            /** Tradeoffs */
+            tradeoffs: string;
+            /** Assumptions */
+            assumptions: components["schemas"]["ResearchAssumptionV3"][];
+            /** Proposed Steps */
+            proposed_steps: components["schemas"]["PlanStepProposalV3"][];
+        };
         /**
          * StatusResponse
          * @description 简单状态响应。
@@ -5093,6 +6740,31 @@ export interface components {
             blockers?: string[];
             /** Requires Input From */
             requires_input_from?: string[];
+        };
+        /** SuccessCriterionCoverageV3 */
+        SuccessCriterionCoverageV3: {
+            /** Success Criterion Id */
+            success_criterion_id: string;
+            /** Conclusion Or Recommendation Ids */
+            conclusion_or_recommendation_ids: string[];
+        };
+        /** SuccessCriterionV3 */
+        SuccessCriterionV3: {
+            /** Id */
+            id: string;
+            /** Statement */
+            statement: string;
+        };
+        /** SummaryNodeV3 */
+        SummaryNodeV3: {
+            /** Id */
+            id: string;
+            /** Finding Ids */
+            finding_ids: string[];
+            /** Analysis Ids */
+            analysis_ids: string[];
+            /** Summary */
+            summary: string;
         };
         /** Task */
         Task: {
@@ -5462,6 +7134,229 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WorkbenchApprovalV1 */
+        WorkbenchApprovalV1: {
+            /** Gate Key */
+            gate_key: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "legal" | "security";
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "approved" | "rejected";
+            /** Receipt Id */
+            receipt_id?: string | null;
+        };
+        /** WorkbenchAttemptV1 */
+        WorkbenchAttemptV1: {
+            /** Attempt Id */
+            attempt_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "paused" | "completed";
+            /** Steps */
+            steps: components["schemas"]["WorkbenchStepV1"][];
+        };
+        /** WorkbenchDeliverableV1 */
+        WorkbenchDeliverableV1: {
+            artifact: components["schemas"]["SealedArtifactRefV3"];
+            content: components["schemas"]["ResearchDeliverableV3"];
+        };
+        /** WorkbenchEvidenceGapMetadataV1 */
+        WorkbenchEvidenceGapMetadataV1: {
+            /**
+             * Redaction
+             * @enum {string}
+             */
+            redaction: "none" | "masked";
+            /** Truncated */
+            truncated: boolean;
+            /**
+             * Conflict Status
+             * @enum {string}
+             */
+            conflict_status: "none" | "corroborated" | "conflicting";
+            /** Risk Flags */
+            risk_flags: string[];
+        };
+        /** WorkbenchEvidenceItemV1 */
+        WorkbenchEvidenceItemV1: {
+            /** Evidence Id */
+            evidence_id: string;
+            /** Source Id */
+            source_id: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            /** Quote */
+            quote: string;
+            gap_metadata: components["schemas"]["WorkbenchEvidenceGapMetadataV1"];
+            provenance: components["schemas"]["WorkbenchEvidenceProvenanceV1"];
+        };
+        /** WorkbenchEvidenceProvenanceV1 */
+        WorkbenchEvidenceProvenanceV1: {
+            /**
+             * Source Kind
+             * @constant
+             */
+            source_kind: "public_web";
+            /**
+             * Retrieved At
+             * Format: date-time
+             */
+            retrieved_at: string;
+            /** Registrable Domain */
+            registrable_domain: string;
+            /** Independence Group */
+            independence_group: string;
+            artifact: components["schemas"]["SealedArtifactRefV3"];
+            /** Run Id */
+            run_id: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /** Attempt Id */
+            attempt_id: string;
+            /** Step Number */
+            step_number: number;
+            /**
+             * Actor Type
+             * @constant
+             */
+            actor_type: "tool";
+            /** Actor Id */
+            actor_id: string;
+            /** Step Contract Hash */
+            step_contract_hash: string;
+            /** Receipt Id */
+            receipt_id: string;
+        };
+        /** WorkbenchEvidenceV1 */
+        WorkbenchEvidenceV1: {
+            artifact: components["schemas"]["EvidenceManifestArtifactRefV3"];
+            /**
+             * Presentation Mode
+             * @constant
+             */
+            presentation_mode: "text";
+            /** Run Id */
+            run_id: string;
+            /** Plan Version Id */
+            plan_version_id: string;
+            /** Attempt Id */
+            attempt_id: string;
+            /** Evidence */
+            evidence: components["schemas"]["WorkbenchEvidenceItemV1"][];
+        };
+        /** WorkbenchGateV1 */
+        WorkbenchGateV1: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "none" | "clarification" | "candidate_selection" | "plan_confirmation" | "role_approval" | "recovery";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "inactive" | "pending" | "satisfied" | "blocked";
+            /** Required Role */
+            required_role?: ("owner" | "legal" | "security") | null;
+        };
+        /** WorkbenchProjectionProvenanceV1 */
+        WorkbenchProjectionProvenanceV1: {
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "isolated_fixture" | "repository_projection" | "v2_history_adapter";
+            /**
+             * Projection Schema Version
+             * @constant
+             */
+            projection_schema_version: "research-workbench-aggregate-v1";
+            /**
+             * Projected At
+             * Format: date-time
+             */
+            projected_at: string;
+            /** Source State Version */
+            source_state_version: number;
+            /** Baseline State Id */
+            baseline_state_id?: ("idle" | "clarify" | "candidates" | "plan" | "approval" | "dag_or_executing" | "paused" | "text_report") | null;
+        };
+        /** WorkbenchRecoveryV1 */
+        WorkbenchRecoveryV1: {
+            /** Failed Step Number */
+            failed_step_number: number;
+            /** Reason Code */
+            reason_code: string;
+            /** Allowed Actions */
+            allowed_actions: ("retry" | "skip" | "abort")[];
+            /**
+             * Decision Required
+             * @default true
+             * @constant
+             */
+            decision_required: true;
+        };
+        /** WorkbenchReportV1 */
+        WorkbenchReportV1: {
+            artifact: components["schemas"]["SealedArtifactRefV3"];
+            content: components["schemas"]["ReportDocumentV3"];
+        };
+        /** WorkbenchReviewV1 */
+        WorkbenchReviewV1: {
+            artifact: components["schemas"]["SealedArtifactRefV3"];
+            content: components["schemas"]["ReportReviewV3"];
+        };
+        /** WorkbenchStepV1 */
+        WorkbenchStepV1: {
+            /** Step Number */
+            step_number: number;
+            /**
+             * Actor Type
+             * @enum {string}
+             */
+            actor_type: "tool" | "skill" | "llm" | "reviewer";
+            /** Actor Id */
+            actor_id: string;
+            /** Step Contract Hash */
+            step_contract_hash: string;
+            /** Expected Outputs */
+            expected_outputs: components["schemas"]["ExpectedOutputV3"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "succeeded" | "failed" | "skipped";
+            result?: components["schemas"]["ActorExecutionResultV3"] | null;
+            /** Failure Code */
+            failure_code?: string | null;
+        };
+        /** WorkbenchWorkflowV1 */
+        WorkbenchWorkflowV1: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "idle" | "clarify" | "candidates" | "plan" | "approval" | "dag_or_executing" | "paused" | "text_report";
+            /** State Version */
+            state_version: number;
+            gate: components["schemas"]["WorkbenchGateV1"];
         };
         /** Workspace */
         Workspace: {
@@ -6391,7 +8286,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchRunProjection"];
+                    "application/json": components["schemas"]["ResearchRunProjection"] | components["schemas"]["ResearchV3AggregateReadResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6418,7 +8313,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ResearchClarifyRequest"];
+                "application/json": components["schemas"]["ResearchClarifyRequest"] | components["schemas"]["ResearchV3ClarifyRequest"];
             };
         };
         responses: {
@@ -6428,7 +8323,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchCommandResponse"];
+                    "application/json": components["schemas"]["ResearchCommandResponse"] | components["schemas"]["ResearchV3ClarifyResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6531,7 +8426,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ResearchExecuteRequest"];
+                "application/json": components["schemas"]["ResearchExecuteRequest"] | components["schemas"]["ResearchV3ExecuteRequest"];
             };
         };
         responses: {
@@ -6541,7 +8436,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchCommandResponse"];
+                    "application/json": components["schemas"]["ResearchCommandResponse"] | components["schemas"]["ResearchV3ExecuteResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6605,7 +8500,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ResearchPurgeRequest"];
+                "application/json": components["schemas"]["ResearchPurgeRequest"] | components["schemas"]["ResearchV3PurgeRequest"];
             };
         };
         responses: {
@@ -6615,7 +8510,367 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchCommandResponse"];
+                    "application/json": components["schemas"]["ResearchCommandResponse"] | components["schemas"]["ResearchV3PurgeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_research_v3_api_agent_runs__run_id__research_refresh_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchV3AggregateReadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_research_v3_plan_api_agent_runs__run_id__research_plan_stream_get: {
+        parameters: {
+            query?: {
+                after_state_version?: number | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    select_research_v3_candidate_api_agent_runs__run_id__research_candidates_select_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchV3CandidateSelectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchV3CandidateSelectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revise_research_v3_plan_api_agent_runs__run_id__research_plans_revise_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchV3ReviseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchV3ReviseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_research_v3_plan_api_agent_runs__run_id__research_plans_confirm_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchV3ConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchV3ConfirmResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_research_v3_plan_api_agent_runs__run_id__research_approvals_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchV3ApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchV3ApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_research_v3_api_agent_runs__run_id__research_recovery_retry_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchV3RetryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchV3RetryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    skip_research_v3_api_agent_runs__run_id__research_recovery_skip_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchV3SkipRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchV3SkipResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    abort_research_v3_api_agent_runs__run_id__research_recovery_abort_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchV3AbortRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchV3AbortResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_research_v3_api_agent_runs__run_id__research_cancel_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchV3CancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchV3CancelResponse"];
                 };
             };
             /** @description Validation Error */

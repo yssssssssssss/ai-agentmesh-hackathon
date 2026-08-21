@@ -1,4 +1,4 @@
-import { adaptWorkbenchAggregate } from './adapter'
+import { adaptWorkbenchAggregate, canonicalSha256 } from './adapter'
 import type { ResearchV3WorkbenchAggregateV1 } from './types'
 
 export type ResearchV3CommandType =
@@ -85,6 +85,45 @@ export interface ResearchV3RequestByCommand {
   abort: ResearchV3AbortRequest
   cancel: ResearchV3CancelRequest
   purge: ResearchV3PurgeRequest
+}
+
+export type ResearchV3RequestInput<C extends ResearchV3CommandType> = Omit<
+  ResearchV3RequestByCommand[C],
+  'request_hash'
+>
+
+export function buildResearchV3Request<C extends ResearchV3CommandType>(
+  runId: string,
+  command: C,
+  request: ResearchV3RequestInput<C>,
+): ResearchV3RequestByCommand[C] {
+  const defaults: Partial<Record<ResearchV3CommandType, Record<string, unknown>>> = {
+    revise_plan: {
+      candidate_id: null,
+      revision_note: null,
+      assumptions: [],
+      remove_optional_step_numbers: [],
+    },
+    abort: { reason: null },
+    cancel: { reason: null },
+  }
+  const canonicalRequest = Object.fromEntries(
+    Object.entries({ ...(defaults[command] ?? {}), ...request })
+      .filter(([, value]) => value !== undefined),
+  )
+  const requestHash = canonicalSha256({
+    command_type: command,
+    run_id: runId,
+    request: canonicalRequest,
+  })
+  return { ...canonicalRequest, request_hash: requestHash } as ResearchV3RequestByCommand[C]
+}
+
+export function researchV3IdempotencyKey<C extends ResearchV3CommandType>(
+  command: C,
+  request: ResearchV3RequestByCommand[C],
+): string {
+  return `web:${command}:${request.expected_state_version}:${request.request_hash.slice(0, 24)}`
 }
 
 export interface ResearchV3MutationResponse<C extends ResearchV3CommandType = ResearchV3CommandType> {

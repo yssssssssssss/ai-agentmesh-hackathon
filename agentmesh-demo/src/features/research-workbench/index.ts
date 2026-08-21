@@ -1,5 +1,10 @@
 export { adaptWorkbenchAggregate } from './adapter'
-export { createResearchV3ApiClient, researchV3AggregateQuery } from './apiClient'
+export {
+  buildResearchV3Request,
+  createResearchV3ApiClient,
+  researchV3AggregateQuery,
+  researchV3IdempotencyKey,
+} from './apiClient'
 export type {
   ResearchV3AggregateQuery,
   ResearchV3ApiClient,
@@ -7,6 +12,7 @@ export type {
   ResearchV3MutationResponse,
   ResearchV3PlanStreamResult,
   ResearchV3RequestByCommand,
+  ResearchV3RequestInput,
 } from './apiClient'
 export { buildResearchDag, describeResearchDag } from './dag'
 export { presentWorkbench } from './presenter'
@@ -27,4 +33,5 @@ export {
   Welcome,
 } from './ResearchWorkbench'
 export { ResearchWorkbenchFixtureGallery } from './ResearchWorkbenchFixtureGallery'
+export { ResearchWorkbenchContainer } from './ResearchWorkbenchContainer'
 export type * from './types'

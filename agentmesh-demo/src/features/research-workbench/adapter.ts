@@ -108,7 +108,7 @@ function canonicalJson(value: unknown): string {
   throw new TypeError(`unsupported canonical JSON value: ${typeof value}`)
 }
 
-function canonicalSha256(value: unknown): string {
+export function canonicalSha256(value: unknown): string {
   return bytesToHex(sha256(new TextEncoder().encode(canonicalJson(value))))
 }
 
