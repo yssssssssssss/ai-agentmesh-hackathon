@@ -5,7 +5,11 @@ import re
 from collections.abc import Mapping
 from typing import Any, Literal, cast
 
-from agentmesh.research_orchestration.v3.common import ActorType, SealedArtifactRefV3
+from agentmesh.research_orchestration.v3.common import (
+    ActorType,
+    EvidenceManifestArtifactRefV3,
+    SealedArtifactRefV3,
+)
 from agentmesh.research_orchestration.v3.deliverable import (
     ActionRecommendationV1,
     AnalysisNodeV3,
@@ -493,7 +497,9 @@ def translate_ai_x_research_deliverable_v1(
         attempt_id=_identifier(item.attemptId, "attempt"),
         deliverable_type="competitive_analysis_report",
         payload_schema_version="competitive-analysis-text-v1",
-        evidence_manifest_artifact=manifest,
+        evidence_manifest_artifact=EvidenceManifestArtifactRefV3.model_validate(
+            manifest.model_dump(mode="python")
+        ),
         method_summary=item.methodSummary,
         finding_graph=finding_graph,
         payload=_translate_competitive_payload(item),

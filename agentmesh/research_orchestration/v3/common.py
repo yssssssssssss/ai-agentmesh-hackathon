@@ -197,6 +197,11 @@ class SealedArtifactRefV3(StrictFrozenModel):
     content_hash: Sha256Hex
 
 
+class EvidenceManifestArtifactRefV3(SealedArtifactRefV3):
+    kind: Literal["evidence_manifest"] = "evidence_manifest"
+    schema_version: Literal["evidence-manifest-v3"] = "evidence-manifest-v3"
+
+
 def require_unique(values: tuple[Any, ...], label: str) -> None:
     if len(values) != len(set(values)):
         raise ValueError(f"{label} must be unique")

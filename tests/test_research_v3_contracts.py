@@ -38,6 +38,7 @@ from agentmesh.research_orchestration.v3.schema_registry import (
     V3_PERSISTED_SCHEMA_IDENTITIES,
     V3_SUPPORTING_SCHEMA_IDENTITIES,
     V3_TARGET_REGISTRY,
+    V3_WEB_SCHEMA_IDENTITIES,
     decode_plan,
     decode_requirement,
 )
@@ -157,6 +158,8 @@ def test_v2_identifiers_remain_disjoint_and_no_source_alias_is_registered() -> N
         (V3_GENERATION_IDENTITIES - {"research-v3"}) | V3_SUPPORTING_SCHEMA_IDENTITIES
     )
     assert V3_PERSISTED_RESOURCE_IDENTITIES == V3_CURRENT_IDENTITIES
+    assert V3_WEB_SCHEMA_IDENTITIES == {"research-workbench-aggregate-v1"}
+    assert V3_WEB_SCHEMA_IDENTITIES.isdisjoint(V3_PERSISTED_RESOURCE_IDENTITIES)
 
 
 def test_canonical_json_fields_are_transitively_immutable_and_defensively_serialized() -> None:

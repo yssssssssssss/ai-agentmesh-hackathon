@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import Annotated, Protocol
+
+from pydantic import Field
 
 from agentmesh.research_orchestration.v3.catalog import CompetitiveTextCatalog
 from agentmesh.research_orchestration.v3.common import (
     ActorType,
+    EvidenceManifestArtifactRefV3,
     FrozenJsonObject,
     Identifier,
     SealedArtifactRefV3,
+    Sha256Hex,
     StrictFrozenModel,
 )
 from agentmesh.research_orchestration.v3.deliverable import ResearchDeliverableV3
+from agentmesh.research_orchestration.v3.evidence import EvidenceManifestV3, VerifiedArtifactContentV3
 from agentmesh.research_orchestration.v3.execution_plan import (
     CapabilityResolutionV3,
     ExecutionPlanV3,
@@ -24,6 +29,7 @@ from agentmesh.research_orchestration.v3.problem_graph import ProblemGraphV1
 from agentmesh.research_orchestration.v3.report_document import ReportDocumentV3
 from agentmesh.research_orchestration.v3.requirement import RequirementVersionV3, ResearchTaskV3
 from agentmesh.research_orchestration.v3.review import ReportReviewV3
+from agentmesh.research_orchestration.v3.snapshots import ResearchControlSnapshotV3
 
 
 class ClockPort(Protocol):
@@ -95,10 +101,41 @@ class ActorExecutionRequestV3(StrictFrozenModel):
 
 
 class ActorExecutionResultV3(StrictFrozenModel):
+    """A completion envelope that retains identity even when parallel results are reordered."""
+
+    run_id: Identifier
+    plan_version_id: Identifier
+    attempt_id: Identifier
+    step_number: Annotated[int, Field(ge=1, le=8)]
     actor_type: ActorType
     actor_id: Identifier
+    step_contract_hash: Sha256Hex
     result_artifact: SealedArtifactRefV3
     receipt_id: Identifier
+
+
+def validate_actor_result_for_request(
+    request: ActorExecutionRequestV3,
+    result: ActorExecutionResultV3,
+) -> None:
+    if (
+        result.run_id,
+        result.plan_version_id,
+        result.attempt_id,
+        result.step_number,
+        result.actor_type,
+        result.actor_id,
+        result.step_contract_hash,
+    ) != (
+        request.run_id,
+        request.plan_version_id,
+        request.attempt_id,
+        request.step.step_number,
+        request.step.actor_type,
+        request.step.actor_id,
+        request.step.contract_hash,
+    ):
+        raise ValueError("Actor execution result does not match its request lineage and step contract")
 
 
 class HeterogeneousActorExecutionPort(Protocol):
@@ -122,6 +159,9 @@ class ReviewPort(Protocol):
         *,
         deliverable: ResearchDeliverableV3,
         deliverable_artifact: SealedArtifactRefV3,
+        evidence_manifest: EvidenceManifestV3,
+        evidence_manifest_artifact: EvidenceManifestArtifactRefV3,
+        evidence_artifacts: tuple[VerifiedArtifactContentV3, ...],
         revision_round: int,
     ) -> ReportReviewV3: ...
 
@@ -138,7 +178,7 @@ class ReportCompositionPort(Protocol):
 
 
 class ResearchV3RepositoryPort(Protocol):
-    """Persistence boundary; no implementation is reachable from this foundation."""
+    """Typed persistence reads/writes; no implementation is reachable from this foundation."""
 
     def get_requirement(self, run_id: Identifier, version_id: Identifier) -> RequirementVersionV3 | None: ...
 
@@ -148,6 +188,12 @@ class ResearchV3RepositoryPort(Protocol):
         *,
         expected_state_version: int,
     ) -> None: ...
+
+    def get_candidate_set(
+        self,
+        run_id: Identifier,
+        requirement_version_id: Identifier,
+    ) -> PlanCandidateSetV3 | None: ...
 
     def get_problem_graph(self, artifact: SealedArtifactRefV3) -> ProblemGraphV1 | None: ...
 
@@ -168,6 +214,29 @@ class ResearchV3RepositoryPort(Protocol):
         expected_state_version: int,
     ) -> None: ...
 
+    def get_control_snapshot(
+        self,
+        artifact: SealedArtifactRefV3,
+    ) -> ResearchControlSnapshotV3 | None: ...
+
+    def get_actor_results(
+        self,
+        run_id: Identifier,
+        plan_version_id: Identifier,
+        attempt_id: Identifier,
+    ) -> tuple[ActorExecutionResultV3, ...]: ...
+
+    def get_evidence_manifest(
+        self,
+        artifact: EvidenceManifestArtifactRefV3,
+    ) -> EvidenceManifestV3 | None: ...
+
+    def get_deliverable(self, artifact: SealedArtifactRefV3) -> ResearchDeliverableV3 | None: ...
+
+    def get_review(self, artifact: SealedArtifactRefV3) -> ReportReviewV3 | None: ...
+
+    def get_report(self, artifact: SealedArtifactRefV3) -> ReportDocumentV3 | None: ...
+
     def seal_artifact(
         self,
         run_id: Identifier,
@@ -177,3 +246,17 @@ class ResearchV3RepositoryPort(Protocol):
         schema_version: Identifier,
         expected_state_version: int,
     ) -> SealedArtifactRefV3: ...
+
+
+class ArtifactReadPort(Protocol):
+    """Verified Artifact readback; fail closed on any owner, lineage, or hash mismatch."""
+
+    def read_verified_json(
+        self,
+        *,
+        run_id: Identifier,
+        plan_version_id: Identifier,
+        attempt_id: Identifier,
+        step_number: Annotated[int, Field(ge=1, le=8)],
+        artifact: SealedArtifactRefV3,
+    ) -> VerifiedArtifactContentV3 | None: ...

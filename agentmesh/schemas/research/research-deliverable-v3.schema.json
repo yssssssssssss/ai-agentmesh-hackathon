@@ -443,6 +443,39 @@
       "title": "DimensionValueV1",
       "type": "object"
     },
+    "EvidenceManifestArtifactRefV3": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "kind": {
+          "const": "evidence_manifest",
+          "default": "evidence_manifest",
+          "title": "Kind",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "evidence-manifest-v3",
+          "default": "evidence-manifest-v3",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "content_hash"
+      ],
+      "title": "EvidenceManifestArtifactRefV3",
+      "type": "object"
+    },
     "FactFindingV3": {
       "additionalProperties": false,
       "properties": {
@@ -853,7 +886,7 @@
       "type": "string"
     },
     "evidence_manifest_artifact": {
-      "$ref": "#/$defs/SealedArtifactRefV3"
+      "$ref": "#/$defs/EvidenceManifestArtifactRefV3"
     },
     "finding_graph": {
       "$ref": "#/$defs/FindingGraphV3"

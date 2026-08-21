@@ -6,6 +6,7 @@ from pydantic import ConfigDict, Field, model_validator
 
 from agentmesh.research_orchestration.v3.common import (
     ActorType,
+    EvidenceManifestArtifactRefV3,
     FrozenJsonObject,
     Identifier,
     JsonDecimal,
@@ -248,7 +249,7 @@ class ResearchDeliverableV3(StrictFrozenModel):
     attempt_id: Identifier
     deliverable_type: Literal["competitive_analysis_report"] = "competitive_analysis_report"
     payload_schema_version: Literal["competitive-analysis-text-v1"] = "competitive-analysis-text-v1"
-    evidence_manifest_artifact: SealedArtifactRefV3
+    evidence_manifest_artifact: EvidenceManifestArtifactRefV3
     method_summary: Text
     finding_graph: FindingGraphV3
     payload: CompetitiveAnalysisTextPayloadV1
@@ -259,10 +260,6 @@ class ResearchDeliverableV3(StrictFrozenModel):
 
     @model_validator(mode="after")
     def validate_deliverable(self) -> ResearchDeliverableV3:
-        if self.evidence_manifest_artifact.kind != "evidence_manifest" or (
-            self.evidence_manifest_artifact.schema_version != "evidence-manifest-v3"
-        ):
-            raise ValueError("deliverable must reference an evidence-manifest-v3 Artifact")
         recommendation_ids = tuple(item.id for item in self.recommendations)
         require_unique(recommendation_ids, "recommendation IDs")
         finding_ids = {item.id for item in self.finding_graph.findings}

@@ -10,12 +10,88 @@ from agentmesh.research_orchestration.v3.review import REQUIRED_DETERMINISTIC_CH
 HASH = "a" * 64
 
 
-def artifact_ref(artifact_id: str, kind: str, schema_version: str) -> dict[str, str]:
+def artifact_ref(
+    artifact_id: str,
+    kind: str,
+    schema_version: str,
+    content_hash: str = HASH,
+) -> dict[str, str]:
     return {
         "artifact_id": artifact_id,
         "kind": kind,
         "schema_version": schema_version,
-        "content_hash": HASH,
+        "content_hash": content_hash,
+    }
+
+
+def evidence_artifact_content() -> dict:
+    output = {
+        "results": [
+            {
+                "title": "Alpha product documentation",
+                "url": "https://example.test/alpha",
+                "snippet": "Alpha documents the compared capability.",
+            }
+        ]
+    }
+    return {
+        "output": output,
+        "redacted_output_hash": canonical_json_v3_sha256(output),
+    }
+
+
+def evidence_body() -> dict:
+    content = evidence_artifact_content()
+    return {
+        "schema_version": "evidence-manifest-v3",
+        "presentation_mode": "text",
+        "payload_schema_version": "competitive-analysis-text-v1",
+        "run_id": "run_1",
+        "plan_version_id": "plan_1",
+        "attempt_id": "attempt_1",
+        "collected_at": "2026-08-21T00:10:00Z",
+        "evidence": [
+            {
+                "id": "evidence_1",
+                "kind": "tool_output",
+                "evidence_class": "public_source",
+                "pointer": {
+                    "artifact": artifact_ref(
+                        "artifact_tool_1",
+                        "actor_result",
+                        "tool-result-v1",
+                        canonical_json_v3_sha256(content),
+                    ),
+                    "json_pointer": "/output/results/0",
+                },
+                "source": {
+                    "source_kind": "public_web",
+                    "url": "https://example.test/alpha",
+                    "quote": "Alpha documents the compared capability.",
+                    "retrieved_at": "2026-08-21T00:09:00Z",
+                    "registrable_domain": "example.test",
+                    "independence_group": "example.test",
+                    "conflict_status": "none",
+                    "risk_flags": [],
+                    "truncated": False,
+                },
+                "proof": {
+                    "run_id": "run_1",
+                    "plan_version_id": "plan_1",
+                    "attempt_id": "attempt_1",
+                    "step_number": 1,
+                    "actor_type": "tool",
+                    "actor_id": "tavily-web-search",
+                    "step_contract_hash": plan_body()["steps"][0]["contract_hash"],
+                    "receipt_id": "receipt_tool_1",
+                    "implementation_id": "tavily-v1",
+                    "execution_mode": "real",
+                    "redacted_output_hash": content["redacted_output_hash"],
+                },
+                "sensitivity": "public",
+                "redaction": "masked",
+            }
+        ],
     }
 
 

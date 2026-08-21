@@ -16,6 +16,7 @@ from agentmesh.research_orchestration.v3.deliverable import (
     FindingGraphV3,
     ResearchDeliverableV3,
 )
+from agentmesh.research_orchestration.v3.evidence import EvidenceManifestV3
 from agentmesh.research_orchestration.v3.execution_plan import (
     ExecutionPlanV3,
     ExecutionPlanVersionV3,
@@ -33,8 +34,10 @@ from agentmesh.research_orchestration.v3.schema_registry import (
     V3_PERSISTED_RESOURCE_IDENTITIES,
     V3_PERSISTED_SCHEMA_IDENTITIES,
     V3_SUPPORTING_SCHEMA_IDENTITIES,
+    V3_WEB_SCHEMA_IDENTITIES,
 )
 from agentmesh.research_orchestration.v3.snapshots import ResearchControlSnapshotV3
+from agentmesh.research_orchestration.v3.web_projection import WorkbenchAggregateV1
 
 __all__ = [
     "CANONICAL_JSON_V3_ALGORITHM",
@@ -42,6 +45,7 @@ __all__ = [
     "CompetitiveTextCatalog",
     "ExecutionPlanV3",
     "ExecutionPlanVersionV3",
+    "EvidenceManifestV3",
     "FindingGraphV3",
     "PlanCandidateSetV3",
     "PlanCandidateV3",
@@ -58,6 +62,8 @@ __all__ = [
     "V3_PERSISTED_RESOURCE_IDENTITIES",
     "V3_PERSISTED_SCHEMA_IDENTITIES",
     "V3_SUPPORTING_SCHEMA_IDENTITIES",
+    "V3_WEB_SCHEMA_IDENTITIES",
+    "WorkbenchAggregateV1",
     "canonical_json_v3_bytes",
     "canonical_json_v3_sha256",
     "load_competitive_text_catalog",

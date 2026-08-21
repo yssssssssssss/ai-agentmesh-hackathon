@@ -12,23 +12,33 @@ from agentmesh.research_orchestration.v3.deliverable import (
     CompetitiveAnalysisTextPayloadV1,
     ResearchDeliverableV3,
 )
+from agentmesh.research_orchestration.v3.evidence import EvidenceManifestV3
 from agentmesh.research_orchestration.v3.execution_plan import ExecutionPlanV3, PlanCandidateSetV3
 from agentmesh.research_orchestration.v3.problem_graph import ProblemGraphV1
 from agentmesh.research_orchestration.v3.report_document import ReportDocumentV3
 from agentmesh.research_orchestration.v3.requirement import ResearchTaskV3
 from agentmesh.research_orchestration.v3.review import ReportReviewV3
 from agentmesh.research_orchestration.v3.snapshots import ResearchControlSnapshotV3
+from agentmesh.research_orchestration.v3.web_projection import WorkbenchAggregateV1
 from research_v3_contract_samples import (
     candidate_set_body,
     competitive_text_body,
     control_snapshot_body,
     deliverable_body,
+    evidence_body,
     plan_body,
     problem_graph_body,
     report_body,
     requirement_body,
     review_body,
 )
+
+
+def workbench_idle_body() -> dict:
+    return json.loads(
+        Path("tests/fixtures/research_v3_workbench/idle.json").read_text(encoding="utf-8")
+    )
+
 
 CASES = (
     ("research-task-v3.schema.json", "research-task-v3", ResearchTaskV3, requirement_body, True),
@@ -58,6 +68,20 @@ CASES = (
     ),
     ("report-review-v3.schema.json", "report-review-v3", ReportReviewV3, review_body, True),
     ("report-document-v3.schema.json", "report-document-v3", ReportDocumentV3, report_body, True),
+    (
+        "evidence-manifest-v3.schema.json",
+        "evidence-manifest-v3",
+        EvidenceManifestV3,
+        evidence_body,
+        True,
+    ),
+    (
+        "research-workbench-aggregate-v1.schema.json",
+        "research-workbench-aggregate-v1",
+        WorkbenchAggregateV1,
+        workbench_idle_body,
+        True,
+    ),
 )
 
 
@@ -68,7 +92,7 @@ def _schema(filename: str) -> dict:
 def test_parity_matrix_covers_every_committed_research_schema() -> None:
     committed = {path.name for path in Path("agentmesh/schemas/research").glob("*.schema.json")}
     assert {case[0] for case in CASES} == committed
-    assert len(CASES) == 9
+    assert len(CASES) == 11
 
 
 @pytest.mark.parametrize(("filename", "identity", "model_type", "sample_factory", "has_discriminator"), CASES)
