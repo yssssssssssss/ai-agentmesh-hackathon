@@ -944,7 +944,31 @@ class ResearchV3PreviewComposition:
             )
         finally:
             repository.close()
-        if command_type in {"cancel", "purge"}:
+        if command_type == "confirm_plan":
+            run = self._store.get_agent_run(run_id)
+            if run is not None and (
+                run.user_id,
+                run.workspace_id,
+                run.project_id,
+                run.orchestration_version,
+            ) == (
+                owner.user_id,
+                owner.workspace_id,
+                owner.project_id,
+                "research-v3",
+            ):
+                self._store.save_agent_run(
+                    run.model_copy(
+                        update={
+                            "status": AgentRunStatus.COMPLETED,
+                            "output_text": (
+                                "Preview Plan confirmed; no external Provider was executed."
+                            ),
+                            "updated_at": now_utc(),
+                        }
+                    )
+                )
+        elif command_type in {"cancel", "purge"}:
             self._store.cancel_agent_run_tree(run_id, user_id=owner.user_id)
         return receipt
 

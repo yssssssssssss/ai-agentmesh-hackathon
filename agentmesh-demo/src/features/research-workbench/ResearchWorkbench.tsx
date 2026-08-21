@@ -106,13 +106,18 @@ function CurrentWorkbench({
           <Stage2Candidates
             candidates={aggregate.candidates.candidates}
             onSelect={actions.onCandidateSelect}
+            readOnly={aggregate.workflow.gate.status === 'blocked'}
           />
         ) : null}
         {presentation.showPlan && aggregate.selected_plan ? (
           <Stage2Plan
             plan={aggregate.selected_plan}
             task={task}
-            locked={presentation.showApproval}
+            locked={
+              presentation.showApproval
+              || aggregate.workflow.gate.status === 'satisfied'
+              || aggregate.workflow.gate.status === 'blocked'
+            }
             onConfirm={actions.onPlanConfirm}
             onRevise={actions.onPlanRevise}
           />

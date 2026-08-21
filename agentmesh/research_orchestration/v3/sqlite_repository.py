@@ -1,9 +1,9 @@
-"""Isolated SQLite persistence for research-v3.
+"""SQLite persistence for research-v3.
 
-The adapter owns only ``research_v3_*`` tables and is deliberately not registered with
-``SQLiteStore`` or application startup. Callers must explicitly initialize a supplied
-SQLite database. Domain records are append-only; mutable execution coordination is kept
-in separate attempt/invocation tables and is always CAS/fence checked.
+Gate 2 installs the additive ``research_v3_*`` namespace through ``SQLiteStore`` and
+uses this repository for owner-scoped preview planning. Provider-backed execution
+adapters remain uncomposed. Domain records are append-only; mutable coordination is
+kept in attempt/invocation tables and is always CAS/fence checked.
 """
 
 from __future__ import annotations
@@ -175,11 +175,15 @@ class RepositoryScopeV3(StrictFrozenModel):
     project_id: Identifier
 
 
+PreviewStatusV3 = Literal["active", "confirmed", "cancelled"]
+
+
 class RepositoryRunV3(StrictFrozenModel):
     run_id: Identifier
     orchestration_version: Literal["research-v3"]
     scope: RepositoryScopeV3
     state_version: Annotated[int, Field(ge=0)]
+    preview_status: PreviewStatusV3 = "active"
     created_at: datetime
     tombstoned_at: datetime | None = None
 
@@ -400,6 +404,8 @@ class SQLiteResearchV3Repository:
         project_id TEXT NOT NULL,
         orchestration_version TEXT NOT NULL,
         state_version INTEGER NOT NULL CHECK(state_version >= 0),
+        preview_status TEXT NOT NULL DEFAULT 'active'
+            CHECK(preview_status IN ('active', 'confirmed', 'cancelled')),
         created_at TEXT NOT NULL,
         tombstoned_at TEXT
     );
@@ -536,6 +542,15 @@ class SQLiteResearchV3Repository:
             statement = raw_statement.strip()
             if statement:
                 connection.execute(statement)
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(research_v3_runs)")
+        }
+        if "preview_status" not in columns:
+            connection.execute(
+                """ALTER TABLE research_v3_runs
+                ADD COLUMN preview_status TEXT NOT NULL DEFAULT 'active'
+                CHECK(preview_status IN ('active', 'confirmed', 'cancelled'))"""
+            )
 
     def initialize_schema(self) -> None:
         """Create the private v3 namespace; never called by production startup."""
@@ -582,8 +597,8 @@ class SQLiteResearchV3Repository:
                 """
                 INSERT INTO research_v3_runs(
                     run_id, owner_id, workspace_id, project_id, orchestration_version,
-                    state_version, created_at, tombstoned_at
-                ) VALUES (?, ?, ?, ?, ?, 0, ?, NULL)
+                    state_version, preview_status, created_at, tombstoned_at
+                ) VALUES (?, ?, ?, ?, ?, 0, 'active', ?, NULL)
                 """,
                 (
                     run.run_id,
@@ -671,6 +686,7 @@ class SQLiteResearchV3Repository:
                     project_id=row["project_id"],
                 ),
                 state_version=row["state_version"],
+                preview_status=row["preview_status"],
                 created_at=_parse_time(row["created_at"], "run created_at"),
                 tombstoned_at=_parse_time(row["tombstoned_at"], "run tombstoned_at"),
             )
@@ -2895,6 +2911,7 @@ class SQLiteResearchV3Repository:
         response_payload: Mapping[str, object],
         expected_state_version: int,
         records: tuple[PreviewRecordAppendV3, ...] = (),
+        next_preview_status: Literal["confirmed", "cancelled"] | None = None,
         created_at: datetime | None = None,
     ) -> tuple[ResearchCommandReceiptV3, bool]:
         """Atomically append staged planning records and one command receipt/state transition."""
@@ -2915,6 +2932,11 @@ class SQLiteResearchV3Repository:
                     )
                 return existing, True
             self._check_state(run, expected_state_version)
+            current_run = self._run_from_row(run)
+            if current_run.preview_status != "active":
+                raise ResearchV3ConflictError(
+                    f"research-v3 preview is already {current_run.preview_status}"
+                )
             for record in records:
                 self._validate_preview_record_append(
                     connection,
@@ -2963,6 +2985,15 @@ class SQLiteResearchV3Repository:
                     _iso(created),
                 ),
             )
+            if next_preview_status is not None:
+                cursor = connection.execute(
+                    """UPDATE research_v3_runs SET preview_status = ?
+                    WHERE run_id = ? AND preview_status = 'active'
+                      AND state_version = ? AND tombstoned_at IS NULL""",
+                    (next_preview_status, run_id, expected_state_version),
+                )
+                if cursor.rowcount != 1:
+                    raise ResearchV3ConflictError("research-v3 preview lifecycle conflict")
             self._advance_state(connection, run_id, expected_state_version)
             return receipt, False
 

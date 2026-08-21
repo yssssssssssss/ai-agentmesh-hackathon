@@ -47,9 +47,9 @@ export type WorkbenchProjectionProvenance =
 
 export interface WorkbenchGateByState {
   idle: { kind: 'none'; status: 'inactive'; required_role: null }
-  clarify: { kind: 'clarification'; status: 'pending'; required_role: null }
-  candidates: { kind: 'candidate_selection'; status: 'pending'; required_role: null }
-  plan: { kind: 'plan_confirmation'; status: 'pending'; required_role: null }
+  clarify: { kind: 'clarification'; status: 'pending' | 'blocked'; required_role: null }
+  candidates: { kind: 'candidate_selection'; status: 'pending' | 'blocked'; required_role: null }
+  plan: { kind: 'plan_confirmation'; status: 'pending' | 'satisfied' | 'blocked'; required_role: null }
   approval: { kind: 'role_approval'; status: 'pending'; required_role: ApprovalRole }
   dag_or_executing: { kind: 'none'; status: 'inactive'; required_role: null }
   paused: { kind: 'recovery'; status: 'blocked'; required_role: null }

@@ -77,6 +77,28 @@ describe('feature-local research-v3 API client', () => {
     )
   })
 
+  it('rejects a mutation receipt that is not bound to the submitted command', async () => {
+    const request = {
+      expected_state_version: 4,
+      request_hash: 'a'.repeat(64),
+      plan_version_id: 'plan_1',
+    }
+    const fetcher = vi.fn(async () => jsonResponse({
+      run_id: 'run_other',
+      command_type: 'execute',
+      request_hash: request.request_hash,
+      previous_state_version: 4,
+      state_version: 5,
+      accepted: true,
+      replayed: false,
+    }, 202)) as unknown as typeof fetch
+    const client = createResearchV3ApiClient(fetcher)
+
+    await expect(client.mutate('run_1', 'execute', 'execute.1', request)).rejects.toThrow(
+      'research-v3 mutation response is invalid',
+    )
+  })
+
   it('sends the idempotency contract and validates the exact mutation receipt', async () => {
     const response = {
       run_id: 'run_1',

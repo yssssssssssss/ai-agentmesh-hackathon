@@ -17,10 +17,11 @@ Date: 2026-08-21
 - [x] Complete Gate 2 dormant preview implementation.
 - [x] Run Gate 2 focused backend, frontend, Ruff, build, and browser checks.
 - [x] Create clean local integration branch without changing the dirty main Worktree.
-- [ ] Run one independent read-only deep review of `main..agent/research-v3-gate2-main-integration`.
-- [ ] Classify every review finding as blocker or recorded non-blocking debt.
-- [ ] Fix only confirmed merge blockers; do not reopen Gate 0/Foundation for advisory findings.
-- [ ] Re-run only the directly affected focused verification after any blocker fix.
+- [x] Run one independent read-only deep review of `main..agent/research-v3-gate2-main-integration`.
+- [x] Classify every review finding as blocker or recorded non-blocking debt.
+- [x] Fix the four confirmed code blockers without reopening Gate 0/Foundation.
+- [x] Re-run only the directly affected focused verification after blocker fixes.
+- [ ] Resume the same independent reviewer against the corrected exact HEAD and obtain final sign-off.
 - [ ] Reconcile the conflicting untracked main-Worktree file:
   `docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md`.
 - [ ] Confirm the main Worktree has no tracked modification and no untracked path that the integration branch would overwrite.
@@ -31,12 +32,28 @@ Date: 2026-08-21
 
 ## Merge blockers
 
-1. Independent deep review has not yet signed off.
+1. Corrected HEAD still requires follow-up sign-off from the same independent reviewer.
 2. Main contains 10,737 untracked paths at the last inventory.
 3. One untracked path directly conflicts with a tracked integration path, and its content differs by 225 lines:
    `docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md`.
 
 The conflicting file is user work. It must not be moved, overwritten, deleted, or silently replaced without a separate explicit decision.
+
+## Closed code findings
+
+The first independent review rejected `8d3d5511ce811f21905089318d885686e8dc3565` and identified four code blockers. The corrected change set now:
+
+1. rejects generic retry/cancel for research-v3 and requires stored-version APIs;
+2. derives server-created thread IDs deterministically from user plus `client_turn_id`, so overlapping identical requests replay one Run/thread;
+3. discovers the latest research-v2 or research-v3 Run during canonical thread navigation;
+4. persists `active | confirmed | cancelled` preview lifecycle state, locks confirmed projection, blocks post-cancel mutation, and synchronizes the coarse AgentRun state.
+
+Focused evidence after the fixes:
+
+- backend: 90 passed;
+- changed-file Ruff: passed;
+- frontend: 42 passed;
+- TypeScript/Vite build and bundle check: passed.
 
 ## Out of scope
 

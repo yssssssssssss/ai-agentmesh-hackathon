@@ -206,6 +206,8 @@ function parseRepositoryAggregate(value: unknown): ResearchV3WorkbenchAggregateV
 function parseMutationResponse<C extends ResearchV3CommandType>(
   value: unknown,
   command: C,
+  runId: string,
+  request: ResearchV3RequestByCommand[C],
 ): ResearchV3ResponseByCommand<C> {
   const item = record(value, 'research-v3 mutation response')
   const expectedKeys = new Set([
@@ -222,10 +224,10 @@ function parseMutationResponse<C extends ResearchV3CommandType>(
     throw new TypeError('research-v3 mutation response fields are not exact')
   }
   if (
-    typeof item.run_id !== 'string'
+    item.run_id !== runId
     || item.command_type !== command
-    || typeof item.request_hash !== 'string'
-    || !Number.isInteger(item.previous_state_version)
+    || item.request_hash !== request.request_hash
+    || item.previous_state_version !== request.expected_state_version
     || !Number.isInteger(item.state_version)
     || item.state_version !== (item.previous_state_version as number) + 1
     || item.accepted !== true
@@ -264,7 +266,7 @@ export function createResearchV3ApiClient(
         },
         body: JSON.stringify(request),
       }))
-      return parseMutationResponse(await response.json(), command)
+      return parseMutationResponse(await response.json(), command, runId, request)
     },
   }
 }

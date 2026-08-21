@@ -268,17 +268,30 @@ function parseWorkflow(value: unknown): WorkbenchWorkflow {
   )
   const status = requireOneOf(gate.status, ['inactive', 'pending', 'satisfied', 'blocked'] as const, 'workflow.gate.status')
   const requiredRole = gate.required_role === null ? null : parseApprovalRole(gate.required_role, 'workflow.gate.required_role')
-  const expected = {
-    idle: ['none', 'inactive', null],
-    clarify: ['clarification', 'pending', null],
-    candidates: ['candidate_selection', 'pending', null],
-    plan: ['plan_confirmation', 'pending', null],
-    approval: ['role_approval', 'pending', 'role-required'],
-    dag_or_executing: ['none', 'inactive', null],
-    paused: ['recovery', 'blocked', null],
-    text_report: ['none', 'inactive', null],
-  }[state]
-  if (kind !== expected[0] || status !== expected[1]) {
+  const expectedKind = {
+    idle: 'none',
+    clarify: 'clarification',
+    candidates: 'candidate_selection',
+    plan: 'plan_confirmation',
+    approval: 'role_approval',
+    dag_or_executing: 'none',
+    paused: 'recovery',
+    text_report: 'none',
+  } as const
+  const allowedStatuses = {
+    idle: ['inactive'],
+    clarify: ['pending', 'blocked'],
+    candidates: ['pending', 'blocked'],
+    plan: ['pending', 'satisfied', 'blocked'],
+    approval: ['pending'],
+    dag_or_executing: ['inactive'],
+    paused: ['blocked'],
+    text_report: ['inactive'],
+  } as const
+  if (
+    kind !== expectedKind[state]
+    || !(allowedStatuses[state] as readonly string[]).includes(status)
+  ) {
     throw new TypeError('Workbench workflow state and active gate do not agree')
   }
   if ((state === 'approval') !== (requiredRole !== null)) {
@@ -286,9 +299,9 @@ function parseWorkflow(value: unknown): WorkbenchWorkflow {
   }
 
   if (state === 'idle') return { state, state_version: stateVersion, gate: { kind: 'none', status: 'inactive', required_role: null } }
-  if (state === 'clarify') return { state, state_version: stateVersion, gate: { kind: 'clarification', status: 'pending', required_role: null } }
-  if (state === 'candidates') return { state, state_version: stateVersion, gate: { kind: 'candidate_selection', status: 'pending', required_role: null } }
-  if (state === 'plan') return { state, state_version: stateVersion, gate: { kind: 'plan_confirmation', status: 'pending', required_role: null } }
+  if (state === 'clarify') return { state, state_version: stateVersion, gate: { kind: 'clarification', status: status as 'pending' | 'blocked', required_role: null } }
+  if (state === 'candidates') return { state, state_version: stateVersion, gate: { kind: 'candidate_selection', status: status as 'pending' | 'blocked', required_role: null } }
+  if (state === 'plan') return { state, state_version: stateVersion, gate: { kind: 'plan_confirmation', status: status as 'pending' | 'satisfied' | 'blocked', required_role: null } }
   if (state === 'approval') return { state, state_version: stateVersion, gate: { kind: 'role_approval', status: 'pending', required_role: requiredRole as ApprovalRole } }
   if (state === 'dag_or_executing') return { state, state_version: stateVersion, gate: { kind: 'none', status: 'inactive', required_role: null } }
   if (state === 'paused') return { state, state_version: stateVersion, gate: { kind: 'recovery', status: 'blocked', required_role: null } }

@@ -87,7 +87,13 @@ export function ResearchWorkbenchContainer({ scope, run }: ResearchWorkbenchCont
   const stateVersion = query.data?.workflow.state_version ?? 0
   const selectedPlan = query.data?.selected_plan
   const alternateCandidate = selectedPlan?.payload.candidate_id === 'depth' ? 'speed' : 'depth'
-  const actions = pendingCommand ? {} : {
+  const canMutate = (
+    run.status === 'waiting_plan_approval'
+    && query.data?.workflow.gate.status === 'pending'
+  )
+  const actions = pendingCommand || !canMutate ? {
+    onRetryLoad: () => { void query.refetch() },
+  } : {
     onClarificationSubmit: (answers: Readonly<Record<string, string>>) => {
       void submit('clarify', {
         expected_state_version: stateVersion,
@@ -120,7 +126,11 @@ export function ResearchWorkbenchContainer({ scope, run }: ResearchWorkbenchCont
   return (
     <section aria-label="Research V3 preview workbench" className="mt-6">
       <p className="mb-3 rounded-[10px] border border-mint-400/20 bg-mint-400/10 px-4 py-3 text-xs text-mint-200">
-        Preview only · 仅生成 Requirement、ProblemGraph 与 Plan；未调用任何外部 Provider。
+        {query.data?.workflow.gate.status === 'satisfied'
+          ? 'Preview Plan 已确认并锁定；未调用任何外部 Provider。'
+          : query.data?.workflow.gate.status === 'blocked'
+            ? 'Preview 已停止；当前研究状态仅供读取。'
+            : 'Preview only · 仅生成 Requirement、ProblemGraph 与 Plan；未调用任何外部 Provider。'}
         {pendingCommand ? ` 正在提交 ${pendingCommand}…` : ''}
       </p>
       {mutationError ? (

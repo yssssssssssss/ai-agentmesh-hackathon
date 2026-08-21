@@ -159,12 +159,21 @@ class ResearchV3RepositoryProjector:
     def _state_and_gate(
         source: RepositoryProjectionSnapshotV3,
     ) -> tuple[str, WorkbenchGateV1]:
+        preview_status = source.run.preview_status
+        if preview_status == "confirmed" and source.selected_plan is None:
+            raise ResearchV3IntegrityError("confirmed preview lacks its persisted selected Plan")
         if source.requirement is None:
             return "idle", WorkbenchGateV1(kind="none", status="inactive")
         if source.candidates is None:
-            return "clarify", WorkbenchGateV1(kind="clarification", status="pending")
+            return "clarify", WorkbenchGateV1(
+                kind="clarification",
+                status="blocked" if preview_status == "cancelled" else "pending",
+            )
         if source.selected_plan is None:
-            return "candidates", WorkbenchGateV1(kind="candidate_selection", status="pending")
+            return "candidates", WorkbenchGateV1(
+                kind="candidate_selection",
+                status="blocked" if preview_status == "cancelled" else "pending",
+            )
         if source.attempt is None:
             pending = tuple(approval for approval in source.approvals if approval.decision == "pending")
             if pending:
@@ -176,7 +185,15 @@ class ResearchV3RepositoryProjector:
                     status="pending",
                     required_role=next(iter(roles)),
                 )
-            return "plan", WorkbenchGateV1(kind="plan_confirmation", status="pending")
+            gate_status = {
+                "active": "pending",
+                "confirmed": "satisfied",
+                "cancelled": "blocked",
+            }[preview_status]
+            return "plan", WorkbenchGateV1(
+                kind="plan_confirmation",
+                status=gate_status,
+            )
         if source.report is not None:
             required = (source.evidence, source.deliverable, source.review)
             if source.attempt.status != "completed" or any(item is None for item in required):

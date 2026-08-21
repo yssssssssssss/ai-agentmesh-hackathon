@@ -1,8 +1,9 @@
-"""Unreachable HTTP composition contracts for the isolated research-v3 workflow.
+"""Research-v3 HTTP contracts and isolated router factory.
 
-The production application does not import or mount this module. A caller must explicitly
-compose a router with an owner provider, a command workflow, and an authoritative repository
-projector. Read paths never receive the workflow dependency and therefore cannot schedule work.
+Gate 2 reuses these contracts from the main stored-version research facade. The router
+factory remains useful for isolated tests and explicit composition with an owner
+provider, preview workflow, and authoritative repository projector. Read paths never
+receive an execution dependency and therefore cannot schedule Provider work.
 """
 
 from __future__ import annotations

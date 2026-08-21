@@ -358,16 +358,19 @@ class ResearchV3WorkbenchAggregateV1(StrictFrozenModel):
     @model_validator(mode="after")
     def validate_projection(self) -> ResearchV3WorkbenchAggregateV1:
         expected_gate = {
-            "idle": ("none", "inactive"),
-            "clarify": ("clarification", "pending"),
-            "candidates": ("candidate_selection", "pending"),
-            "plan": ("plan_confirmation", "pending"),
-            "approval": ("role_approval", "pending"),
-            "dag_or_executing": ("none", "inactive"),
-            "paused": ("recovery", "blocked"),
-            "text_report": ("none", "inactive"),
+            "idle": ("none", {"inactive"}),
+            "clarify": ("clarification", {"pending", "blocked"}),
+            "candidates": ("candidate_selection", {"pending", "blocked"}),
+            "plan": ("plan_confirmation", {"pending", "satisfied", "blocked"}),
+            "approval": ("role_approval", {"pending"}),
+            "dag_or_executing": ("none", {"inactive"}),
+            "paused": ("recovery", {"blocked"}),
+            "text_report": ("none", {"inactive"}),
         }[self.workflow.state]
-        if (self.workflow.gate.kind, self.workflow.gate.status) != expected_gate:
+        if (
+            self.workflow.gate.kind != expected_gate[0]
+            or self.workflow.gate.status not in expected_gate[1]
+        ):
             raise ValueError("Workbench workflow state and active gate do not agree")
         if self.provenance.source_state_version != self.workflow.state_version:
             raise ValueError("Workbench provenance and workflow state versions do not agree")
@@ -417,22 +420,23 @@ class ResearchV3WorkbenchAggregateV1(StrictFrozenModel):
             return self
         if self.requirement is None or self.requirement.run_id != self.run_id:
             raise ValueError("Workbench requirement does not belong to the projected run")
-        if self.selected_plan is not None:
-            if (
-                self.selected_plan.run_id != self.run_id
-                or self.selected_plan.requirement_version_id != self.requirement.id
-                or self.selected_plan.payload.requirement_version_id != self.requirement.id
-                or self.selected_plan.payload.requirement_content_hash != self.requirement.content_hash
-            ):
-                raise ValueError("Workbench selected plan requirement lineage is invalid")
+        if self.selected_plan is not None and (
+            self.selected_plan.run_id != self.run_id
+            or self.selected_plan.requirement_version_id != self.requirement.id
+            or self.selected_plan.payload.requirement_version_id != self.requirement.id
+            or self.selected_plan.payload.requirement_content_hash != self.requirement.content_hash
+        ):
+            raise ValueError("Workbench selected plan requirement lineage is invalid")
         if self.workflow.state in {"clarify", "candidates", "plan"} and self.approvals:
             raise ValueError("pre-approval Workbench states cannot contain approvals")
-        if self.workflow.state == "approval":
-            if not self.approvals or not any(item.decision == "pending" for item in self.approvals):
-                raise ValueError("approval state requires a pending approval")
-        if self.selected_plan is not None:
-            if any(item.plan_version_id != self.selected_plan.id for item in self.approvals):
-                raise ValueError("Workbench approval references a different selected plan")
+        if self.workflow.state == "approval" and (
+            not self.approvals or not any(item.decision == "pending" for item in self.approvals)
+        ):
+            raise ValueError("approval state requires a pending approval")
+        if self.selected_plan is not None and any(
+            item.plan_version_id != self.selected_plan.id for item in self.approvals
+        ):
+            raise ValueError("Workbench approval references a different selected plan")
         if self.workflow.state in {"dag_or_executing", "paused", "text_report"}:
             if not self.approvals or any(item.decision != "approved" for item in self.approvals):
                 raise ValueError("execution and report states require settled approvals")

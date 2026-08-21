@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -27,7 +28,6 @@ from agentmesh.models import (
     SkillPlanVersionRequest,
     SkillSynthesisResult,
     User,
-    new_id,
     now_utc,
 )
 from agentmesh.research_orchestration.current import (
@@ -97,9 +97,21 @@ def _thread(request: AgentRunCreateRequest, user: User) -> ChatThread:
         ):
             raise HTTPException(status_code=404, detail="Chat thread not found")
         return thread
+    thread_id = "thread_" + hashlib.sha256(
+        f"agent-run-thread-v1\0{user.id}\0{request.client_turn_id}".encode()
+    ).hexdigest()[:24]
+    existing = store.get_chat_thread(thread_id)
+    if existing is not None:
+        if (
+            existing.user_id != user.id
+            or existing.workspace_id != user.workspace_id
+            or existing.project_id != user.default_project_id
+        ):
+            raise HTTPException(status_code=409, detail="client_turn_id thread identity conflict")
+        return existing
     return store.add_chat_thread(
         ChatThread(
-            id=new_id("thread"),
+            id=thread_id,
             workspace_id=user.workspace_id,
             project_id=user.default_project_id,
             user_id=user.id,
@@ -386,6 +398,11 @@ async def retry_agent_run(
     prior = _visible_run(run_id, user)
     if prior.orchestration_version == "research-v2":
         raise HTTPException(status_code=409, detail="Research-v2 runs must use the research recovery API")
+    if prior.orchestration_version == "research-v3":
+        raise HTTPException(
+            status_code=409,
+            detail="research-v3 runs must use their stored-version research API",
+        )
     if prior.status not in {
         AgentRunStatus.PARTIAL,
         AgentRunStatus.FAILED,
@@ -483,6 +500,11 @@ async def cancel_agent_run(run_id: str, user: User = Depends(current_user)) -> I
         if cancelled is None:
             raise HTTPException(status_code=404, detail="Agent run not found")
         return ItemResponse(item=cancelled)
+    if run.orchestration_version == "research-v3":
+        raise HTTPException(
+            status_code=409,
+            detail="Research-v3 runs must use the stored-version research cancel API",
+        )
     runtime = agent.agent_runtime
     if runtime is None:
         raise HTTPException(status_code=409, detail="Agent Runtime v2 is disabled")

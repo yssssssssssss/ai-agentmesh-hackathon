@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 import candidatesFixture from '../../../../tests/fixtures/research_v3_workbench/candidates.json'
+import planFixture from '../../../../tests/fixtures/research_v3_workbench/plan.json'
 import { ResearchWorkbenchContainer } from '../research-workbench/ResearchWorkbenchContainer'
 import { workspaceKeys } from './keys'
 import { invalidateAgentRunEvent } from './queries'
@@ -39,6 +40,22 @@ const repositoryProjection = {
   },
 }
 
+const confirmedProjection = {
+  ...planFixture,
+  workflow: {
+    ...planFixture.workflow,
+    gate: {
+      ...planFixture.workflow.gate,
+      status: 'satisfied',
+    },
+  },
+  provenance: {
+    ...planFixture.provenance,
+    source_kind: 'repository_projection',
+    baseline_state_id: null,
+  },
+}
+
 describe('research-current stored-version Workspace binding', () => {
   it('renders the accepted v3 Workbench with an explicit provider-free preview notice', () => {
     const queryClient = new QueryClient({
@@ -56,6 +73,58 @@ describe('research-current stored-version Workspace binding', () => {
     expect(html).toContain('未调用任何外部 Provider')
     expect(html).toContain('data-workbench-state="candidates"')
     expect(html).not.toContain('开始执行')
+  })
+
+  it('renders a confirmed preview as locked and non-executable', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    const completedRun = { ...run, status: 'completed' } satisfies AgentRun
+    queryClient.setQueryData(
+      workspaceKeys.research(scope, completedRun.id),
+      confirmedProjection,
+    )
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <ResearchWorkbenchContainer scope={scope} run={completedRun} />
+      </QueryClientProvider>,
+    )
+
+    expect(html).toContain('Preview Plan 已确认并锁定')
+    expect(html).toContain('计划内容已锁定')
+    expect(html).not.toContain('调整计划</button>')
+    expect(html).not.toContain('开始执行</button>')
+  })
+
+  it('renders a cancelled candidate preview as read-only', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    const cancelledRun = { ...run, status: 'cancelled' } satisfies AgentRun
+    const cancelledProjection = {
+      ...repositoryProjection,
+      workflow: {
+        ...repositoryProjection.workflow,
+        gate: {
+          ...repositoryProjection.workflow.gate,
+          status: 'blocked',
+        },
+      },
+    }
+    queryClient.setQueryData(
+      workspaceKeys.research(scope, cancelledRun.id),
+      cancelledProjection,
+    )
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <ResearchWorkbenchContainer scope={scope} run={cancelledRun} />
+      </QueryClientProvider>,
+    )
+
+    expect(html).toContain('Preview 已停止')
+    expect(html).toContain('旧任务不可修改')
   })
 
   it('invalidates the v3 aggregate by stored orchestration version', async () => {

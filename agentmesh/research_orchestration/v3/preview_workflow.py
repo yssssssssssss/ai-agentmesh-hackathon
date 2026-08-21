@@ -193,6 +193,10 @@ class ResearchV3PreviewWorkflow:
             snapshot = self._repository.projection_snapshot(run_id)
             if snapshot is None:
                 raise ApiNotFoundError
+            if snapshot.run.preview_status != "active":
+                raise ApiConflictError(
+                    f"research-v3 preview is already {snapshot.run.preview_status}"
+                )
             mutation = PreviewPlanningMutationV3(records=(), response_payload={"accepted": True})
             if command_type == "clarify":
                 if not isinstance(request, ResearchV3ClarifyRequest) or snapshot.requirement is None:
@@ -276,6 +280,13 @@ class ResearchV3PreviewWorkflow:
                 response_payload=mutation.response_payload,
                 expected_state_version=request.expected_state_version,
                 records=mutation.records,
+                next_preview_status=(
+                    "confirmed"
+                    if command_type == "confirm_plan"
+                    else "cancelled"
+                    if command_type == "cancel"
+                    else None
+                ),
             )
             return self._api_receipt(receipt, replayed=replayed)
         except ApiNotFoundError:

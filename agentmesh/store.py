@@ -2995,7 +2995,7 @@ class SQLiteStore:
             row = connection.execute(
                 """
                 SELECT payload FROM agent_runs
-                WHERE orchestration_version = 'research-v2'
+                WHERE orchestration_version IN ('research-v2', 'research-v3')
                   AND json_extract(payload, '$.thread_id') = ?
                   AND json_extract(payload, '$.user_id') = ?
                 ORDER BY updated_at DESC, id DESC
@@ -3199,6 +3199,7 @@ class SQLiteStore:
             "skill_name",
             "orchestration_version",
             "orchestration_mode",
+            "writer_generation_epoch",
             "requested_orchestration_mode",
             "agent_definition_version",
             "project_chat",
