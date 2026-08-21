@@ -12949,10 +12949,10 @@
           "status": "A"
         },
         {
-          "bytes": 77943,
+          "bytes": 77938,
           "mode": "100755",
           "path": "scripts/verify_ai_x_parity_lock.py",
-          "sha256": "da09960eec24bf3da698268163cdda3ec450e8e5cb8844e53f596f9c9580f0ad",
+          "sha256": "4c542d109c2eedd992e5516cd6c05eb27c995f283f4a88bd16027248ad8427a2",
           "status": "A"
         },
         {
@@ -13054,7 +13054,7 @@
           "status": "A"
         }
       ],
-      "manifest_sha256": "c0a0054d190ff3b0a0a428543d4f69072bf5c8ddebb64ec28b1f2ee2bb23f9d6"
+      "manifest_sha256": "1479e12dedb89774b9aac8fb65de539abf47c874a65050d4cd0b64098bfa333c"
     },
     "base_commit": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
     "base_tree": "eb39f8159afb421233b657747192447734fd8b07",

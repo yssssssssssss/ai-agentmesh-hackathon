@@ -779,7 +779,7 @@ def materialized_source_bundle(bundle_path: Path):
     with tempfile.TemporaryDirectory(prefix="agentmesh-ai-x-bundle-") as temporary:
         clone = Path(temporary) / "source"
         result = subprocess.run(
-            ("git", "clone", "--no-checkout", str(bundle_path), str(clone)),
+            ("git", "clone", "--mirror", str(bundle_path), str(clone)),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
