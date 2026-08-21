@@ -241,25 +241,29 @@ class ResearchWorkflowService:
             error = self._background_errors.pop(0)
             raise error
 
-    async def start_if_applicable(self, run: AgentRun) -> bool:
+    async def start_if_applicable(self, run: AgentRun) -> AgentRun | None:
         if run.orchestration_version != "research-v2" or run.orchestration_mode == "off":
-            return False
+            return None
         now = self.clock.now()
         workflow = ResearchWorkflow(run_id=run.id, phase=ResearchPhase.REQUIREMENT, created_at=now, updated_at=now)
         try:
             context = self.repository.ensure_workflow(run, workflow)
         except ResearchStoreConflict as error:
             raise ResearchConflictError(str(error)) from error
+        canonical_run = context.run
         if (
             context.workflow.phase == ResearchPhase.REQUIREMENT
             and context.workflow.active_gate == ResearchGate.NONE
             and context.active_requirement is None
         ):
             self._schedule(
-                f"planning:{run.id}",
-                self._plan_and_publish(run, expected_state_version=context.workflow.state_version),
+                f"planning:{canonical_run.id}",
+                self._plan_and_publish(
+                    canonical_run,
+                    expected_state_version=context.workflow.state_version,
+                ),
             )
-        return True
+        return canonical_run
 
     def get_projection(self, run_id: str, *, owner: ResearchOwnerScope) -> ResearchRunProjection:
         return self._projection(self._require_context(run_id, owner=owner))

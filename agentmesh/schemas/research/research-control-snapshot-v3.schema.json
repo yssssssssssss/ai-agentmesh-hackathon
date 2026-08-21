@@ -1,0 +1,296 @@
+{
+  "$defs": {
+    "FrozenActorV3": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "actor_type": {
+          "enum": [
+            "tool",
+            "skill",
+            "llm",
+            "reviewer"
+          ],
+          "title": "Actor Type",
+          "type": "string"
+        },
+        "approval_role": {
+          "anyOf": [
+            {
+              "enum": [
+                "owner",
+                "legal",
+                "security"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Role"
+        },
+        "eligible": {
+          "title": "Eligible",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "execution_mode": {
+          "enum": [
+            "real",
+            "model",
+            "deterministic"
+          ],
+          "title": "Execution Mode",
+          "type": "string"
+        },
+        "implementation_id": {
+          "maxLength": 240,
+          "pattern": "\\S",
+          "title": "Implementation Id",
+          "type": "string"
+        },
+        "implementation_version": {
+          "maxLength": 120,
+          "pattern": "\\S",
+          "title": "Implementation Version",
+          "type": "string"
+        },
+        "input_schema_document_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Input Schema Document Id",
+          "type": "string"
+        },
+        "instruction_document_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction Document Id"
+        },
+        "optional_tool_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+            "type": "string"
+          },
+          "title": "Optional Tool Ids",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "output_schema_document_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Output Schema Document Id",
+          "type": "string"
+        },
+        "required_tool_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+            "type": "string"
+          },
+          "title": "Required Tool Ids",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "enum": [
+                "core",
+                "optional"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tier"
+        }
+      },
+      "required": [
+        "actor_type",
+        "actor_id",
+        "implementation_id",
+        "implementation_version",
+        "execution_mode",
+        "enabled",
+        "eligible",
+        "required_tool_ids",
+        "optional_tool_ids",
+        "input_schema_document_id",
+        "output_schema_document_id"
+      ],
+      "title": "FrozenActorV3",
+      "type": "object"
+    },
+    "FrozenDocumentV3": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "title": "Content"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "document_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Document Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "json_schema",
+            "skill_instructions",
+            "knowledge",
+            "evidence_policy",
+            "review_rubric",
+            "report_template",
+            "synthesis_prompt"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "media_type": {
+          "enum": [
+            "application/json",
+            "application/yaml",
+            "text/markdown"
+          ],
+          "title": "Media Type",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 1048576,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "kind",
+        "media_type",
+        "content_hash",
+        "size_bytes",
+        "content"
+      ],
+      "title": "FrozenDocumentV3",
+      "type": "object"
+    },
+    "FrozenModelPolicyV3": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_compatibility_id": {
+          "maxLength": 240,
+          "pattern": "\\S",
+          "title": "Adapter Compatibility Id",
+          "type": "string"
+        },
+        "requested_model": {
+          "maxLength": 120,
+          "pattern": "\\S",
+          "title": "Requested Model",
+          "type": "string"
+        },
+        "requested_provider": {
+          "maxLength": 120,
+          "pattern": "\\S",
+          "title": "Requested Provider",
+          "type": "string"
+        },
+        "structured_output_mode": {
+          "enum": [
+            "json_schema",
+            "json_object"
+          ],
+          "title": "Structured Output Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requested_provider",
+        "requested_model",
+        "structured_output_mode",
+        "adapter_compatibility_id"
+      ],
+      "title": "FrozenModelPolicyV3",
+      "type": "object"
+    }
+  },
+  "$id": "research-control-snapshot-v3",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "actors": {
+      "items": {
+        "$ref": "#/$defs/FrozenActorV3"
+      },
+      "title": "Actors",
+      "type": "array"
+    },
+    "catalog_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Catalog Hash",
+      "type": "string"
+    },
+    "catalog_id": {
+      "const": "competitive-text-v1",
+      "title": "Catalog Id",
+      "type": "string"
+    },
+    "documents": {
+      "items": {
+        "$ref": "#/$defs/FrozenDocumentV3"
+      },
+      "title": "Documents",
+      "type": "array"
+    },
+    "model_policy": {
+      "$ref": "#/$defs/FrozenModelPolicyV3"
+    },
+    "resolved_at": {
+      "format": "date-time",
+      "title": "Resolved At",
+      "type": "string"
+    },
+    "resolved_for_agent_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+      "title": "Resolved For Agent Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "research-control-snapshot-v3",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "catalog_id",
+    "catalog_hash",
+    "resolved_for_agent_id",
+    "resolved_at",
+    "model_policy",
+    "actors",
+    "documents"
+  ],
+  "title": "ResearchControlSnapshotV3",
+  "type": "object"
+}

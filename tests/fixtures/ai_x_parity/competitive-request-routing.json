@@ -1,0 +1,182 @@
+{
+  "cases": [
+    {
+      "case_id": "explicit-competitive",
+      "normalized_request": {
+        "content": "Compare Product Alpha and Product Beta.",
+        "explicit_skill_name": "competitive-analysis",
+        "mode": "preview"
+      },
+      "source_observation": {
+        "permitted_task_type": "competitive_research",
+        "route": "current-control-workflow",
+        "task_type_authority": "Requirement planner"
+      },
+      "target_observation": {
+        "classifier_result": true,
+        "created_orchestration_version": "research-v2",
+        "runtime": "ResearchRuntime"
+      }
+    },
+    {
+      "case_id": "natural-competitive",
+      "normalized_request": {
+        "content": "对比 Product Alpha 和 Product Beta 的能力差异并给出建议。",
+        "explicit_skill_name": null,
+        "mode": "execute"
+      },
+      "source_observation": {
+        "permitted_task_type": "competitive_research",
+        "route": "current-control-workflow",
+        "task_type_authority": "Requirement planner"
+      },
+      "target_observation": {
+        "classifier_result": true,
+        "created_orchestration_version": "research-v2",
+        "runtime": "ResearchRuntime"
+      }
+    },
+    {
+      "case_id": "orchestration-off",
+      "normalized_request": {
+        "content": "对比 Product Alpha 和 Product Beta。",
+        "explicit_skill_name": null,
+        "mode": "off"
+      },
+      "source_observation": {
+        "mode_equivalent": "none_in_source_control_contract",
+        "route": "current-control-workflow"
+      },
+      "target_observation": {
+        "classifier_evaluated_for_new_research_run": false,
+        "created_orchestration_version": "v1",
+        "runtime": "v1 AgentRuntime"
+      }
+    },
+    {
+      "case_id": "non-competitive-research",
+      "normalized_request": {
+        "content": "规划一次新用户访谈研究。",
+        "explicit_skill_name": null,
+        "mode": "execute"
+      },
+      "source_observation": {
+        "permitted_task_type": "user_research_planning",
+        "route": "current-control-workflow"
+      },
+      "target_observation": {
+        "classifier_result": false,
+        "created_orchestration_version": "v1",
+        "runtime": "v1 AgentRuntime"
+      }
+    },
+    {
+      "case_id": "explicit-other-skill",
+      "normalized_request": {
+        "content": "Run the selected non-competitive Skill.",
+        "explicit_skill_name": "other-existing-skill",
+        "mode": "execute"
+      },
+      "source_observation": {
+        "direct_skill_affects_planning_not_workflow_generation": true,
+        "route": "current-control-workflow"
+      },
+      "target_observation": {
+        "classifier_result": false,
+        "created_orchestration_version": "v1",
+        "missing_skill_behavior": {
+          "http_status": 404
+        }
+      }
+    },
+    {
+      "case_id": "excluded-audit-intent",
+      "normalized_request": {
+        "content": "用尼尔森启发式分析 Product Alpha 的可用性问题。",
+        "explicit_skill_name": null,
+        "mode": "execute"
+      },
+      "source_observation": {
+        "permitted_task_type": "design_audit",
+        "route": "current-control-workflow"
+      },
+      "target_observation": {
+        "classifier_result": false,
+        "created_orchestration_version": "v1"
+      }
+    },
+    {
+      "case_id": "target-client-turn-replay",
+      "normalized_request": {
+        "content": "Matching replay of an original request.",
+        "existing_version": "research-v2",
+        "mode_after_original_creation": "off"
+      },
+      "source_observation": {
+        "command_idempotency": "present_after_task_creation",
+        "equivalent_initial_request_receipt": "absent"
+      },
+      "target_observation": {
+        "created_orchestration_version": "research-v2",
+        "result": "return_original_run_before_live_routing",
+        "version_is_immutable": true
+      }
+    }
+  ],
+  "fixture_id": "competitive-request-routing-v1",
+  "fixture_version": "ai-x-agentmesh-gate0-characterization-v1",
+  "normalization_profile": "gate0-semantic-normalization-v1",
+  "purpose": "Characterize source entry routing and AgentMesh v1/research-v2 routing without invoking a Provider.",
+  "semantic_differences": [
+    "The source has one current control workflow for five task types; the target has a competitive-only research-v2 branch and otherwise creates v1.",
+    "The source task type is a Requirement-planning result; target competitive routing is deterministic before Requirement planning.",
+    "AgentMesh off has no source equivalent and routes new requests to v1.",
+    "Only AgentMesh has a client_turn_id replay contract that returns the original persisted orchestration version before rerouting."
+  ],
+  "source_contract": {
+    "agentmesh_orchestration_version": "not_applicable",
+    "entrypoint": "POST /api/control-tasks/plan",
+    "request_fields": [
+      "conversationId?",
+      "originalInput"
+    ],
+    "request_forbidden_structured_authority": [
+      "plan",
+      "planHash",
+      "structuredTask"
+    ],
+    "response_kinds": [
+      "clarification_required",
+      "current"
+    ],
+    "routing_authority": "server Requirement planner assigns ResearchTaskV2.task_type",
+    "supported_task_types": [
+      "a11y_audit",
+      "competitive_research",
+      "design_audit",
+      "user_research_planning",
+      "voc_diagnosis"
+    ]
+  },
+  "source_ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+  "target_contract": {
+    "client_turn_replay_precedes_routing": true,
+    "entrypoint": "POST /api/agent/runs",
+    "explicit_competitive_skill": "competitive-analysis",
+    "mode_values": [
+      "execute",
+      "off",
+      "preview"
+    ],
+    "persisted_versions": [
+      "research-v2",
+      "v1"
+    ],
+    "research_runtime_missing_when_eligible": {
+      "http_status": 503,
+      "result": "fail_closed"
+    },
+    "routing_authority": "server exact explicit-skill check or deterministic competitive-request predicate"
+  },
+  "target_ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3"
+}

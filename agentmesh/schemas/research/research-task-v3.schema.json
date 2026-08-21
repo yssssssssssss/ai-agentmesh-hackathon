@@ -1,0 +1,326 @@
+{
+  "$defs": {
+    "BlockingIssueV3": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 1000,
+          "pattern": "\\S",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "reason",
+        "kind"
+      ],
+      "title": "BlockingIssueV3",
+      "type": "object"
+    },
+    "ClarificationQuestionV3": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Key",
+          "type": "string"
+        },
+        "question": {
+          "maxLength": 500,
+          "pattern": "\\S",
+          "title": "Question",
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 1000,
+          "pattern": "\\S",
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "question",
+        "rationale"
+      ],
+      "title": "ClarificationQuestionV3",
+      "type": "object"
+    },
+    "ResearchAmbiguityV3": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking": {
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 1000,
+          "pattern": "\\S",
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "statement",
+        "blocking"
+      ],
+      "title": "ResearchAmbiguityV3",
+      "type": "object"
+    },
+    "ResearchAssumptionV3": {
+      "additionalProperties": false,
+      "properties": {
+        "editable": {
+          "title": "Editable",
+          "type": "boolean"
+        },
+        "key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 2000,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "editable"
+      ],
+      "title": "ResearchAssumptionV3",
+      "type": "object"
+    },
+    "ResearchConstraintV3": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "user",
+            "policy"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 1000,
+          "pattern": "\\S",
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "statement",
+        "source"
+      ],
+      "title": "ResearchConstraintV3",
+      "type": "object"
+    },
+    "SuccessCriterionV3": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 1000,
+          "pattern": "\\S",
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "statement"
+      ],
+      "title": "SuccessCriterionV3",
+      "type": "object"
+    }
+  },
+  "$id": "research-task-v3",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "ambiguities": {
+      "items": {
+        "$ref": "#/$defs/ResearchAmbiguityV3"
+      },
+      "maxItems": 10,
+      "title": "Ambiguities",
+      "type": "array"
+    },
+    "assumptions": {
+      "items": {
+        "$ref": "#/$defs/ResearchAssumptionV3"
+      },
+      "maxItems": 20,
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "blocking_issues": {
+      "items": {
+        "$ref": "#/$defs/BlockingIssueV3"
+      },
+      "maxItems": 10,
+      "title": "Blocking Issues",
+      "type": "array"
+    },
+    "business_domain": {
+      "maxLength": 240,
+      "pattern": "\\S",
+      "title": "Business Domain",
+      "type": "string"
+    },
+    "clarification_questions": {
+      "items": {
+        "$ref": "#/$defs/ClarificationQuestionV3"
+      },
+      "maxItems": 3,
+      "title": "Clarification Questions",
+      "type": "array"
+    },
+    "comparison_dimensions": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 120,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 2,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comparison Dimensions",
+      "uniqueItems": true
+    },
+    "constraints": {
+      "items": {
+        "$ref": "#/$defs/ResearchConstraintV3"
+      },
+      "maxItems": 20,
+      "title": "Constraints",
+      "type": "array"
+    },
+    "expected_deliverables": {
+      "items": {
+        "const": "competitive_analysis_report",
+        "type": "string"
+      },
+      "maxItems": 1,
+      "minItems": 1,
+      "title": "Expected Deliverables",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "pii_detected": {
+      "title": "Pii Detected",
+      "type": "boolean"
+    },
+    "research_goal": {
+      "maxLength": 4000,
+      "pattern": "\\S",
+      "title": "Research Goal",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "research-task-v3",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scope": {
+      "items": {
+        "maxLength": 1000,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Scope",
+      "type": "array"
+    },
+    "sensitivity": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential"
+      ],
+      "title": "Sensitivity",
+      "type": "string"
+    },
+    "success_criteria": {
+      "items": {
+        "$ref": "#/$defs/SuccessCriterionV3"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Success Criteria",
+      "type": "array"
+    },
+    "target_audience": {
+      "items": {
+        "maxLength": 240,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Target Audience",
+      "type": "array"
+    },
+    "task_type": {
+      "const": "competitive_research",
+      "title": "Task Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "task_type",
+    "business_domain",
+    "research_goal",
+    "target_audience",
+    "scope",
+    "constraints",
+    "success_criteria",
+    "expected_deliverables",
+    "assumptions",
+    "ambiguities",
+    "clarification_questions",
+    "blocking_issues",
+    "sensitivity",
+    "pii_detected"
+  ],
+  "title": "ResearchTaskV3",
+  "type": "object"
+}

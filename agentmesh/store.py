@@ -96,6 +96,13 @@ from agentmesh.research_orchestration.contracts import (
     canonical_json_bytes,
     canonical_sha256,
 )
+from agentmesh.research_orchestration.current import (
+    RESEARCH_WRITER_CONTROL_KEY,
+    RESEARCH_WRITER_CONTROL_SEED_HASH,
+    ResearchVersionInitializer,
+    ResearchWriterControlV1,
+    ResearchWriterGeneration,
+)
 from agentmesh.vector_index import VectorIndex, VectorState, VectorStatus, VectorWork
 
 if TYPE_CHECKING:
@@ -323,7 +330,9 @@ class SQLiteStore:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         self._ensure_schema(connection)
+        connection.commit()
         return connection
 
     def _init_schema(self) -> None:
@@ -448,6 +457,44 @@ class SQLiteStore:
                 run_id TEXT NOT NULL UNIQUE,
                 PRIMARY KEY(user_id, client_turn_id)
             )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_writer_control (
+                control_key TEXT PRIMARY KEY CHECK(control_key = 'global'),
+                active_generation TEXT NOT NULL
+                    CHECK(active_generation IN ('research-v2', 'research-v3')),
+                generation_epoch INTEGER NOT NULL CHECK(generation_epoch >= 1),
+                decision_receipt_hash TEXT NOT NULL CHECK(length(decision_receipt_hash) = 64),
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO research_writer_control(
+                control_key, active_generation, generation_epoch,
+                decision_receipt_hash, updated_at
+            ) VALUES (?, 'research-v2', 1, ?, ?)
+            """,
+            (
+                RESEARCH_WRITER_CONTROL_KEY,
+                RESEARCH_WRITER_CONTROL_SEED_HASH,
+                now_utc().isoformat(),
+            ),
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS research_writer_generation_fence
+            BEFORE INSERT ON agent_runs
+            WHEN NEW.orchestration_version IN ('research-v2', 'research-v3')
+              AND NEW.orchestration_version <> (
+                  SELECT active_generation FROM research_writer_control WHERE control_key = 'global'
+              )
+            BEGIN
+                SELECT RAISE(ABORT, 'research writer generation fenced');
+            END
             """
         )
         connection.execute(
@@ -747,6 +794,11 @@ class SQLiteStore:
             )
             """
         )
+        from agentmesh.research_orchestration.v3.sqlite_repository import (
+            SQLiteResearchV3Repository,
+        )
+
+        SQLiteResearchV3Repository.initialize_schema_in_connection(connection)
         VectorIndex.ensure_schema(connection)
 
     def reset(self) -> None:
@@ -758,6 +810,23 @@ class SQLiteStore:
             connection.execute("DELETE FROM agent_run_events")
             connection.execute("DELETE FROM agent_run_receipts")
             connection.execute("DELETE FROM research_model_call_receipts")
+            connection.execute("DELETE FROM research_v3_verified_artifacts")
+            connection.execute("DELETE FROM research_v3_invocations")
+            connection.execute("DELETE FROM research_v3_attempts")
+            connection.execute("DELETE FROM research_v3_command_receipts")
+            connection.execute("DELETE FROM research_v3_records")
+            connection.execute("DELETE FROM research_v3_runs")
+            connection.execute(
+                """UPDATE research_writer_control
+                SET active_generation = 'research-v2', generation_epoch = 1,
+                    decision_receipt_hash = ?, updated_at = ?
+                WHERE control_key = ?""",
+                (
+                    RESEARCH_WRITER_CONTROL_SEED_HASH,
+                    now_utc().isoformat(),
+                    RESEARCH_WRITER_CONTROL_KEY,
+                ),
+            )
             connection.execute("DELETE FROM research_tool_invocations")
             connection.execute("DELETE FROM research_steps")
             connection.execute("DELETE FROM research_attempts")
@@ -1920,6 +1989,31 @@ class SQLiteStore:
                             },
                         )
                     )
+        elif run.orchestration_version == "research-v3":
+            preview_row = connection.execute(
+                """SELECT state_version, preview_status FROM research_v3_runs
+                WHERE run_id = ? AND tombstoned_at IS NULL""",
+                (run.id,),
+            ).fetchone()
+            if preview_row is not None and preview_row["preview_status"] == "active":
+                cursor = connection.execute(
+                    """UPDATE research_v3_runs
+                    SET preview_status = 'cancelled', state_version = state_version + 1
+                    WHERE run_id = ? AND state_version = ?
+                      AND preview_status = 'active' AND tombstoned_at IS NULL""",
+                    (run.id, preview_row["state_version"]),
+                )
+                if cursor.rowcount != 1:
+                    raise ResearchStoreConflict("research-v3 preview cancellation conflict")
+                events.append(
+                    (
+                        "research_updated",
+                        {
+                            "state_version": preview_row["state_version"] + 1,
+                            "preview_status": "cancelled",
+                        },
+                    )
+                )
         run.status = AgentRunStatus.CANCELLED
         run.paused_state = None
         run.error_code = None
@@ -2535,83 +2629,214 @@ class SQLiteStore:
             )
         return run.tool_call_count
 
+    @staticmethod
+    def _research_writer_control_from_row(row: sqlite3.Row | None) -> ResearchWriterControlV1:
+        if row is None:
+            raise ResearchStoreConflict("research writer control row is missing")
+        try:
+            return ResearchWriterControlV1(
+                control_key=row["control_key"],
+                active_generation=row["active_generation"],
+                generation_epoch=row["generation_epoch"],
+                decision_receipt_hash=row["decision_receipt_hash"],
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+        except (TypeError, ValueError):
+            raise ResearchStoreConflict("research writer control row failed integrity validation") from None
+
+    @classmethod
+    def _read_research_writer_control(cls, connection: sqlite3.Connection) -> ResearchWriterControlV1:
+        row = connection.execute(
+            "SELECT * FROM research_writer_control WHERE control_key = ?",
+            (RESEARCH_WRITER_CONTROL_KEY,),
+        ).fetchone()
+        return cls._research_writer_control_from_row(row)
+
+    def get_research_writer_control(self) -> ResearchWriterControlV1:
+        with self._connect() as connection:
+            return self._read_research_writer_control(connection)
+
+    def compare_and_swap_research_writer_control(
+        self,
+        *,
+        expected_generation: ResearchWriterGeneration,
+        expected_generation_epoch: int,
+        target_generation: ResearchWriterGeneration,
+        decision_receipt_hash: str,
+        changed_at: datetime | None = None,
+    ) -> ResearchWriterControlV1:
+        """Advance the global generation once; production exposes no caller for this in Gate 2."""
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = self._read_research_writer_control(connection)
+            if (
+                current.active_generation != expected_generation
+                or current.generation_epoch != expected_generation_epoch
+            ):
+                raise ResearchStoreConflict("research writer generation compare-and-swap conflict")
+            if current.active_generation == ResearchWriterGeneration.V3:
+                raise ResearchStoreConflict("research-v3 writer generation cannot roll back to research-v2")
+            if target_generation != ResearchWriterGeneration.V3:
+                raise ResearchStoreConflict("research writer generation may advance only from v2 to v3")
+            updated = ResearchWriterControlV1(
+                active_generation=target_generation,
+                generation_epoch=current.generation_epoch + 1,
+                decision_receipt_hash=decision_receipt_hash,
+                updated_at=changed_at or now_utc(),
+            )
+            cursor = connection.execute(
+                """
+                UPDATE research_writer_control
+                SET active_generation = ?, generation_epoch = ?,
+                    decision_receipt_hash = ?, updated_at = ?
+                WHERE control_key = ? AND active_generation = ? AND generation_epoch = ?
+                """,
+                (
+                    updated.active_generation.value,
+                    updated.generation_epoch,
+                    updated.decision_receipt_hash,
+                    updated.updated_at.isoformat(),
+                    RESEARCH_WRITER_CONTROL_KEY,
+                    current.active_generation.value,
+                    current.generation_epoch,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ResearchStoreConflict("research writer generation compare-and-swap conflict")
+        return updated
+
+    @staticmethod
+    def _replay_agent_run_claim(connection: sqlite3.Connection, run: AgentRun) -> AgentRun | None:
+        if not run.client_turn_id:
+            return None
+        receipt = connection.execute(
+            "SELECT run_id FROM agent_run_receipts WHERE user_id = ? AND client_turn_id = ?",
+            (run.user_id, run.client_turn_id),
+        ).fetchone()
+        if receipt is None:
+            return None
+        row = connection.execute(
+            "SELECT payload FROM agent_runs WHERE id = ?",
+            (receipt["run_id"],),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Agent run receipt points to a missing run")
+        existing = AgentRun.model_validate_json(row["payload"])
+        mode_conflict = (
+            existing.requested_orchestration_mode is not None
+            and run.requested_orchestration_mode is not None
+            and existing.requested_orchestration_mode != run.requested_orchestration_mode
+        )
+        if (
+            existing.input_text != run.input_text
+            or existing.thread_id != run.thread_id
+            or existing.workspace_id != run.workspace_id
+            or existing.project_id != run.project_id
+            or existing.skill_id != run.skill_id
+            or existing.skill_name != run.skill_name
+            or mode_conflict
+        ):
+            raise RuntimeError("client_turn_id was already used for another Agent run")
+        return existing
+
+    def _require_agent_run_thread_available(
+        self,
+        connection: sqlite3.Connection,
+        run: AgentRun,
+    ) -> None:
+        active_rows = connection.execute(
+            """
+            SELECT payload FROM agent_runs
+            WHERE json_extract(payload, '$.user_id') = ?
+              AND json_extract(payload, '$.thread_id') = ?
+              AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?)
+            """,
+            (
+                run.user_id,
+                run.thread_id,
+                AgentRunStatus.CREATED.value,
+                AgentRunStatus.PLANNING.value,
+                AgentRunStatus.RUNNING.value,
+                AgentRunStatus.WAITING_PLAN_APPROVAL.value,
+                AgentRunStatus.WAITING_APPROVAL.value,
+            ),
+        ).fetchall()
+        checked_at = now_utc()
+        for active_row in active_rows:
+            active = AgentRun.model_validate_json(active_row["payload"])
+            if (
+                active.status == AgentRunStatus.WAITING_PLAN_APPROVAL
+                and active.deadline_at is not None
+                and checked_at >= active.deadline_at
+            ):
+                self._cancel_agent_run_tree_in_transaction(
+                    connection,
+                    active,
+                    reason="plan_approval_expired",
+                )
+                continue
+            if self._waiting_approval_expired(connection, active, checked_at=checked_at):
+                self._cancel_agent_run_tree_in_transaction(
+                    connection,
+                    active,
+                    reason="approval_expired",
+                )
+                continue
+            raise RuntimeError("Another Agent run is already active for this thread")
+
+    @staticmethod
+    def _insert_agent_run_claim(connection: sqlite3.Connection, run: AgentRun) -> None:
+        connection.execute(
+            "INSERT INTO agent_runs(id, payload, updated_at, orchestration_version) VALUES (?, ?, ?, ?)",
+            (run.id, run.model_dump_json(), run.updated_at.isoformat(), run.orchestration_version),
+        )
+        if run.client_turn_id:
+            connection.execute(
+                "INSERT INTO agent_run_receipts(user_id, client_turn_id, run_id) VALUES (?, ?, ?)",
+                (run.user_id, run.client_turn_id, run.id),
+            )
+
     def claim_new_agent_run(self, run: AgentRun) -> tuple[AgentRun, bool]:
         if not run.client_turn_id:
             return self.save_agent_run(run), True
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            receipt = connection.execute(
-                "SELECT run_id FROM agent_run_receipts WHERE user_id = ? AND client_turn_id = ?",
-                (run.user_id, run.client_turn_id),
-            ).fetchone()
-            if receipt is not None:
-                row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (receipt["run_id"],)).fetchone()
-                if row is None:
-                    raise RuntimeError("Agent run receipt points to a missing run")
-                existing = AgentRun.model_validate_json(row["payload"])
-                mode_conflict = (
-                    existing.requested_orchestration_mode is not None
-                    and run.requested_orchestration_mode is not None
-                    and existing.requested_orchestration_mode != run.requested_orchestration_mode
-                )
-                if (
-                    existing.input_text != run.input_text
-                    or existing.thread_id != run.thread_id
-                    or existing.workspace_id != run.workspace_id
-                    or existing.project_id != run.project_id
-                    or existing.skill_id != run.skill_id
-                    or existing.skill_name != run.skill_name
-                    or mode_conflict
-                ):
-                    raise RuntimeError("client_turn_id was already used for another Agent run")
+            existing = self._replay_agent_run_claim(connection, run)
+            if existing is not None:
                 return existing, False
-            active_rows = connection.execute(
-                """
-                SELECT payload FROM agent_runs
-                WHERE json_extract(payload, '$.user_id') = ?
-                  AND json_extract(payload, '$.thread_id') = ?
-                  AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?)
-                """,
-                (
-                    run.user_id,
-                    run.thread_id,
-                    AgentRunStatus.CREATED.value,
-                    AgentRunStatus.PLANNING.value,
-                    AgentRunStatus.RUNNING.value,
-                    AgentRunStatus.WAITING_PLAN_APPROVAL.value,
-                    AgentRunStatus.WAITING_APPROVAL.value,
-                ),
-            ).fetchall()
-            checked_at = now_utc()
-            for active_row in active_rows:
-                active = AgentRun.model_validate_json(active_row["payload"])
-                if (
-                    active.status == AgentRunStatus.WAITING_PLAN_APPROVAL
-                    and active.deadline_at is not None
-                    and checked_at >= active.deadline_at
-                ):
-                    self._cancel_agent_run_tree_in_transaction(
-                        connection,
-                        active,
-                        reason="plan_approval_expired",
-                    )
-                    continue
-                if self._waiting_approval_expired(connection, active, checked_at=checked_at):
-                    self._cancel_agent_run_tree_in_transaction(
-                        connection,
-                        active,
-                        reason="approval_expired",
-                    )
-                    continue
-                raise RuntimeError("Another Agent run is already active for this thread")
-            connection.execute(
-                "INSERT INTO agent_runs(id, payload, updated_at, orchestration_version) VALUES (?, ?, ?, ?)",
-                (run.id, run.model_dump_json(), run.updated_at.isoformat(), run.orchestration_version),
-            )
-            connection.execute(
-                "INSERT INTO agent_run_receipts(user_id, client_turn_id, run_id) VALUES (?, ?, ?)",
-                (run.user_id, run.client_turn_id, run.id),
-            )
+            self._require_agent_run_thread_available(connection, run)
+            self._insert_agent_run_claim(connection, run)
+        return run, True
+
+    def claim_research_agent_run(
+        self,
+        run: AgentRun,
+        *,
+        expected_generation: ResearchWriterGeneration,
+        expected_generation_epoch: int,
+        initialize_version_state: ResearchVersionInitializer,
+    ) -> tuple[AgentRun, bool]:
+        """Claim a versioned research Run and its first version state in one transaction."""
+
+        if not run.client_turn_id:
+            raise ValueError("versioned research Run creation requires client_turn_id")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = self._replay_agent_run_claim(connection, run)
+            if existing is not None:
+                return existing, False
+            control = self._read_research_writer_control(connection)
+            if (
+                control.active_generation != expected_generation
+                or control.generation_epoch != expected_generation_epoch
+                or run.orchestration_version != expected_generation.value
+                or run.writer_generation_epoch != expected_generation_epoch
+            ):
+                raise ResearchStoreConflict("research writer generation changed before Run creation")
+            self._require_agent_run_thread_available(connection, run)
+            self._insert_agent_run_claim(connection, run)
+            initialize_version_state(connection, run)
         return run, True
 
     def get_agent_run_by_client_turn(self, user_id: str, client_turn_id: str) -> AgentRun | None:
@@ -2795,7 +3020,7 @@ class SQLiteStore:
             row = connection.execute(
                 """
                 SELECT payload FROM agent_runs
-                WHERE orchestration_version = 'research-v2'
+                WHERE orchestration_version IN ('research-v2', 'research-v3')
                   AND json_extract(payload, '$.thread_id') = ?
                   AND json_extract(payload, '$.user_id') = ?
                 ORDER BY updated_at DESC, id DESC
@@ -2999,6 +3224,7 @@ class SQLiteStore:
             "skill_name",
             "orchestration_version",
             "orchestration_mode",
+            "writer_generation_epoch",
             "requested_orchestration_mode",
             "agent_definition_version",
             "project_chat",
@@ -3332,6 +3558,26 @@ class SQLiteStore:
             raise ResearchStoreConflict("new research workflows must start at state_version 1")
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if run.client_turn_id is not None:
+                receipt = connection.execute(
+                    """SELECT run_id FROM agent_run_receipts
+                    WHERE user_id = ? AND client_turn_id = ?""",
+                    (run.user_id, run.client_turn_id),
+                ).fetchone()
+                if receipt is not None:
+                    context = self._load_research_workflow_context(
+                        connection,
+                        receipt["run_id"],
+                    )
+                    replay_request = run.model_copy(update={"id": receipt["run_id"]})
+                    if context is None or not self._research_run_identity_matches(
+                        context.run,
+                        replay_request,
+                    ):
+                        raise ResearchStoreConflict(
+                            "research workflow identity conflicts with an existing receipt"
+                        )
+                    return context
             run_row = connection.execute("SELECT * FROM agent_runs WHERE id = ?", (run.id,)).fetchone()
             workflow_row = connection.execute(
                 "SELECT 1 FROM research_workflows WHERE run_id = ?",
@@ -3343,6 +3589,12 @@ class SQLiteStore:
                     raise ResearchStoreConflict("research workflow identity conflicts with an existing run")
                 return context
 
+            writer_control = self._read_research_writer_control(connection)
+            if writer_control.active_generation != ResearchWriterGeneration.V2 or (
+                run.writer_generation_epoch is not None
+                and run.writer_generation_epoch != writer_control.generation_epoch
+            ):
+                raise ResearchStoreConflict("research-v2 writer generation is fenced")
             effective_workflow = workflow.model_copy(
                 update={"created_at": workflow.created_at, "updated_at": workflow.updated_at}
             )

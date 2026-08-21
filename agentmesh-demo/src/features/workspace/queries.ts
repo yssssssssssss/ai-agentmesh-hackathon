@@ -493,7 +493,7 @@ export async function invalidateAgentRunEvent(
   eventType: string,
   refreshBootstrap: () => Promise<void>,
 ) {
-  if (run.orchestration_version === 'research-v2') {
+  if (run.orchestration_version === 'research-v2' || run.orchestration_version === 'research-v3') {
     const work = [
       queryClient.invalidateQueries({ queryKey: workspaceKeys.research(scope, run.id), exact: true }),
       queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, run.id), exact: true }),
@@ -549,7 +549,7 @@ export function useAgentRunEventSubscription(
         void invalidateAgentRunEvent(queryClient, scope, target, event.event_type, refreshBootstrap)
       },
       onError: () => {
-        const queryKey = orchestrationVersion === 'research-v2'
+        const queryKey = orchestrationVersion === 'research-v2' || orchestrationVersion === 'research-v3'
           ? workspaceKeys.research(scope, runId)
           : workspaceKeys.run(scope, runId)
         void queryClient.invalidateQueries({ queryKey, exact: true })

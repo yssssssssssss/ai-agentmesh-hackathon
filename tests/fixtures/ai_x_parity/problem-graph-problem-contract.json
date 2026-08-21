@@ -1,0 +1,182 @@
+{
+  "evidence_class_vocabularies": {
+    "source": [
+      "dataset",
+      "derived",
+      "knowledge",
+      "public_source",
+      "screenshot",
+      "simulation",
+      "user_input"
+    ],
+    "target": [
+      "document",
+      "internal",
+      "page_observation",
+      "provider_summary"
+    ]
+  },
+  "field_mapping": [
+    {
+      "mapping": "different persisted identity",
+      "source": "version",
+      "target": "schema_version"
+    },
+    {
+      "mapping": "target graph-wide criterion universe",
+      "source": null,
+      "target": "success_criterion_ids"
+    },
+    {
+      "mapping": "required=>true; optional=>false",
+      "source": "questions[].priority",
+      "target": "questions[].required"
+    },
+    {
+      "mapping": "must be derived explicitly",
+      "source": null,
+      "target": "questions[].factual"
+    },
+    {
+      "mapping": "many-to-zero-or-one; lossy",
+      "source": "questions[].evidence_requirements[]",
+      "target": "questions[].evidence_requirement"
+    },
+    {
+      "mapping": "vocabulary translation; lossy",
+      "source": "acceptedClasses",
+      "target": "evidence_class"
+    },
+    {
+      "mapping": "numeric rename",
+      "source": "minimumCount",
+      "target": "minimum_sources"
+    },
+    {
+      "mapping": "policy-derived",
+      "source": "required + Evidence Policy",
+      "target": "independent_sources"
+    },
+    {
+      "mapping": "no inline target field",
+      "source": "problem_graph_provenance",
+      "target": "external receipts/snapshots"
+    }
+  ],
+  "fixture_id": "problem-graph-problem-contract-mapping-v1",
+  "fixture_version": "ai-x-agentmesh-gate0-characterization-v1",
+  "graph_invariants": {
+    "source": [
+      "Unique IDs and acyclic dependencies.",
+      "Required criteria and Evidence Policy requirements are covered by required questions.",
+      "A question may carry multiple EvidenceRequirements."
+    ],
+    "target": [
+      "Unique IDs and acyclic dependencies.",
+      "Required questions cover all contract success criteria.",
+      "Every required factual question has exactly one EvidenceRequirement."
+    ]
+  },
+  "normalization_profile": "gate0-semantic-normalization-v1",
+  "schema_ids": {
+    "source": "problem-graph-v1",
+    "target": "problem-contract-v1"
+  },
+  "semantic_differences": [
+    "No lossless Evidence class mapping.",
+    "Source supports multiple requirement IDs/classes per question; target supports one without an ID.",
+    "Target factual is explicit; source factuality must be inferred.",
+    "Source persists ProblemGraph provenance; target ProblemContract has no inline equivalent."
+  ],
+  "source_normalized_example": {
+    "questions": [
+      {
+        "acceptance_criteria": [
+          "Every material fact cites accepted evidence."
+        ],
+        "depends_on": [],
+        "evidence_requirements": [
+          {
+            "acceptedClasses": [
+              "public_source",
+              "screenshot"
+            ],
+            "id": "evidence_public_comparison",
+            "minimumCount": 2,
+            "required": true
+          }
+        ],
+        "id": "q_capabilities",
+        "priority": "required",
+        "rationale": "Establish a traceable factual baseline.",
+        "statement": "What material capability differences are observable?",
+        "success_criterion_ids": [
+          "criterion_traceable"
+        ]
+      },
+      {
+        "acceptance_criteria": [
+          "Recommendation cites supporting findings."
+        ],
+        "depends_on": [
+          "q_capabilities"
+        ],
+        "evidence_requirements": [],
+        "id": "q_recommendation",
+        "priority": "optional",
+        "rationale": "Turn findings into a decision.",
+        "statement": "What adoption recommendation follows?",
+        "success_criterion_ids": [
+          "criterion_traceable"
+        ]
+      }
+    ],
+    "version": "problem-graph-v1"
+  },
+  "source_ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+  "target_normalized_example": {
+    "questions": [
+      {
+        "acceptance_criteria": [
+          "Every material fact cites verified evidence."
+        ],
+        "depends_on": [],
+        "evidence_requirement": {
+          "evidence_class": "provider_summary",
+          "independent_sources": true,
+          "minimum_sources": 2
+        },
+        "factual": true,
+        "id": "q_capabilities",
+        "rationale": "Establish a traceable factual baseline.",
+        "required": true,
+        "statement": "What material capability differences are observable?",
+        "success_criterion_ids": [
+          "sc_traceable"
+        ]
+      },
+      {
+        "acceptance_criteria": [
+          "Recommendation cites parent claims."
+        ],
+        "depends_on": [
+          "q_capabilities"
+        ],
+        "evidence_requirement": null,
+        "factual": false,
+        "id": "q_recommendation",
+        "rationale": "Turn findings into a decision.",
+        "required": false,
+        "statement": "What adoption recommendation follows?",
+        "success_criterion_ids": [
+          "sc_traceable"
+        ]
+      }
+    ],
+    "schema_version": "problem-contract-v1",
+    "success_criterion_ids": [
+      "sc_traceable"
+    ]
+  },
+  "target_ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3"
+}

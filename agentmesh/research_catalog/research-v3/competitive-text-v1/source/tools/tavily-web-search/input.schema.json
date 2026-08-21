@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "tavily-web-search/input.schema.json",
+  "title": "TavilyWebSearchInput",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["query"],
+  "properties": {
+    "query": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      ],
+      "description": "单个检索词，或需要公平覆盖多个明确目标时使用的检索词数组；数组结果会轮询合并"
+    },
+    "max_results": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 5,
+      "description": "单查询或多查询合并后的结果总上限"
+    },
+    "search_depth": { "type": "string", "enum": ["basic", "advanced", "fast", "ultra-fast"], "default": "basic" },
+    "topic": { "type": "string", "enum": ["general", "news", "finance"], "default": "general" },
+    "time_range": { "type": "string", "enum": ["day", "week", "month", "year", "d", "w", "m", "y"] },
+    "include_answer": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "string", "enum": ["basic", "advanced"] }
+      ],
+      "default": false
+    }
+  }
+}

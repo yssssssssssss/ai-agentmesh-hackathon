@@ -1,0 +1,75 @@
+{
+  "attestation": {
+    "approved_for_scope": "Gate 0 and isolated Slice 1 development only",
+    "basis": "authenticated user instruction plus immutable source-tree records",
+    "signed_by_handle": "@heyunshen"
+  },
+  "bundle": {
+    "bytes": 14103048,
+    "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
+    "sha256": "59169aa27438d973e2344670c7e995c937cefa68a90da5b7eddbc3eb7deb6075"
+  },
+  "bundle_scope": {
+    "complete_history": false,
+    "content_scope": "exact_reviewed_tree_snapshot_export",
+    "snapshot_commit": "adf97f60f46ecceae5a2bc7f3d8c232484c334bd",
+    "snapshot_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
+    "source_origin_commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+    "source_origin_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
+  },
+  "inherited_checks": [
+    {
+      "argv": [
+        "pnpm",
+        "quality"
+      ],
+      "evidence_blob_sha256": "4c957bd05e71d31244e2d7a7d8c649cdd4116c981096ed69534a7e655daae38f",
+      "evidence_path": "docs/plans/2026-08-20-zero-report-publication-todolist.md",
+      "result": {
+        "failed": 0,
+        "passed": 1443,
+        "skipped": 12,
+        "status": "passed",
+        "total": 1455
+      }
+    },
+    {
+      "argv": [
+        "pnpm",
+        "--dir",
+        "apps/web",
+        "build"
+      ],
+      "evidence_blob_sha256": "4c957bd05e71d31244e2d7a7d8c649cdd4116c981096ed69534a7e655daae38f",
+      "evidence_path": "docs/plans/2026-08-20-zero-report-publication-todolist.md",
+      "result": {
+        "status": "passed"
+      }
+    }
+  ],
+  "limitations": [
+    "These are inherited parent-lineage records, not commands rerun by the Gate 0 writer.",
+    "No real Provider smoke or browser release validation is claimed.",
+    "Post-freeze checks are limited to bundle materialization, sanitization, hash, manifest, and portability checks."
+  ],
+  "package_contract": {
+    "node": ">=22",
+    "package_json_sha256": "456340a881ad0a9b9c418c0c2941fa24a99b1a0a8e6bfd98173c878c48f1581c",
+    "pnpm": "9.12.1"
+  },
+  "post_freeze_scan": {
+    "prohibited_findings": 0,
+    "scope": "Every tracked leaf/blob in the restored parity ref; raw byte patterns were applied to binary and text blobs. Text extracted from all tracked PDFs was scanned additionally.",
+    "verdict": "PASS"
+  },
+  "provider_calls": 0,
+  "release_browser_validation_performed": false,
+  "schema_version": "ai-x-inherited-source-quality-v1",
+  "source": {
+    "approved_content_commit": "3a5fafe18a13714186150489c8434f7c5a58c887",
+    "commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+    "repository": "https://github.com/yssssssssssss/ai-x.git",
+    "tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
+  },
+  "user_data_accessed": false
+}

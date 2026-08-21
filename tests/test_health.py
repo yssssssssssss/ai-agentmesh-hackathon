@@ -55,10 +55,38 @@ class TestProviderHealthCheck:
         assert runtime["profile_health"] in {"ready", "degraded"}
         assert runtime["index_health"] in {"ready", "degraded"}
         assert runtime["planner_health"] in {"disabled", "ready", "degraded"}
+        assert runtime["research_writer_generation"] == "research-v2"
+        assert runtime["research_writer_generation_epoch"] == 1
+        assert runtime["research_preview_allowlist_count"] == 0
+        assert len(runtime["research_preview_allowlist_digest"]) == 64
         metrics = runtime["orchestration_metrics"]
         assert metrics["cost"] is None
         assert "candidate_retrieval_p95_ms" in metrics
         assert "source_coverage_rate" in metrics
+
+    def test_health_reports_only_preview_allowlist_count_and_digest(
+        self,
+        auth_client: TestClient,
+    ) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST": (
+                    "user_gate2_preview_1,user_gate2_preview_2"
+                )
+            },
+        ):
+            response = auth_client.get("/api/health/providers")
+
+        runtime = next(
+            item for item in response.json()["providers"]
+            if item["name"] == "openai_agents_sdk"
+        )
+        serialized = str(runtime)
+        assert runtime["research_preview_allowlist_count"] == 2
+        assert len(runtime["research_preview_allowlist_digest"]) == 64
+        assert "user_gate2_preview_1" not in serialized
+        assert "user_gate2_preview_2" not in serialized
 
     @pytest.mark.parametrize(
         ("configured", "effective"),

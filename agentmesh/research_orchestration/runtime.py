@@ -224,6 +224,9 @@ class ResearchRuntime:
         # Slice 1 is preview-only. Keeping the persisted mode honest prevents a
         # manually forged execute command from crossing the unfinished gate.
         effective_mode = mode if self.execution_enabled else SkillOrchestrationMode.PREVIEW
+        writer_control = self.repository.get_research_writer_control()
+        if writer_control.active_generation.value != "research-v2":
+            raise RuntimeError("research-v2 is not the active research writer generation")
         run = AgentRun(
             thread_id=thread_id,
             user_id=user.id,
@@ -236,15 +239,14 @@ class ResearchRuntime:
             skill_name=explicit_name,
             orchestration_version="research-v2",
             orchestration_mode=effective_mode.value,
+            writer_generation_epoch=writer_control.generation_epoch,
             requested_orchestration_mode=requested_orchestration_mode,
             project_chat=True,
             deadline_at=now_utc() + timedelta(minutes=5),
         )
-        if not await self.workflow_service.start_if_applicable(run):
-            raise RuntimeError("Research workflow was not started")
-        stored = self.repository.get_agent_run(run.id)
+        stored = await self.workflow_service.start_if_applicable(run)
         if stored is None:
-            raise RuntimeError("Research workflow did not persist its Agent run")
+            raise RuntimeError("Research workflow was not started")
         self.repository.add_chat_message(
             ChatMessage(
                 thread_id=thread_id,

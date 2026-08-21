@@ -1,0 +1,79 @@
+{
+  "criterion_owners": {
+    "gate0-01-ownership-ledger": [
+      "AM-ARCH"
+    ],
+    "gate0-02-final-source-authority-and-durable-retention": [
+      "AX-SOURCE"
+    ],
+    "gate0-03-authoritative-parity-lock": [
+      "AX-SOURCE",
+      "AM-RELEASE-QA"
+    ],
+    "gate0-04-offline-source-quality": [
+      "AX-SOURCE",
+      "AM-RELEASE-QA"
+    ],
+    "gate0-05-visual-identity": [
+      "AX-SOURCE",
+      "AM-WEB"
+    ],
+    "gate0-06-accepted-architecture-and-exact-contracts": [
+      "AM-ARCH",
+      "AM-CONTRACTS-HISTORY"
+    ],
+    "gate0-07-target-characterization": [
+      "AM-RELEASE-QA"
+    ],
+    "gate0-08-zero-production-behavior-diff": [
+      "AM-ARCH",
+      "AM-RELEASE-QA"
+    ],
+    "gate0-09-v2-compatibility-and-slice-1-work-plan": [
+      "AM-CONTRACTS-HISTORY",
+      "AM-RUNTIME-STORE",
+      "AM-WEB",
+      "AM-SECURITY-RETENTION"
+    ],
+    "gate0-10-handoff-and-authorization": [
+      "AM-ARCH",
+      "AM-RELEASE-QA"
+    ]
+  },
+  "evidence_status": {
+    "architecture": "accepted",
+    "baseline": "passed",
+    "characterization": "passed",
+    "handoff": "accepted",
+    "owner_binding": "accepted",
+    "source_quality": "passed"
+  },
+  "final_approvals": [
+    {
+      "approved": true,
+      "criterion": "gate0-10-handoff-and-authorization",
+      "handle": "@heyunshen",
+      "method": "authenticated Gate 0 work instruction",
+      "owner_id": "AM-ARCH"
+    },
+    {
+      "approved": true,
+      "criterion": "gate0-10-handoff-and-authorization",
+      "handle": "@heyunshen",
+      "method": "authenticated Gate 0 work instruction",
+      "owner_id": "AM-RELEASE-QA"
+    }
+  ],
+  "production_cutover_authorized": false,
+  "schema_version": "agentmesh-ai-x-gate0-handoff-v1",
+  "scope": "Gate 0 and isolated Slice 1 development only",
+  "slice_1_authorization_requested": true,
+  "target_binding": {
+    "artifact_manifest": "verifier-derived exact A/M status, mode, SHA-256, bytes, and path including the lock",
+    "base_commit": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+    "base_tree": "eb39f8159afb421233b657747192447734fd8b07",
+    "clean_head_required": true,
+    "commit_and_tree": "resolved from the exact clean --target-revision after commit to avoid self-reference",
+    "repository": "https://github.com/yssssssssssss/ai-agentmesh-hackathon.git"
+  }
+}

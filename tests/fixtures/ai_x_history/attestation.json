@@ -1,0 +1,418 @@
+{
+  "attestation_version": "agentmesh-research-v2-history-gate0-v1",
+  "checks": {
+    "foreign_owner_hidden": {
+      "exception": "ResearchNotFoundError",
+      "passed": true,
+      "semantics": "not-found without projection or existence disclosure"
+    },
+    "history_projection_no_mutation_actions": {
+      "background_tasks_after": 0,
+      "background_tasks_before": 0,
+      "events_unchanged": true,
+      "forbidden_action_keys_found": [],
+      "passed": true
+    },
+    "integrity_corruption_rejected": {
+      "corruption": "agent_runs payload discriminator changed while indexed stored version remained research-v2",
+      "detail": "research Agent run failed integrity verification",
+      "exception": "ResearchConflictError",
+      "passed": true
+    },
+    "owner_read": {
+      "artifact_refs": {
+        "claim_ledger": "artifact_claims_75c3d2750ebee44c98874f8cd3cc7f2b",
+        "deliverable": "artifact_deliverable_23bfe3e3fed5c0ed03012e48a9f1ba01",
+        "evidence_manifest": "artifact_manifest_6f93dae744ab9de20487912dffb5961d",
+        "report": "artifact_report_ca784c802b99661684965a69b4887393",
+        "review": "artifact_review_9e840a4b862d15b47a7f668db8bdc988"
+      },
+      "integrity_errors": [],
+      "passed": true,
+      "projection_sha256": "7cf384115f25d64162f6bd54466e3eb6186bf0d4f3fa8ccd4b2431c5329596c4",
+      "response_discriminator": "research-v2",
+      "stored_version": "research-v2"
+    },
+    "purge_tombstones": {
+      "all_artifacts_are_valid_tombstones": true,
+      "expected_new_tombstones": 10,
+      "owner_purge_metadata_valid": true,
+      "passed": true,
+      "post_purge_history_hidden": true,
+      "preexisting_metadata_preserved": true,
+      "preexisting_tombstone_ids": [
+        "artifact_fixture_tombstone"
+      ],
+      "reported_purged_artifact_count": 10,
+      "research_rows_after_purge": {
+        "attempts": 0,
+        "invocations": 0,
+        "model_receipts": 0,
+        "plans": 0,
+        "purge_commands": 1,
+        "requirements": 0,
+        "steps": 0,
+        "workflows": 0
+      },
+      "run_input_retained": "Compare Product Alpha and Product Beta using synthetic public evidence.",
+      "run_output_cleared": true
+    },
+    "restart_read": {
+      "first_projection_sha256": "7cf384115f25d64162f6bd54466e3eb6186bf0d4f3fa8ccd4b2431c5329596c4",
+      "passed": true,
+      "restarted_projection_sha256": "7cf384115f25d64162f6bd54466e3eb6186bf0d4f3fa8ccd4b2431c5329596c4"
+    }
+  },
+  "determinism": {
+    "fixed_clock": "2026-08-20T00:00:00+00:00",
+    "independent_build_1_sha256": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a",
+    "independent_build_2_sha256": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a",
+    "passed": true,
+    "synthetic_ids": true
+  },
+  "dispatch": {
+    "current_or_latest_alias": false,
+    "shape_fallback": false,
+    "stored_identity": "research-v2",
+    "strategy": "exact stored orchestration_version lookup, then current ResearchWorkflowService v2 reader",
+    "target_base_native_multi_version_reader_registry": false
+  },
+  "execution": {
+    "external_provider_calls": 0,
+    "kind": "focused offline characterization script (not a test suite)",
+    "network_used": false,
+    "offline_model_stub_calls": 1,
+    "offline_tool_stub_calls": 1,
+    "provider_adapters_constructed": false,
+    "report_ref": "artifact_report_ca784c802b99661684965a69b4887393",
+    "terminal_status": "completed"
+  },
+  "file_hashes": {
+    "characterize_v2_history.py": "25b82df6146a81213c6b16939bc127142468c1a686ab68327a1b70111139ea1a",
+    "research-v2-history.sqlite3": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a"
+  },
+  "fixture": {
+    "bytes": 425984,
+    "inventory": {
+      "artifact_types": [
+        "claim_ledger",
+        "deliverable",
+        "evidence_manifest",
+        "evidence_source",
+        "report",
+        "review",
+        "skill_result",
+        "tool_actor_output",
+        "tool_request",
+        "tool_result",
+        "transient_fixture"
+      ],
+      "artifacts": [
+        {
+          "artifact_type": "claim_ledger",
+          "content_hash": "df16d3a745bc5b0a37195f832b5b23ba1ab97a8e6c3a2f2001708386399c3f93",
+          "id": "artifact_claims_75c3d2750ebee44c98874f8cd3cc7f2b",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "claim-ledger-v1",
+          "size_bytes": 1836,
+          "verification_state": "sealed"
+        },
+        {
+          "artifact_type": "deliverable",
+          "content_hash": "9eb1663c78f6596bfe44c225c4c905ed484e81956accff82961e7dcf0eea8103",
+          "id": "artifact_deliverable_23bfe3e3fed5c0ed03012e48a9f1ba01",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "deliverable-document-v1",
+          "size_bytes": 2405,
+          "verification_state": "sealed"
+        },
+        {
+          "artifact_type": "evidence_source",
+          "content_hash": "113c8f984a28e6c6327fda1be4d787a5b16d7dd8c012753eaae5f95f9937a1d6",
+          "id": "artifact_evidence_3609e71afda1040f645bf79a667bc480",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "evidence-source-v1",
+          "size_bytes": 1843,
+          "verification_state": "sealed"
+        },
+        {
+          "artifact_type": "transient_fixture",
+          "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "id": "artifact_fixture_tombstone",
+          "purged_at": "2026-08-22T02:01:00+00:00",
+          "purged_by": "system_cleanup",
+          "schema_version": "transient-fixture-v1",
+          "size_bytes": 0,
+          "verification_state": "purged"
+        },
+        {
+          "artifact_type": "evidence_manifest",
+          "content_hash": "ba5df6c47bf8fdd7022a85750a46a664ce839dd8cc617a3e951f00be6925a232",
+          "id": "artifact_manifest_6f93dae744ab9de20487912dffb5961d",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "evidence-manifest-v1",
+          "size_bytes": 343,
+          "verification_state": "sealed"
+        },
+        {
+          "artifact_type": "report",
+          "content_hash": "81636925d8816fa0c08d6544526f33988559d063e30b0c7b83d1239526c7e549",
+          "id": "artifact_report_ca784c802b99661684965a69b4887393",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "report-document-v1",
+          "size_bytes": 2606,
+          "verification_state": "sealed"
+        },
+        {
+          "artifact_type": "review",
+          "content_hash": "258cf4bcf606d384109e88d47c3ec62e12d589e5f475c2bfa0d1cc4319f5ff09",
+          "id": "artifact_review_9e840a4b862d15b47a7f668db8bdc988",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "deterministic-review-v1",
+          "size_bytes": 794,
+          "verification_state": "sealed"
+        },
+        {
+          "artifact_type": "skill_result",
+          "content_hash": "535057455490edde1da9fdfd6c1856677e5fb294b58352a12d655f52a72d8410",
+          "id": "artifact_skill_result_823ebd36550d019afd63f68dc70b2008",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "competitive-analysis-output-v1",
+          "size_bytes": 1187,
+          "verification_state": "sealed"
+        },
+        {
+          "artifact_type": "tool_actor_output",
+          "content_hash": "1976b5e4a29cf5ca50600f8e1436907db729e93d3ee5b50c558612a8334e0b83",
+          "id": "artifact_tool_actor_f09d0ed66c68d09997da82c4efe3a603",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "tool-actor-output-v1",
+          "size_bytes": 433,
+          "verification_state": "sealed"
+        },
+        {
+          "artifact_type": "tool_request",
+          "content_hash": "8759b38e48bc0d112954a6fc914d8056ab77fae5c2833c1b6bb2e1550d0700c7",
+          "id": "artifact_tool_request_f09d0ed66c68d09997da82c4efe3a603",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "tool-request-v1",
+          "size_bytes": 177,
+          "verification_state": "sealed"
+        },
+        {
+          "artifact_type": "tool_result",
+          "content_hash": "4deaf98097f20d7f46a86bbd30d056c1944cb818939ac32542c1617558056634",
+          "id": "artifact_tool_result_f09d0ed66c68d09997da82c4efe3a603",
+          "purged_at": null,
+          "purged_by": null,
+          "schema_version": "web-research-output-v1",
+          "size_bytes": 886,
+          "verification_state": "sealed"
+        }
+      ],
+      "attempt": {
+        "id": "attempt_v2_history_001",
+        "status": "completed"
+      },
+      "events": [
+        {
+          "event_type": "artifact_staged",
+          "sequence": 1
+        },
+        {
+          "event_type": "research_artifacts_sealed",
+          "sequence": 2
+        },
+        {
+          "event_type": "research_tool_invocation_prepared",
+          "sequence": 3
+        },
+        {
+          "event_type": "research_tool_invocation_sent",
+          "sequence": 4
+        },
+        {
+          "event_type": "research_artifacts_sealed",
+          "sequence": 5
+        },
+        {
+          "event_type": "research_artifacts_sealed",
+          "sequence": 6
+        },
+        {
+          "event_type": "research_artifacts_sealed",
+          "sequence": 7
+        },
+        {
+          "event_type": "research_step_completed",
+          "sequence": 8
+        },
+        {
+          "event_type": "research_model_call_settled",
+          "sequence": 9
+        },
+        {
+          "event_type": "research_artifacts_sealed",
+          "sequence": 10
+        },
+        {
+          "event_type": "research_step_completed",
+          "sequence": 11
+        },
+        {
+          "event_type": "research_attempt_completed",
+          "sequence": 12
+        },
+        {
+          "event_type": "research_updated",
+          "sequence": 13
+        },
+        {
+          "event_type": "run_completed",
+          "sequence": 14
+        },
+        {
+          "event_type": "artifact_invalidated",
+          "sequence": 15
+        },
+        {
+          "event_type": "artifact_purged",
+          "sequence": 16
+        }
+      ],
+      "invocations": [
+        {
+          "artifact_id": "artifact_tool_result_f09d0ed66c68d09997da82c4efe3a603",
+          "id": "invocation_f09d0ed66c68d09997da82c4efe3a603",
+          "state": "acknowledged"
+        }
+      ],
+      "model_call_receipt_count": 1,
+      "plan": {
+        "id": "research_plan_v2_history_001",
+        "schema_version": "execution-plan-v2"
+      },
+      "requirement": {
+        "id": "requirement_v2_history_001",
+        "schema_version": "research-task-v2"
+      },
+      "run": {
+        "id": "run_v2_history_001",
+        "orchestration_version": "research-v2",
+        "owner_scope": {
+          "project_id": "project_fixture",
+          "user_id": "user_fixture_owner",
+          "workspace_id": "workspace_fixture"
+        },
+        "status": "completed"
+      },
+      "workflow": {
+        "phase": "terminal",
+        "state_version": 2
+      }
+    },
+    "path": "tests/fixtures/ai_x_history/research-v2-history.sqlite3",
+    "sha256": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a"
+  },
+  "generated_at": "2026-08-20T00:00:00+00:00",
+  "limitations": [
+    "Target base dec6b55 has a single research-v2 reader, not a native multi-version reader registry; the harness performs exact stored-version lookup before invoking that current reader.",
+    "The fixture proves offline historical read and purge semantics only; it does not exercise network Providers or authorize a future v2-to-current rewrite."
+  ],
+  "overall": "passed",
+  "sanitization": {
+    "credential_pattern_hits": [],
+    "identities": "synthetic fixture IDs only",
+    "nonempty_sensitive_key_hits": [],
+    "passed": true
+  },
+  "source": {
+    "all_runtime_sources_match_target_base": true,
+    "files": [
+      {
+        "current_sha256": "3e84416682d466aacf39e5b24f50bc01023fff3a4a1ae206c9d893a2ac5f2ef8",
+        "matches_target_base": true,
+        "path": "agentmesh/models.py",
+        "target_sha256": "3e84416682d466aacf39e5b24f50bc01023fff3a4a1ae206c9d893a2ac5f2ef8"
+      },
+      {
+        "current_sha256": "c84fa0958383fd183be8fd1f513e60402ab43c98a74c2ebfbe6a763dcbc94a1f",
+        "matches_target_base": true,
+        "path": "agentmesh/store.py",
+        "target_sha256": "c84fa0958383fd183be8fd1f513e60402ab43c98a74c2ebfbe6a763dcbc94a1f"
+      },
+      {
+        "current_sha256": "2dffce93bee8a046c84e9eac39755fe149e00427c787decf2100f990c8570e4d",
+        "matches_target_base": true,
+        "path": "agentmesh/research_orchestration/actors.py",
+        "target_sha256": "2dffce93bee8a046c84e9eac39755fe149e00427c787decf2100f990c8570e4d"
+      },
+      {
+        "current_sha256": "c83d6c1d2ba7c79251812de4b10307a07802328dc89b3f8f44a0a31f27a54961",
+        "matches_target_base": true,
+        "path": "agentmesh/research_orchestration/artifacts.py",
+        "target_sha256": "c83d6c1d2ba7c79251812de4b10307a07802328dc89b3f8f44a0a31f27a54961"
+      },
+      {
+        "current_sha256": "3a58f25a091828c00f07e2a75df85994104c709e17aa6b12a6d685c23fbd5f28",
+        "matches_target_base": true,
+        "path": "agentmesh/research_orchestration/compiler.py",
+        "target_sha256": "3a58f25a091828c00f07e2a75df85994104c709e17aa6b12a6d685c23fbd5f28"
+      },
+      {
+        "current_sha256": "e8c737d99b05daa9d1df96bcb8135022f29b84700be8cc8800cdfa93384f4ac2",
+        "matches_target_base": true,
+        "path": "agentmesh/research_orchestration/contracts.py",
+        "target_sha256": "e8c737d99b05daa9d1df96bcb8135022f29b84700be8cc8800cdfa93384f4ac2"
+      },
+      {
+        "current_sha256": "30c862f5f4003a29882c028911aa2d2380340f79ec6a275fe39649c2f81e863c",
+        "matches_target_base": true,
+        "path": "agentmesh/research_orchestration/delivery.py",
+        "target_sha256": "30c862f5f4003a29882c028911aa2d2380340f79ec6a275fe39649c2f81e863c"
+      },
+      {
+        "current_sha256": "b8cc406d26a7f44a32aa578b5572ece9ad2f5284fdf2f820c25c0de1fbf1c7d4",
+        "matches_target_base": true,
+        "path": "agentmesh/research_orchestration/evidence.py",
+        "target_sha256": "b8cc406d26a7f44a32aa578b5572ece9ad2f5284fdf2f820c25c0de1fbf1c7d4"
+      },
+      {
+        "current_sha256": "c44ac906a49d0bfb4c429833042320cf4a2321b6233f57f51ef5ff55ac6b1bdc",
+        "matches_target_base": true,
+        "path": "agentmesh/research_orchestration/execution.py",
+        "target_sha256": "c44ac906a49d0bfb4c429833042320cf4a2321b6233f57f51ef5ff55ac6b1bdc"
+      },
+      {
+        "current_sha256": "b307a465f0c4c764d4eaac92e75f350caa7e5c2fc7fb719d6db10ba61a3a7e71",
+        "matches_target_base": true,
+        "path": "agentmesh/research_orchestration/result_projection.py",
+        "target_sha256": "b307a465f0c4c764d4eaac92e75f350caa7e5c2fc7fb719d6db10ba61a3a7e71"
+      },
+      {
+        "current_sha256": "7de59adc092a370725c75de817119f4dc3bc74f9a5a86370828788b9fe61aa47",
+        "matches_target_base": true,
+        "path": "agentmesh/research_orchestration/workflow.py",
+        "target_sha256": "7de59adc092a370725c75de817119f4dc3bc74f9a5a86370828788b9fe61aa47"
+      },
+      {
+        "current_sha256": "c40777a24a2dfe419e36e467c2ca8ba12e149b9563044ecbd2a2b64c35fc8006",
+        "matches_target_base": true,
+        "path": "tests/research_orchestration_testkit.py",
+        "target_sha256": "c40777a24a2dfe419e36e467c2ca8ba12e149b9563044ecbd2a2b64c35fc8006"
+      }
+    ],
+    "target_base": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+    "target_subject": "Close research orchestration release candidate gates",
+    "worktree_head": "e862fc98c1a4a6734bd2aad1f06366d7921f0be7"
+  }
+}

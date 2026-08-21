@@ -1,0 +1,257 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "report-document-v1",
+  "title": "Evidence-bound Report Document",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "title", "subtitle", "executiveSummary", "sections"],
+  "properties": {
+    "version": { "const": "report-document-v1" },
+    "title": { "$ref": "#/definitions/nonEmptyString" },
+    "subtitle": { "$ref": "#/definitions/nonEmptyString" },
+    "executiveSummary": { "$ref": "#/definitions/nonEmptyString" },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/section" }
+    }
+  },
+  "definitions": {
+    "nonEmptyString": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "idList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/nonEmptyString" }
+    },
+    "evidenceList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/nonEmptyString" }
+    },
+    "assetRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assetId", "manifestArtifactId"],
+      "properties": {
+        "assetId": { "$ref": "#/definitions/nonEmptyString" },
+        "manifestArtifactId": { "$ref": "#/definitions/nonEmptyString" }
+      }
+    },
+    "chartRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chartId", "assetId", "manifestArtifactId"],
+      "properties": {
+        "chartId": { "$ref": "#/definitions/nonEmptyString" },
+        "assetId": { "$ref": "#/definitions/nonEmptyString" },
+        "manifestArtifactId": { "$ref": "#/definitions/nonEmptyString" }
+      }
+    },
+    "paragraphBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "text"],
+      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "type": { "const": "paragraph" },
+        "text": { "$ref": "#/definitions/nonEmptyString" }
+      }
+    },
+    "factBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "text", "evidenceIds"],
+      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "type": { "const": "fact" },
+        "text": { "$ref": "#/definitions/nonEmptyString" },
+        "evidenceIds": { "$ref": "#/definitions/evidenceList" }
+      }
+    },
+    "metricBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "label", "value", "evidenceIds"],
+      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "type": { "const": "metric" },
+        "label": { "$ref": "#/definitions/nonEmptyString" },
+        "value": { "type": "number" },
+        "evidenceIds": { "$ref": "#/definitions/evidenceList" }
+      }
+    },
+    "listBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "items"],
+      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "type": { "const": "list" },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/nonEmptyString" }
+        }
+      }
+    },
+    "imageBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "assetRef", "caption", "altText"],
+      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "type": { "const": "image" },
+        "assetRef": { "$ref": "#/definitions/assetRef" },
+        "caption": { "$ref": "#/definitions/nonEmptyString" },
+        "altText": { "$ref": "#/definitions/nonEmptyString" },
+        "evidenceIds": { "$ref": "#/definitions/evidenceList" }
+      }
+    },
+    "imageComparisonBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "beforeAssetRef", "afterAssetRef", "caption", "altText"],
+      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "type": { "const": "image-comparison" },
+        "beforeAssetRef": { "$ref": "#/definitions/assetRef" },
+        "afterAssetRef": { "$ref": "#/definitions/assetRef" },
+        "caption": { "$ref": "#/definitions/nonEmptyString" },
+        "altText": { "$ref": "#/definitions/nonEmptyString" },
+        "evidenceIds": { "$ref": "#/definitions/evidenceList" }
+      }
+    },
+    "chartSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "chartId", "type", "title", "categories", "series"],
+      "properties": {
+        "version": { "const": "chart-spec-v1" },
+        "chartId": { "$ref": "#/definitions/nonEmptyString" },
+        "type": { "enum": ["comparison", "trend", "heatmap"] },
+        "title": { "$ref": "#/definitions/nonEmptyString" },
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/nonEmptyString" }
+        },
+        "series": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "label", "values", "evidenceIds"],
+            "properties": {
+              "key": { "$ref": "#/definitions/nonEmptyString" },
+              "label": { "$ref": "#/definitions/nonEmptyString" },
+              "values": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": ["number", "null"] }
+              },
+              "evidenceIds": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "$ref": "#/definitions/nonEmptyString" }
+                }
+              }
+            }
+          }
+        },
+        "yAxis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min"],
+          "properties": { "min": { "type": "number" } }
+        }
+      }
+    },
+    "chartTable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caption", "columns", "rows"],
+      "properties": {
+        "caption": { "$ref": "#/definitions/nonEmptyString" },
+        "columns": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/definitions/nonEmptyString" }
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "label", "cells", "evidenceIds"],
+            "properties": {
+              "key": { "$ref": "#/definitions/nonEmptyString" },
+              "label": { "$ref": "#/definitions/nonEmptyString" },
+              "cells": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": ["number", "null"] }
+              },
+              "evidenceIds": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "$ref": "#/definitions/nonEmptyString" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "chartBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "chartRef", "specHash", "spec", "table", "caption", "altText"],
+      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "type": { "const": "chart" },
+        "chartRef": { "$ref": "#/definitions/chartRef" },
+        "specHash": { "$ref": "#/definitions/sha256" },
+        "spec": { "$ref": "#/definitions/chartSpec" },
+        "table": { "$ref": "#/definitions/chartTable" },
+        "caption": { "$ref": "#/definitions/nonEmptyString" },
+        "altText": { "$ref": "#/definitions/nonEmptyString" }
+      }
+    },
+    "block": {
+      "oneOf": [
+        { "$ref": "#/definitions/paragraphBlock" },
+        { "$ref": "#/definitions/factBlock" },
+        { "$ref": "#/definitions/metricBlock" },
+        { "$ref": "#/definitions/listBlock" },
+        { "$ref": "#/definitions/imageBlock" },
+        { "$ref": "#/definitions/imageComparisonBlock" },
+        { "$ref": "#/definitions/chartBlock" }
+      ]
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "questionIds", "blocks"],
+      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "title": { "$ref": "#/definitions/nonEmptyString" },
+        "questionIds": { "$ref": "#/definitions/idList" },
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/block" }
+        }
+      }
+    }
+  }
+}

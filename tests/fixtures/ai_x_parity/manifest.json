@@ -1,0 +1,346 @@
+{
+  "characterization_only": true,
+  "contract_source_files": [
+    {
+      "path": "agentmesh/models.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "3e84416682d466aacf39e5b24f50bc01023fff3a4a1ae206c9d893a2ac5f2ef8"
+    },
+    {
+      "path": "agentmesh/research_orchestration/api.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "d1151e520b65bad025e5b55c6be375a628a08de9eff223a641d2e2bac2be174d"
+    },
+    {
+      "path": "agentmesh/research_orchestration/compiler.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "3a58f25a091828c00f07e2a75df85994104c709e17aa6b12a6d685c23fbd5f28"
+    },
+    {
+      "path": "agentmesh/research_orchestration/contracts.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "e8c737d99b05daa9d1df96bcb8135022f29b84700be8cc8800cdfa93384f4ac2"
+    },
+    {
+      "path": "agentmesh/research_orchestration/delivery.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "30c862f5f4003a29882c028911aa2d2380340f79ec6a275fe39649c2f81e863c"
+    },
+    {
+      "path": "agentmesh/research_orchestration/evidence.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "b8cc406d26a7f44a32aa578b5572ece9ad2f5284fdf2f820c25c0de1fbf1c7d4"
+    },
+    {
+      "path": "agentmesh/research_orchestration/planning.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "bf750e736d4224d7ca9650317b6376e61b9de853258a807f62fdd4b55de75145"
+    },
+    {
+      "path": "agentmesh/research_orchestration/result_projection.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "b307a465f0c4c764d4eaac92e75f350caa7e5c2fc7fb719d6db10ba61a3a7e71"
+    },
+    {
+      "path": "agentmesh/research_orchestration/workflow.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "7de59adc092a370725c75de817119f4dc3bc74f9a5a86370828788b9fe61aa47"
+    },
+    {
+      "path": "agentmesh/routes/agent_runs.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "fd1e22a90261125ffe944d7959de1067cbf5df978865f737c4a60ca67894b13d"
+    },
+    {
+      "path": "agentmesh/routes/inbox.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "3c2d514f3a76d24f74d86c21d16ceddc51365dda355e8a4eef3fbcc2aedc051c"
+    },
+    {
+      "path": "agentmesh/routes/research.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "10be23aafcc8e5275bd64d545b0e1153072b1a011be01fdb1165fb910fcdc0e1"
+    },
+    {
+      "path": "agentmesh/store.py",
+      "ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+      "repository": "AgentMesh",
+      "sha256": "c84fa0958383fd183be8fd1f513e60402ab43c98a74c2ebfbe6a763dcbc94a1f"
+    },
+    {
+      "path": "apps/agent-api/src/routes/control-planning.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "ff51634dbc9fda0f192bf5fe1406b30591bd9155fae1c7f9438986cb22131d49"
+    },
+    {
+      "path": "apps/agent-api/src/routes/control-tasks.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "86adb71fa17da0a93703613c59c9f7e6d8e74ea8dbbcd496f610163ae489049a"
+    },
+    {
+      "path": "apps/orchestrator-runtime/src/control/requirement-refinement-service.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "cae6069815b5410b1d07cd429d33247346e6a75711336cd263ba08f82725755c"
+    },
+    {
+      "path": "apps/orchestrator-runtime/src/control/task-workflow.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "8943beb669298dd43f9c4b113cd9462b74f40fd37ac0727cb9ccd29b36f7301a"
+    },
+    {
+      "path": "apps/orchestrator-runtime/src/planners/plan-compiler.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "98c2a5b960f5d756a283e8c37655529b53af029e134d0f61b80b98cc90aaeeee"
+    },
+    {
+      "path": "apps/orchestrator-runtime/src/planners/problem-graph-planner.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "1a45844f6551c11c44824aafa09d600f20028aab37afd492b423fa05e31c26dd"
+    },
+    {
+      "path": "apps/orchestrator-runtime/src/planners/routed-planner.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "909f33aaba8e22147386c36ad8530f04429e3a4b09278b4773d69e8a9cd89c69"
+    },
+    {
+      "path": "apps/orchestrator-runtime/src/report/current-deliverable-service.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "bd8434040e5f1072c3684210acf02d8f46cda651bbe22f942c037e081a633964"
+    },
+    {
+      "path": "apps/orchestrator-runtime/src/report/report-document-composer.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "c071cd4ad8d91c3843ab5c5508ec504f63260cd64b06c1856bb1c1f0a4cc86b9"
+    },
+    {
+      "path": "database/control-plane.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "00a4ec86d7e7a9a66c48d88bc03d7aecf1d2b934d6c68ee2320a6562ef869292"
+    },
+    {
+      "path": "packages/api-contract/control-workflow.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "dfae86ac1e9aa70228861ebd52c22178478a9d6af84384385840efe23c102ebd"
+    },
+    {
+      "path": "packages/api-contract/plan.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "88b472079b80b67865adef9d4e38a6a2655cd8726e9aba35866da4ea4b8a26d6"
+    },
+    {
+      "path": "packages/api-contract/research-deliverable.ts",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "cf9fa91544d1f87cde622fc3fe6715b76412ae9e72a4f8f2986410528003cd04"
+    },
+    {
+      "path": "schemas/current-execution-plan.schema.json",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "9f861c764ef19fa9f096c618490ba6d0eec0f779445d64ce6be51c6312bab78b"
+    },
+    {
+      "path": "schemas/current-plan-candidates.schema.json",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "e156b9e643030dd4fbd077ae9c51948e541f7ccb842b511ae939987f75193b3a"
+    },
+    {
+      "path": "schemas/deliverables/competitive-analysis-report.schema.json",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "55e3549376d38646cd69c584ecb8f3dcf49e6c7c228e75c8e254a3873df9bebf"
+    },
+    {
+      "path": "schemas/problem-graph.schema.json",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "1cb95103d5aeccf22086a314fc3ae2fc3762f1918fd23f7611512ce951461893"
+    },
+    {
+      "path": "schemas/report-document.schema.json",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "f51c00861fa6bf7720dd21cd75349938ed295a202212d6d4f1b8dc037cef67a7"
+    },
+    {
+      "path": "schemas/report-review.schema.json",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "9da404c8a4c00c0a97be202ad9632919e819929a86dfc08883847388c6f2a301"
+    },
+    {
+      "path": "schemas/research-task-v2.schema.json",
+      "ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+      "repository": "ai-x",
+      "sha256": "299c4fa147d28a3e7ff38fea0e2f981dc3b38a1d8aad07498d2f6734ad24dbea"
+    }
+  ],
+  "executable_tests": false,
+  "files": [
+    {
+      "bytes": 7693,
+      "fixture_id": "candidate-plan-shape-v1",
+      "path": "candidate-plan-shape.json",
+      "sha256": "ff58f8e5969a1e8fc099e4f4b18290aece95dc49435811ebf6155d4f628d749d"
+    },
+    {
+      "bytes": 6085,
+      "fixture_id": "competitive-request-routing-v1",
+      "path": "competitive-request-routing.json",
+      "sha256": "af0f95b109f25dcc16c60ec37a82dd55787db2a461b5e742ff852e8add0e4b7e"
+    },
+    {
+      "bytes": 8132,
+      "fixture_id": "evidence-deliverable-review-report-projection-v1",
+      "path": "evidence-deliverable-review-report.json",
+      "sha256": "33c5472626e6dc88f14de027f45a3800bf059099e092815746d506d4d4160f69"
+    },
+    {
+      "bytes": 5285,
+      "fixture_id": "problem-graph-problem-contract-mapping-v1",
+      "path": "problem-graph-problem-contract.json",
+      "sha256": "87ea5a0d80682ddd2dbf0e7fb3a2051b58455f4be32fbd4e1a7c989344f63dd1"
+    },
+    {
+      "bytes": 5730,
+      "fixture_id": "requirement-mapping-v1",
+      "path": "requirement.json",
+      "sha256": "64569e59a39f29ce21e8154c70aa0918139a52c5912ecb99d0e2af3ca40c3133"
+    },
+    {
+      "bytes": 7415,
+      "fixture_id": "state-transition-matrix-v1",
+      "path": "state-transition-matrix.json",
+      "sha256": "bbe47ae5bf9f437857587831b1dfb696e8e8a082b4f4f1f7d2714194f9d70b5a"
+    },
+    {
+      "bytes": 6645,
+      "fixture_id": "research-v2-historical-read-compatibility-v1",
+      "path": "v2-historical-read-compatibility.json",
+      "sha256": "cd6dbee9dc61a52edad53ac1f66d41d4456638f5f7ae5da45a8854eedb8f8132"
+    }
+  ],
+  "hash_scope": "All JSON fixture files except manifest.json; self-hash intentionally excluded.",
+  "manifest_version": "ai-x-agentmesh-gate0-fixture-manifest-v1",
+  "normalization_rules": [
+    "Serialize UTF-8 JSON with sorted object keys, two-space indentation, LF, and one trailing LF.",
+    "Use stable @id:<role>, @hash:<role>, and @ref:<contract> placeholders instead of UUIDs or runtime hashes.",
+    "Remove timestamps; removed shape fields carry a [removed] marker.",
+    "Remove user, workspace, project, principal, credential, secret, Provider, and model identities; use null or class descriptions where needed.",
+    "Use generic Product Alpha/Product Beta content; include no user records, Provider responses, database bytes, or prompt bodies.",
+    "Preserve ordered arrays; sort set-like vocabularies and manifest arrays.",
+    "Normalized placeholders are not schema-valid payloads: these are characterization assets, not executable tests.",
+    "Hash each non-manifest fixture over exact canonical file bytes using SHA-256; manifest.json is self-excluded."
+  ],
+  "schema_ids": {
+    "source": {
+      "document_id_absent": [
+        "schemas/report-review.schema.json"
+      ],
+      "embedded_payload_versions": [
+        "evidence-v1",
+        "problem-graph-v1",
+        "report-document-v1",
+        "report-review-v1",
+        "research-deliverable-v1",
+        "research-task-v2"
+      ],
+      "json_schema_document_ids": [
+        "competitive-analysis-report.schema.json",
+        "current-execution-plan.schema.json",
+        "current-plan-candidates.schema.json",
+        "problem-graph.schema.json",
+        "report-document-v1",
+        "research-task-v2.schema.json"
+      ]
+    },
+    "target": {
+      "canonical_historical_identity_policy": {
+        "combined": [
+          "claim-ledger-v1",
+          "competitive-analysis-output-v1",
+          "competitive-analysis-review-v1",
+          "deliverable-document-v1",
+          "deterministic-review-v1",
+          "evidence-manifest-v1",
+          "evidence-policy-v1",
+          "evidence-source-v1",
+          "execution-plan-v2",
+          "problem-contract-v1",
+          "report-document-v1",
+          "research-task-v2",
+          "research-v2"
+        ],
+        "orchestration_versions": [
+          "research-v2"
+        ],
+        "payload_or_schema_identities": [
+          "claim-ledger-v1",
+          "competitive-analysis-output-v1",
+          "deliverable-document-v1",
+          "deterministic-review-v1",
+          "evidence-manifest-v1",
+          "evidence-source-v1",
+          "execution-plan-v2",
+          "problem-contract-v1",
+          "report-document-v1",
+          "research-task-v2"
+        ],
+        "resource_versions": [
+          "competitive-analysis-review-v1",
+          "evidence-policy-v1"
+        ]
+      }
+    }
+  },
+  "source": {
+    "commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+    "commit_subject": "Freeze portable parity source",
+    "logical_repository": "https://github.com/yssssssssssss/ai-x.git",
+    "read_method": "git show <commit>:<path>; mutable checkout bytes were not used",
+    "tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
+  },
+  "target": {
+    "base_commit": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+    "commit_subject": "Close research orchestration release candidate gates",
+    "logical_repository": "https://github.com/yssssssssssss/ai-agentmesh-hackathon.git",
+    "read_method": "git show <base_commit>:<path>",
+    "tree": "eb39f8159afb421233b657747192447734fd8b07",
+    "worktree_modified_by_fixture_generation": false
+  },
+  "unresolved_semantic_differences": [
+    "ResearchTaskV2/research-task-v2 collides by name while source and target meanings differ.",
+    "report-document-v1 collides while source is block-based and target v2 is markdown/html-based.",
+    "ProblemGraph Evidence requirements/classes cannot be losslessly mapped to ProblemContract.",
+    "Source depth/speed heterogeneous DAG has no target v2 candidate or Reviewer/LLM step equivalent.",
+    "Source revise/skip/review state behavior has no target v2 state-equivalent.",
+    "Source FindingGraph, visual payload, and seven-dimension Review are richer than target v2.",
+    "Target v2 is not historical-only at the frozen base; a future adapter/writer fence is absent.",
+    "A future v2/current discriminated read union requires a new current schema identity and is absent."
+  ]
+}

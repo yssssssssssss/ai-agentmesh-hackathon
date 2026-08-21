@@ -13,6 +13,7 @@ import { SkillSynthesisView } from '../components/workspace/SkillSynthesisView'
 import { WORKSPACE_RESOURCE_GRID_CLASS } from '../components/workspace/layout'
 import { Button } from '../components/ui/Button'
 import { useAuth } from '../features/auth/AuthProvider'
+import { ResearchWorkbenchContainer } from '../features/research-workbench'
 import { ToolLauncherBar } from '../features/tool-labs/ToolLauncherBar'
 import { WorkspaceToolDialog } from '../features/tool-labs/WorkspaceToolDialog'
 import type { WorkspaceToolId } from '../features/tool-labs/types'
@@ -71,9 +72,11 @@ export function Workspace() {
   const sendAgentRun = useSendAgentRunMutation(scope)
   const runQuery = useAgentRunQuery(scope, runId)
   const currentRun = runQuery.data?.item
-  const isResearchRun = currentRun?.orchestration_version === 'research-v2'
-  const researchQuery = useResearchRunQuery(scope, currentRun)
-  const researchMutations = useResearchMutations(scope, currentRun)
+  const isResearchV2 = currentRun?.orchestration_version === 'research-v2'
+  const isResearchV3 = currentRun?.orchestration_version === 'research-v3'
+  const isResearchRun = isResearchV2 || isResearchV3
+  const researchQuery = useResearchRunQuery(scope, isResearchV2 ? currentRun : null)
+  const researchMutations = useResearchMutations(scope, isResearchV2 ? currentRun : null)
   const planQuery = useSkillPlanQuery(scope, runId, isResearchRun ? null : currentRun?.plan_id)
   const planMutations = useSkillPlanMutations(scope, runId)
   const cancelRun = useCancelAgentRunMutation(scope)
@@ -190,7 +193,7 @@ export function Workspace() {
         ? researchMutations.resolveTool.variables?.action === 'reject' ? 'reject-tool' : 'approve-tool'
         : researchMutations.recover.isPending
           ? researchMutations.recover.variables?.action === 'abort' ? 'abort' : 'retry'
-          : cancelRun.isPending && isResearchRun
+          : cancelRun.isPending && isResearchV2
             ? 'cancel'
             : null
   const researchMutationError = researchMutations.confirm.error
@@ -295,17 +298,17 @@ export function Workspace() {
                   {workspaceErrorMessage(runQuery.error)}
                 </p>
               ) : null}
-              {isResearchRun && researchQuery.isLoading ? (
+              {isResearchV2 && researchQuery.isLoading ? (
                 <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
                   正在恢复研究预览…
                 </section>
               ) : null}
-              {isResearchRun && researchQuery.isError ? (
+              {isResearchV2 && researchQuery.isError ? (
                 <p role="alert" className="mt-6 rounded-[12px] bg-rose/10 px-4 py-3 text-sm text-rose">
                   {workspaceErrorMessage(researchQuery.error)}
                 </p>
               ) : null}
-              {isResearchRun && researchQuery.data ? (
+              {isResearchV2 && researchQuery.data ? (
                 <>
                   <ResearchPreview projection={researchQuery.data} />
                   <ResearchExecution
@@ -326,6 +329,9 @@ export function Workspace() {
                     onCancel={cancelCurrentRun}
                   />
                 </>
+              ) : null}
+              {isResearchV3 && currentRun ? (
+                <ResearchWorkbenchContainer scope={scope} run={currentRun} />
               ) : null}
               {!isResearchRun && currentRun?.plan_id && planQuery.isLoading ? (
                 <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">

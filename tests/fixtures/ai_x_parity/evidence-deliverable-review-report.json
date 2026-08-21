@@ -1,0 +1,301 @@
+{
+  "fixture_id": "evidence-deliverable-review-report-projection-v1",
+  "fixture_version": "ai-x-agentmesh-gate0-characterization-v1",
+  "mapping": [
+    {
+      "mapping": "vocabulary mismatch; v2 execution emits provider_summary",
+      "source": "EvidenceEntry.evidenceClass",
+      "target": "EvidenceSource.evidence_class/source_tier"
+    },
+    {
+      "mapping": "storage correspondence; public projection omits most fields",
+      "source": "EvidenceEntry artifact/hash/jsonPointer/toolProof",
+      "target": "stored EvidenceSource origin/receipt/pointers"
+    },
+    {
+      "mapping": "partial",
+      "source": "FindingGraph Fact",
+      "target": "ClaimLedger fact"
+    },
+    {
+      "mapping": "partial",
+      "source": "FindingGraph Inference",
+      "target": "ClaimLedger inference"
+    },
+    {
+      "mapping": "lossy",
+      "source": "FindingGraph analysis/summary/conclusion",
+      "target": "Claim parent graph plus summary text"
+    },
+    {
+      "mapping": "similar IDs bind to claim IDs",
+      "source": "ResearchDeliverableCoverage",
+      "target": "question_coverage + success_criterion_coverage"
+    },
+    {
+      "mapping": "not shape-compatible",
+      "source": "competitive_analysis_report payload",
+      "target": "CompetitiveAnalysisPayload"
+    },
+    {
+      "mapping": "not equivalent",
+      "source": "report-review-v1 seven dimensions + revise",
+      "target": "deterministic-review-v1 checks + pass/block"
+    },
+    {
+      "mapping": "schema ID collision",
+      "source": "block-based report-document-v1",
+      "target": "markdown/html report-document-v1"
+    }
+  ],
+  "normalization_profile": "gate0-semantic-normalization-v1",
+  "schema_ids": {
+    "source": [
+      "competitive-analysis-report.schema.json",
+      "evidence-v1",
+      "report-document-v1",
+      "report-review-v1",
+      "research-deliverable-v1"
+    ],
+    "target": [
+      "claim-ledger-v1",
+      "deliverable-document-v1",
+      "deterministic-review-v1",
+      "evidence-manifest-v1",
+      "evidence-source-v1",
+      "report-document-v1"
+    ]
+  },
+  "semantic_differences": [
+    "The two report-document-v1 identities are incompatible despite the same literal.",
+    "Source review supports semantic dimensions and one revise round; target is deterministic-only pass/block.",
+    "Source FindingGraph and competitive payload are richer than target ClaimLedger and CompetitiveAnalysisPayload.",
+    "Target projection strips receipts, pointers, hashes, scopes, and HTML.",
+    "Source supports seven Evidence classes; target v2 emits provider_summary and has a different stored vocabulary.",
+    "Source visual blocks/assets have no target v2 projection equivalent."
+  ],
+  "source_projection_shape": {
+    "deliverable": {
+      "competitive_payload_fields": [
+        "actionRecommendations",
+        "competitorSamples",
+        "differences",
+        "dimensionMatrix",
+        "impacts",
+        "instrumentationPlan?",
+        "managementSummary?",
+        "roadmap?",
+        "scoringMethod?",
+        "screenshotComparisons",
+        "userTestScript?",
+        "visualEvidence?"
+      ],
+      "fields": [
+        "attemptId",
+        "capabilityProvenance",
+        "coverage",
+        "deliverableType",
+        "evidenceManifestArtifactId",
+        "findingGraph",
+        "methodSummary",
+        "payload",
+        "planVersionId",
+        "recommendations",
+        "risksAndOpenIssues",
+        "taskId",
+        "version"
+      ],
+      "finding_graph_nodes": [
+        "analyses",
+        "findings:fact|inference",
+        "overallConclusions",
+        "subQuestionSummaries"
+      ],
+      "version": "research-deliverable-v1"
+    },
+    "evidence_manifest": {
+      "classes": [
+        "dataset",
+        "derived",
+        "knowledge",
+        "public_source",
+        "screenshot",
+        "simulation",
+        "user_input"
+      ],
+      "entry_fields": [
+        "artifactContentSha256",
+        "artifactId",
+        "evidenceClass",
+        "id",
+        "jsonPointer",
+        "kind",
+        "redaction",
+        "sensitivity",
+        "sourceUrl?",
+        "stepNo?",
+        "toolId?",
+        "toolProof?",
+        "toolTier?"
+      ],
+      "fields": [
+        "attemptId",
+        "collectedAt[removed]",
+        "entries",
+        "manifestHash",
+        "planVersionId",
+        "taskId"
+      ],
+      "version": "evidence-v1"
+    },
+    "report": {
+      "block_types": [
+        "chart",
+        "fact",
+        "image",
+        "image-comparison",
+        "list",
+        "metric",
+        "paragraph"
+      ],
+      "fact_and_metric_evidence_binding": true,
+      "top_fields": [
+        "executiveSummary",
+        "sections",
+        "subtitle",
+        "title",
+        "version"
+      ],
+      "version": "report-document-v1"
+    },
+    "review": {
+      "dimensions": [
+        "evidence_coverage",
+        "question_coverage",
+        "reasoning_quality",
+        "recommendation_quality",
+        "requirement_coverage",
+        "risk_disclosure",
+        "visual_quality"
+      ],
+      "pass_requires_all_dimensions_passed": true,
+      "revision_rounds": [
+        0,
+        1
+      ],
+      "verdicts": [
+        "block",
+        "pass",
+        "revise"
+      ],
+      "version": "report-review-v1"
+    }
+  },
+  "source_ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+  "target_projection_shape": {
+    "claim_ledger": {
+      "claim_types": [
+        "fact",
+        "inference",
+        "recommendation"
+      ],
+      "fields": [
+        "claims",
+        "gaps",
+        "model_call_receipt_id",
+        "schema_version",
+        "source_skill_artifact"
+      ],
+      "schema_version": "claim-ledger-v1"
+    },
+    "deliverable": {
+      "fields": [
+        "claim_ledger_artifact",
+        "evidence_manifest_artifact",
+        "payload",
+        "question_coverage",
+        "schema_version",
+        "source_skill_artifact",
+        "success_criterion_coverage",
+        "task_type"
+      ],
+      "payload_fields": [
+        "claim_ids",
+        "comparison",
+        "limitations",
+        "recommendations",
+        "summary",
+        "summary_claim_ids"
+      ],
+      "projection_fields": [
+        "comparison",
+        "limitations",
+        "recommendations",
+        "summary",
+        "summary_claim_ids"
+      ],
+      "schema_version": "deliverable-document-v1"
+    },
+    "evidence_storage": {
+      "manifest_schema": "evidence-manifest-v1",
+      "normalized_projection": {
+        "conflict_status": "none",
+        "evidence_id": "@id:evidence",
+        "quote": "Normalized public evidence excerpt.",
+        "risk_flags": [],
+        "sources": [
+          {
+            "source_id": "@id:source",
+            "title": "Public source",
+            "url": "https://example.invalid/source"
+          }
+        ]
+      },
+      "observed_execution_class": "provider_summary",
+      "projection_fields": [
+        "conflict_status",
+        "evidence_id",
+        "quote",
+        "risk_flags",
+        "sources"
+      ],
+      "source_schema": "evidence-source-v1"
+    },
+    "fail_closed_projection": {
+      "all_or_nothing_result_when_any_integrity_error": true,
+      "artifact_or_lineage_integrity_error": "append integrity_errors, hide unverified result chain, and hide report"
+    },
+    "report": {
+      "created_only_after_review_pass": true,
+      "projected_fields": [
+        "markdown",
+        "title"
+      ],
+      "renderer_version": "competitive-markdown-html-v1",
+      "schema_version": "report-document-v1",
+      "stored_fields": [
+        "deliverable_artifact",
+        "html",
+        "markdown",
+        "renderer_version",
+        "review_artifact",
+        "schema_version",
+        "title"
+      ]
+    },
+    "review": {
+      "projected_fields": [
+        "checks[code,passed]",
+        "status"
+      ],
+      "rubric_version": "competitive-analysis-review-v1",
+      "schema_version": "deterministic-review-v1",
+      "semantic_review_enabled": false,
+      "status": [
+        "block",
+        "pass"
+      ]
+    }
+  },
+  "target_ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3"
+}

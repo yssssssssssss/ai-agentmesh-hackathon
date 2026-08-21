@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from agentmesh.agent_runtime.settings import SkillOrchestrationMode, skill_orchestration_mode
+from agentmesh.agent_runtime.settings import (
+    SkillOrchestrationMode,
+    research_preview_allowlist,
+    skill_orchestration_mode,
+)
 from agentmesh.models import (
     AgentRunCreateRequest,
     AgentRunEventsResponse,
@@ -23,8 +28,11 @@ from agentmesh.models import (
     SkillPlanVersionRequest,
     SkillSynthesisResult,
     User,
-    new_id,
     now_utc,
+)
+from agentmesh.research_orchestration.current import (
+    ResearchWriterGeneration,
+    decide_research_rollout,
 )
 from agentmesh.research_orchestration.planning import is_competitive_research_request
 from agentmesh.routes.deps import current_user, require_default_project
@@ -90,9 +98,21 @@ def _thread(request: AgentRunCreateRequest, user: User) -> ChatThread:
         ):
             raise HTTPException(status_code=404, detail="Chat thread not found")
         return thread
+    thread_id = "thread_" + hashlib.sha256(
+        f"agent-run-thread-v1\0{user.id}\0{request.client_turn_id}".encode()
+    ).hexdigest()[:24]
+    existing = store.get_chat_thread(thread_id)
+    if existing is not None:
+        if (
+            existing.user_id != user.id
+            or existing.workspace_id != user.workspace_id
+            or existing.project_id != user.default_project_id
+        ):
+            raise HTTPException(status_code=409, detail="client_turn_id thread identity conflict")
+        return existing
     return store.add_chat_thread(
         ChatThread(
-            id=new_id("thread"),
+            id=thread_id,
             workspace_id=user.workspace_id,
             project_id=user.default_project_id,
             user_id=user.id,
@@ -136,18 +156,43 @@ async def start_agent_run(
         request.content,
         explicit_skill_name=explicit_skill_name,
     )
+    control = store.get_research_writer_control()
+    rollout = decide_research_rollout(
+        research_eligible=research_eligible,
+        configured_mode=mode,
+        active_generation=ResearchWriterGeneration(control.active_generation),
+        user_id=user.id,
+        preview_allowlist=research_preview_allowlist(),
+    )
+    if rollout.target == "blocked":
+        raise HTTPException(status_code=409, detail="Research-v3 execution is not authorized")
     research_runtime = None
-    if research_eligible:
+    research_v3_preview = None
+    runtime = agent.agent_runtime
+    if rollout.target == "research-v2":
         research_runtime = getattr(http_request.app.state, "research_runtime", None)
         if research_runtime is None or not callable(getattr(research_runtime, "start_run", None)):
             raise HTTPException(status_code=503, detail="Research Runtime is unavailable")
+    elif rollout.target == "research-v3":
+        research_v3_preview = getattr(http_request.app.state, "research_v3_preview", None)
+        if research_v3_preview is None or not callable(getattr(research_v3_preview, "start_run", None)):
+            raise HTTPException(status_code=503, detail="Research-v3 preview Runtime is unavailable")
     else:
-        runtime = agent.agent_runtime
         if runtime is None or not runtime.enabled:
             raise HTTPException(status_code=409, detail="Agent Runtime v2 is disabled")
     thread = _thread(request, user)
     try:
-        if research_runtime is not None:
+        if research_v3_preview is not None:
+            run = await research_v3_preview.start_run(
+                content=request.content,
+                user=user,
+                thread_id=thread.id,
+                client_turn_id=request.client_turn_id,
+                mode=SkillOrchestrationMode.PREVIEW,
+                requested_orchestration_mode=request.orchestration_mode,
+                explicit_skill=skill,
+            )
+        elif research_runtime is not None:
             run = await research_runtime.start_run(
                 content=request.content,
                 user=user,
@@ -157,7 +202,12 @@ async def start_agent_run(
                 requested_orchestration_mode=request.orchestration_mode,
                 explicit_skill=skill,
             )
-        elif skill is None and request.orchestration_mode == "auto" and mode != SkillOrchestrationMode.OFF:
+        elif (
+            not research_eligible
+            and skill is None
+            and request.orchestration_mode == "auto"
+            and mode != SkillOrchestrationMode.OFF
+        ):
             run = await runtime.start_orchestrated(
                 content=request.content,
                 user=user,
@@ -349,6 +399,11 @@ async def retry_agent_run(
     prior = _visible_run(run_id, user)
     if prior.orchestration_version == "research-v2":
         raise HTTPException(status_code=409, detail="Research-v2 runs must use the research recovery API")
+    if prior.orchestration_version == "research-v3":
+        raise HTTPException(
+            status_code=409,
+            detail="research-v3 runs must use their stored-version research API",
+        )
     if prior.status not in {
         AgentRunStatus.PARTIAL,
         AgentRunStatus.FAILED,
@@ -446,6 +501,11 @@ async def cancel_agent_run(run_id: str, user: User = Depends(current_user)) -> I
         if cancelled is None:
             raise HTTPException(status_code=404, detail="Agent run not found")
         return ItemResponse(item=cancelled)
+    if run.orchestration_version == "research-v3":
+        raise HTTPException(
+            status_code=409,
+            detail="Research-v3 runs must use the stored-version research cancel API",
+        )
     runtime = agent.agent_runtime
     if runtime is None:
         raise HTTPException(status_code=409, detail="Agent Runtime v2 is disabled")

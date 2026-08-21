@@ -32,7 +32,12 @@ pythonpath = ["."]
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-extend-exclude = ["2C-DesignWiki", "agentmesh/builtin_skills"]
+extend-exclude = [
+  "2C-DesignWiki",
+  "agentmesh/builtin_skills",
+  "docs/verification/ai-x-parity-evidence",
+  "tests/fixtures/ai_x_history",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
@@ -45,4 +50,8 @@ known-first-party = ["agentmesh"]
 include = ["agentmesh*"]
 
 [tool.setuptools.package-data]
-agentmesh = ["builtin_skills/**"]
+agentmesh = [
+  "builtin_skills/**",
+  "schemas/research/*.json",
+  "research_catalog/research-v3/competitive-text-v1/**",
+]

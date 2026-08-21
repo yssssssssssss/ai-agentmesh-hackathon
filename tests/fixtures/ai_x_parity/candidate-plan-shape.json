@@ -1,0 +1,256 @@
+{
+  "fixture_id": "candidate-plan-shape-v1",
+  "fixture_version": "ai-x-agentmesh-gate0-characterization-v1",
+  "mapping": [
+    {
+      "mapping": "target v2 exposes only one recommended plan",
+      "source": "candidate depth/speed",
+      "target": null
+    },
+    {
+      "mapping": "four types narrow to tool and skill",
+      "source": "CurrentExecutionPlan actor types",
+      "target": "PlanStepContract actor types"
+    },
+    {
+      "mapping": "rename source_step_no",
+      "source": "input_bindings target_pointer/source_step_no/source_pointer",
+      "target": "source_step/source_pointer/target_pointer"
+    },
+    {
+      "mapping": "lossy",
+      "source": "expected_outputs[{pointer,description}]",
+      "target": "expected_outputs[string]"
+    },
+    {
+      "mapping": "target authority lives in frozen Tool/Inbox policy",
+      "source": "requires_approval + approval_role",
+      "target": "approval_required"
+    },
+    {
+      "mapping": "different representation",
+      "source": "capability_decisions + capability_gaps",
+      "target": "control_snapshot and eligibility errors"
+    },
+    {
+      "mapping": "lossy",
+      "source": "problem_graph + provenance",
+      "target": "problem_contract without inline provenance"
+    }
+  ],
+  "normalization_profile": "gate0-semantic-normalization-v1",
+  "schema_ids": {
+    "source_candidates": "current-plan-candidates.schema.json",
+    "source_plan": "current-execution-plan.schema.json",
+    "target_plan": "execution-plan-v2"
+  },
+  "semantic_differences": [
+    "Source requires depth and speed candidates; target has no candidate-selection contract.",
+    "Source compiles a heterogeneous DAG; target enforces exactly Tool step 1 then Skill step 2.",
+    "Source supports LLM and Reviewer plan actors; target creates review/report outside its two steps.",
+    "Source stores capability decisions/gaps and ProblemGraph provenance; target freezes actor/resource/model/policy documents.",
+    "Binding field names and expected-output structures are incompatible."
+  ],
+  "source_compiled_plan_shape": {
+    "actor_types": [
+      "llm",
+      "reviewer",
+      "skill",
+      "tool"
+    ],
+    "candidate_count": 2,
+    "candidate_ids": [
+      "depth",
+      "speed"
+    ],
+    "identity": "server creates planVersionId and planHash after compilation",
+    "plan_limits": {
+      "depth_steps_max": 8,
+      "speed_steps_max": 4
+    },
+    "step_fields": [
+      "acceptance_criteria",
+      "actor_id",
+      "actor_type",
+      "approval_role?",
+      "depends_on",
+      "expected_outputs",
+      "fallback_actor_ids",
+      "input",
+      "input_bindings",
+      "question_ids",
+      "requires_approval",
+      "step_name",
+      "step_no"
+    ],
+    "top_level_fields": [
+      "activated_nodes",
+      "candidate_metadata",
+      "capability_decisions",
+      "capability_gaps?",
+      "deliverable_type",
+      "evidence_requirements",
+      "problem_graph",
+      "problem_graph_provenance",
+      "steps",
+      "task_id"
+    ]
+  },
+  "source_normalized_candidates": {
+    "candidates": [
+      {
+        "assumptions": [],
+        "id": "depth",
+        "rationale": "Broader evidence and explicit review.",
+        "steps": [
+          {
+            "actor_id": "tool-search",
+            "actor_type": "tool",
+            "step_name": "Collect evidence",
+            "step_no": 1
+          },
+          {
+            "actor_id": "competitive-analysis",
+            "actor_type": "skill",
+            "step_name": "Analyze evidence",
+            "step_no": 2
+          },
+          {
+            "actor_id": "synthesis",
+            "actor_type": "llm",
+            "step_name": "Synthesize findings",
+            "step_no": 3
+          },
+          {
+            "actor_id": "report-review",
+            "actor_type": "reviewer",
+            "step_name": "Review report",
+            "step_no": 4
+          }
+        ],
+        "title": "Depth",
+        "tradeoffs": "Higher latency and cost."
+      },
+      {
+        "assumptions": [],
+        "id": "speed",
+        "rationale": "Use the shortest evidence-backed path.",
+        "steps": [
+          {
+            "actor_id": "tool-search",
+            "actor_type": "tool",
+            "step_name": "Collect evidence",
+            "step_no": 1
+          },
+          {
+            "actor_id": "competitive-analysis",
+            "actor_type": "skill",
+            "step_name": "Analyze evidence",
+            "step_no": 2
+          }
+        ],
+        "title": "Speed",
+        "tradeoffs": "Narrower coverage."
+      }
+    ]
+  },
+  "source_ref": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+  "target_normalized_recommended_plan": {
+    "control_snapshot_fields": [
+      "deliverable_contract",
+      "evidence_policy",
+      "model_policy",
+      "resolved_at[removed]",
+      "resolved_for_agent_id[removed]",
+      "resource_snapshot",
+      "review_rubric",
+      "skill",
+      "tool"
+    ],
+    "execution_budget_seconds": 300,
+    "max_tool_calls": 4,
+    "plan_hash": "@hash:plan",
+    "problem_contract": "@ref:problem-contract-v1",
+    "recommended": true,
+    "requirement_content_hash": "@hash:requirement",
+    "requirement_version_id": "@id:requirement",
+    "schema_version": "execution-plan-v2",
+    "steps": [
+      {
+        "acceptance_criteria": [
+          "Published evidence references are verified."
+        ],
+        "actor_id": "tool_web_research",
+        "actor_snapshot_hash": "@hash:tool-snapshot",
+        "actor_type": "tool",
+        "approval_required": true,
+        "contract_hash": "@hash:tool-step",
+        "depends_on": [],
+        "expected_outputs": [
+          "sealed_evidence_manifest"
+        ],
+        "initial_input": {
+          "query": "Normalized competitive query."
+        },
+        "input_bindings": [],
+        "input_schema_hash": "@hash:tool-input-schema",
+        "invocation_semantics": "read_replayable",
+        "max_sends": 2,
+        "name": "Research external evidence",
+        "output_schema_hash": "@hash:tool-output-schema",
+        "question_ids": [
+          "q_capabilities"
+        ],
+        "required": true,
+        "step_number": 1,
+        "timeout_seconds": 120
+      },
+      {
+        "acceptance_criteria": [
+          "Factual statements cite supplied evidence IDs."
+        ],
+        "actor_id": "@id:competitive-analysis-skill",
+        "actor_snapshot_hash": "@hash:skill-snapshot",
+        "actor_type": "skill",
+        "approval_required": false,
+        "contract_hash": "@hash:skill-step",
+        "depends_on": [
+          1
+        ],
+        "expected_outputs": [
+          "competitive_analysis_draft"
+        ],
+        "initial_input": {
+          "analysis_dimensions": [
+            "capabilities",
+            "limitations"
+          ],
+          "competitor_scope": "Product Alpha and Product Beta",
+          "own_product_context": null,
+          "research_goal": "Compare Product Alpha and Product Beta."
+        },
+        "input_bindings": [
+          {
+            "source_pointer": "/evidence_inputs",
+            "source_step": 1,
+            "target_pointer": "/evidence_inputs"
+          }
+        ],
+        "input_schema_hash": "@hash:skill-input-schema",
+        "invocation_semantics": "skill_once",
+        "max_sends": 1,
+        "name": "Build competitive analysis",
+        "output_schema_hash": "@hash:skill-output-schema",
+        "question_ids": [
+          "q_capabilities",
+          "q_recommendation"
+        ],
+        "required": true,
+        "step_number": 2,
+        "timeout_seconds": 120
+      }
+    ],
+    "task_type": "competitive_research"
+  },
+  "target_ref": "dec6b55b3e97913c052ee2b665c063aec77a9dd3"
+}

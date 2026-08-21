@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "tavily-web-search/output.schema.json",
+  "title": "TavilyWebSearchOutput",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["results"],
+  "properties": {
+    "answer": { "type": ["string", "null"], "description": "Tavily 生成的摘要，只能辅助阅读，不能作为事实源" },
+    "response_time": { "type": ["number", "null"] },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "url", "snippet"],
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string", "minLength": 1 },
+          "snippet": { "type": "string" },
+          "score": { "type": ["number", "null"] },
+          "published_date": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

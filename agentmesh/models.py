@@ -1556,8 +1556,9 @@ class AgentRun(BaseModel):
     skill_id: str | None = None
     skill_name: str | None = None
     plan_id: str | None = None
-    orchestration_version: Literal["v1", "research-v2"] = "v1"
+    orchestration_version: Literal["v1", "research-v2", "research-v3"] = "v1"
     orchestration_mode: Literal["off", "preview", "execute"] = "off"
+    writer_generation_epoch: int | None = Field(default=None, ge=1)
     requested_orchestration_mode: SkillOrchestrationRequestMode | None = None
     agent_definition_version: str = "1"
     project_chat: bool = False
