@@ -19,12 +19,13 @@ Implementation commits:
 - `c3db73c748034686147ee9ce669a9f3350df7631` — durable writer generation control;
 - `86f3fc16d54a16158c4b29905f64bade96611054` — dormant v3 preview runtime and versioned routes;
 - `dd54972b62f197ec8ff83fe3d8ff399543967288` — stored-version Workspace composition;
-- `806670b88817aec532c1e96378565bbd3b7bbe72` — stale-writer database fence and preview cancellation hardening.
+- `806670b88817aec532c1e96378565bbd3b7bbe72` — stale-writer database fence and preview cancellation hardening;
+- `59e29a31fa0b0893a0a2803133a156c1cc3fdf7d` — secret-safe writer generation and allowlist health diagnostics.
 
 Final code-under-test commit before this verification document:
 
-- commit `806670b88817aec532c1e96378565bbd3b7bbe72`;
-- tree `c9d2007798b879edc8cafc9ed9f1beadbf95c2a9`.
+- commit `59e29a31fa0b0893a0a2803133a156c1cc3fdf7d`;
+- tree `3413513850dd42af8ed0136a567eb7269092efa4`.
 
 ## Implemented boundary
 
@@ -63,6 +64,13 @@ After stale-v2 trigger and cancel hardening, the directly affected set ran once:
 ```text
 51 passed in 10.78s
 All changed-file Ruff checks passed
+```
+
+The final secret-safe rollout-health check ran once:
+
+```text
+6 passed; 16 deselected
+Health route/test Ruff checks passed
 ```
 
 ### Frontend focused gate
