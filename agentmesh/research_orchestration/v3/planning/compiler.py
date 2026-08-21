@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from jsonschema import validators
@@ -64,15 +65,23 @@ def _pointer_tokens(pointer: str) -> tuple[str, ...]:
 _MISSING = object()
 
 
+def _array_index(token: str) -> int | None:
+    if token == "0":
+        return 0
+    if not token or token[0] == "0" or not token.isascii() or not token.isdigit():
+        return None
+    return int(token)
+
+
 def _resolve_pointer(document: object, pointer: str) -> object:
     current = document
     for token in _pointer_tokens(pointer):
         if isinstance(current, Mapping):
             current = current.get(token, _MISSING)
         elif isinstance(current, Sequence) and not isinstance(current, (str, bytes, bytearray)):
-            if not token.isdigit():
-                return _MISSING
-            index = int(token)
+            index = _array_index(token)
+            if index is None:
+                raise CandidateCompilationError("json_pointer_invalid")
             current = current[index] if index < len(current) else _MISSING
         else:
             return _MISSING
@@ -95,40 +104,59 @@ def _schema(document: FrozenDocumentV3) -> Mapping[str, object]:
     return schema
 
 
+def _dereference_schema(
+    root: Mapping[str, object],
+    schema: object,
+    visited_refs: frozenset[str] = frozenset(),
+) -> object | None:
+    if isinstance(schema, bool):
+        return schema
+    if not isinstance(schema, Mapping):
+        return None
+    reference = schema.get("$ref")
+    if reference is None:
+        return schema
+    if not isinstance(reference, str) or reference in visited_refs:
+        return None
+    if reference == "#":
+        resolved: object = root
+    elif reference.startswith("#/"):
+        resolved = _resolve_pointer(root, reference[1:])
+    else:
+        return None
+    if resolved is _MISSING:
+        return None
+    return _dereference_schema(root, resolved, visited_refs | {reference})
+
+
 def _schema_variants(
     root: Mapping[str, object],
     schema: object,
     visited_refs: frozenset[str] = frozenset(),
 ) -> tuple[object, ...]:
-    if isinstance(schema, bool):
-        return (schema,)
-    if not isinstance(schema, Mapping):
+    resolved = _dereference_schema(root, schema, visited_refs)
+    if isinstance(resolved, bool):
+        return (resolved,)
+    if not isinstance(resolved, Mapping):
         return ()
-    variants: list[object] = []
-    reference = schema.get("$ref")
-    if reference is not None:
-        if not isinstance(reference, str) or not reference.startswith("#/") or reference in visited_refs:
+    for keyword in ("oneOf", "anyOf"):
+        branches = resolved.get(keyword)
+        if branches is None:
+            continue
+        if _has_assertion_siblings(resolved, keyword):
             return ()
-        resolved = _resolve_pointer(root, reference[1:])
-        if resolved is _MISSING:
+        if keyword == "oneOf" and not _one_of_is_unambiguous(root, branches):
             return ()
-        variants.extend(_schema_variants(root, resolved, visited_refs | {reference}))
-    for keyword in ("allOf", "anyOf", "oneOf"):
-        branches = schema.get(keyword, ())
-        if isinstance(branches, Sequence) and not isinstance(branches, (str, bytes, bytearray)):
-            for branch in branches:
-                variants.extend(_schema_variants(root, branch, visited_refs))
-    structural_keywords = {
-        "type",
-        "properties",
-        "patternProperties",
-        "additionalProperties",
-        "items",
-        "prefixItems",
-    }
-    if structural_keywords & set(schema) or not variants:
-        variants.insert(0, schema)
-    return tuple(variants)
+        return tuple(
+            variant
+            for branch in branches
+            for variant in _schema_variants(root, branch, visited_refs)
+        )
+    if "allOf" in resolved:
+        # Traversing an intersection requires proving the combined child schema. Fail closed
+        # instead of treating allOf as a union and accepting a pointer from only one branch.
+        return ()
+    return (resolved,)
 
 
 def _schema_child(root: Mapping[str, object], schema: object, token: str) -> tuple[object, ...]:
@@ -151,12 +179,14 @@ def _schema_child(root: Mapping[str, object], schema: object, token: str) -> tup
             additional = variant.get("additionalProperties", True)
             if object_shape and additional is not False:
                 children.append(additional)
-        if not token.isdigit():
-            continue
         array_shape = "array" in types or any(key in variant for key in ("items", "prefixItems"))
         if not array_shape:
             continue
-        index = int(token)
+        index = _array_index(token)
+        if index is None:
+            if token.isdigit():
+                raise CandidateCompilationError("json_pointer_invalid")
+            continue
         prefix_items = variant.get("prefixItems")
         if (
             isinstance(prefix_items, Sequence)
@@ -174,17 +204,509 @@ def _schema_child(root: Mapping[str, object], schema: object, token: str) -> tup
     return tuple(children)
 
 
-def _schema_allows_pointer(schema: Mapping[str, object], pointer: str) -> bool:
+def _schemas_at_pointer(schema: Mapping[str, object], pointer: str) -> tuple[object, ...]:
     current: tuple[object, ...] = (schema,)
     for token in _pointer_tokens(pointer):
-        current = tuple(
-            child
-            for node in current
-            for child in _schema_child(schema, node, token)
-        )
+        current = tuple(child for node in current for child in _schema_child(schema, node, token))
         if not current:
+            return ()
+    return current
+
+
+def _schema_allows_pointer(schema: Mapping[str, object], pointer: str) -> bool:
+    return bool(_schemas_at_pointer(schema, pointer))
+
+
+_SCHEMA_ANNOTATIONS = {
+    "$comment",
+    "$defs",
+    "$id",
+    "$schema",
+    "definitions",
+    "deprecated",
+    "description",
+    "examples",
+    "readOnly",
+    "title",
+    "writeOnly",
+}
+_JSON_TYPES = {"array", "boolean", "integer", "null", "number", "object", "string"}
+
+
+def _has_assertion_siblings(schema: Mapping[str, object], keyword: str) -> bool:
+    return any(key != keyword and key not in _SCHEMA_ANNOTATIONS for key in schema)
+
+
+def _schema_accepts_instance(root: Mapping[str, object], schema: object, instance: object) -> bool:
+    if not isinstance(schema, (Mapping, bool)):
+        return False
+    try:
+        validator_type = validators.validator_for(root)
+        validator = validator_type(root, format_checker=validator_type.FORMAT_CHECKER)
+        return not any(validator.evolve(schema=schema).iter_errors(instance))
+    except (RecursionError, TypeError, ValueError):
+        return False
+    except Exception:
+        # Resolution backends raise version-specific exceptions for unavailable external refs.
+        return False
+
+
+def _schema_finite_values(root: Mapping[str, object], schema: object) -> tuple[object, ...] | None:
+    resolved = _dereference_schema(root, schema)
+    if not isinstance(resolved, Mapping):
+        return None
+    candidates: tuple[object, ...] | None = None
+    if "const" in resolved:
+        candidates = (resolved["const"],)
+    else:
+        enum = resolved.get("enum")
+        if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes, bytearray)):
+            candidates = tuple(enum)
+    if candidates is None:
+        for keyword in ("oneOf", "anyOf"):
+            branches = resolved.get(keyword)
+            if branches is None or not isinstance(branches, Sequence) or isinstance(branches, (str, bytes, bytearray)):
+                continue
+            branch_values = tuple(_schema_finite_values(root, branch) for branch in branches)
+            if any(values is None for values in branch_values):
+                return None
+            candidates = tuple(value for values in branch_values for value in values or ())
+            break
+    if candidates is None:
+        branches = resolved.get("allOf")
+        if isinstance(branches, Sequence) and not isinstance(branches, (str, bytes, bytearray)):
+            candidates = next(
+                (values for branch in branches if (values := _schema_finite_values(root, branch)) is not None),
+                None,
+            )
+    if candidates is None:
+        return None
+    return tuple(value for value in candidates if _schema_accepts_instance(root, resolved, value))
+
+
+def _json_type(value: object) -> str | None:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, (float, Decimal)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, Mapping):
+        return "object"
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return "array"
+    return None
+
+
+def _schema_types(root: Mapping[str, object], schema: object) -> frozenset[str] | None:
+    resolved = _dereference_schema(root, schema)
+    if not isinstance(resolved, Mapping):
+        return None
+    raw_type = resolved.get("type")
+    if isinstance(raw_type, str):
+        return frozenset({raw_type}) if raw_type in _JSON_TYPES else None
+    if isinstance(raw_type, Sequence) and not isinstance(raw_type, (str, bytes, bytearray)):
+        types = frozenset(raw_type)
+        return types if types and types <= _JSON_TYPES else None
+    finite = _schema_finite_values(root, resolved)
+    if finite:
+        types = frozenset(filter(None, (_json_type(value) for value in finite)))
+        return types or None
+    for keyword in ("oneOf", "anyOf"):
+        branches = resolved.get(keyword)
+        if branches is None or not isinstance(branches, Sequence) or isinstance(branches, (str, bytes, bytearray)):
+            continue
+        branch_types = tuple(_schema_types(root, branch) for branch in branches)
+        if any(types is None for types in branch_types):
+            return None
+        return frozenset(item for types in branch_types for item in types or ())
+    branches = resolved.get("allOf")
+    if isinstance(branches, Sequence) and not isinstance(branches, (str, bytes, bytearray)):
+        known = tuple(types for branch in branches if (types := _schema_types(root, branch)) is not None)
+        if not known:
+            return None
+        common = set(known[0])
+        for types in known[1:]:
+            common &= set(types)
+        return frozenset(common) or None
+    return None
+
+
+def _types_overlap(left: frozenset[str], right: frozenset[str]) -> bool:
+    for left_type in left:
+        for right_type in right:
+            if left_type == right_type or {left_type, right_type} == {"integer", "number"}:
+                return True
+    return False
+
+
+def _one_of_is_unambiguous(root: Mapping[str, object], branches: object) -> bool:
+    if not isinstance(branches, Sequence) or isinstance(branches, (str, bytes, bytearray)) or not branches:
+        return False
+    for index, left in enumerate(branches):
+        left_types = _schema_types(root, left)
+        if left_types is None:
             return False
-    return bool(current)
+        for right in branches[index + 1 :]:
+            right_types = _schema_types(root, right)
+            if right_types is None:
+                return False
+            if not _types_overlap(left_types, right_types):
+                continue
+            left_values = _schema_finite_values(root, left)
+            right_values = _schema_finite_values(root, right)
+            if left_values is not None and not any(
+                _schema_accepts_instance(root, right, value) for value in left_values
+            ):
+                continue
+            if right_values is not None and not any(
+                _schema_accepts_instance(root, left, value) for value in right_values
+            ):
+                continue
+            return False
+    return True
+
+
+def _decimal(value: object) -> Decimal | None:
+    try:
+        if isinstance(value, bool):
+            return None
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _lower_bound(schema: Mapping[str, object]) -> tuple[Decimal, bool] | None:
+    exclusive = schema.get("exclusiveMinimum")
+    if isinstance(exclusive, bool):
+        if "minimum" not in schema:
+            return None
+        value = _decimal(schema["minimum"])
+        return (value, exclusive) if value is not None else None
+    if exclusive is not None:
+        value = _decimal(exclusive)
+        return (value, True) if value is not None else None
+    if "minimum" in schema:
+        value = _decimal(schema["minimum"])
+        return (value, False) if value is not None else None
+    return None
+
+
+def _upper_bound(schema: Mapping[str, object]) -> tuple[Decimal, bool] | None:
+    exclusive = schema.get("exclusiveMaximum")
+    if isinstance(exclusive, bool):
+        if "maximum" not in schema:
+            return None
+        value = _decimal(schema["maximum"])
+        return (value, exclusive) if value is not None else None
+    if exclusive is not None:
+        value = _decimal(exclusive)
+        return (value, True) if value is not None else None
+    if "maximum" in schema:
+        value = _decimal(schema["maximum"])
+        return (value, False) if value is not None else None
+    return None
+
+
+def _lower_implies(source: tuple[Decimal, bool] | None, target: tuple[Decimal, bool] | None) -> bool:
+    if target is None:
+        return True
+    if source is None:
+        return False
+    if source[0] != target[0]:
+        return source[0] > target[0]
+    return source[1] or not target[1]
+
+
+def _upper_implies(source: tuple[Decimal, bool] | None, target: tuple[Decimal, bool] | None) -> bool:
+    if target is None:
+        return True
+    if source is None:
+        return False
+    if source[0] != target[0]:
+        return source[0] < target[0]
+    return source[1] or not target[1]
+
+
+def _string_constraints_assignable(source: Mapping[str, object], target: Mapping[str, object]) -> bool:
+    source_min = source.get("minLength", 0)
+    target_min = target.get("minLength", 0)
+    source_max = source.get("maxLength")
+    target_max = target.get("maxLength")
+    if not isinstance(source_min, int) or not isinstance(target_min, int) or source_min < target_min:
+        return False
+    if target_max is not None and (not isinstance(source_max, int) or source_max > target_max):
+        return False
+    for keyword in ("pattern", "format", "contentEncoding", "contentMediaType"):
+        if keyword in target and source.get(keyword) != target[keyword]:
+            return False
+    return True
+
+
+def _numeric_constraints_assignable(source: Mapping[str, object], target: Mapping[str, object]) -> bool:
+    if not _lower_implies(_lower_bound(source), _lower_bound(target)):
+        return False
+    if not _upper_implies(_upper_bound(source), _upper_bound(target)):
+        return False
+    if "multipleOf" in target:
+        source_multiple = _decimal(source.get("multipleOf"))
+        target_multiple = _decimal(target["multipleOf"])
+        if source_multiple is None or target_multiple is None or target_multiple == 0:
+            return False
+        if source_multiple % target_multiple != 0:
+            return False
+    return True
+
+
+def _array_constraints_assignable(
+    source_root: Mapping[str, object],
+    source: Mapping[str, object],
+    target_root: Mapping[str, object],
+    target: Mapping[str, object],
+    visited: frozenset[tuple[int, int]],
+) -> bool:
+    if any(keyword in target for keyword in ("contains", "minContains", "maxContains", "prefixItems", "unevaluatedItems")):
+        return False
+    if any(keyword in source for keyword in ("prefixItems", "unevaluatedItems")):
+        return False
+    source_min = source.get("minItems", 0)
+    target_min = target.get("minItems", 0)
+    source_max = source.get("maxItems")
+    target_max = target.get("maxItems")
+    if not isinstance(source_min, int) or not isinstance(target_min, int) or source_min < target_min:
+        return False
+    if target_max is not None and (not isinstance(source_max, int) or source_max > target_max):
+        return False
+    if target.get("uniqueItems") is True and source.get("uniqueItems") is not True and source_max != 1:
+        return False
+    source_items = source.get("items", True)
+    target_items = target.get("items", True)
+    if isinstance(source_items, Sequence) and not isinstance(source_items, (str, bytes, bytearray, Mapping)):
+        return False
+    if isinstance(target_items, Sequence) and not isinstance(target_items, (str, bytes, bytearray, Mapping)):
+        return False
+    if target_items is True:
+        return True
+    if target_items is False:
+        return source_items is False or source_max == 0
+    if source_items is False:
+        return True
+    if source_items is True:
+        return False
+    return _schema_assignable(source_root, source_items, target_root, target_items, visited)
+
+
+def _object_property_schema(schema: Mapping[str, object], name: str) -> object:
+    properties = schema.get("properties", {})
+    if isinstance(properties, Mapping) and name in properties:
+        return properties[name]
+    return schema.get("additionalProperties", True)
+
+
+def _object_constraints_assignable(
+    source_root: Mapping[str, object],
+    source: Mapping[str, object],
+    target_root: Mapping[str, object],
+    target: Mapping[str, object],
+    visited: frozenset[tuple[int, int]],
+) -> bool:
+    unsupported = {
+        "dependencies",
+        "dependentRequired",
+        "dependentSchemas",
+        "patternProperties",
+        "propertyNames",
+        "unevaluatedProperties",
+    }
+    if unsupported & (set(source) | set(target)):
+        return False
+    source_properties = source.get("properties", {})
+    target_properties = target.get("properties", {})
+    if not isinstance(source_properties, Mapping) or not isinstance(target_properties, Mapping):
+        return False
+    source_required = set(source.get("required", ()))
+    target_required = set(target.get("required", ()))
+    if not target_required <= source_required:
+        return False
+    source_min = max(int(source.get("minProperties", 0)), len(source_required))
+    target_min = max(int(target.get("minProperties", 0)), len(target_required))
+    if source_min < target_min:
+        return False
+    source_additional = source.get("additionalProperties", True)
+    target_additional = target.get("additionalProperties", True)
+    source_max = source.get("maxProperties")
+    if source_max is None and source_additional is False:
+        source_max = len(source_properties)
+    target_max = target.get("maxProperties")
+    if target_max is not None and (not isinstance(source_max, int) or source_max > target_max):
+        return False
+
+    for name, source_property in source_properties.items():
+        target_property = _object_property_schema(target, name)
+        if target_property is False:
+            return False
+        if target_property is not True and not _schema_assignable(
+            source_root,
+            source_property,
+            target_root,
+            target_property,
+            visited,
+        ):
+            return False
+    if source_additional is not False:
+        for name, target_property in target_properties.items():
+            if name in source_properties or target_property is True:
+                continue
+            if not _schema_assignable(
+                source_root,
+                source_additional,
+                target_root,
+                target_property,
+                visited,
+            ):
+                return False
+        if target_additional is False:
+            return False
+        if target_additional is not True and not _schema_assignable(
+            source_root,
+            source_additional,
+            target_root,
+            target_additional,
+            visited,
+        ):
+            return False
+    return True
+
+
+def _schema_type_slice(schema: Mapping[str, object], schema_type: str) -> Mapping[str, object]:
+    return {**schema, "type": schema_type}
+
+
+def _schema_assignable(  # noqa: C901, PLR0911
+    source_root: Mapping[str, object],
+    source_schema: object,
+    target_root: Mapping[str, object],
+    target_schema: object,
+    visited: frozenset[tuple[int, int]] = frozenset(),
+) -> bool:
+    source = _dereference_schema(source_root, source_schema)
+    target = _dereference_schema(target_root, target_schema)
+    if not isinstance(source, Mapping) or not isinstance(target, Mapping):
+        return False
+    pair = (id(source), id(target))
+    if pair in visited:
+        return False
+    visited |= {pair}
+
+    source_one_of = source.get("oneOf")
+    if source_one_of is not None and not _one_of_is_unambiguous(source_root, source_one_of):
+        return False
+    target_one_of = target.get("oneOf")
+    if target_one_of is not None and not _one_of_is_unambiguous(target_root, target_one_of):
+        return False
+
+    source_values = _schema_finite_values(source_root, source)
+    if source_values is not None:
+        return bool(source_values) and all(
+            _schema_accepts_instance(target_root, target, value) for value in source_values
+        )
+    if _schema_finite_values(target_root, target) is not None:
+        return False
+
+    for keyword in ("oneOf", "anyOf"):
+        branches = source.get(keyword)
+        if branches is None:
+            continue
+        if _has_assertion_siblings(source, keyword):
+            return False
+        return all(
+            _schema_assignable(source_root, branch, target_root, target, visited)
+            for branch in branches
+        )
+    if "allOf" in source:
+        return False
+
+    source_types = _schema_types(source_root, source)
+    if source_types is None:
+        return False
+    for keyword in ("oneOf", "anyOf"):
+        branches = target.get(keyword)
+        if branches is None:
+            continue
+        if _has_assertion_siblings(target, keyword):
+            return False
+        return all(
+            any(
+                _schema_assignable(
+                    source_root,
+                    _schema_type_slice(source, source_type),
+                    target_root,
+                    branch,
+                    visited,
+                )
+                for branch in branches
+            )
+            for source_type in source_types
+        )
+    target_all_of = target.get("allOf")
+    if target_all_of is not None:
+        if _has_assertion_siblings(target, "allOf"):
+            return False
+        return all(
+            _schema_assignable(source_root, source, target_root, branch, visited)
+            for branch in target_all_of
+        )
+    if any(keyword in target for keyword in ("if", "not", "then", "else")):
+        return False
+
+    target_types = _schema_types(target_root, target)
+    if target_types is None:
+        return False
+    for source_type in source_types:
+        compatible_targets = {
+            target_type
+            for target_type in target_types
+            if source_type == target_type or (source_type == "integer" and target_type == "number")
+        }
+        if not compatible_targets:
+            return False
+        if source_type == "string" and not _string_constraints_assignable(source, target):
+            return False
+        if source_type in {"integer", "number"} and not _numeric_constraints_assignable(source, target):
+            return False
+        if source_type == "array" and not _array_constraints_assignable(
+            source_root,
+            source,
+            target_root,
+            target,
+            visited,
+        ):
+            return False
+        if source_type == "object" and not _object_constraints_assignable(
+            source_root,
+            source,
+            target_root,
+            target,
+            visited,
+        ):
+            return False
+    return True
+
+
+def _schema_nodes_assignable(
+    source_root: Mapping[str, object],
+    source_nodes: tuple[object, ...],
+    target_root: Mapping[str, object],
+    target_nodes: tuple[object, ...],
+) -> bool:
+    return bool(source_nodes) and bool(target_nodes) and all(
+        any(_schema_assignable(source_root, source, target_root, target) for target in target_nodes)
+        for source in source_nodes
+    )
 
 
 def _validate_json_schema_instance(
@@ -196,6 +718,9 @@ def _validate_json_schema_instance(
         validator_type = validators.validator_for(schema)
         validator_type(schema, format_checker=validator_type.FORMAT_CHECKER).validate(instance)
     except (JsonSchemaValidationError, RecursionError, TypeError, ValueError):
+        raise CandidateCompilationError(error_code) from None
+    except Exception:
+        # Treat unavailable references and validator backend failures as invalid input schemas.
         raise CandidateCompilationError(error_code) from None
 
 
@@ -547,8 +1072,13 @@ class CompetitiveTextCandidateCompiler:
             proposed_input = thaw_json_value(proposal.input)
             mapped_dependencies = tuple(identity_map[item] for item in proposal.depends_on)
             mapped_bindings: list[PlanInputBindingV3] = []
-            target_pointers: set[str] = set()
+            target_pointer_keys: set[tuple[str, ...]] = set()
             for binding in proposal.input_bindings:
+                _pointer_tokens(binding.source_pointer)
+                target_pointer_key = _pointer_tokens(binding.target_pointer)
+                if target_pointer_key in target_pointer_keys:
+                    raise CandidateCompilationError("binding_target_duplicate")
+                target_pointer_keys.add(target_pointer_key)
                 if binding.source_step_number not in proposal.depends_on:
                     raise CandidateCompilationError("binding_source_not_direct_dependency")
                 source_number = identity_map[binding.source_step_number]
@@ -564,15 +1094,21 @@ class CompetitiveTextCandidateCompiler:
                 if source_output_document is None:
                     raise CandidateCompilationError("actor_schema_snapshot_missing")
                 source_output_schema = _schema(source_output_document)
-                if not _schema_allows_pointer(source_output_schema, binding.source_pointer):
+                source_schema_nodes = _schemas_at_pointer(source_output_schema, binding.source_pointer)
+                if not source_schema_nodes:
                     raise CandidateCompilationError("binding_source_schema_pointer_missing")
-                if not _schema_allows_pointer(input_schema, binding.target_pointer):
+                target_schema_nodes = _schemas_at_pointer(input_schema, binding.target_pointer)
+                if not target_schema_nodes:
                     raise CandidateCompilationError("binding_target_schema_pointer_missing")
+                if not _schema_nodes_assignable(
+                    source_output_schema,
+                    source_schema_nodes,
+                    input_schema,
+                    target_schema_nodes,
+                ):
+                    raise CandidateCompilationError("binding_schema_incompatible")
                 if _resolve_pointer(proposed_input, binding.target_pointer) is _MISSING:
                     raise CandidateCompilationError("binding_target_missing")
-                if binding.target_pointer in target_pointers:
-                    raise CandidateCompilationError("binding_target_duplicate")
-                target_pointers.add(binding.target_pointer)
                 mapped_bindings.append(
                     PlanInputBindingV3(
                         source_step_number=source_number,
