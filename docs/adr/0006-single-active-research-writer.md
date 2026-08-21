@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed on 2026-08-20. Architecture acceptance remains blocked until `AM-ARCH` and `AM-RELEASE-QA` are bound to accountable `@handle`s and attest the Gate 0 record. This ADR does not authorize Slice 1 or change the current default rollout state of `off`.
+Accepted on 2026-08-21 by interim owner `@heyunshen` for **Gate 0 and isolated Slice 1 development only**. This acceptance does not authorize production cutover or change the production rollout default of `off`. Production cutover remains blocked on a separate decision by independent `AM-ARCH` and `AM-RELEASE-QA` reviewers.
 
 ## Context
 
@@ -35,18 +35,17 @@ Readers, purgers, narrow settlement, and bounded continuations are not new-Run w
 
 No Workflow service, GET, SSE reconnect, browser refresh, approval handler, or recovery loop may reclassify the original text. Same-name Skills are selected by the persisted catalog namespace and contract version, never by filesystem load order.
 
-Production has at most one active research writer generation globally:
+Production has at most one active research writer generation globally. This canonical routing table is also used by the migration plan:
 
-| Production state | New eligible research | Existing active v2 | Historical v2 |
-| --- | --- | --- | --- |
-| `off` | v1 | no new claims; settle already-SENT calls only | read and owner-authorized purge |
-| pre-cutover `preview` / `execute` | research-v2 | continue by stored version | read and owner-authorized purge |
-| v3 validation | isolated environment only; production remains unchanged | production remains v2 | read and owner-authorized purge |
-| v3 cutover | research-v3 | bounded continuation by stored version until drained | read and owner-authorized purge |
-| post-drain | research-v3 | none | read, audit, integrity handling, and owner-authorized purge |
-| rollback `off` | v1 | no new claims and no v2 writer reactivation | read and owner-authorized purge; settle already-SENT calls honestly |
+| Stage | `off` | `preview` / `execute` eligible Competitive request | Other request | Selected writer unavailable |
+| --- | --- | --- | --- | --- |
+| Gate 0 production / pre-cutover | v1 | research-v2 | v1 | fail closed; no alternate writer |
+| Isolated Slice 1 validation | v1 | research-v3, isolated only | v1 | fail closed |
+| Separately approved production cutover | v1 | globally active research-v3 | v1 until later task-type slices are accepted | fail closed; never v2/v1 fallback |
 
-The Slice 1 implementation is validated and accepted in an isolated environment while production continues to route eligible research to v2. Production changes only through a **separate, jointly approved atomic cutover** after isolated Slice 1 acceptance. At that cutover, all new eligible Competitive Runs switch together: after cutover v2 cannot create a new Run. An allowlist may control whether the selected current writer can execute or must remain preview-only; it must not choose v2 versus v3.
+Replay by `client_turn_id` precedes live routing and always returns the persisted version. Slice 1 enables only Competitive Text research, not all five future task types. An allowlist controls preview versus execution, never v2 versus v3. `off` means no new versioned research Workflow or research claims; routing an ordinary request to v1 does not make v1 the current research writer.
+
+The Slice 1 implementation is validated and accepted only in an isolated environment while production continues to route eligible research to v2. Production changes only through a **separate, jointly approved atomic cutover** after isolated Slice 1 acceptance. At that cutover, all new eligible Competitive Runs switch together: after cutover v2 cannot create a new Run.
 
 ### Immutable routing and durable fencing
 
@@ -87,6 +86,16 @@ A `V2HistoryAdapter` must preserve the decoder and verified Artifact dependency 
 
 "Retire" means removal from the new-Run writer path. It does not authorize deleting contracts, Store rows, projections, or Artifact readers required by history.
 
+### Canonical historical identity policy
+
+Exact decoders and frozen fixtures use one complete categorized policy. Narrower collision lists must be labeled as such and must not be called complete.
+
+- orchestration: `research-v2`;
+- payload/schema: `claim-ledger-v1`, `competitive-analysis-output-v1`, `deliverable-document-v1`, `deterministic-review-v1`, `evidence-manifest-v1`, `evidence-source-v1`, `execution-plan-v2`, `problem-contract-v1`, `report-document-v1`, `research-task-v2`;
+- resources: `competitive-analysis-review-v1`, `evidence-policy-v1`.
+
+The combined historical set is exactly those thirteen identities. The current set is exactly `research-v3`, `research-task-v3`, `execution-plan-v3`, `research-deliverable-v3`, `report-review-v3`, and `report-document-v3`; the sets may not overlap.
+
 ### Runtime ownership
 
 FastAPI continues to own one lifespan-scoped `ResearchRuntime`; SQLite remains authoritative. The future composition root separates authorities conceptually:
@@ -118,20 +127,20 @@ Migrations are additive. No v2 payload, hash, row, or Artifact content is rewrit
 
 ### Named ownership boundary
 
-Gate records use the following accountable owner IDs. Each ID must be bound to one individual `@handle` before Gate 0 can pass:
+Gate records use the following accountable owner IDs. The user approved one temporary binding for the exact scope **Gate 0 and isolated Slice 1 development only**. That exception does not satisfy production-cutover reviewer independence.
 
-| Owner ID | Named owner | Accountability |
+| Owner ID | Interim handle | Accountability |
 | --- | --- | --- |
-| `AX-SOURCE` | ai-x Source Custodian | immutable source lock, dispositions, source quality |
-| `AM-ARCH` | AgentMesh Architecture Owner | this ADR, schema namespace, single writer, cutover |
-| `AM-CONTRACTS-HISTORY` | Research Contracts and v2 History Owner | v3 contracts, source adapter, immutable v2 history decoder |
-| `AM-RUNTIME-STORE` | Research Runtime and Store Owner | writer fence, drain, retirement gate |
-| `AM-WEB` | Workbench and Projection Owner | visual baselines and versioned renderers |
-| `AM-SECURITY-RETENTION` | Security, Audit and Retention Owner | security review, retention, purge/tombstone |
-| `AM-RELEASE-QA` | Release Verification Owner | lock verifier, release gate, go/no-go record |
-| `AM-PRODUCT-RESEARCH` | Product and Research Owner | Slice acceptance and rollout policy |
+| `AX-SOURCE` | `@heyunshen` | immutable source identity, source approval, source quality, durable retention, source visual-fixture provenance |
+| `AM-ARCH` | `@heyunshen` | ADR, schema namespace, owner registry, single-writer and cutover decision |
+| `AM-CONTRACTS-HISTORY` | `@heyunshen` | v3 contracts, source adapter, immutable v2 decoder and historical database fixture |
+| `AM-RUNTIME-STORE` | `@heyunshen` | atomic writer fence, v2 continuation, drain and retirement checks |
+| `AM-WEB` | `@heyunshen` | source baselines and stored-version-specific renderers |
+| `AM-SECURITY-RETENTION` | `@heyunshen` | owner scope, integrity failure, retention, purge and tombstone behavior |
+| `AM-RELEASE-QA` | `@heyunshen` | verifier, target characterization, zero-diff validation and Gate handoff |
+| `AM-PRODUCT-RESEARCH` | `@heyunshen` | Slice 1 scope and rollout acceptance policy |
 
-`AM-ARCH` and `AM-RELEASE-QA` jointly authorize isolated Slice 1 work. `AX-SOURCE` approves source authority only; it cannot authorize AgentMesh implementation or production cutover. No handle bindings were supplied in this Gate 0 run, so all roles remain explicitly unbound blockers.
+`AM-ARCH` plus `AM-CONTRACTS-HISTORY` accept this architecture/contracts package. `AM-ARCH` plus `AM-RELEASE-QA` authorize a final isolated Slice 1 handoff only after every verifier criterion passes. Production cutover requires a later approval with those two roles represented by distinct individuals and review evidence.
 
 ## Consequences
 
@@ -145,7 +154,7 @@ Gate 0 can freeze the decision without changing runtime behavior. Slice 1 must s
 
 ## Gate 0 verification
 
-Gate 0 passes this ADR's documentation boundary only when:
+Gate 0 accepts this ADR's documentation boundary when:
 
 - production route, model, Store, Runtime, frontend, Provider, and database paths have no Gate 0 behavior diff;
 - the ai-x approved snapshot lock is exact and source-owner approved; durable retention and the remaining Gate criteria are still required before it becomes migration-authoritative;
@@ -153,6 +162,6 @@ Gate 0 passes this ADR's documentation boundary only when:
 - current identities are exactly `research-task-v3`, `execution-plan-v3`, `research-deliverable-v3`, `report-review-v3`, and `report-document-v3`, while historical identities remain immutable;
 - the future routing table is a decision contract only, not a reachable v3 branch;
 - no Provider smoke or user-data migration was performed;
-- `AM-ARCH` and `AM-RELEASE-QA` have accepted this ADR and the Gate record.
+- `AM-ARCH` and `AM-CONTRACTS-HISTORY` have accepted this architecture/contracts package for the stated interim scope.
 
-Until the last item and all other Gate criteria are attested, this ADR remains **Proposed** and Slice 1 remains on HOLD.
+This ADR is **Accepted** for Gate 0 and isolated Slice 1 development. The focused verifier, rather than this prose status, determines whether an isolated Slice 1 handoff is authorized. Production cutover remains separately blocked.

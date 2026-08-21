@@ -1,0 +1,28 @@
+{
+  "advertised_ref": "refs/heads/agent/ai-x-parity-source-freeze-final",
+  "bundle": {
+    "bytes": 16185062,
+    "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
+    "sha256": "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f"
+  },
+  "bundle_verify": {
+    "complete_history": true,
+    "result": "okay"
+  },
+  "durable_retention": {
+    "kind": "committed_git_blob",
+    "repository": "https://github.com/yssssssssssss/ai-agentmesh-hackathon.git"
+  },
+  "restored": {
+    "commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
+    "fsck_full_strict": "passed",
+    "tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
+  },
+  "runtime_loading": {
+    "importable_python_package": false,
+    "loaded_automatically": false,
+    "policy": "evidence-only; verifier opens it only when explicitly passed or referenced by the lock"
+  },
+  "schema_version": "agentmesh-ai-x-source-bundle-attestation-v1",
+  "source_repository": "https://github.com/yssssssssssss/ai-x.git"
+}

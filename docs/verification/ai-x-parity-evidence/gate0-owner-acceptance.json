@@ -1,0 +1,140 @@
+{
+  "acceptance_method": "authenticated user instruction recorded in the Gate 0 work request",
+  "approved_criteria_by_owner": {
+    "AM-ARCH": [
+      "gate0-01-ownership-ledger",
+      "gate0-06-accepted-architecture-and-exact-contracts",
+      "gate0-08-zero-production-behavior-diff",
+      "gate0-10-handoff-and-authorization"
+    ],
+    "AM-CONTRACTS-HISTORY": [
+      "gate0-06-accepted-architecture-and-exact-contracts",
+      "gate0-09-v2-compatibility-and-slice-1-work-plan"
+    ],
+    "AM-PRODUCT-RESEARCH": [],
+    "AM-RELEASE-QA": [
+      "gate0-03-authoritative-parity-lock",
+      "gate0-04-offline-source-quality",
+      "gate0-07-target-characterization",
+      "gate0-08-zero-production-behavior-diff",
+      "gate0-10-handoff-and-authorization"
+    ],
+    "AM-RUNTIME-STORE": [
+      "gate0-09-v2-compatibility-and-slice-1-work-plan"
+    ],
+    "AM-SECURITY-RETENTION": [
+      "gate0-09-v2-compatibility-and-slice-1-work-plan"
+    ],
+    "AM-WEB": [
+      "gate0-05-visual-identity",
+      "gate0-09-v2-compatibility-and-slice-1-work-plan"
+    ],
+    "AX-SOURCE": [
+      "gate0-02-final-source-authority-and-durable-retention",
+      "gate0-03-authoritative-parity-lock",
+      "gate0-04-offline-source-quality",
+      "gate0-05-visual-identity"
+    ]
+  },
+  "binding_scope": "Gate 0 and isolated Slice 1 development only",
+  "criterion_owners": {
+    "gate0-01-ownership-ledger": [
+      "AM-ARCH"
+    ],
+    "gate0-02-final-source-authority-and-durable-retention": [
+      "AX-SOURCE"
+    ],
+    "gate0-03-authoritative-parity-lock": [
+      "AX-SOURCE",
+      "AM-RELEASE-QA"
+    ],
+    "gate0-04-offline-source-quality": [
+      "AX-SOURCE",
+      "AM-RELEASE-QA"
+    ],
+    "gate0-05-visual-identity": [
+      "AX-SOURCE",
+      "AM-WEB"
+    ],
+    "gate0-06-accepted-architecture-and-exact-contracts": [
+      "AM-ARCH",
+      "AM-CONTRACTS-HISTORY"
+    ],
+    "gate0-07-target-characterization": [
+      "AM-RELEASE-QA"
+    ],
+    "gate0-08-zero-production-behavior-diff": [
+      "AM-ARCH",
+      "AM-RELEASE-QA"
+    ],
+    "gate0-09-v2-compatibility-and-slice-1-work-plan": [
+      "AM-CONTRACTS-HISTORY",
+      "AM-RUNTIME-STORE",
+      "AM-WEB",
+      "AM-SECURITY-RETENTION"
+    ],
+    "gate0-10-handoff-and-authorization": [
+      "AM-ARCH",
+      "AM-RELEASE-QA"
+    ]
+  },
+  "interim_binding_approved": true,
+  "owner_bindings": [
+    {
+      "accountability": "ADR, schema namespace, owner registry, single-writer and cutover decision",
+      "handle": "@heyunshen",
+      "owner_id": "AM-ARCH",
+      "proof_of_control": "authenticated Gate 0 instruction"
+    },
+    {
+      "accountability": "v3 contracts, source adapter, immutable v2 decoder and historical database fixture",
+      "handle": "@heyunshen",
+      "owner_id": "AM-CONTRACTS-HISTORY",
+      "proof_of_control": "authenticated Gate 0 instruction"
+    },
+    {
+      "accountability": "Slice 1 scope and rollout acceptance policy",
+      "handle": "@heyunshen",
+      "owner_id": "AM-PRODUCT-RESEARCH",
+      "proof_of_control": "authenticated Gate 0 instruction"
+    },
+    {
+      "accountability": "verifier, target characterization, zero-diff validation and Gate handoff",
+      "handle": "@heyunshen",
+      "owner_id": "AM-RELEASE-QA",
+      "proof_of_control": "authenticated Gate 0 instruction"
+    },
+    {
+      "accountability": "atomic writer fence, v2 continuation, drain and retirement checks",
+      "handle": "@heyunshen",
+      "owner_id": "AM-RUNTIME-STORE",
+      "proof_of_control": "authenticated Gate 0 instruction"
+    },
+    {
+      "accountability": "owner scope, integrity failure, retention, purge and tombstone behavior",
+      "handle": "@heyunshen",
+      "owner_id": "AM-SECURITY-RETENTION",
+      "proof_of_control": "authenticated Gate 0 instruction"
+    },
+    {
+      "accountability": "source baselines and stored-version-specific renderers",
+      "handle": "@heyunshen",
+      "owner_id": "AM-WEB",
+      "proof_of_control": "authenticated Gate 0 instruction"
+    },
+    {
+      "accountability": "immutable source identity, source approval, source quality, durable retention, source visual-fixture provenance",
+      "handle": "@heyunshen",
+      "owner_id": "AX-SOURCE",
+      "proof_of_control": "authenticated Gate 0 instruction"
+    }
+  ],
+  "production_cutover": {
+    "authorized": false,
+    "required_review": "separate approval by independent Architecture and Release QA reviewers",
+    "same_person_or_key_allowed": false
+  },
+  "schema_version": "agentmesh-ai-x-gate0-interim-owner-acceptance-v1",
+  "signed_at": "2026-08-21T00:00:00Z",
+  "signed_by_handle": "@heyunshen"
+}

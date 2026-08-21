@@ -239,10 +239,10 @@
       "sha256": "bbe47ae5bf9f437857587831b1dfb696e8e8a082b4f4f1f7d2714194f9d70b5a"
     },
     {
-      "bytes": 6072,
+      "bytes": 6645,
       "fixture_id": "research-v2-historical-read-compatibility-v1",
       "path": "v2-historical-read-compatibility.json",
-      "sha256": "695aaf23473d38d3802231b8ad236a26cbc4c491b7ebfb31bf66968ccc40ed63"
+      "sha256": "cd6dbee9dc61a52edad53ac1f66d41d4456638f5f7ae5da45a8854eedb8f8132"
     }
   ],
   "hash_scope": "All JSON fixture files except manifest.json; self-hash intentionally excluded.",
@@ -280,21 +280,42 @@
       ]
     },
     "target": {
-      "pydantic_or_persisted_versions": [
-        "claim-ledger-v1",
-        "competitive-analysis-output-v1",
-        "competitive-analysis-review-v1",
-        "deliverable-document-v1",
-        "deterministic-review-v1",
-        "evidence-manifest-v1",
-        "evidence-policy-v1",
-        "evidence-source-v1",
-        "execution-plan-v2",
-        "problem-contract-v1",
-        "report-document-v1",
-        "research-task-v2",
-        "research-v2"
-      ]
+      "canonical_historical_identity_policy": {
+        "combined": [
+          "claim-ledger-v1",
+          "competitive-analysis-output-v1",
+          "competitive-analysis-review-v1",
+          "deliverable-document-v1",
+          "deterministic-review-v1",
+          "evidence-manifest-v1",
+          "evidence-policy-v1",
+          "evidence-source-v1",
+          "execution-plan-v2",
+          "problem-contract-v1",
+          "report-document-v1",
+          "research-task-v2",
+          "research-v2"
+        ],
+        "orchestration_versions": [
+          "research-v2"
+        ],
+        "payload_or_schema_identities": [
+          "claim-ledger-v1",
+          "competitive-analysis-output-v1",
+          "deliverable-document-v1",
+          "deterministic-review-v1",
+          "evidence-manifest-v1",
+          "evidence-source-v1",
+          "execution-plan-v2",
+          "problem-contract-v1",
+          "report-document-v1",
+          "research-task-v2"
+        ],
+        "resource_versions": [
+          "competitive-analysis-review-v1",
+          "evidence-policy-v1"
+        ]
+      }
     }
   },
   "source": {

@@ -1,6 +1,6 @@
 # AgentMesh AI 工作台完整复刻 ai-x 开发方案（优化版）
 
-> 状态：Proposed，Gate 0 HOLD；`AM-ARCH` 与 `AM-RELEASE-QA` 尚未绑定 accountable `@handle` 并批准
+> 状态：Accepted（仅限 Gate 0 与 isolated Slice 1 development），interim owner `@heyunshen`；production cutover 仍由独立评审单独阻断
 >
 > 日期：2026-08-20
 >
@@ -22,11 +22,17 @@
 普通聊天、Legacy、非研究 Skill
   -> v1
 
-所有新的研究任务和研究 $skill
-  -> research-current（持久化值 research-v3）
+Gate 0 production / pre-cutover eligible Competitive request
+  -> globally active research-v2
+
+Isolated Slice 1 eligible Competitive request
+  -> research-v3 in isolation only
+
+Separately approved production cutover
+  -> globally active research-v3
 
 已有 research-v2
-  -> 历史只读兼容
+  -> 按 stored version continuation/drain，之后历史只读兼容
 ```
 
 用户不会看到 v1、v2、v3 选择器。服务端在 Run 创建时只做一次路由，持久化 immutable orchestration version，后续刷新、SSE、重试和历史打开都不得重新判断。
@@ -66,9 +72,9 @@ AI 工作台内部替换为 ai-x 风格研究工作台。任务历史使用当�
 
 ### 2.2 研究优先兼容
 
-进入完整研究主链的请求：
+进入完整研究主链的请求（only after its task-type Slice is accepted for the current stage）：
 
-- 五类自然语言研究任务；
+- 已接受 task type 的自然语言研究任务；Slice 1 仅包含 Competitive Text，不能提前启用其余四类；
 - 命中 research catalog 的 `$skill`；
 - 附带研究输入、截图或数据集的受支持任务。
 
@@ -113,7 +119,16 @@ Gate 0 固定以下 source Git 对象；读取和校验一律使用 commit blob�
 
 Source manifest 把 `approvedContentTree` 描述为 “pre-manifest/non-self-referential”，但该 parent tree 实际包含 predecessor manifest blob。Target lock 不重复这个更强的描述，只校验真实关系：final parent、parent tree 以及 final commit 仅修改 manifest。
 
-该对象当前只有本机 materialization evidence；没有 protected remote ref、signed tag 或 verified Git bundle。故 source snapshot 已批准，但在 durable retention evidence 补齐前 `authoritative_for_migration=false`，Slice 1 继续 HOLD。
+该对象由 committed Git Bundle 持久保留：
+
+- path：`agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle`；
+- bytes：`16185062`；
+- SHA-256：`bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f`；
+- advertised ref：`refs/heads/agent/ai-x-parity-source-freeze-final`；
+- restored commit/tree：`d7ec877fbff0684b0886cb86a7e09eb42ebf7d77` / `ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12`；
+- a clean temporary clone plus `git fsck --full --strict` must pass.
+
+The bundle is evidence-only: its directory has no Python package marker, is absent from runtime package data, and is read only by the explicit Gate verifier path.
 
 Gate 0 生成并提交：
 
@@ -185,21 +200,28 @@ Source adapter 做显式映射：
 1. 若 `client_turn_id` 已存在，回放原 Run；
 2. 解析 Legacy `$group.command`，进入 v1；
 3. 解析 research catalog `$skill`；
-4. Intent Router 判断五类研究任务；
-5. 若用户、task type 和 rollout mode 允许，创建 research-v3；
+4. Intent Router 只在当前 Slice 支持的 task type 内分类；
+5. 根据 stage 与 rollout mode 选择**全局 active writer generation**；Gate 0 production/pre-cutover 只能选择 v2，v3 只在 isolated validation 或另行批准的 production cutover 后合法；
 6. 其他请求创建 v1；
-7. research-v3 已选中但 Runtime、core Tool 或合同不可用时明确失败，不回退到 research-v2 或普通聊天。
+7. selected writer 已选中但 Runtime、core Tool 或合同不可用时明确失败，不回退到 research-v2、v1、mock Tool 或不同 Provider。
 
 ### 4.3 迁移期路由
 
-采用严格的全局 single-writer 切换，不按 cohort 同时创建 v2 和 v3：
+采用以下 canonical table，不按 cohort 同时创建 v2 和 v3：
 
-- Competitive Text Slice 在隔离环境通过并获得 acceptance 前，production 中 `research-v2` 是唯一可创建新研究 Run 的 writer；`research-v3` 只允许隔离验证，production Router 不识别它；
-- isolated Slice 1 acceptance 之后，还必须获得一次独立的 production atomic-cutover approval；只有该 cutover 才把所有 eligible Competitive 新 Run 同时切到 `research-v3` 并禁止 v2 新建；
-- allowlist 只控制 current Run 是 preview 还是允许 execute，不选择 orchestration version；
-- 已持久化 v2 Run 只按 stored version 做有界 drain；drain 后仅保留 history reader、诚实结算、审计和 owner-authorized purge；
-- `off` 时所有新请求进入 v1，且永不把 v2 重新启用为 fallback；
-- current writer 已选中但不可用时明确失败，不静默回退到 v2 或 v1。
+| Stage | `off` | `preview` / `execute` eligible Competitive request | Other request | Selected writer unavailable |
+| --- | --- | --- | --- | --- |
+| Gate 0 production / pre-cutover | v1 | research-v2 | v1 | fail closed; no alternate writer |
+| Isolated Slice 1 validation | v1 | research-v3, isolated only | v1 | fail closed |
+| Separately approved production cutover | v1 | globally active research-v3 | v1 until later task-type slices are accepted | fail closed; never v2/v1 fallback |
+
+Additional invariants:
+
+- replay by `client_turn_id` precedes live routing and returns the persisted version;
+- Slice 1 enables only Competitive Text research, not all five future task types;
+- the allowlist controls preview versus execution, never v2 versus v3;
+- `off` means no new versioned research Workflow or research claims; ordinary requests may use v1, but v1 is not relabeled as the current research writer;
+- v2 continuation and historical reads dispatch only by stored version.
 
 ### 4.4 Feature flag
 
@@ -209,10 +231,11 @@ Source adapter 做显式映射：
 AGENTMESH_SKILL_ORCHESTRATION=off|preview|execute
 ```
 
-- off：所有新请求进入 v1，历史 v2/v3 只读；
-- preview：eligible research-v3 生成 Requirement、ProblemGraph 和 Plan，不执行 Provider；
-- execute：eligible research-v3 经确认和审批后执行；
-- rollout allowlist 由服务端控制，不增加 Vite flag。
+- off：不创建新的 versioned research Workflow 或 research claim；普通请求按明确 policy 进入 v1，历史 v2/v3 只读；
+- preview：eligible request 使用该 stage 的 globally active writer generation，只生成 Requirement、ProblemGraph 和 Plan，不执行 Provider；
+- execute：eligible request 使用该 stage 的 globally active writer generation，并在确认和审批后执行；
+- production pre-cutover 的 active generation 是 research-v2；research-v3 只在 isolated Slice 1 或 separately approved cutover 后合法；
+- rollout allowlist 由服务端控制，不增加 Vite flag，也不选择 v2/v3。
 
 ## 5. research-v2 退役策略
 
@@ -926,7 +949,7 @@ Slice 1 先在隔离环境验收；验收本身不停止 production v2 新写。
 - v2 specialized execution/UI removal；
 - rollback rehearsal。
 
-每个 Slice 可独立合并和使用。
+每个 Slice 可独立合并，但 production cutover 前只能在隔离环境使用或保持 feature-inaccessible；合并本身不授权 production reachability。
 
 ## 19. 测试节奏、Parity 和发布门禁
 
@@ -1098,13 +1121,15 @@ pnpm quality
 
 ## 21. 灰度与回滚
 
-### 21.1 灰度
+### 21.1 Separately approved production cutover and later rollout
 
-1. off：全部新请求 v1；
+The following sequence begins only after isolated Slice 1 acceptance and a separate independent production-cutover approval:
+
+1. atomic cutover selects globally active research-v3 for eligible Competitive requests;
 2. preview allowlist：research-current 只规划；
 3. execute competitive allowlist；
 4. Competitive 全量进入 current，v2 停止新写；
-5. 按 task type 扩展；
+5. 后续 task-type Slice 分别接受后才扩展；
 6. 完成人工门禁后扩大 execute；
 7. 删除 v2 专用 writer 和 UI。
 
@@ -1112,7 +1137,7 @@ pnpm quality
 
 设置 off：
 
-- 新请求 v1；
+- 不创建新的 versioned research Workflow 或 research claim；普通请求按明确 policy 进入 v1；
 - v2/current 历史可读；
 - 不删除数据；
 - 不 downgrade；
@@ -1161,26 +1186,26 @@ P90：
 
 ## 24. Named ownership ledger 与明确未知项
 
-下列 owner ID 是 Gate 和后续 work package 的唯一责任名称；每个 ID 必须绑定一个 accountable `@handle`。本次没有得到可靠 handle 绑定，`unbound` 本身是 Gate 0 blocker，不能用角色名冒充签名。
+下列 owner ID 是 Gate 和后续 work package 的唯一责任名称。用户批准将全部角色临时绑定到 `@heyunshen`，精确 scope 为 **Gate 0 and isolated Slice 1 development only**。Production cutover 仍要求 `AM-ARCH` 与 `AM-RELEASE-QA` 由不同个人进行独立评审。
 
-| Owner ID | Named owner | 当前绑定 | Accountability |
-| --- | --- | --- | --- |
-| `AX-SOURCE` | ai-x Source Custodian | **unbound** | source lock、source quality、immutable retention |
-| `AM-ARCH` | AgentMesh Architecture Owner | **unbound** | ADR、schema namespace、single writer、atomic cutover |
-| `AM-CONTRACTS-HISTORY` | Research Contracts and v2 History Owner | **unbound** | `ResearchTaskV3`、`ExecutionPlanV3`、source adapter、v2 history adapter |
-| `AM-RUNTIME-STORE` | Research Runtime and Store Owner | **unbound** | writer fence、drain、retirement gate |
-| `AM-WEB` | Workbench and Projection Owner | **unbound** | source visual baselines、v2/current renderer |
-| `AM-SECURITY-RETENTION` | Security, Audit and Retention Owner | **unbound** | security review、retention、purge/tombstone |
-| `AM-RELEASE-QA` | Release Verification Owner | **unbound** | verifier、release gate、go/no-go record |
-| `AM-PRODUCT-RESEARCH` | Product and Research Owner | **unbound** | Slice acceptance、rollout policy |
+| Owner ID | Interim handle | Accountability |
+| --- | --- | --- |
+| `AX-SOURCE` | `@heyunshen` | immutable source identity, source approval, source quality, durable retention, source visual-fixture provenance |
+| `AM-ARCH` | `@heyunshen` | ADR, schema namespace, owner registry, single-writer and cutover decision |
+| `AM-CONTRACTS-HISTORY` | `@heyunshen` | v3 contracts, source adapter, immutable v2 decoder and historical database fixture |
+| `AM-RUNTIME-STORE` | `@heyunshen` | atomic writer fence, v2 continuation, drain and retirement checks |
+| `AM-WEB` | `@heyunshen` | source baselines and stored-version-specific renderers |
+| `AM-SECURITY-RETENTION` | `@heyunshen` | owner scope, integrity failure, retention, purge and tombstone behavior |
+| `AM-RELEASE-QA` | `@heyunshen` | verifier, target characterization, zero-diff validation and Gate handoff |
+| `AM-PRODUCT-RESEARCH` | `@heyunshen` | Slice 1 scope and rollout acceptance policy |
 
-`AM-ARCH` 与 `AM-RELEASE-QA` 联合授权 isolated Slice 1；production atomic cutover 另行批准。`AX-SOURCE` 只批准 source authority，不能批准 AgentMesh 实现或 production cutover。
+`AM-ARCH` 与 `AM-CONTRACTS-HISTORY` 接受 architecture/contracts package；`AM-ARCH` 与 `AM-RELEASE-QA` 仅在所有 verifier criteria 通过后授权 isolated Slice 1 handoff。Production atomic cutover 另行批准。
 
 | 未知项 | Accountable owner | 最晚时点 | 处理 |
 | --- | --- | --- | --- |
-| durable protected source ref / signed tag / verified bundle | `AX-SOURCE` | Gate 0 | 缺失时 lock 不成为 migration-authoritative |
-| accountable `@handle` bindings | `AM-ARCH` | Gate 0 | 任一 unbound owner 阻断 Slice 1 |
-| source browser baseline 缺失状态 | `AX-SOURCE` + `AM-WEB` | Gate 0 | 不伪造 screenshot；缺失时 HOLD |
+| durable source retention | `AX-SOURCE` | Gate 0 | committed bundle digest/ref/restore identity verified；后续 remote retention 变更需重签 |
+| accountable interim bindings | `AM-ARCH` | Gate 0 | 全部临时绑定 `@heyunshen`；scope 仅 Gate 0 / isolated Slice 1 |
+| exact 8×3 browser baseline | `AX-SOURCE` + `AM-WEB` | Gate 0 handoff | 缺失时 verifier HOLD；不复制不满足 exact matrix 的 blocker-only output |
 | ai-spider endpoint/credential | `AM-RUNTIME-STORE` | Slice 6 | 未通过保持 optional unavailable |
 | 五 Lab 鉴权和生产容量 | `AM-SECURITY-RETENTION` | Slice 2/6 | 每个独立 smoke |
 | Playwright 出站隔离 | `AM-SECURITY-RETENTION` | Slice 2 execute | 无隔离仅 preview |
@@ -1223,18 +1248,14 @@ P90：
 18. v2 专用执行和交互代码已删除或归档；
 19. README、CONTEXT、ADR、runbook 和 OpenAPI 与实现一致。
 
-## 27. 批准后的第一步
+## 27. Accepted Gate 0 scope and next step
 
-只执行 Gate 0：
+This plan is Accepted by interim owner `@heyunshen` only as the governing plan for Gate 0 and isolated Slice 1 development. A prose status does not authorize handoff: the focused verifier must report `slice_1_authorized=true`. Production cutover remains a later, independent decision.
 
-- 冻结 ai-x parity lock；
-- 创建 ADR 0006；
-- 固定 single active research writer；
-- 建立 source/target fixtures 和 screenshot baselines；
-- 记录当前 v1/v2 回归；
-- 不改生产路由；
-- 不复制 Tool 源码；
-- 不调用真实 Provider；
-- 不迁移用户数据。
+The next allowed implementation step after verifier authorization is isolated Slice 1 only:
 
-Gate 0 评审通过后再开始 Slice 1。
+- branch from the exact accepted Gate commit;
+- implement only Competitive Text research-v3 contracts and isolated routing;
+- keep production preview/execute on the globally active research-v2 writer;
+- keep Tool copies, real Providers, production migrations, production cutover, and user-data movement out of Gate 0 authorization;
+- return to a separate independent review before any production reachability.

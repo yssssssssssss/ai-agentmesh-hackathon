@@ -1,137 +1,73 @@
 {
-  "attestation": {
-    "blocking_findings": [
-      "gate0-01-ownership-ledger",
-      "gate0-02-final-source-authority-and-durable-retention",
-      "gate0-03-authoritative-parity-lock",
-      "gate0-04-offline-source-quality",
-      "gate0-05-visual-identity",
-      "gate0-06-accepted-architecture-and-exact-contracts",
-      "gate0-07-target-characterization",
-      "gate0-09-v2-compatibility-and-slice-1-work-plan",
-      "gate0-10-handoff-and-authorization"
-    ],
-    "provider_smoke_run": false,
-    "source_assets_copied": false,
-    "source_quality": {
-      "commands": [],
-      "status": "not_run_by_gate0_writer"
-    },
-    "user_data_read_or_migrated": false
-  },
   "authorization": {
     "blocking_criteria": [
-      "gate0-01-ownership-ledger",
-      "gate0-02-final-source-authority-and-durable-retention",
-      "gate0-03-authoritative-parity-lock",
-      "gate0-04-offline-source-quality",
       "gate0-05-visual-identity",
-      "gate0-06-accepted-architecture-and-exact-contracts",
       "gate0-07-target-characterization",
-      "gate0-09-v2-compatibility-and-slice-1-work-plan",
       "gate0-10-handoff-and-authorization"
     ],
     "criteria": [
       {
-        "evidence": [
-          "docs/verification/2026-08-20-ai-x-parity-gate0.md#5-named-ownership-ledger"
-        ],
         "id": "gate0-01-ownership-ledger",
         "owner_ids": [
           "AM-ARCH"
         ],
-        "passed": false
+        "satisfied_by_committed_evidence": true
       },
       {
-        "evidence": [
-          "docs/development/ai-x-parity-source-freeze.json"
-        ],
         "id": "gate0-02-final-source-authority-and-durable-retention",
         "owner_ids": [
           "AX-SOURCE"
         ],
-        "passed": false
+        "satisfied_by_committed_evidence": true
       },
       {
-        "evidence": [
-          "agentmesh/research_catalog/ai-x-parity-lock.json"
-        ],
         "id": "gate0-03-authoritative-parity-lock",
         "owner_ids": [
-          "AM-RELEASE-QA",
-          "AX-SOURCE"
+          "AX-SOURCE",
+          "AM-RELEASE-QA"
         ],
-        "passed": false
+        "satisfied_by_committed_evidence": true
       },
       {
-        "evidence": [],
         "id": "gate0-04-offline-source-quality",
         "owner_ids": [
           "AX-SOURCE",
           "AM-RELEASE-QA"
         ],
-        "passed": false
+        "satisfied_by_committed_evidence": true
       },
       {
-        "evidence": [],
         "id": "gate0-05-visual-identity",
         "owner_ids": [
           "AX-SOURCE",
           "AM-WEB"
         ],
-        "passed": false
+        "satisfied_by_committed_evidence": false
       },
       {
-        "evidence": [
-          "docs/adr/0006-single-active-research-writer.md",
-          "docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md"
-        ],
         "id": "gate0-06-accepted-architecture-and-exact-contracts",
         "owner_ids": [
           "AM-ARCH",
           "AM-CONTRACTS-HISTORY"
         ],
-        "passed": false
+        "satisfied_by_committed_evidence": true
       },
       {
-        "evidence": [
-          "tests/fixtures/ai_x_parity/manifest.json"
-        ],
         "id": "gate0-07-target-characterization",
         "owner_ids": [
           "AM-RELEASE-QA"
         ],
-        "passed": false
+        "satisfied_by_committed_evidence": false
       },
       {
-        "evidence": [
-          "agentmesh/research_catalog/ai-x-parity-lock.json",
-          "docs/adr/0006-single-active-research-writer.md",
-          "docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md",
-          "docs/verification/2026-08-20-ai-x-parity-gate0.md",
-          "scripts/build_ai_x_parity_lock.py",
-          "scripts/verify_ai_x_parity_lock.py",
-          "tests/fixtures/ai_x_parity/candidate-plan-shape.json",
-          "tests/fixtures/ai_x_parity/competitive-request-routing.json",
-          "tests/fixtures/ai_x_parity/evidence-deliverable-review-report.json",
-          "tests/fixtures/ai_x_parity/manifest.json",
-          "tests/fixtures/ai_x_parity/problem-graph-problem-contract.json",
-          "tests/fixtures/ai_x_parity/requirement.json",
-          "tests/fixtures/ai_x_parity/state-transition-matrix.json",
-          "tests/fixtures/ai_x_parity/v2-historical-read-compatibility.json"
-        ],
         "id": "gate0-08-zero-production-behavior-diff",
         "owner_ids": [
           "AM-ARCH",
           "AM-RELEASE-QA"
         ],
-        "passed": true
+        "satisfied_by_committed_evidence": true
       },
       {
-        "evidence": [
-          "docs/adr/0006-single-active-research-writer.md#safe-deletion-gate",
-          "docs/verification/2026-08-20-ai-x-parity-gate0.md#6-v2-history-retirement-and-security-work-package"
-        ],
         "id": "gate0-09-v2-compatibility-and-slice-1-work-plan",
         "owner_ids": [
           "AM-CONTRACTS-HISTORY",
@@ -139,25 +75,26 @@
           "AM-WEB",
           "AM-SECURITY-RETENTION"
         ],
-        "passed": false
+        "satisfied_by_committed_evidence": true
       },
       {
-        "evidence": [],
         "id": "gate0-10-handoff-and-authorization",
         "owner_ids": [
           "AM-ARCH",
           "AM-RELEASE-QA"
         ],
-        "passed": false
+        "satisfied_by_committed_evidence": false
       }
     ],
+    "production_cutover_authorized": false,
+    "scope": "Gate 0 and isolated Slice 1 development only",
     "slice_1_authorized": false
   },
   "canonicalization": {
-    "file_hash": "SHA-256 of exact Git blob bytes",
-    "json": "UTF-8; object keys sorted; two-space indentation; LF; one trailing LF",
-    "manifest": "for each bytewise-sorted path emit '<mode> <sha256> <size_bytes>  <path>\\n'; SHA-256 the concatenated UTF-8 bytes",
-    "path_order": "repository-relative UTF-8 POSIX paths sorted by encoded bytes"
+    "file_hash": "SHA-256 of exact bytes",
+    "json": "UTF-8; duplicate keys forbidden; object keys sorted; two-space indentation; LF; one trailing LF",
+    "manifest": "'<A-or-M> <mode> <sha256> <bytes>  <path>\\n' in bytewise path order",
+    "path_order": "repository-relative NFC UTF-8 POSIX paths sorted by encoded bytes"
   },
   "excluded_assets": {
     "exact_file_count": 139,
@@ -1834,8 +1771,8 @@
     "manifest_sha256": "caf817cfa95970c77e46c86840ba565e9f33cf467cb26507b782d0c2d4cab4d8"
   },
   "generator": {
-    "id": "agentmesh-gate0-approved-snapshot-inventory",
-    "version": 2
+    "id": "agentmesh-gate0-evidence-lock",
+    "version": 3
   },
   "included_assets": {
     "category_manifests": {
@@ -11620,7 +11557,7 @@
       ]
     }
   },
-  "lock_version": "ai-x-parity-lock-v2",
+  "lock_version": "ai-x-parity-lock-v3",
   "normalized_inventory": {
     "capability_counts": {
       "canonical_schemas": 22,
@@ -12841,82 +12778,77 @@
       "theme_sha256": "9ba362341d2607f2649f51903d72476f07ed49f7b1d5901f96405fedaec01fb5"
     }
   },
-  "owners": [
-    {
-      "accountability": "source lock and immutable source approval",
-      "binding_status": "unbound_blocker",
-      "handle": null,
-      "name": "ai-x Source Custodian",
-      "owner_id": "AX-SOURCE"
+  "owner_policy": {
+    "accountabilities": {
+      "AM-ARCH": "ADR, schema namespace, owner registry, single-writer and cutover decision",
+      "AM-CONTRACTS-HISTORY": "v3 contracts, source adapter, immutable v2 decoder and historical database fixture",
+      "AM-PRODUCT-RESEARCH": "Slice 1 scope and rollout acceptance policy",
+      "AM-RELEASE-QA": "verifier, target characterization, zero-diff validation and Gate handoff",
+      "AM-RUNTIME-STORE": "atomic writer fence, v2 continuation, drain and retirement checks",
+      "AM-SECURITY-RETENTION": "owner scope, integrity failure, retention, purge and tombstone behavior",
+      "AM-WEB": "source baselines and stored-version-specific renderers",
+      "AX-SOURCE": "immutable source identity, source approval, source quality, durable retention, source visual-fixture provenance"
     },
-    {
-      "accountability": "ADR, schema namespace, and atomic cutover",
-      "binding_status": "unbound_blocker",
-      "handle": null,
-      "name": "AgentMesh Architecture Owner",
-      "owner_id": "AM-ARCH"
+    "criterion_owners": {
+      "gate0-01-ownership-ledger": [
+        "AM-ARCH"
+      ],
+      "gate0-02-final-source-authority-and-durable-retention": [
+        "AX-SOURCE"
+      ],
+      "gate0-03-authoritative-parity-lock": [
+        "AX-SOURCE",
+        "AM-RELEASE-QA"
+      ],
+      "gate0-04-offline-source-quality": [
+        "AX-SOURCE",
+        "AM-RELEASE-QA"
+      ],
+      "gate0-05-visual-identity": [
+        "AX-SOURCE",
+        "AM-WEB"
+      ],
+      "gate0-06-accepted-architecture-and-exact-contracts": [
+        "AM-ARCH",
+        "AM-CONTRACTS-HISTORY"
+      ],
+      "gate0-07-target-characterization": [
+        "AM-RELEASE-QA"
+      ],
+      "gate0-08-zero-production-behavior-diff": [
+        "AM-ARCH",
+        "AM-RELEASE-QA"
+      ],
+      "gate0-09-v2-compatibility-and-slice-1-work-plan": [
+        "AM-CONTRACTS-HISTORY",
+        "AM-RUNTIME-STORE",
+        "AM-WEB",
+        "AM-SECURITY-RETENTION"
+      ],
+      "gate0-10-handoff-and-authorization": [
+        "AM-ARCH",
+        "AM-RELEASE-QA"
+      ]
     },
-    {
-      "accountability": "v2 history adapter and v3 contracts",
-      "binding_status": "unbound_blocker",
-      "handle": null,
-      "name": "Research Contracts and v2 History Owner",
-      "owner_id": "AM-CONTRACTS-HISTORY"
-    },
-    {
-      "accountability": "retirement drain and writer fence",
-      "binding_status": "unbound_blocker",
-      "handle": null,
-      "name": "Research Runtime and Store Owner",
-      "owner_id": "AM-RUNTIME-STORE"
-    },
-    {
-      "accountability": "visual baselines and versioned renderers",
-      "binding_status": "unbound_blocker",
-      "handle": null,
-      "name": "Workbench and Projection Owner",
-      "owner_id": "AM-WEB"
-    },
-    {
-      "accountability": "security review, retention, and purge",
-      "binding_status": "unbound_blocker",
-      "handle": null,
-      "name": "Security, Audit and Retention Owner",
-      "owner_id": "AM-SECURITY-RETENTION"
-    },
-    {
-      "accountability": "release gate and lock verification",
-      "binding_status": "unbound_blocker",
-      "handle": null,
-      "name": "Release Verification Owner",
-      "owner_id": "AM-RELEASE-QA"
-    },
-    {
-      "accountability": "Slice acceptance and rollout policy",
-      "binding_status": "unbound_blocker",
-      "handle": null,
-      "name": "Product and Research Owner",
-      "owner_id": "AM-PRODUCT-RESEARCH"
-    }
-  ],
-  "slice_1_authorized": false,
+    "interim_binding_scope": "Gate 0 and isolated Slice 1 development only",
+    "production_cutover_requires_independent_architecture_and_release_reviewers": true
+  },
   "source": {
     "approved_content_commit": "3a5fafe18a13714186150489c8434f7c5a58c887",
     "approved_content_tree": "00b7e87b0c9c592799d15884bc69d7dd0069f040",
-    "authoritative_for_migration": false,
     "base_commit": "6c9f19fb8109ca6882241bc903d82332a9da0d5e",
     "branch_label": "agent/ai-x-parity-source-freeze-final",
-    "checkout_attestation": {
-      "required_head": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
-      "required_status": "clean",
-      "verified_by_default": false
+    "bundle": {
+      "attestation": {
+        "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.attestation.json",
+        "sha256": "82397ef474030b5993501b058daeb40285aab67c40c8be30cdbb21c800e08dac",
+        "size_bytes": 1019
+      },
+      "bytes": 16185062,
+      "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
+      "sha256": "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f"
     },
     "commit_subject": "Freeze portable parity source",
-    "durable_retention": {
-      "evidence": [],
-      "reason": "No protected remote ref, signed tag, or verified Git bundle was supplied to Gate 0.",
-      "status": "missing_blocker"
-    },
     "freeze_manifest": {
       "blob_sha256": "ffac6f591ca7e37739fd516d5d447f9b83ff351b86e1988da4c7cc8527850fb3",
       "git_blob": "3c0250878fb7e73b4b351dceaa3c43ceb39734fc",
@@ -12931,73 +12863,291 @@
       "approved_content_tree": "00b7e87b0c9c592799d15884bc69d7dd0069f040",
       "change_path": "docs/development/ai-x-parity-source-freeze.json",
       "change_type": "modified",
-      "metadata_discrepancy": "The source manifest calls approvedContentTree pre-manifest/non-self-referential, but that parent tree contains the predecessor manifest blob. This lock relies only on the verified parent, tree, and single-path modified relationship.",
       "snapshot_parent_equals_approved_content_commit": true
     },
-    "owner_approval": "approved_snapshot",
-    "owner_approval_evidence": "docs/development/ai-x-parity-source-freeze.json",
+    "owner_acceptance": {
+      "path": "docs/verification/ai-x-parity-evidence/gate0-owner-acceptance.json",
+      "sha256": "9cf05c50888c7ea97f64caba95348d0a67626e17d0862afb93e329a9b847008b",
+      "size_bytes": 4626
+    },
+    "quality_evidence": {
+      "path": "docs/verification/ai-x-parity-evidence/source-quality.json",
+      "sha256": "a6db43903b9f9149fe9a47d49215b92ab034afa6c114c8066f81d7a05fd45906",
+      "size_bytes": 2102
+    },
     "repository": "https://github.com/yssssssssssss/ai-x.git",
     "snapshot_commit": "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77",
     "snapshot_parent": "3a5fafe18a13714186150489c8434f7c5a58c887",
     "snapshot_tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12"
   },
-  "status": "approved_source_snapshot_pending_gate0_evidence",
+  "target": {
+    "artifact_manifest_without_generated_lock": {
+      "algorithm": "SHA-256 over '<A-or-M> <mode> <sha256> <bytes>  <path>\\n' in bytewise path order; generated lock excluded to avoid self-reference",
+      "file_count": 24,
+      "files": [
+        {
+          "bytes": 366,
+          "mode": "100644",
+          "path": "agentmesh/research_catalog/source-bundles/README.md",
+          "sha256": "71ace08db2cde0a2434518bf18884f72d8d275de65ebf9693d9426207dcc49ee",
+          "status": "A"
+        },
+        {
+          "bytes": 1019,
+          "mode": "100644",
+          "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.attestation.json",
+          "sha256": "82397ef474030b5993501b058daeb40285aab67c40c8be30cdbb21c800e08dac",
+          "status": "A"
+        },
+        {
+          "bytes": 16185062,
+          "mode": "100644",
+          "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
+          "sha256": "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f",
+          "status": "A"
+        },
+        {
+          "bytes": 14159,
+          "mode": "100644",
+          "path": "docs/adr/0006-single-active-research-writer.md",
+          "sha256": "7357302a1495afe9589ba1f8228e57198fe6cf3f4c502a2cfd41d5686dc0616d",
+          "status": "A"
+        },
+        {
+          "bytes": 43456,
+          "mode": "100644",
+          "path": "docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md",
+          "sha256": "e6cf96831ca7b64def9810424c99961b7c762db69f1f3de6adb6a4fbdbdd6968",
+          "status": "A"
+        },
+        {
+          "bytes": 10274,
+          "mode": "100644",
+          "path": "docs/verification/2026-08-20-ai-x-parity-gate0.md",
+          "sha256": "05e8fd9a7bbb8751032de486a0eb202aacdb69768300ecce8dd3f932caa5666f",
+          "status": "A"
+        },
+        {
+          "bytes": 4626,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/gate0-owner-acceptance.json",
+          "sha256": "9cf05c50888c7ea97f64caba95348d0a67626e17d0862afb93e329a9b847008b",
+          "status": "A"
+        },
+        {
+          "bytes": 2102,
+          "mode": "100644",
+          "path": "docs/verification/ai-x-parity-evidence/source-quality.json",
+          "sha256": "a6db43903b9f9149fe9a47d49215b92ab034afa6c114c8066f81d7a05fd45906",
+          "status": "A"
+        },
+        {
+          "bytes": 1877,
+          "mode": "100644",
+          "path": "scripts/build_ai_x_parity_lock.py",
+          "sha256": "9089d67fe8025efd47e506d64da9a1f48fd5801cf7e2276c7de270340e17f12b",
+          "status": "A"
+        },
+        {
+          "bytes": 77943,
+          "mode": "100755",
+          "path": "scripts/verify_ai_x_parity_lock.py",
+          "sha256": "da09960eec24bf3da698268163cdda3ec450e8e5cb8844e53f596f9c9580f0ad",
+          "status": "A"
+        },
+        {
+          "bytes": 270,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_history/SHA256SUMS",
+          "sha256": "7fd3db44fdf20dcefc17fc126598de4be37ee8bf654ee46c577e7a3de56aec09",
+          "status": "A"
+        },
+        {
+          "bytes": 15845,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_history/attestation.json",
+          "sha256": "045924807ccb915bb161372211979251717da8092ba921b75d2808d197b52869",
+          "status": "A"
+        },
+        {
+          "bytes": 44837,
+          "mode": "100755",
+          "path": "tests/fixtures/ai_x_history/characterize_v2_history.py",
+          "sha256": "c5fc3746071f5418d4e749010e4efaad531cffe2dd95662380f7f9f99ab920f1",
+          "status": "A"
+        },
+        {
+          "bytes": 2177,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_history/manifest.json",
+          "sha256": "6d53f8f56f87ff882a8e24917f89071baffc6c9d8158e7b74f71303eee38b06c",
+          "status": "A"
+        },
+        {
+          "bytes": 425984,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_history/research-v2-history.sqlite3",
+          "sha256": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a",
+          "status": "A"
+        },
+        {
+          "bytes": 7693,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_parity/candidate-plan-shape.json",
+          "sha256": "ff58f8e5969a1e8fc099e4f4b18290aece95dc49435811ebf6155d4f628d749d",
+          "status": "A"
+        },
+        {
+          "bytes": 6085,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_parity/competitive-request-routing.json",
+          "sha256": "af0f95b109f25dcc16c60ec37a82dd55787db2a461b5e742ff852e8add0e4b7e",
+          "status": "A"
+        },
+        {
+          "bytes": 8132,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_parity/evidence-deliverable-review-report.json",
+          "sha256": "33c5472626e6dc88f14de027f45a3800bf059099e092815746d506d4d4160f69",
+          "status": "A"
+        },
+        {
+          "bytes": 14154,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_parity/manifest.json",
+          "sha256": "1db9f3f1fb77af3e90ad521d5319978eed9335a9e34e2a01270b0b042eb97932",
+          "status": "A"
+        },
+        {
+          "bytes": 5285,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_parity/problem-graph-problem-contract.json",
+          "sha256": "87ea5a0d80682ddd2dbf0e7fb3a2051b58455f4be32fbd4e1a7c989344f63dd1",
+          "status": "A"
+        },
+        {
+          "bytes": 5730,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_parity/requirement.json",
+          "sha256": "64569e59a39f29ce21e8154c70aa0918139a52c5912ecb99d0e2af3ca40c3133",
+          "status": "A"
+        },
+        {
+          "bytes": 7415,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_parity/state-transition-matrix.json",
+          "sha256": "bbe47ae5bf9f437857587831b1dfb696e8e8a082b4f4f1f7d2714194f9d70b5a",
+          "status": "A"
+        },
+        {
+          "bytes": 6645,
+          "mode": "100644",
+          "path": "tests/fixtures/ai_x_parity/v2-historical-read-compatibility.json",
+          "sha256": "cd6dbee9dc61a52edad53ac1f66d41d4456638f5f7ae5da45a8854eedb8f8132",
+          "status": "A"
+        },
+        {
+          "bytes": 2067,
+          "mode": "100644",
+          "path": "tests/test_ai_x_parity_lock_verifier.py",
+          "sha256": "28f6b04c9abde8207cca57ab7fdc397817ae1eefffcc37c7c2183ab969f00ed1",
+          "status": "A"
+        }
+      ],
+      "manifest_sha256": "c0a0054d190ff3b0a0a428543d4f69072bf5c8ddebb64ec28b1f2ee2bb23f9d6"
+    },
+    "base_commit": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+    "base_tree": "eb39f8159afb421233b657747192447734fd8b07",
+    "exact_commit_binding": "derived by the verifier from the clean target revision; not embedded to avoid commit self-reference",
+    "repository": "https://github.com/yssssssssssss/ai-agentmesh-hackathon.git"
+  },
   "target_contract_mapping": {
-    "deliverable_contracts": {
-      "deliverable": {
-        "source_identity": "research-deliverable-v1",
-        "target_persisted_identity": "research-deliverable-v3",
-        "target_type": "ResearchDeliverableV3"
-      },
-      "report": {
-        "source_identity": "report-document-v1",
-        "target_persisted_identity": "report-document-v3",
-        "target_type": "ReportDocumentV3"
-      },
-      "review": {
-        "source_identity": "report-review-v1",
-        "target_persisted_identity": "report-review-v3",
-        "target_type": "ReportReviewV3"
-      }
+    "current_identities": [
+      "execution-plan-v3",
+      "report-document-v3",
+      "report-review-v3",
+      "research-deliverable-v3",
+      "research-task-v3",
+      "research-v3"
+    ],
+    "historical_identity_policy": {
+      "combined": [
+        "claim-ledger-v1",
+        "competitive-analysis-output-v1",
+        "competitive-analysis-review-v1",
+        "deliverable-document-v1",
+        "deterministic-review-v1",
+        "evidence-manifest-v1",
+        "evidence-policy-v1",
+        "evidence-source-v1",
+        "execution-plan-v2",
+        "problem-contract-v1",
+        "report-document-v1",
+        "research-task-v2",
+        "research-v2"
+      ],
+      "orchestration_versions": [
+        "research-v2"
+      ],
+      "payload_or_schema_identities": [
+        "claim-ledger-v1",
+        "competitive-analysis-output-v1",
+        "deliverable-document-v1",
+        "deterministic-review-v1",
+        "evidence-manifest-v1",
+        "evidence-source-v1",
+        "execution-plan-v2",
+        "problem-contract-v1",
+        "report-document-v1",
+        "research-task-v2"
+      ],
+      "resource_versions": [
+        "competitive-analysis-review-v1",
+        "evidence-policy-v1"
+      ]
     },
-    "execution_plan": {
-      "source_identity": "current-execution-plan",
-      "target_persisted_identity": "execution-plan-v3",
-      "target_type": "ExecutionPlanV3"
-    },
-    "orchestration_version": "research-v3",
-    "requirement": {
-      "source_identity": "research-task-v2",
-      "target_persisted_identity": "research-task-v3",
-      "target_type": "ResearchTaskV3"
-    },
-    "reserved_historical_target_identities": [
-      "competitive-analysis-review-v1",
-      "deliverable-document-v1",
-      "deterministic-review-v1",
-      "execution-plan-v2",
-      "report-document-v1",
-      "research-task-v2"
-    ]
+    "source_aliases": {
+      "current-execution-plan": "execution-plan-v3",
+      "report-document-v1": "report-document-v3",
+      "report-review-v1": "report-review-v3",
+      "research-deliverable-v1": "research-deliverable-v3",
+      "research-task-v2": "research-task-v3"
+    }
   },
   "target_evidence": {
     "browser_baseline": {
-      "assets": [],
-      "manifest_path": null,
-      "reason": "No finalized browser-baseline manifest or screenshots were supplied; only transient capture work files existed, so Gate 0 copied no invented visual evidence.",
-      "required_slice_1_states": [
-        "approval",
-        "candidates",
-        "clarify",
-        "dag_or_executing",
-        "idle",
-        "paused",
-        "plan",
-        "text_report"
+      "available": false,
+      "missing_state_viewport_pairs": [
+        "approval/desktop",
+        "approval/mobile",
+        "approval/wide",
+        "candidates/desktop",
+        "candidates/mobile",
+        "candidates/wide",
+        "clarify/desktop",
+        "clarify/mobile",
+        "clarify/wide",
+        "dag_or_executing/desktop",
+        "dag_or_executing/mobile",
+        "dag_or_executing/wide",
+        "idle/desktop",
+        "idle/mobile",
+        "idle/wide",
+        "paused/desktop",
+        "paused/mobile",
+        "paused/wide",
+        "plan/desktop",
+        "plan/mobile",
+        "plan/wide",
+        "text_report/desktop",
+        "text_report/mobile",
+        "text_report/wide"
       ],
-      "status": "missing_blocker"
+      "reason": "No committed baseline satisfies the exact eight-state by three-viewport Gate policy.",
+      "required_screenshot_count": 24
     },
     "contract_fixtures": {
+      "contract_source_count": 33,
       "files": [
         {
           "fixture_id": "candidate-plan-shape-v1",
@@ -13038,20 +13188,145 @@
         {
           "fixture_id": "research-v2-historical-read-compatibility-v1",
           "path": "tests/fixtures/ai_x_parity/v2-historical-read-compatibility.json",
-          "sha256": "695aaf23473d38d3802231b8ad236a26cbc4c491b7ebfb31bf66968ccc40ed63",
-          "size_bytes": 6072
+          "sha256": "cd6dbee9dc61a52edad53ac1f66d41d4456638f5f7ae5da45a8854eedb8f8132",
+          "size_bytes": 6645
         }
       ],
       "manifest": {
         "path": "tests/fixtures/ai_x_parity/manifest.json",
-        "sha256": "3e9820fa1d820db0968dc9dd4005c6821eeba4bc760a15906c19ca088d839f1e",
-        "size_bytes": 13511
+        "sha256": "1db9f3f1fb77af3e90ad521d5319978eed9335a9e34e2a01270b0b042eb97932",
+        "size_bytes": 14154
       },
-      "manifest_path": "tests/fixtures/ai_x_parity/manifest.json",
-      "status": "characterization_only"
+      "status": "valid_characterization_only"
     },
-    "target_base_commit": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
-    "target_base_tree": "eb39f8159afb421233b657747192447734fd8b07"
+    "historical_database_fixture": {
+      "attestation": {
+        "path": "tests/fixtures/ai_x_history/attestation.json",
+        "sha256": "045924807ccb915bb161372211979251717da8092ba921b75d2808d197b52869",
+        "size_bytes": 15845
+      },
+      "characterized_target_cases": [
+        "artifact-corruption-fail-closed",
+        "historical-database-fixture-read",
+        "owner-hiding-404",
+        "purge-tombstone",
+        "restart-read-without-scheduling"
+      ],
+      "fixture": {
+        "path": "tests/fixtures/ai_x_history/research-v2-history.sqlite3",
+        "sha256": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a",
+        "size_bytes": 425984
+      },
+      "manifest": {
+        "path": "tests/fixtures/ai_x_history/manifest.json",
+        "sha256": "6d53f8f56f87ff882a8e24917f89071baffc6c9d8158e7b74f71303eee38b06c",
+        "size_bytes": 2177
+      },
+      "status": "valid_sanitized_historical_fixture"
+    },
+    "owner_acceptance": {
+      "bindings": [
+        {
+          "handle": "@heyunshen",
+          "owner_id": "AM-ARCH"
+        },
+        {
+          "handle": "@heyunshen",
+          "owner_id": "AM-CONTRACTS-HISTORY"
+        },
+        {
+          "handle": "@heyunshen",
+          "owner_id": "AM-PRODUCT-RESEARCH"
+        },
+        {
+          "handle": "@heyunshen",
+          "owner_id": "AM-RELEASE-QA"
+        },
+        {
+          "handle": "@heyunshen",
+          "owner_id": "AM-RUNTIME-STORE"
+        },
+        {
+          "handle": "@heyunshen",
+          "owner_id": "AM-SECURITY-RETENTION"
+        },
+        {
+          "handle": "@heyunshen",
+          "owner_id": "AM-WEB"
+        },
+        {
+          "handle": "@heyunshen",
+          "owner_id": "AX-SOURCE"
+        }
+      ],
+      "evidence": {
+        "path": "docs/verification/ai-x-parity-evidence/gate0-owner-acceptance.json",
+        "sha256": "9cf05c50888c7ea97f64caba95348d0a67626e17d0862afb93e329a9b847008b",
+        "size_bytes": 4626
+      },
+      "scope": "Gate 0 and isolated Slice 1 development only",
+      "signed_by_handle": "@heyunshen"
+    },
+    "source_bundle": {
+      "attestation": {
+        "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.attestation.json",
+        "sha256": "82397ef474030b5993501b058daeb40285aab67c40c8be30cdbb21c800e08dac",
+        "size_bytes": 1019
+      },
+      "bytes": 16185062,
+      "path": "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle",
+      "sha256": "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f"
+    },
+    "source_quality": {
+      "commands": [
+        [
+          "pnpm",
+          "quality"
+        ],
+        [
+          "pnpm",
+          "--dir",
+          "apps/web",
+          "build"
+        ]
+      ],
+      "evidence": {
+        "path": "docs/verification/ai-x-parity-evidence/source-quality.json",
+        "sha256": "a6db43903b9f9149fe9a47d49215b92ab034afa6c114c8066f81d7a05fd45906",
+        "size_bytes": 2102
+      },
+      "kind": "inherited_frozen_lineage",
+      "passed": true
+    },
+    "target_characterization": {
+      "complete": false,
+      "missing_cases": [
+        "client-turn-replay",
+        "missing-runtime-fail-closed",
+        "off-rollback",
+        "research-v2-routing",
+        "v1-routing"
+      ],
+      "passing_cases": [
+        "artifact-corruption-fail-closed",
+        "historical-database-fixture-read",
+        "owner-hiding-404",
+        "purge-tombstone",
+        "restart-read-without-scheduling"
+      ],
+      "required_cases": [
+        "artifact-corruption-fail-closed",
+        "client-turn-replay",
+        "historical-database-fixture-read",
+        "missing-runtime-fail-closed",
+        "off-rollback",
+        "owner-hiding-404",
+        "purge-tombstone",
+        "research-v2-routing",
+        "restart-read-without-scheduling",
+        "v1-routing"
+      ]
+    }
   },
   "tree_manifest": {
     "file_count": 945,

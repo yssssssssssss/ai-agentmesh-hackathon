@@ -1,0 +1,76 @@
+{
+  "canonical_historical_identity_policy": {
+    "combined": [
+      "claim-ledger-v1",
+      "competitive-analysis-output-v1",
+      "competitive-analysis-review-v1",
+      "deliverable-document-v1",
+      "deterministic-review-v1",
+      "evidence-manifest-v1",
+      "evidence-policy-v1",
+      "evidence-source-v1",
+      "execution-plan-v2",
+      "problem-contract-v1",
+      "report-document-v1",
+      "research-task-v2",
+      "research-v2"
+    ],
+    "orchestration_versions": [
+      "research-v2"
+    ],
+    "payload_or_schema_identities": [
+      "claim-ledger-v1",
+      "competitive-analysis-output-v1",
+      "deliverable-document-v1",
+      "deterministic-review-v1",
+      "evidence-manifest-v1",
+      "evidence-source-v1",
+      "execution-plan-v2",
+      "problem-contract-v1",
+      "report-document-v1",
+      "research-task-v2"
+    ],
+    "resource_versions": [
+      "competitive-analysis-review-v1",
+      "evidence-policy-v1"
+    ]
+  },
+  "files": [
+    {
+      "bytes": 270,
+      "path": "SHA256SUMS",
+      "sha256": "7fd3db44fdf20dcefc17fc126598de4be37ee8bf654ee46c577e7a3de56aec09"
+    },
+    {
+      "bytes": 15845,
+      "path": "attestation.json",
+      "sha256": "045924807ccb915bb161372211979251717da8092ba921b75d2808d197b52869"
+    },
+    {
+      "bytes": 44837,
+      "path": "characterize_v2_history.py",
+      "sha256": "c5fc3746071f5418d4e749010e4efaad531cffe2dd95662380f7f9f99ab920f1"
+    },
+    {
+      "bytes": 425984,
+      "path": "research-v2-history.sqlite3",
+      "sha256": "cd96b111ae3d2bb520576f3c3c470cf62a5ad73f9020c56c54561a3349c4794a"
+    }
+  ],
+  "fixture": {
+    "generic_identities_only": true,
+    "path": "research-v2-history.sqlite3",
+    "schema_identity": "target-base-sqlite-schema-at-dec6b55",
+    "wal_or_shm_companions": false
+  },
+  "hash_manifest": {
+    "path": "SHA256SUMS",
+    "self_excluded": true
+  },
+  "origin": {
+    "base_commit": "dec6b55b3e97913c052ee2b665c063aec77a9dd3",
+    "base_tree": "eb39f8159afb421233b657747192447734fd8b07",
+    "repository": "https://github.com/yssssssssssss/ai-agentmesh-hackathon.git"
+  },
+  "schema_version": "agentmesh-research-v2-history-fixture-manifest-v1"
+}

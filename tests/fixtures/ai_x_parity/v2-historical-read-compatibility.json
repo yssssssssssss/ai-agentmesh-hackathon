@@ -1,23 +1,45 @@
 {
+  "canonical_historical_identity_policy": {
+    "combined": [
+      "claim-ledger-v1",
+      "competitive-analysis-output-v1",
+      "competitive-analysis-review-v1",
+      "deliverable-document-v1",
+      "deterministic-review-v1",
+      "evidence-manifest-v1",
+      "evidence-policy-v1",
+      "evidence-source-v1",
+      "execution-plan-v2",
+      "problem-contract-v1",
+      "report-document-v1",
+      "research-task-v2",
+      "research-v2"
+    ],
+    "orchestration_versions": [
+      "research-v2"
+    ],
+    "payload_or_schema_identities": [
+      "claim-ledger-v1",
+      "competitive-analysis-output-v1",
+      "deliverable-document-v1",
+      "deterministic-review-v1",
+      "evidence-manifest-v1",
+      "evidence-source-v1",
+      "execution-plan-v2",
+      "problem-contract-v1",
+      "report-document-v1",
+      "research-task-v2"
+    ],
+    "resource_versions": [
+      "competitive-analysis-review-v1",
+      "evidence-policy-v1"
+    ]
+  },
   "compatibility_limitations_at_target_base": [
     "GET returns only ResearchRunProjection with fixed research-v2 discriminator; no v2/current union exists.",
     "research-v2 is still a live implementation, not a historical-only adapter.",
     "off blocks new v2 routing and execute/retry work but does not remove every existing-v2 mutation path.",
     "This fixture freezes read semantics; it does not authorize rewriting rows or reinterpreting schema IDs."
-  ],
-  "exact_historical_identities_to_preserve": [
-    "competitive-analysis-output-v1",
-    "competitive-analysis-review-v1",
-    "deliverable-document-v1",
-    "deterministic-review-v1",
-    "evidence-manifest-v1",
-    "evidence-policy-v1",
-    "evidence-source-v1",
-    "execution-plan-v2",
-    "problem-contract-v1",
-    "report-document-v1",
-    "research-task-v2",
-    "research-v2"
   ],
   "fixture_id": "research-v2-historical-read-compatibility-v1",
   "fixture_version": "ai-x-agentmesh-gate0-characterization-v1",

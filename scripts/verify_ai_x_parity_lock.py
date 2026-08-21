@@ -7,11 +7,15 @@ lock may remain on HOLD; --require-slice-1-authorized is the release mode.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import io
 import json
 import re
+import sqlite3
+import struct
 import subprocess
+import tempfile
 import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -20,12 +24,22 @@ import yaml
 
 DEFAULT_REVISION = "d7ec877fbff0684b0886cb86a7e09eb42ebf7d77"
 SOURCE_REPOSITORY = "https://github.com/yssssssssssss/ai-x.git"
+TARGET_REPOSITORY = "https://github.com/yssssssssssss/ai-agentmesh-hackathon.git"
 SOURCE_BRANCH_LABEL = "agent/ai-x-parity-source-freeze-final"
+SOURCE_BUNDLE_REF = f"refs/heads/{SOURCE_BRANCH_LABEL}"
+SOURCE_BUNDLE_PATH = Path("agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.bundle")
+SOURCE_BUNDLE_ATTESTATION = Path(
+    "agentmesh/research_catalog/source-bundles/ai-x-parity-source-d7ec877.attestation.json"
+)
+OWNER_ACCEPTANCE_PATH = Path("docs/verification/ai-x-parity-evidence/gate0-owner-acceptance.json")
+SOURCE_QUALITY_PATH = Path("docs/verification/ai-x-parity-evidence/source-quality.json")
 FREEZE_MANIFEST_PATH = "docs/development/ai-x-parity-source-freeze.json"
 TARGET_BASE_COMMIT = "dec6b55b3e97913c052ee2b665c063aec77a9dd3"
 TARGET_BASE_TREE = "eb39f8159afb421233b657747192447734fd8b07"
 FIXTURE_ROOT = Path("tests/fixtures/ai_x_parity")
+HISTORY_ROOT = Path("tests/fixtures/ai_x_history")
 BASELINE_ROOT = Path("docs/verification/ai-x-parity-baselines")
+LOCK_PATH = Path("agentmesh/research_catalog/ai-x-parity-lock.json")
 
 EXACT_INCLUDED = {
     ".env.example", ".gitignore", "package.json", "pnpm-lock.yaml", "tsconfig.json",
@@ -54,15 +68,112 @@ REGISTRY_PATHS = (
     "orchestrator/skill-registry.yaml", "orchestrator/tool-registry.yaml",
 )
 ALLOWED_GATE0_EXACT = {
-    "agentmesh/research_catalog/ai-x-parity-lock.json",
+    LOCK_PATH.as_posix(),
     "docs/adr/0006-single-active-research-writer.md",
     "docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md",
     "docs/verification/2026-08-20-ai-x-parity-gate0.md",
     "scripts/build_ai_x_parity_lock.py", "scripts/verify_ai_x_parity_lock.py",
+    "tests/test_ai_x_parity_lock_verifier.py",
 }
 ALLOWED_GATE0_PREFIXES = (
-    "docs/verification/ai-x-parity-baselines/", "tests/fixtures/ai_x_parity/",
+    "agentmesh/research_catalog/source-bundles/",
+    "docs/verification/ai-x-parity-baselines/",
+    "docs/verification/ai-x-parity-evidence/",
+    "tests/fixtures/ai_x_history/",
+    "tests/fixtures/ai_x_parity/",
 )
+
+REQUIRED_FIXTURES = (
+    "candidate-plan-shape.json",
+    "competitive-request-routing.json",
+    "evidence-deliverable-review-report.json",
+    "problem-graph-problem-contract.json",
+    "requirement.json",
+    "state-transition-matrix.json",
+    "v2-historical-read-compatibility.json",
+)
+HISTORICAL_IDENTITY_POLICY = {
+    "orchestration_versions": ["research-v2"],
+    "payload_or_schema_identities": [
+        "claim-ledger-v1", "competitive-analysis-output-v1", "deliverable-document-v1",
+        "deterministic-review-v1", "evidence-manifest-v1", "evidence-source-v1",
+        "execution-plan-v2", "problem-contract-v1", "report-document-v1", "research-task-v2",
+    ],
+    "resource_versions": ["competitive-analysis-review-v1", "evidence-policy-v1"],
+}
+HISTORICAL_IDENTITY_POLICY["combined"] = byte_sorted_values = sorted(
+    HISTORICAL_IDENTITY_POLICY["orchestration_versions"]
+    + HISTORICAL_IDENTITY_POLICY["payload_or_schema_identities"]
+    + HISTORICAL_IDENTITY_POLICY["resource_versions"],
+    key=lambda value: value.encode("utf-8"),
+)
+CURRENT_IDENTITIES = [
+    "execution-plan-v3", "report-document-v3", "report-review-v3",
+    "research-deliverable-v3", "research-task-v3", "research-v3",
+]
+OWNER_ACCOUNTABILITIES = {
+    "AX-SOURCE": "immutable source identity, source approval, source quality, durable retention, source visual-fixture provenance",
+    "AM-ARCH": "ADR, schema namespace, owner registry, single-writer and cutover decision",
+    "AM-CONTRACTS-HISTORY": "v3 contracts, source adapter, immutable v2 decoder and historical database fixture",
+    "AM-RUNTIME-STORE": "atomic writer fence, v2 continuation, drain and retirement checks",
+    "AM-WEB": "source baselines and stored-version-specific renderers",
+    "AM-SECURITY-RETENTION": "owner scope, integrity failure, retention, purge and tombstone behavior",
+    "AM-RELEASE-QA": "verifier, target characterization, zero-diff validation and Gate handoff",
+    "AM-PRODUCT-RESEARCH": "Slice 1 scope and rollout acceptance policy",
+}
+CRITERION_OWNERS = {
+    "gate0-01-ownership-ledger": ["AM-ARCH"],
+    "gate0-02-final-source-authority-and-durable-retention": ["AX-SOURCE"],
+    "gate0-03-authoritative-parity-lock": ["AX-SOURCE", "AM-RELEASE-QA"],
+    "gate0-04-offline-source-quality": ["AX-SOURCE", "AM-RELEASE-QA"],
+    "gate0-05-visual-identity": ["AX-SOURCE", "AM-WEB"],
+    "gate0-06-accepted-architecture-and-exact-contracts": ["AM-ARCH", "AM-CONTRACTS-HISTORY"],
+    "gate0-07-target-characterization": ["AM-RELEASE-QA"],
+    "gate0-08-zero-production-behavior-diff": ["AM-ARCH", "AM-RELEASE-QA"],
+    "gate0-09-v2-compatibility-and-slice-1-work-plan": [
+        "AM-CONTRACTS-HISTORY", "AM-RUNTIME-STORE", "AM-WEB", "AM-SECURITY-RETENTION",
+    ],
+    "gate0-10-handoff-and-authorization": ["AM-ARCH", "AM-RELEASE-QA"],
+}
+REQUIRED_TARGET_CASES = {
+    "v1-routing", "research-v2-routing", "client-turn-replay", "missing-runtime-fail-closed",
+    "owner-hiding-404", "artifact-corruption-fail-closed", "restart-read-without-scheduling",
+    "purge-tombstone", "off-rollback", "historical-database-fixture-read",
+}
+REQUIRED_BASELINE_STATES = {
+    "approval", "candidates", "clarify", "dag_or_executing", "idle", "paused", "plan", "text_report",
+}
+REQUIRED_VIEWPORTS = {
+    "wide": {"width": 1440, "height": 900, "device_scale_factor": 1},
+    "desktop": {"width": 1280, "height": 800, "device_scale_factor": 1},
+    "mobile": {"width": 390, "height": 844, "device_scale_factor": 1},
+}
+CONTRACT_SOURCE_PATHS = {
+    "AgentMesh": {
+        "agentmesh/models.py", "agentmesh/research_orchestration/api.py",
+        "agentmesh/research_orchestration/compiler.py", "agentmesh/research_orchestration/contracts.py",
+        "agentmesh/research_orchestration/delivery.py", "agentmesh/research_orchestration/evidence.py",
+        "agentmesh/research_orchestration/planning.py", "agentmesh/research_orchestration/result_projection.py",
+        "agentmesh/research_orchestration/workflow.py", "agentmesh/routes/agent_runs.py",
+        "agentmesh/routes/inbox.py", "agentmesh/routes/research.py", "agentmesh/store.py",
+    },
+    "ai-x": {
+        "apps/agent-api/src/routes/control-planning.ts", "apps/agent-api/src/routes/control-tasks.ts",
+        "apps/orchestrator-runtime/src/control/requirement-refinement-service.ts",
+        "apps/orchestrator-runtime/src/control/task-workflow.ts",
+        "apps/orchestrator-runtime/src/planners/plan-compiler.ts",
+        "apps/orchestrator-runtime/src/planners/problem-graph-planner.ts",
+        "apps/orchestrator-runtime/src/planners/routed-planner.ts",
+        "apps/orchestrator-runtime/src/report/current-deliverable-service.ts",
+        "apps/orchestrator-runtime/src/report/report-document-composer.ts", "database/control-plane.ts",
+        "packages/api-contract/control-workflow.ts", "packages/api-contract/plan.ts",
+        "packages/api-contract/research-deliverable.ts", "schemas/current-execution-plan.schema.json",
+        "schemas/current-plan-candidates.schema.json",
+        "schemas/deliverables/competitive-analysis-report.schema.json", "schemas/problem-graph.schema.json",
+        "schemas/report-document.schema.json", "schemas/report-review.schema.json",
+        "schemas/research-task-v2.schema.json",
+    },
+}
 
 
 def require(condition: bool, message: str) -> None:
@@ -527,16 +638,43 @@ def derive_capabilities(
     }
     return normalized, integrity
 
+def strict_json_bytes(raw: bytes, label: str, *, require_canonical: bool = True) -> Any:
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            require(key not in result, f"duplicate JSON key in {label}: {key}")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(raw, object_pairs_hook=unique_object)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid JSON in {label}: {exc}") from exc
+    if require_canonical:
+        canonical = (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode()
+        require(raw == canonical, f"JSON is not canonical: {label}")
+    return value
+
+
+def strict_json_file(path: Path, root: Path | None = None) -> Any:
+    label = path.as_posix() if root is None else path.relative_to(root).as_posix()
+    require(path.is_file() and not path.is_symlink(), f"missing regular JSON file: {label}")
+    return strict_json_bytes(path.read_bytes(), label)
+
+
 def source_state(source: Path, revision: str) -> dict[str, Any]:
     commit = resolve_commit(source, revision)
     tree_hash = git(source, "show", "-s", "--format=%T", commit).decode().strip()
+    require(commit == DEFAULT_REVISION, "unexpected source snapshot commit")
+    require(tree_hash == "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12", "unexpected source snapshot tree")
     parents = git(source, "show", "-s", "--format=%P", commit).decode().strip().split()
     require(len(parents) == 1, "snapshot must have one parent")
     parent = parents[0]
     parent_tree = git(source, "show", "-s", "--format=%T", parent).decode().strip()
     tree = read_tree(source, commit)
     require(FREEZE_MANIFEST_PATH in tree, "freeze manifest missing")
-    freeze = json_blob(tree, FREEZE_MANIFEST_PATH)
+    freeze = strict_json_bytes(tree[FREEZE_MANIFEST_PATH]["bytes"], FREEZE_MANIFEST_PATH, require_canonical=False)
+    require(isinstance(freeze, dict), "freeze manifest must be an object")
     manifest_source = freeze.get("source", {})
     approved_commit = manifest_source.get("approvedIntegratedSourceCommit")
     approved_tree = manifest_source.get("approvedContentTree", {}).get("hash")
@@ -549,326 +687,709 @@ def source_state(source: Path, revision: str) -> dict[str, Any]:
     included, excluded = build_inventory(tree)
     normalized, integrity = derive_capabilities(tree, included, freeze)
     metadata = {
-        "authoritative_for_migration": False,
         "approved_content_commit": approved_commit,
         "approved_content_tree": approved_tree,
         "base_commit": base_commit,
         "branch_label": SOURCE_BRANCH_LABEL,
-        "checkout_attestation": {"required_head": commit, "required_status": "clean", "verified_by_default": False},
         "commit_subject": git(source, "show", "-s", "--format=%s", commit).decode().strip(),
-        "durable_retention": {
-            "evidence": [],
-            "reason": "No protected remote ref, signed tag, or verified Git bundle was supplied to Gate 0.",
-            "status": "missing_blocker",
-        },
         "freeze_manifest": {
-            "blob_sha256": tree[FREEZE_MANIFEST_PATH]["sha256"], "git_blob": tree[FREEZE_MANIFEST_PATH]["git_blob"],
-            "path": FREEZE_MANIFEST_PATH, "schema_version": freeze.get("schemaVersion"),
+            "blob_sha256": tree[FREEZE_MANIFEST_PATH]["sha256"],
+            "git_blob": tree[FREEZE_MANIFEST_PATH]["git_blob"],
+            "path": FREEZE_MANIFEST_PATH,
+            "schema_version": freeze.get("schemaVersion"),
             "size_bytes": tree[FREEZE_MANIFEST_PATH]["size_bytes"],
         },
-        "inventory_commit": commit, "inventory_tree": tree_hash,
+        "inventory_commit": commit,
+        "inventory_tree": tree_hash,
         "manifest_relationship": {
-            "approved_content_commit": approved_commit, "approved_content_tree": approved_tree,
-            "change_path": FREEZE_MANIFEST_PATH, "change_type": "modified",
-            "metadata_discrepancy": (
-                "The source manifest calls approvedContentTree pre-manifest/non-self-referential, but that parent "
-                "tree contains the predecessor manifest blob. This lock relies only on the verified parent, tree, "
-                "and single-path modified relationship."
-            ),
+            "approved_content_commit": approved_commit,
+            "approved_content_tree": approved_tree,
+            "change_path": FREEZE_MANIFEST_PATH,
+            "change_type": "modified",
             "snapshot_parent_equals_approved_content_commit": True,
         },
-        "owner_approval": "approved_snapshot", "owner_approval_evidence": FREEZE_MANIFEST_PATH,
-        "repository": SOURCE_REPOSITORY, "snapshot_commit": commit, "snapshot_parent": parent,
+        "repository": SOURCE_REPOSITORY,
+        "snapshot_commit": commit,
+        "snapshot_parent": parent,
         "snapshot_tree": tree_hash,
     }
     return {
-        "excluded": excluded, "included": included, "integrity": integrity, "normalized": normalized,
-        "source": metadata, "tree": tree,
-        "tree_manifest": {"file_count": len(tree), "manifest_sha256": manifest_sha256(set(tree), tree),
-                          "modes": ["100644", "100755"]},
+        "excluded": excluded,
+        "included": included,
+        "integrity": integrity,
+        "normalized": normalized,
+        "source": metadata,
+        "tree": tree,
+        "tree_manifest": {
+            "file_count": len(tree),
+            "manifest_sha256": manifest_sha256(set(tree), tree),
+            "modes": ["100644", "100755"],
+        },
     }
 
 
 def file_record(path: Path, relative_path: str) -> dict[str, Any]:
+    validate_relative_path(relative_path)
+    require(path.is_file() and not path.is_symlink(), f"missing regular evidence file: {relative_path}")
     value = path.read_bytes()
     return {"path": relative_path, "sha256": sha256(value), "size_bytes": len(value)}
 
 
-def target_evidence(project_root: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
-    manifest_path = project_root / FIXTURE_ROOT / "manifest.json"
-    require(manifest_path.is_file(), f"missing copied fixture manifest: {manifest_path}")
-    manifest = json.loads(manifest_path.read_bytes())
-    require(manifest.get("source", {}).get("commit") == snapshot["source"]["snapshot_commit"], "fixture source mismatch")
-    require(manifest.get("source", {}).get("tree") == snapshot["source"]["snapshot_tree"], "fixture source tree mismatch")
-    require(manifest.get("target", {}).get("base_commit") == TARGET_BASE_COMMIT, "fixture target mismatch")
-    require(manifest.get("target", {}).get("tree") == TARGET_BASE_TREE, "fixture target tree mismatch")
-    files = []
-    for declared in manifest.get("files", []):
-        relative = declared["path"]
-        path = project_root / FIXTURE_ROOT / relative
-        require(path.is_file(), f"missing fixture: {relative}")
-        record = file_record(path, (FIXTURE_ROOT / relative).as_posix())
-        require(record["sha256"] == declared["sha256"], f"fixture hash mismatch: {relative}")
-        require(record["size_bytes"] == declared["bytes"], f"fixture size mismatch: {relative}")
-        files.append({**record, "fixture_id": declared["fixture_id"]})
-    files.sort(key=lambda item: item["path"].encode())
-    manifest_record = file_record(manifest_path, (FIXTURE_ROOT / "manifest.json").as_posix())
-
-    browser_manifest_path = project_root / BASELINE_ROOT / "manifest.json"
-    required_states = ["approval", "candidates", "clarify", "dag_or_executing", "idle", "paused", "plan", "text_report"]
-    if not browser_manifest_path.is_file():
-        browser = {
-            "assets": [], "manifest_path": None,
-            "reason": (
-                "No finalized browser-baseline manifest or screenshots were supplied; only transient capture work "
-                "files existed, so Gate 0 copied no invented visual evidence."
-            ),
-            "required_slice_1_states": required_states, "status": "missing_blocker",
-        }
-    else:
-        browser_manifest = json.loads(browser_manifest_path.read_bytes())
-        require(
-            browser_manifest.get("sourceCommit") == snapshot["source"]["snapshot_commit"],
-            "browser baseline source commit mismatch",
-        )
-        require(
-            browser_manifest.get("schemaVersion") == "source-workbench-browser-baseline-v1",
-            "browser baseline schema mismatch",
-        )
-        declared_artifacts = browser_manifest.get("artifacts")
-        require(isinstance(declared_artifacts, list) and declared_artifacts, "browser baseline manifest is empty")
-        assets = []
-        for declared in declared_artifacts:
-            require(declared.get("sourceCommit") == snapshot["source"]["snapshot_commit"], "baseline asset source mismatch")
-            require(declared.get("browserEngine") == "chromium", "baseline browser engine mismatch")
-            require(isinstance(declared.get("browserVersion"), str) and declared["browserVersion"], "missing browser version")
-            require(isinstance(declared.get("stateFixtureId"), str) and declared["stateFixtureId"], "missing fixture id")
-            require(isinstance(declared.get("sanitizationStatement"), str) and declared["sanitizationStatement"],
-                    "missing baseline sanitization statement")
-            viewport = declared.get("viewport")
-            require(
-                isinstance(viewport, dict)
-                and all(isinstance(viewport.get(key), int) and viewport[key] > 0
-                        for key in ("width", "height", "deviceScaleFactor")),
-                "invalid baseline viewport",
-            )
-            relative = declared["path"]
-            path = project_root / BASELINE_ROOT / relative
-            require(path.is_file(), f"missing browser baseline: {relative}")
-            record = file_record(path, (BASELINE_ROOT / relative).as_posix())
-            require(record["sha256"] == declared["fileSha256"], f"baseline hash mismatch: {relative}")
-            assets.append({**record, "fixture_id": declared.get("stateFixtureId")})
-        assets.sort(key=lambda item: item["path"].encode())
-        browser = {
-            "assets": assets, "manifest": file_record(browser_manifest_path, (BASELINE_ROOT / "manifest.json").as_posix()),
-            "manifest_path": (BASELINE_ROOT / "manifest.json").as_posix(),
-            "required_slice_1_states": required_states,
-            "status": "captured_pending_state_coverage_review" if assets else "missing_blocker",
-        }
+def validate_bundle_file(project_root: Path) -> dict[str, Any]:
+    bundle_path = project_root / SOURCE_BUNDLE_PATH
+    attestation_path = project_root / SOURCE_BUNDLE_ATTESTATION
+    attestation = strict_json_file(attestation_path, project_root)
+    record = file_record(bundle_path, SOURCE_BUNDLE_PATH.as_posix())
+    require(record["sha256"] == "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f", "bundle SHA-256 mismatch")
+    require(record["size_bytes"] == 16185062, "bundle byte size mismatch")
+    require(attestation.get("schema_version") == "agentmesh-ai-x-source-bundle-attestation-v1", "bundle attestation schema mismatch")
+    require(attestation.get("source_repository") == SOURCE_REPOSITORY, "bundle repository mismatch")
+    require(attestation.get("advertised_ref") == SOURCE_BUNDLE_REF, "bundle advertised-ref declaration mismatch")
+    declared_record = {"bytes": record["size_bytes"], "path": record["path"], "sha256": record["sha256"]}
+    require(attestation.get("bundle") == declared_record, "bundle attestation file record mismatch")
+    require(attestation.get("bundle_verify") == {"complete_history": True, "result": "okay"}, "bundle verification declaration mismatch")
+    require(
+        attestation.get("restored")
+        == {
+            "commit": DEFAULT_REVISION,
+            "fsck_full_strict": "passed",
+            "tree": "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12",
+        },
+        "bundle restore declaration mismatch",
+    )
+    runtime = attestation.get("runtime_loading", {})
+    require(runtime.get("importable_python_package") is False and runtime.get("loaded_automatically") is False,
+            "bundle must be excluded from runtime loading")
+    heads = subprocess.run(
+        ("git", "bundle", "list-heads", str(bundle_path)),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    require(heads.returncode == 0, f"git bundle list-heads failed: {heads.stderr.decode(errors='replace').strip()}")
+    require(heads.stdout.decode().splitlines() == [f"{DEFAULT_REVISION} {SOURCE_BUNDLE_REF}"], "bundle advertised ref mismatch")
     return {
-        "browser_baseline": browser,
-        "contract_fixtures": {"files": files, "manifest": manifest_record,
-                              "manifest_path": manifest_record["path"], "status": "characterization_only"},
-        "target_base_commit": TARGET_BASE_COMMIT, "target_base_tree": TARGET_BASE_TREE,
+        "attestation": file_record(attestation_path, SOURCE_BUNDLE_ATTESTATION.as_posix()),
+        **declared_record,
+    }
+
+
+@contextlib.contextmanager
+def materialized_source_bundle(bundle_path: Path):
+    with tempfile.TemporaryDirectory(prefix="agentmesh-ai-x-bundle-") as temporary:
+        clone = Path(temporary) / "source"
+        result = subprocess.run(
+            ("git", "clone", "--no-checkout", str(bundle_path), str(clone)),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        require(result.returncode == 0, f"self-contained bundle clone failed: {result.stderr.decode(errors='replace').strip()}")
+        git(clone, "fsck", "--full", "--strict")
+        require(resolve_commit(clone, SOURCE_BUNDLE_REF) == DEFAULT_REVISION, "restored bundle commit mismatch")
+        restored_tree = git(clone, "show", "-s", "--format=%T", DEFAULT_REVISION).decode().strip()
+        require(restored_tree == "ca63e2fdb4c3fcff0f50c8095a1497f8db4cdd12", "restored bundle tree mismatch")
+        yield clone
+
+
+def validate_contract_sources(
+    project_root: Path, source_tree: dict[str, dict[str, Any]], entries: Any
+) -> list[dict[str, Any]]:
+    require(isinstance(entries, list) and len(entries) == 33, "contract source list must contain exactly 33 entries")
+    seen: set[tuple[str, str]] = set()
+    normalized: list[dict[str, Any]] = []
+    for entry in entries:
+        require(isinstance(entry, dict), "invalid contract source entry")
+        repository, path = entry.get("repository"), entry.get("path")
+        require(repository in CONTRACT_SOURCE_PATHS and isinstance(path, str), "unknown contract source repository/path")
+        validate_relative_path(path)
+        key = (repository, path)
+        require(key not in seen, f"duplicate contract source: {repository}:{path}")
+        seen.add(key)
+        require(path in CONTRACT_SOURCE_PATHS[repository], f"undeclared contract source: {repository}:{path}")
+        expected_ref = DEFAULT_REVISION if repository == "ai-x" else TARGET_BASE_COMMIT
+        require(entry.get("ref") == expected_ref, f"contract source ref mismatch: {repository}:{path}")
+        if repository == "ai-x":
+            require(path in source_tree, f"source contract blob missing: {path}")
+            actual = source_tree[path]["bytes"]
+        else:
+            actual = git(project_root, "show", f"{TARGET_BASE_COMMIT}:{path}")
+        require(entry.get("sha256") == sha256(actual), f"contract source hash mismatch: {repository}:{path}")
+        normalized.append(entry)
+    expected = {(repository, path) for repository, paths in CONTRACT_SOURCE_PATHS.items() for path in paths}
+    require(seen == expected, "contract source exact set mismatch")
+    return sorted(normalized, key=lambda item: (item["repository"].encode(), item["path"].encode()))
+
+
+def validate_contract_fixtures(project_root: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
+    root = project_root / FIXTURE_ROOT
+    manifest_path = root / "manifest.json"
+    manifest = strict_json_file(manifest_path, project_root)
+    require(manifest.get("manifest_version") == "ai-x-agentmesh-gate0-fixture-manifest-v1", "fixture manifest version mismatch")
+    require(manifest.get("characterization_only") is True and manifest.get("executable_tests") is False,
+            "fixture execution classification mismatch")
+    require(manifest.get("source", {}).get("logical_repository") == SOURCE_REPOSITORY, "fixture source repository mismatch")
+    require(manifest.get("source", {}).get("commit") == DEFAULT_REVISION, "fixture source commit mismatch")
+    require(manifest.get("source", {}).get("tree") == snapshot["source"]["snapshot_tree"], "fixture source tree mismatch")
+    require(manifest.get("target", {}).get("logical_repository") == TARGET_REPOSITORY, "fixture target repository mismatch")
+    require(manifest.get("target", {}).get("base_commit") == TARGET_BASE_COMMIT, "fixture target commit mismatch")
+    require(manifest.get("target", {}).get("tree") == TARGET_BASE_TREE, "fixture target tree mismatch")
+    declared = manifest.get("files")
+    require(isinstance(declared, list), "fixture files must be a list")
+    paths = [entry.get("path") for entry in declared if isinstance(entry, dict)]
+    require(len(paths) == len(declared) == len(set(paths)), "duplicate or invalid fixture path")
+    require(set(paths) == set(REQUIRED_FIXTURES), "fixture exact path set mismatch")
+    actual = {path.name for path in root.iterdir() if path.is_file()}
+    require(actual == {"manifest.json", *REQUIRED_FIXTURES}, "fixture directory contains omitted or undeclared files")
+    ids: set[str] = set()
+    records = []
+    for entry in declared:
+        relative = entry["path"]
+        validate_relative_path(relative)
+        require(len(PurePosixPath(relative).parts) == 1, f"fixture path must be single-level: {relative}")
+        payload_path = root / relative
+        payload = strict_json_file(payload_path, project_root)
+        fixture_id = entry.get("fixture_id")
+        require(isinstance(fixture_id, str) and fixture_id and fixture_id not in ids, f"duplicate/invalid fixture ID: {fixture_id}")
+        ids.add(fixture_id)
+        require(payload.get("fixture_id") == fixture_id, f"top-level fixture ID mismatch: {relative}")
+        require(payload.get("fixture_version") == "ai-x-agentmesh-gate0-characterization-v1", f"fixture version mismatch: {relative}")
+        require(payload.get("normalization_profile") == "gate0-semantic-normalization-v1", f"normalization profile mismatch: {relative}")
+        record = file_record(payload_path, (FIXTURE_ROOT / relative).as_posix())
+        require(record["sha256"] == entry.get("sha256") and record["size_bytes"] == entry.get("bytes"),
+                f"fixture hash/size mismatch: {relative}")
+        records.append({**record, "fixture_id": fixture_id})
+    historical = strict_json_file(root / "v2-historical-read-compatibility.json", project_root)
+    manifest_policy = manifest.get("schema_ids", {}).get("target", {}).get("canonical_historical_identity_policy")
+    require(manifest_policy == HISTORICAL_IDENTITY_POLICY, "fixture manifest historical identity policy mismatch")
+    require(historical.get("canonical_historical_identity_policy") == HISTORICAL_IDENTITY_POLICY,
+            "historical fixture identity policy mismatch")
+    contract_sources = validate_contract_sources(project_root, snapshot["tree"], manifest.get("contract_source_files"))
+    return {
+        "contract_source_count": len(contract_sources),
+        "files": sorted(records, key=lambda item: item["path"].encode()),
+        "manifest": file_record(manifest_path, (FIXTURE_ROOT / "manifest.json").as_posix()),
+        "status": "valid_characterization_only",
+    }
+
+
+def validate_history_fixture(project_root: Path) -> dict[str, Any]:
+    root = project_root / HISTORY_ROOT
+    manifest_path = root / "manifest.json"
+    manifest = strict_json_file(manifest_path, project_root)
+    require(manifest.get("schema_version") == "agentmesh-research-v2-history-fixture-manifest-v1", "history manifest schema mismatch")
+    require(manifest.get("origin") == {
+        "base_commit": TARGET_BASE_COMMIT,
+        "base_tree": TARGET_BASE_TREE,
+        "repository": TARGET_REPOSITORY,
+    }, "history fixture origin mismatch")
+    require(manifest.get("canonical_historical_identity_policy") == HISTORICAL_IDENTITY_POLICY,
+            "history fixture identity policy mismatch")
+    expected_names = {"SHA256SUMS", "attestation.json", "characterize_v2_history.py", "manifest.json", "research-v2-history.sqlite3"}
+    actual_names = {path.name for path in root.iterdir() if path.is_file()}
+    require(actual_names == expected_names, "history fixture contains omitted or undeclared files")
+    entries = manifest.get("files")
+    require(isinstance(entries, list) and {entry.get("path") for entry in entries} == expected_names - {"manifest.json"},
+            "history fixture manifest exact set mismatch")
+    for entry in entries:
+        path = root / entry["path"]
+        record = file_record(path, (HISTORY_ROOT / entry["path"]).as_posix())
+        require(record["sha256"] == entry.get("sha256") and record["size_bytes"] == entry.get("bytes"),
+                f"history evidence hash/size mismatch: {entry['path']}")
+    sums: dict[str, str] = {}
+    for line in (root / "SHA256SUMS").read_text().splitlines():
+        parts = line.split("  ", 1)
+        require(len(parts) == 2 and re.fullmatch(r"[0-9a-f]{64}", parts[0]) is not None, "invalid SHA256SUMS line")
+        require(parts[1] not in sums, "duplicate SHA256SUMS path")
+        sums[parts[1]] = parts[0]
+    require(set(sums) == {"attestation.json", "characterize_v2_history.py", "research-v2-history.sqlite3"},
+            "history SHA256SUMS exact set mismatch")
+    for name, digest in sums.items():
+        require(sha256((root / name).read_bytes()) == digest, f"history SHA256SUMS mismatch: {name}")
+    attestation = strict_json_file(root / "attestation.json", project_root)
+    require(attestation.get("overall") == "passed", "history attestation did not pass")
+    require(attestation.get("sanitization", {}).get("passed") is True, "history fixture sanitization failed")
+    require(attestation.get("execution", {}).get("external_provider_calls") == 0, "history evidence used a Provider")
+    require(attestation.get("execution", {}).get("network_used") is False, "history evidence used network")
+    require(attestation.get("source", {}).get("target_base") == TARGET_BASE_COMMIT, "history target base mismatch")
+    fixture = root / "research-v2-history.sqlite3"
+    require(attestation.get("fixture", {}).get("sha256") == sha256(fixture.read_bytes()), "history fixture attested hash mismatch")
+    require(attestation.get("fixture", {}).get("bytes") == fixture.stat().st_size, "history fixture attested size mismatch")
+    require(not (root / "research-v2-history.sqlite3-wal").exists() and not (root / "research-v2-history.sqlite3-shm").exists(),
+            "history fixture WAL/SHM companion is forbidden")
+    connection = sqlite3.connect(f"file:{fixture}?mode=ro", uri=True)
+    try:
+        require(connection.execute("PRAGMA integrity_check").fetchone() == ("ok",), "history fixture SQLite integrity failure")
+    finally:
+        connection.close()
+    checks = attestation.get("checks", {})
+    case_map = {
+        "owner-hiding-404": checks.get("foreign_owner_hidden", {}).get("passed") is True,
+        "artifact-corruption-fail-closed": checks.get("integrity_corruption_rejected", {}).get("passed") is True,
+        "restart-read-without-scheduling": checks.get("restart_read", {}).get("passed") is True
+        and checks.get("history_projection_no_mutation_actions", {}).get("passed") is True,
+        "purge-tombstone": checks.get("purge_tombstones", {}).get("passed") is True,
+        "historical-database-fixture-read": checks.get("owner_read", {}).get("passed") is True,
+    }
+    return {
+        "attestation": file_record(root / "attestation.json", (HISTORY_ROOT / "attestation.json").as_posix()),
+        "characterized_target_cases": byte_sorted({case for case, passed in case_map.items() if passed}),
+        "fixture": file_record(fixture, (HISTORY_ROOT / fixture.name).as_posix()),
+        "manifest": file_record(manifest_path, (HISTORY_ROOT / "manifest.json").as_posix()),
+        "status": "valid_sanitized_historical_fixture",
+    }
+
+
+def png_dimensions(raw: bytes, label: str) -> tuple[int, int]:
+    require(raw.startswith(b"\x89PNG\r\n\x1a\n") and len(raw) >= 24, f"invalid PNG signature: {label}")
+    require(raw[12:16] == b"IHDR", f"missing PNG IHDR: {label}")
+    return struct.unpack(">II", raw[16:24])
+
+
+def validate_browser_baseline(project_root: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
+    root = project_root / BASELINE_ROOT
+    if not root.exists():
+        return {
+            "available": False,
+            "missing_state_viewport_pairs": [
+                f"{state}/{viewport}" for state in byte_sorted(REQUIRED_BASELINE_STATES)
+                for viewport in byte_sorted(set(REQUIRED_VIEWPORTS))
+            ],
+            "reason": "No committed baseline satisfies the exact eight-state by three-viewport Gate policy.",
+            "required_screenshot_count": 24,
+        }
+    manifest = strict_json_file(root / "manifest.json", project_root)
+    require(manifest.get("schema_version") == "agentmesh-ai-x-browser-baseline-v1", "baseline manifest schema mismatch")
+    require(manifest.get("source") == {
+        "commit": DEFAULT_REVISION,
+        "repository": SOURCE_REPOSITORY,
+        "tree": snapshot["source"]["snapshot_tree"],
+    }, "baseline source identity mismatch")
+    require(manifest.get("viewports") == [{"id": key, **REQUIRED_VIEWPORTS[key]} for key in byte_sorted(set(REQUIRED_VIEWPORTS))],
+            "baseline exact viewport set mismatch")
+    screenshots = manifest.get("screenshots")
+    require(isinstance(screenshots, list) and len(screenshots) == 24, "baseline must declare exactly 24 screenshots")
+    tuples: set[tuple[str, str]] = set()
+    declared_files = {"manifest.json"}
+    browser_versions: set[str] = set()
+    state_fixtures: dict[str, str] = {}
+    for item in screenshots:
+        require(isinstance(item, dict), "invalid baseline entry")
+        state, viewport_id = item.get("state_id"), item.get("viewport_id")
+        require(state in REQUIRED_BASELINE_STATES and viewport_id in REQUIRED_VIEWPORTS, "unknown baseline state/viewport")
+        require((state, viewport_id) not in tuples, "duplicate baseline state/viewport tuple")
+        tuples.add((state, viewport_id))
+        relative = item.get("path")
+        require(isinstance(relative, str), "missing baseline path")
+        validate_relative_path(relative)
+        path = root / relative
+        record = file_record(path, (BASELINE_ROOT / relative).as_posix())
+        require(record["sha256"] == item.get("sha256") and record["size_bytes"] == item.get("bytes"),
+                f"baseline hash/size mismatch: {relative}")
+        width, height = png_dimensions(path.read_bytes(), relative)
+        viewport = REQUIRED_VIEWPORTS[viewport_id]
+        require((width, height) == (viewport["width"] * viewport["device_scale_factor"],
+                                    viewport["height"] * viewport["device_scale_factor"]),
+                f"baseline PNG dimensions mismatch: {relative}")
+        require(item.get("browser_engine") == "chromium", "baseline browser engine mismatch")
+        browser_version = item.get("browser_version")
+        require(isinstance(browser_version, str) and browser_version, "missing pinned browser version")
+        browser_versions.add(browser_version)
+        fixture_id, fixture_hash = item.get("state_fixture_id"), item.get("state_fixture_sha256")
+        require(isinstance(fixture_id, str) and fixture_id and re.fullmatch(r"[0-9a-f]{64}", str(fixture_hash)),
+                "invalid baseline state fixture identity")
+        previous = state_fixtures.setdefault(state, fixture_hash)
+        require(previous == fixture_hash, f"state fixture hash drift: {state}")
+        for key in ("locale", "timezone", "color_scheme", "reduced_motion", "font_fingerprint"):
+            require(isinstance(item.get(key), str) and item[key], f"missing baseline environment field: {key}")
+        require(item.get("sanitization_status") == "passed" and isinstance(item.get("sanitization_statement"), str)
+                and item["sanitization_statement"], "baseline sanitization evidence missing")
+        declared_files.add(relative)
+    expected_tuples = {(state, viewport) for state in REQUIRED_BASELINE_STATES for viewport in REQUIRED_VIEWPORTS}
+    require(tuples == expected_tuples and len(browser_versions) == 1, "baseline matrix/browser version mismatch")
+    actual_files = {
+        path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() and not path.is_symlink()
+    }
+    require(actual_files == declared_files, "baseline directory contains omitted or undeclared files")
+    return {
+        "available": True,
+        "manifest": file_record(root / "manifest.json", (BASELINE_ROOT / "manifest.json").as_posix()),
+        "screenshot_count": 24,
+    }
+
+
+def validate_owner_acceptance(project_root: Path) -> dict[str, Any]:
+    path = project_root / OWNER_ACCEPTANCE_PATH
+    evidence = strict_json_file(path, project_root)
+    require(evidence.get("schema_version") == "agentmesh-ai-x-gate0-interim-owner-acceptance-v1", "owner acceptance schema mismatch")
+    require(evidence.get("binding_scope") == "Gate 0 and isolated Slice 1 development only", "owner binding scope mismatch")
+    require(evidence.get("interim_binding_approved") is True, "interim owner binding is not approved")
+    require(evidence.get("signed_by_handle") == "@heyunshen", "interim acceptance signer mismatch")
+    require(evidence.get("criterion_owners") == CRITERION_OWNERS, "criterion owner policy mismatch")
+    rows = evidence.get("owner_bindings")
+    require(isinstance(rows, list) and len(rows) == len(OWNER_ACCOUNTABILITIES), "owner binding count mismatch")
+    bindings: dict[str, str] = {}
+    for row in rows:
+        owner_id, handle = row.get("owner_id"), row.get("handle")
+        require(owner_id in OWNER_ACCOUNTABILITIES and owner_id not in bindings, f"duplicate/unknown owner: {owner_id}")
+        require(row.get("accountability") == OWNER_ACCOUNTABILITIES[owner_id], f"owner accountability mismatch: {owner_id}")
+        require(handle == "@heyunshen" and row.get("proof_of_control") == "authenticated Gate 0 instruction",
+                f"owner binding proof mismatch: {owner_id}")
+        bindings[owner_id] = handle
+    require(set(bindings) == set(OWNER_ACCOUNTABILITIES), "owner exact set mismatch")
+    production = evidence.get("production_cutover", {})
+    require(production.get("authorized") is False and production.get("same_person_or_key_allowed") is False,
+            "production cutover must remain separately blocked")
+    approvals = evidence.get("approved_criteria_by_owner")
+    require(isinstance(approvals, dict) and set(approvals) == set(OWNER_ACCOUNTABILITIES), "owner approvals exact set mismatch")
+    for owner_id in OWNER_ACCOUNTABILITIES:
+        expected = byte_sorted({criterion for criterion, owners in CRITERION_OWNERS.items() if owner_id in owners})
+        require(approvals[owner_id] == expected, f"owner criterion approval mismatch: {owner_id}")
+    return {
+        "bindings": [{"handle": bindings[owner_id], "owner_id": owner_id} for owner_id in byte_sorted(set(bindings))],
+        "evidence": file_record(path, OWNER_ACCEPTANCE_PATH.as_posix()),
+        "scope": evidence["binding_scope"],
+        "signed_by_handle": evidence["signed_by_handle"],
+    }
+
+
+def validate_source_quality(project_root: Path, snapshot: dict[str, Any], bundle: dict[str, Any]) -> dict[str, Any]:
+    path = project_root / SOURCE_QUALITY_PATH
+    evidence = strict_json_file(path, project_root)
+    require(evidence.get("schema_version") == "ai-x-inherited-source-quality-v1", "source quality schema mismatch")
+    require(evidence.get("source") == {
+        "approved_content_commit": snapshot["source"]["approved_content_commit"],
+        "commit": DEFAULT_REVISION,
+        "repository": SOURCE_REPOSITORY,
+        "tree": snapshot["source"]["snapshot_tree"],
+    }, "source quality source identity mismatch")
+    require(evidence.get("bundle") == {key: bundle[key] for key in ("bytes", "path", "sha256")},
+            "source quality bundle mismatch")
+    package = evidence.get("package_contract", {})
+    require(package == {"node": ">=22", "package_json_sha256": snapshot["tree"]["package.json"]["sha256"], "pnpm": "9.12.1"},
+            "source quality runtime contract mismatch")
+    checks = evidence.get("inherited_checks")
+    require(isinstance(checks, list) and [item.get("argv") for item in checks] == [
+        ["pnpm", "quality"], ["pnpm", "--dir", "apps/web", "build"]
+    ], "source quality command set mismatch")
+    for item in checks:
+        evidence_path = item.get("evidence_path")
+        require(isinstance(evidence_path, str) and evidence_path in snapshot["tree"], "source quality evidence blob missing")
+        require(item.get("evidence_blob_sha256") == snapshot["tree"][evidence_path]["sha256"], "source quality evidence hash mismatch")
+        require(item.get("result", {}).get("status") == "passed", "inherited source quality check did not pass")
+    require(evidence.get("provider_calls") == 0 and evidence.get("user_data_accessed") is False,
+            "source quality evidence used Provider or user data")
+    require(evidence.get("release_browser_validation_performed") is False, "source quality must not claim browser release validation")
+    attestation = evidence.get("attestation", {})
+    require(attestation.get("signed_by_handle") == "@heyunshen"
+            and attestation.get("approved_for_scope") == "Gate 0 and isolated Slice 1 development only",
+            "source quality attestation mismatch")
+    return {
+        "commands": [item["argv"] for item in checks],
+        "evidence": file_record(path, SOURCE_QUALITY_PATH.as_posix()),
+        "kind": "inherited_frozen_lineage",
+        "passed": True,
     }
 
 
 def gate0_changed_paths(project_root: Path) -> list[str]:
-    changed = set(filter(None, git(project_root, "diff", "--name-only", TARGET_BASE_COMMIT, "--", ".").decode().splitlines()))
-    changed.update(filter(None, git(project_root, "ls-files", "--others", "--exclude-standard").decode().splitlines()))
-    return byte_sorted(changed)
+    tracked = git(project_root, "diff", "--name-only", TARGET_BASE_COMMIT, "--", ".").decode().splitlines()
+    untracked = git(project_root, "ls-files", "--others", "--exclude-standard").decode().splitlines()
+    return byte_sorted(set(filter(None, tracked + untracked)))
 
 
 def allowed_gate0_path(path: str) -> bool:
     return path in ALLOWED_GATE0_EXACT or path.startswith(ALLOWED_GATE0_PREFIXES)
 
 
-def ownership_ledger() -> list[dict[str, Any]]:
-    rows = (
-        ("AX-SOURCE", "ai-x Source Custodian", "source lock and immutable source approval"),
-        ("AM-ARCH", "AgentMesh Architecture Owner", "ADR, schema namespace, and atomic cutover"),
-        ("AM-CONTRACTS-HISTORY", "Research Contracts and v2 History Owner", "v2 history adapter and v3 contracts"),
-        ("AM-RUNTIME-STORE", "Research Runtime and Store Owner", "retirement drain and writer fence"),
-        ("AM-WEB", "Workbench and Projection Owner", "visual baselines and versioned renderers"),
-        ("AM-SECURITY-RETENTION", "Security, Audit and Retention Owner", "security review, retention, and purge"),
-        ("AM-RELEASE-QA", "Release Verification Owner", "release gate and lock verification"),
-        ("AM-PRODUCT-RESEARCH", "Product and Research Owner", "Slice acceptance and rollout policy"),
-    )
-    return [{"accountability": accountability, "binding_status": "unbound_blocker", "handle": None,
-             "name": name, "owner_id": owner_id} for owner_id, name, accountability in rows]
+def working_gate_artifact_manifest(project_root: Path) -> dict[str, Any]:
+    names = gate0_changed_paths(project_root)
+    require(names and all(allowed_gate0_path(path) for path in names), "target change set escapes the Gate 0 allowlist")
+    records = []
+    for path in names:
+        validate_relative_path(path)
+        value_path = project_root / path
+        require(value_path.is_file() and not value_path.is_symlink(), f"Gate artifact is not a regular file: {path}")
+        mode = "100755" if value_path.stat().st_mode & 0o111 else "100644"
+        raw = value_path.read_bytes()
+        base_exists = subprocess.run(
+            ("git", "cat-file", "-e", f"{TARGET_BASE_COMMIT}:{path}"),
+            cwd=project_root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+        status = "M" if base_exists else "A"
+        records.append({"bytes": len(raw), "mode": mode, "path": path, "sha256": sha256(raw), "status": status})
+    non_lock = [record for record in records if record["path"] != LOCK_PATH.as_posix()]
+    lines = "".join(
+        f"{record['status']} {record['mode']} {record['sha256']} {record['bytes']}  {record['path']}\n"
+        for record in non_lock
+    ).encode()
+    return {
+        "algorithm": "SHA-256 over '<A-or-M> <mode> <sha256> <bytes>  <path>\\n' in bytewise path order; generated lock excluded to avoid self-reference",
+        "file_count": len(non_lock),
+        "files": non_lock,
+        "manifest_sha256": sha256(lines),
+    }
 
 
-def build_authorization(
-    project_root: Path, snapshot: dict[str, Any], evidence: dict[str, Any], owners: list[dict[str, Any]]
-) -> dict[str, Any]:
-    changed = gate0_changed_paths(project_root)
-    assigned = all(item["binding_status"] == "assigned" and isinstance(item["handle"], str)
-                   and item["handle"].startswith("@") for item in owners)
-    retained = snapshot["source"]["durable_retention"]["status"] == "verified"
-    browser = evidence["browser_baseline"]
-    criteria = [
-        ("gate0-01-ownership-ledger", ["AM-ARCH"],
-         ["docs/verification/2026-08-20-ai-x-parity-gate0.md#5-named-ownership-ledger"], assigned),
-        ("gate0-02-final-source-authority-and-durable-retention", ["AX-SOURCE"], [FREEZE_MANIFEST_PATH],
-         snapshot["source"]["owner_approval"] == "approved_snapshot" and retained),
-        ("gate0-03-authoritative-parity-lock", ["AM-RELEASE-QA", "AX-SOURCE"],
-         ["agentmesh/research_catalog/ai-x-parity-lock.json"],
-         snapshot["source"]["authoritative_for_migration"] and retained),
-        ("gate0-04-offline-source-quality", ["AX-SOURCE", "AM-RELEASE-QA"], [], False),
-        ("gate0-05-visual-identity", ["AX-SOURCE", "AM-WEB"],
-         [browser["manifest_path"]] if browser["manifest_path"] else [],
-         browser["status"] == "available" and bool(browser["assets"])),
-        ("gate0-06-accepted-architecture-and-exact-contracts", ["AM-ARCH", "AM-CONTRACTS-HISTORY"], [
-            "docs/adr/0006-single-active-research-writer.md",
-            "docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md"], False),
-        ("gate0-07-target-characterization", ["AM-RELEASE-QA"],
-         [evidence["contract_fixtures"]["manifest_path"]], False),
-        ("gate0-08-zero-production-behavior-diff", ["AM-ARCH", "AM-RELEASE-QA"], changed,
-         all(allowed_gate0_path(path) for path in changed)),
-        ("gate0-09-v2-compatibility-and-slice-1-work-plan",
-         ["AM-CONTRACTS-HISTORY", "AM-RUNTIME-STORE", "AM-WEB", "AM-SECURITY-RETENTION"], [
-             "docs/adr/0006-single-active-research-writer.md#safe-deletion-gate",
-             "docs/verification/2026-08-20-ai-x-parity-gate0.md#6-v2-history-retirement-and-security-work-package"], False),
-        ("gate0-10-handoff-and-authorization", ["AM-ARCH", "AM-RELEASE-QA"], [], False),
+def committed_gate_artifact_manifest(project_root: Path, revision: str) -> dict[str, Any]:
+    commit = resolve_commit(project_root, revision)
+    require(git(project_root, "merge-base", "--is-ancestor", TARGET_BASE_COMMIT, commit) == b"", "target base is not an ancestor")
+    raw = git(project_root, "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", TARGET_BASE_COMMIT, commit)
+    fields = raw.split(b"\0")
+    records: list[dict[str, Any]] = []
+    index = 0
+    while index < len(fields) and fields[index]:
+        status = fields[index].decode(); index += 1
+        require(status in {"A", "M"}, f"unsupported Gate change status: {status}")
+        path = fields[index].decode(); index += 1
+        validate_relative_path(path)
+        require(allowed_gate0_path(path), f"target change escapes Gate 0 allowlist: {path}")
+        ls = git(project_root, "ls-tree", commit, "--", path).decode().rstrip("\n")
+        metadata, listed_path = ls.split("\t", 1)
+        mode, kind, _oid = metadata.split(" ")
+        require(listed_path == path and kind == "blob" and mode in {"100644", "100755"}, f"unsupported target blob: {path}")
+        value = git(project_root, "show", f"{commit}:{path}")
+        records.append({"bytes": len(value), "mode": mode, "path": path, "sha256": sha256(value), "status": status})
+    records.sort(key=lambda item: item["path"].encode())
+    lines = "".join(
+        f"{record['status']} {record['mode']} {record['sha256']} {record['bytes']}  {record['path']}\n"
+        for record in records
+    ).encode()
+    tree = git(project_root, "show", "-s", "--format=%T", commit).decode().strip()
+    return {
+        "commit": commit,
+        "file_count": len(records),
+        "files": records,
+        "manifest_sha256": sha256(lines),
+        "tree": tree,
+    }
+
+
+def build_evidence(project_root: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
+    bundle = validate_bundle_file(project_root)
+    owners = validate_owner_acceptance(project_root)
+    quality = validate_source_quality(project_root, snapshot, bundle)
+    fixtures = validate_contract_fixtures(project_root, snapshot)
+    history = validate_history_fixture(project_root)
+    browser = validate_browser_baseline(project_root, snapshot)
+    characterized = set(history["characterized_target_cases"])
+    target_characterization = {
+        "complete": characterized == REQUIRED_TARGET_CASES,
+        "missing_cases": byte_sorted(REQUIRED_TARGET_CASES - characterized),
+        "passing_cases": byte_sorted(characterized),
+        "required_cases": byte_sorted(REQUIRED_TARGET_CASES),
+    }
+    return {
+        "browser_baseline": browser,
+        "contract_fixtures": fixtures,
+        "historical_database_fixture": history,
+        "owner_acceptance": owners,
+        "source_bundle": bundle,
+        "source_quality": quality,
+        "target_characterization": target_characterization,
+    }
+
+
+def criterion_assessment(evidence: dict[str, Any], artifact_manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    owner_ok = len(evidence["owner_acceptance"]["bindings"]) == len(OWNER_ACCOUNTABILITIES)
+    facts = {
+        "gate0-01-ownership-ledger": owner_ok,
+        "gate0-02-final-source-authority-and-durable-retention": evidence["source_bundle"]["sha256"]
+        == "bc498a854c0b60835036e87dfd576d37aa233c65833cdbde493a10504670369f",
+        "gate0-03-authoritative-parity-lock": evidence["contract_fixtures"]["status"] == "valid_characterization_only",
+        "gate0-04-offline-source-quality": evidence["source_quality"]["passed"],
+        "gate0-05-visual-identity": evidence["browser_baseline"]["available"],
+        "gate0-06-accepted-architecture-and-exact-contracts": owner_ok,
+        "gate0-07-target-characterization": evidence["target_characterization"]["complete"],
+        "gate0-08-zero-production-behavior-diff": artifact_manifest["file_count"] > 0,
+        "gate0-09-v2-compatibility-and-slice-1-work-plan":
+        evidence["historical_database_fixture"]["status"] == "valid_sanitized_historical_fixture",
+    }
+    facts["gate0-10-handoff-and-authorization"] = all(facts.values())
+    return [
+        {
+            "id": criterion,
+            "owner_ids": owners,
+            "satisfied_by_committed_evidence": facts[criterion],
+        }
+        for criterion, owners in CRITERION_OWNERS.items()
     ]
-    records = [{"evidence": ev, "id": item_id, "owner_ids": owner_ids, "passed": passed}
-               for item_id, owner_ids, ev, passed in criteria]
-    blocking = [item["id"] for item in records if not item["passed"]]
-    return {"blocking_criteria": blocking, "criteria": records, "slice_1_authorized": not blocking}
 
 
 def build_lock(project_root: Path, source: Path, revision: str = DEFAULT_REVISION) -> dict[str, Any]:
     snapshot = source_state(source, revision)
-    evidence = target_evidence(project_root, snapshot)
-    owners = ownership_ledger()
-    authorization = build_authorization(project_root, snapshot, evidence, owners)
+    evidence = build_evidence(project_root, snapshot)
+    target_manifest = working_gate_artifact_manifest(project_root)
+    criteria = criterion_assessment(evidence, target_manifest)
+    blockers = [item["id"] for item in criteria if not item["satisfied_by_committed_evidence"]]
     return {
-        "attestation": {
-            "blocking_findings": authorization["blocking_criteria"], "provider_smoke_run": False,
-            "source_assets_copied": False,
-            "source_quality": {"commands": [], "status": "not_run_by_gate0_writer"},
-            "user_data_read_or_migrated": False,
+        "authorization": {
+            "blocking_criteria": blockers,
+            "criteria": criteria,
+            "production_cutover_authorized": False,
+            "scope": "Gate 0 and isolated Slice 1 development only",
+            "slice_1_authorized": not blockers,
         },
-        "authorization": authorization,
         "canonicalization": {
-            "file_hash": "SHA-256 of exact Git blob bytes",
-            "json": "UTF-8; object keys sorted; two-space indentation; LF; one trailing LF",
-            "manifest": "for each bytewise-sorted path emit '<mode> <sha256> <size_bytes>  <path>\\n'; SHA-256 the concatenated UTF-8 bytes",
-            "path_order": "repository-relative UTF-8 POSIX paths sorted by encoded bytes",
+            "file_hash": "SHA-256 of exact bytes",
+            "json": "UTF-8; duplicate keys forbidden; object keys sorted; two-space indentation; LF; one trailing LF",
+            "manifest": "'<A-or-M> <mode> <sha256> <bytes>  <path>\\n' in bytewise path order",
+            "path_order": "repository-relative NFC UTF-8 POSIX paths sorted by encoded bytes",
         },
         "excluded_assets": snapshot["excluded"],
-        "generator": {"id": "agentmesh-gate0-approved-snapshot-inventory", "version": 2},
-        "included_assets": snapshot["included"], "integrity": snapshot["integrity"],
-        "lock_version": "ai-x-parity-lock-v2", "normalized_inventory": snapshot["normalized"],
-        "owners": owners, "slice_1_authorized": authorization["slice_1_authorized"],
-        "source": snapshot["source"], "status": "approved_source_snapshot_pending_gate0_evidence",
-        "target_contract_mapping": {
-            "deliverable_contracts": {
-                "deliverable": {"source_identity": "research-deliverable-v1",
-                                "target_persisted_identity": "research-deliverable-v3",
-                                "target_type": "ResearchDeliverableV3"},
-                "report": {"source_identity": "report-document-v1",
-                           "target_persisted_identity": "report-document-v3", "target_type": "ReportDocumentV3"},
-                "review": {"source_identity": "report-review-v1",
-                           "target_persisted_identity": "report-review-v3", "target_type": "ReportReviewV3"},
-            },
-            "execution_plan": {"source_identity": "current-execution-plan",
-                               "target_persisted_identity": "execution-plan-v3", "target_type": "ExecutionPlanV3"},
-            "orchestration_version": "research-v3",
-            "requirement": {"source_identity": "research-task-v2",
-                            "target_persisted_identity": "research-task-v3", "target_type": "ResearchTaskV3"},
-            "reserved_historical_target_identities": [
-                "competitive-analysis-review-v1", "deliverable-document-v1", "deterministic-review-v1",
-                "execution-plan-v2", "report-document-v1", "research-task-v2",
-            ],
+        "generator": {"id": "agentmesh-gate0-evidence-lock", "version": 3},
+        "included_assets": snapshot["included"],
+        "integrity": snapshot["integrity"],
+        "lock_version": "ai-x-parity-lock-v3",
+        "normalized_inventory": snapshot["normalized"],
+        "owner_policy": {
+            "accountabilities": OWNER_ACCOUNTABILITIES,
+            "criterion_owners": CRITERION_OWNERS,
+            "interim_binding_scope": "Gate 0 and isolated Slice 1 development only",
+            "production_cutover_requires_independent_architecture_and_release_reviewers": True,
         },
-        "target_evidence": evidence, "tree_manifest": snapshot["tree_manifest"],
+        "source": {
+            **snapshot["source"],
+            "bundle": evidence["source_bundle"],
+            "owner_acceptance": evidence["owner_acceptance"]["evidence"],
+            "quality_evidence": evidence["source_quality"]["evidence"],
+        },
+        "target": {
+            "artifact_manifest_without_generated_lock": target_manifest,
+            "base_commit": TARGET_BASE_COMMIT,
+            "base_tree": TARGET_BASE_TREE,
+            "exact_commit_binding": "derived by the verifier from the clean target revision; not embedded to avoid commit self-reference",
+            "repository": TARGET_REPOSITORY,
+        },
+        "target_contract_mapping": {
+            "current_identities": CURRENT_IDENTITIES,
+            "historical_identity_policy": HISTORICAL_IDENTITY_POLICY,
+            "source_aliases": {
+                "current-execution-plan": "execution-plan-v3",
+                "report-document-v1": "report-document-v3",
+                "report-review-v1": "report-review-v3",
+                "research-deliverable-v1": "research-deliverable-v3",
+                "research-task-v2": "research-task-v3",
+            },
+        },
+        "target_evidence": evidence,
+        "tree_manifest": snapshot["tree_manifest"],
     }
 
 
 def validate_mapping(lock: dict[str, Any]) -> None:
     mapping = lock["target_contract_mapping"]
-    require(mapping["orchestration_version"] == "research-v3", "orchestration identity drift")
-    reserved = set(mapping["reserved_historical_target_identities"])
-    current = {
-        mapping["requirement"]["target_persisted_identity"],
-        mapping["execution_plan"]["target_persisted_identity"],
-        *(item["target_persisted_identity"] for item in mapping["deliverable_contracts"].values()),
-    }
-    require(
-        reserved
-        == {
-            "competitive-analysis-review-v1", "deliverable-document-v1", "deterministic-review-v1",
-            "execution-plan-v2", "report-document-v1", "research-task-v2",
-        },
-        "historical identity drift",
-    )
-    require(
-        current
-        == {
-            "research-task-v3", "execution-plan-v3", "research-deliverable-v3",
-            "report-review-v3", "report-document-v3",
-        },
-        "current identity drift",
-    )
-    require(not current & reserved, "current/historical schema collision")
+    require(mapping["historical_identity_policy"] == HISTORICAL_IDENTITY_POLICY, "historical identity drift")
+    require(mapping["current_identities"] == CURRENT_IDENTITIES, "current identity drift")
+    require(not set(mapping["current_identities"]) & set(HISTORICAL_IDENTITY_POLICY["combined"]),
+            "current/historical schema collision")
 
 
 def validate(
-    lock_path: Path, source: Path, revision: str | None,
-    require_clean_checkout: bool = False, require_slice_1_authorized: bool = False,
+    lock_path: Path,
+    source: Path,
+    revision: str | None,
+    *,
+    source_bundle: Path | None = None,
+    target_revision: str = "HEAD",
+    require_clean_source: bool = False,
+    require_clean_target: bool = False,
+    require_slice_1_authorized: bool = False,
 ) -> dict[str, Any]:
     project_root = lock_path.resolve().parents[2]
     raw = lock_path.read_bytes()
-    lock = json.loads(raw)
-    canonical = (json.dumps(lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode()
-    require(raw == canonical, "lock JSON is not canonical")
-    require(lock.get("lock_version") == "ai-x-parity-lock-v2", "unsupported lock version")
+    lock = strict_json_bytes(raw, LOCK_PATH.as_posix())
+    require(lock.get("lock_version") == "ai-x-parity-lock-v3", "unsupported lock version")
     effective_revision = revision or lock["source"]["snapshot_commit"]
-    require(resolve_commit(source, effective_revision) == lock["source"]["snapshot_commit"], "revision mismatch")
+    require(effective_revision == DEFAULT_REVISION, "source revision mismatch")
     expected = build_lock(project_root, source, effective_revision)
     require(lock == expected, "lock drift: regenerate with scripts/build_ai_x_parity_lock.py")
     validate_mapping(lock)
-    criteria = lock["authorization"]["criteria"]
-    for criterion in criteria:
-        if not criterion["passed"]:
-            continue
-        for evidence_path in criterion["evidence"]:
-            evidence_file = evidence_path.split("#", 1)[0]
-            require((project_root / evidence_file).is_file(), f"missing passed-criterion evidence: {evidence_path}")
-    derived_authorized = all(item["passed"] for item in criteria)
-    derived_blockers = [item["id"] for item in criteria if not item["passed"]]
-    require(lock["slice_1_authorized"] == derived_authorized, "Slice 1 authorization is not derived")
-    require(lock["authorization"]["blocking_criteria"] == derived_blockers, "authorization blocker drift")
-    require(lock["attestation"]["blocking_findings"] == derived_blockers, "attestation blocker drift")
-    if require_clean_checkout:
-        require(resolve_commit(source, "HEAD") == effective_revision, "source checkout HEAD mismatch")
-        require(git(source, "status", "--porcelain=v1", "-z") == b"", "source checkout is not clean")
+    bundle_path = source_bundle or project_root / SOURCE_BUNDLE_PATH
+    require(bundle_path.resolve() == (project_root / SOURCE_BUNDLE_PATH).resolve(), "release bundle must be the committed durable Gate artifact")
+    with materialized_source_bundle(bundle_path):
+        pass
+    target = committed_gate_artifact_manifest(project_root, target_revision)
+    non_lock = [record for record in target["files"] if record["path"] != LOCK_PATH.as_posix()]
+    non_lock_lines = "".join(
+        f"{record['status']} {record['mode']} {record['sha256']} {record['bytes']}  {record['path']}\n"
+        for record in non_lock
+    ).encode()
+    persisted_manifest = lock["target"]["artifact_manifest_without_generated_lock"]
+    require(persisted_manifest["files"] == non_lock, "accepted target artifacts differ from the lock manifest")
+    require(persisted_manifest["file_count"] == len(non_lock)
+            and persisted_manifest["manifest_sha256"] == sha256(non_lock_lines), "accepted target artifact manifest mismatch")
+    lock_blob = next((item for item in target["files"] if item["path"] == LOCK_PATH.as_posix()), None)
+    require(lock_blob is not None and lock_blob["sha256"] == sha256(raw) and lock_blob["bytes"] == len(raw),
+            "accepted target lock blob mismatch")
+    require(git(project_root, "show", "-s", "--format=%T", TARGET_BASE_COMMIT).decode().strip() == TARGET_BASE_TREE,
+            "target base tree mismatch")
+    source_clean = resolve_commit(source, "HEAD") == effective_revision and git(source, "status", "--porcelain=v1", "-z") == b""
+    target_clean = resolve_commit(project_root, "HEAD") == target["commit"] and git(project_root, "status", "--porcelain=v1", "-z") == b""
+    if require_clean_source:
+        require(source_clean, "source checkout is not clean at the frozen commit")
+    if require_clean_target:
+        require(target_clean, "target checkout is not clean at the accepted commit")
+    criteria = []
+    for item in lock["authorization"]["criteria"]:
+        passed = item["satisfied_by_committed_evidence"]
+        if item["id"] == "gate0-08-zero-production-behavior-diff":
+            passed = passed and target_clean
+        if item["id"] == "gate0-10-handoff-and-authorization":
+            passed = False
+        criteria.append({"id": item["id"], "owner_ids": item["owner_ids"], "passed": passed})
+    prior_pass = all(item["passed"] for item in criteria if item["id"] != "gate0-10-handoff-and-authorization")
+    for item in criteria:
+        if item["id"] == "gate0-10-handoff-and-authorization":
+            item["passed"] = prior_pass and target_clean
+    blockers = [item["id"] for item in criteria if not item["passed"]]
+    authorized = not blockers
     if require_slice_1_authorized:
-        require(derived_authorized, "Slice 1 is on HOLD")
+        require(authorized, "Slice 1 is on HOLD")
     return {
-        "authorization_result": "authorized" if derived_authorized else "hold",
-        "blocking_criteria": derived_blockers,
+        "authorization_result": "authorized" if authorized else "hold",
+        "blocking_criteria": blockers,
+        "criteria": criteria,
         "excluded_exact_files": lock["excluded_assets"]["exact_file_count"],
+        "gate_artifact_count": target["file_count"],
+        "gate_artifact_manifest_sha256": target["manifest_sha256"],
         "included_files": lock["included_assets"]["file_count"],
-        "lock_result": "valid", "lock_sha256": sha256(raw),
-        "slice_1_authorized": derived_authorized,
-        "source_commit": lock["source"]["snapshot_commit"], "source_tree": lock["source"]["snapshot_tree"],
+        "lock_result": "valid",
+        "lock_sha256": sha256(raw),
+        "slice_1_authorized": authorized,
+        "source_bundle_sha256": lock["source"]["bundle"]["sha256"],
+        "source_commit": lock["source"]["snapshot_commit"],
+        "source_tree": lock["source"]["snapshot_tree"],
+        "target_clean": target_clean,
+        "target_commit": target["commit"],
+        "target_tree": target["tree"],
         "tree_files": lock["tree_manifest"]["file_count"],
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lock", type=Path, default=Path("agentmesh/research_catalog/ai-x-parity-lock.json"))
+    parser.add_argument("--lock", type=Path, default=LOCK_PATH)
     parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--source-bundle", type=Path)
     parser.add_argument("--revision")
-    parser.add_argument("--require-clean-checkout", action="store_true")
+    parser.add_argument("--target-revision", default="HEAD")
+    parser.add_argument("--require-clean-checkout", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--require-clean-source", action="store_true")
+    parser.add_argument("--require-clean-target", action="store_true")
     parser.add_argument("--require-slice-1-authorized", action="store_true")
     args = parser.parse_args()
     result = validate(
-        args.lock, args.source.resolve(), args.revision,
-        require_clean_checkout=args.require_clean_checkout,
+        args.lock,
+        args.source.resolve(),
+        args.revision,
+        source_bundle=args.source_bundle,
+        target_revision=args.target_revision,
+        require_clean_source=args.require_clean_source or args.require_clean_checkout,
+        require_clean_target=args.require_clean_target,
         require_slice_1_authorized=args.require_slice_1_authorized,
     )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
