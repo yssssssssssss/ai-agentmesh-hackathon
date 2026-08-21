@@ -330,6 +330,7 @@ class SQLiteStore:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         self._ensure_schema(connection)
         connection.commit()
         return connection
@@ -780,6 +781,11 @@ class SQLiteStore:
             )
             """
         )
+        from agentmesh.research_orchestration.v3.sqlite_repository import (
+            SQLiteResearchV3Repository,
+        )
+
+        SQLiteResearchV3Repository.initialize_schema_in_connection(connection)
         VectorIndex.ensure_schema(connection)
 
     def reset(self) -> None:
@@ -791,6 +797,23 @@ class SQLiteStore:
             connection.execute("DELETE FROM agent_run_events")
             connection.execute("DELETE FROM agent_run_receipts")
             connection.execute("DELETE FROM research_model_call_receipts")
+            connection.execute("DELETE FROM research_v3_verified_artifacts")
+            connection.execute("DELETE FROM research_v3_invocations")
+            connection.execute("DELETE FROM research_v3_attempts")
+            connection.execute("DELETE FROM research_v3_command_receipts")
+            connection.execute("DELETE FROM research_v3_records")
+            connection.execute("DELETE FROM research_v3_runs")
+            connection.execute(
+                """UPDATE research_writer_control
+                SET active_generation = 'research-v2', generation_epoch = 1,
+                    decision_receipt_hash = ?, updated_at = ?
+                WHERE control_key = ?""",
+                (
+                    RESEARCH_WRITER_CONTROL_SEED_HASH,
+                    now_utc().isoformat(),
+                    RESEARCH_WRITER_CONTROL_KEY,
+                ),
+            )
             connection.execute("DELETE FROM research_tool_invocations")
             connection.execute("DELETE FROM research_steps")
             connection.execute("DELETE FROM research_attempts")

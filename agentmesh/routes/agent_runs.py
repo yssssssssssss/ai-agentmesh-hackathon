@@ -7,7 +7,11 @@ import asyncio
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from agentmesh.agent_runtime.settings import SkillOrchestrationMode, skill_orchestration_mode
+from agentmesh.agent_runtime.settings import (
+    SkillOrchestrationMode,
+    research_preview_allowlist,
+    skill_orchestration_mode,
+)
 from agentmesh.models import (
     AgentRunCreateRequest,
     AgentRunEventsResponse,
@@ -25,6 +29,10 @@ from agentmesh.models import (
     User,
     new_id,
     now_utc,
+)
+from agentmesh.research_orchestration.current import (
+    ResearchWriterGeneration,
+    decide_research_rollout,
 )
 from agentmesh.research_orchestration.planning import is_competitive_research_request
 from agentmesh.routes.deps import current_user, require_default_project
@@ -135,18 +143,43 @@ async def start_agent_run(
         request.content,
         explicit_skill_name=explicit_skill_name,
     )
+    control = store.get_research_writer_control()
+    rollout = decide_research_rollout(
+        research_eligible=research_eligible,
+        configured_mode=mode,
+        active_generation=ResearchWriterGeneration(control.active_generation),
+        user_id=user.id,
+        preview_allowlist=research_preview_allowlist(),
+    )
+    if rollout.target == "blocked":
+        raise HTTPException(status_code=409, detail="Research-v3 execution is not authorized")
     research_runtime = None
-    if research_eligible:
+    research_v3_preview = None
+    runtime = agent.agent_runtime
+    if rollout.target == "research-v2":
         research_runtime = getattr(http_request.app.state, "research_runtime", None)
         if research_runtime is None or not callable(getattr(research_runtime, "start_run", None)):
             raise HTTPException(status_code=503, detail="Research Runtime is unavailable")
+    elif rollout.target == "research-v3":
+        research_v3_preview = getattr(http_request.app.state, "research_v3_preview", None)
+        if research_v3_preview is None or not callable(getattr(research_v3_preview, "start_run", None)):
+            raise HTTPException(status_code=503, detail="Research-v3 preview Runtime is unavailable")
     else:
-        runtime = agent.agent_runtime
         if runtime is None or not runtime.enabled:
             raise HTTPException(status_code=409, detail="Agent Runtime v2 is disabled")
     thread = _thread(request, user)
     try:
-        if research_runtime is not None:
+        if research_v3_preview is not None:
+            run = await research_v3_preview.start_run(
+                content=request.content,
+                user=user,
+                thread_id=thread.id,
+                client_turn_id=request.client_turn_id,
+                mode=SkillOrchestrationMode.PREVIEW,
+                requested_orchestration_mode=request.orchestration_mode,
+                explicit_skill=skill,
+            )
+        elif research_runtime is not None:
             run = await research_runtime.start_run(
                 content=request.content,
                 user=user,
@@ -156,7 +189,12 @@ async def start_agent_run(
                 requested_orchestration_mode=request.orchestration_mode,
                 explicit_skill=skill,
             )
-        elif skill is None and request.orchestration_mode == "auto" and mode != SkillOrchestrationMode.OFF:
+        elif (
+            not research_eligible
+            and skill is None
+            and request.orchestration_mode == "auto"
+            and mode != SkillOrchestrationMode.OFF
+        ):
             run = await runtime.start_orchestrated(
                 content=request.content,
                 user=user,

@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from agentmesh.agent_runtime.settings import research_preview_allowlist
 from agentmesh.marketplace import (
     start_market_publish_worker,
     start_market_scout_worker,
@@ -19,6 +20,7 @@ from agentmesh.marketplace import (
 from agentmesh.model_registry import ensure_model_seed_data
 from agentmesh.permissions import ensure_permission_policy_seed_data
 from agentmesh.research_orchestration.runtime import build_research_runtime
+from agentmesh.research_orchestration.v3.composition import ResearchV3PreviewComposition
 from agentmesh.risk import ensure_risk_policy_seed_data
 from agentmesh.routes.agent_runs import router as agent_runs_router
 from agentmesh.routes.agents import router as agents_router
@@ -81,9 +83,12 @@ def initialize_application_data(repository: SQLiteStore) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_application_data(store)
+    research_preview_allowlist()
     research_runtime = build_research_runtime(store, catalog_service())
+    research_v3_preview = ResearchV3PreviewComposition(store)
     await research_runtime.start()
     app.state.research_runtime = research_runtime
+    app.state.research_v3_preview = research_v3_preview
     try:
         await start_auto_post_worker()
         await start_daily_memory_worker()
@@ -104,6 +109,8 @@ async def lifespan(app: FastAPI):
             finally:
                 if getattr(app.state, "research_runtime", None) is research_runtime:
                     del app.state.research_runtime
+                if getattr(app.state, "research_v3_preview", None) is research_v3_preview:
+                    del app.state.research_v3_preview
                 await asyncio.to_thread(ingestion_service.shutdown)
 
 

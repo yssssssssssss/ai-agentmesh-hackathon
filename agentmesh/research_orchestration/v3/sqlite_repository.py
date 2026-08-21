@@ -145,9 +145,13 @@ def _encode_model(value: BaseModel) -> tuple[bytes, str]:
     return payload, hashlib.sha256(payload).hexdigest()
 
 
-def _decode_model(
-    *, payload: bytes | str, payload_hash: str, model_type: type[_ModelT], label: str
-) -> _ModelT:
+def _decode_model[DecodedModelT: BaseModel](
+    *,
+    payload: bytes | str,
+    payload_hash: str,
+    model_type: type[DecodedModelT],
+    label: str,
+) -> DecodedModelT:
     raw = payload.encode("utf-8") if isinstance(payload, str) else bytes(payload)
     if hashlib.sha256(raw).hexdigest() != payload_hash:
         raise ResearchV3IntegrityError(f"stored {label} payload hash does not match")
@@ -365,6 +369,26 @@ class RepositoryProjectionSnapshotV3:
     verified_artifacts: tuple[VerifiedArtifactContentV3, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class PreviewRecordAppendV3:
+    """One typed planning record staged for an atomic preview command."""
+
+    record_kind: Literal[
+        "requirement",
+        "candidate_set",
+        "problem_graph",
+        "plan",
+        "control_snapshot",
+    ]
+    natural_key: Identifier
+    schema_version: Identifier
+    value: BaseModel
+    sequence_number: int | None = None
+    requirement_version_id: Identifier | None = None
+    plan_version_id: Identifier | None = None
+    artifact: SealedArtifactRefV3 | None = None
+
+
 class SQLiteResearchV3Repository:
     """Explicitly initialized, owner-scoped implementation of both v3 persistence ports."""
 
@@ -504,10 +528,19 @@ class SQLiteResearchV3Repository:
         if self._owns_connection:
             self._connection.close()
 
+    @classmethod
+    def initialize_schema_in_connection(cls, connection: sqlite3.Connection) -> None:
+        """Install the additive v3 namespace on a caller-owned, non-active connection."""
+
+        for raw_statement in cls._SCHEMA.split(";"):
+            statement = raw_statement.strip()
+            if statement:
+                connection.execute(statement)
+
     def initialize_schema(self) -> None:
         """Create the private v3 namespace; never called by production startup."""
         with self._lock:
-            self._connection.executescript(self._SCHEMA)
+            self.initialize_schema_in_connection(self._connection)
             self._connection.commit()
 
     @contextmanager
@@ -525,6 +558,46 @@ class SQLiteResearchV3Repository:
             else:
                 self._connection.commit()
 
+    @classmethod
+    def initialize_run_in_transaction(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        run_id: Identifier,
+        scope: RepositoryScopeV3,
+        created_at: datetime,
+    ) -> RepositoryRunV3:
+        """Insert the v3 root row without owning the caller's transaction."""
+
+        created = _require_aware(created_at, "run created_at")
+        run = RepositoryRunV3(
+            run_id=run_id,
+            orchestration_version="research-v3",
+            scope=scope,
+            state_version=0,
+            created_at=created,
+        )
+        try:
+            connection.execute(
+                """
+                INSERT INTO research_v3_runs(
+                    run_id, owner_id, workspace_id, project_id, orchestration_version,
+                    state_version, created_at, tombstoned_at
+                ) VALUES (?, ?, ?, ?, ?, 0, ?, NULL)
+                """,
+                (
+                    run.run_id,
+                    run.scope.owner_id,
+                    run.scope.workspace_id,
+                    run.scope.project_id,
+                    run.orchestration_version,
+                    _iso(created),
+                ),
+            )
+        except sqlite3.IntegrityError:
+            raise ResearchV3ConflictError("research-v3 run identity already exists") from None
+        return run
+
     def create_run(
         self,
         run_id: Identifier,
@@ -532,35 +605,15 @@ class SQLiteResearchV3Repository:
         orchestration_version: Literal["research-v3"] = "research-v3",
         created_at: datetime | None = None,
     ) -> RepositoryRunV3:
-        created = _require_aware(created_at or self._clock(), "run created_at")
-        run = RepositoryRunV3(
-            run_id=run_id,
-            orchestration_version=orchestration_version,
-            scope=self.scope,
-            state_version=0,
-            created_at=created,
-        )
-        try:
-            with self._write() as connection:
-                connection.execute(
-                    """
-                    INSERT INTO research_v3_runs(
-                        run_id, owner_id, workspace_id, project_id, orchestration_version,
-                        state_version, created_at, tombstoned_at
-                    ) VALUES (?, ?, ?, ?, ?, 0, ?, NULL)
-                    """,
-                    (
-                        run.run_id,
-                        self.scope.owner_id,
-                        self.scope.workspace_id,
-                        self.scope.project_id,
-                        run.orchestration_version,
-                        _iso(created),
-                    ),
-                )
-        except sqlite3.IntegrityError:
-            raise ResearchV3ConflictError("research-v3 run identity already exists") from None
-        return run
+        if orchestration_version != "research-v3":
+            raise ValueError("SQLiteResearchV3Repository creates only research-v3 runs")
+        with self._write() as connection:
+            return self.initialize_run_in_transaction(
+                connection,
+                run_id=run_id,
+                scope=self.scope,
+                created_at=created_at or self._clock(),
+            )
 
     def get_run_record(
         self, run_id: Identifier, *, include_tombstone: bool = False
@@ -662,6 +715,7 @@ class SQLiteResearchV3Repository:
         attempt_id: str | None = None,
         step_number: int | None = None,
         artifact: SealedArtifactRefV3 | None = None,
+        advance_state: bool = True,
     ) -> None:
         row = self._require_run(connection, run_id)
         self._check_state(row, expected_state_version)
@@ -721,7 +775,8 @@ class SQLiteResearchV3Repository:
             )
         except sqlite3.IntegrityError:
             raise ResearchV3ConflictError(f"{record_kind} record was already appended") from None
-        self._advance_state(connection, run_id, expected_state_version)
+        if advance_state:
+            self._advance_state(connection, run_id, expected_state_version)
 
     def _read_record(
         self,
@@ -858,7 +913,7 @@ class SQLiteResearchV3Repository:
             model_type=model_type,
             label=expected_kind,
         )
-        if hasattr(value, "schema_version") and getattr(value, "schema_version") != expected_schema:
+        if hasattr(value, "schema_version") and value.schema_version != expected_schema:
             raise ResearchV3IntegrityError(f"stored {expected_kind} discriminator does not match its row")
         SQLiteResearchV3Repository._assert_record_value_binding(envelope, value)
         return value
@@ -1106,6 +1161,40 @@ class SQLiteResearchV3Repository:
             if canonical_json_v3_sha256(value) != artifact.content_hash:
                 raise ResearchV3IntegrityError("ProblemGraph Artifact content hash does not match")
             return value
+
+    def get_problem_graph_for_requirement(
+        self,
+        run_id: Identifier,
+        requirement_version_id: Identifier,
+    ) -> tuple[ProblemGraphArtifactRefV3, ProblemGraphV1] | None:
+        with self._lock:
+            if self._select_run(self._connection, run_id) is None:
+                return None
+            rows = self._validated_record_rows(
+                self._connection,
+                run_id=run_id,
+                record_kind="problem_graph",
+                schema_version="problem-graph-v1",
+                model_type=ProblemGraphV1,
+            )
+            matches = tuple(
+                (row, graph)
+                for row, graph in rows
+                if graph.requirement_version_id == requirement_version_id
+            )
+            if not matches:
+                return None
+            if len(matches) != 1:
+                raise ResearchV3IntegrityError(
+                    "Requirement has more than one persisted ProblemGraph"
+                )
+            row, graph = matches[0]
+            artifact = ProblemGraphArtifactRefV3.model_validate(
+                self._artifact_from_row(row).model_dump(mode="python")
+            )
+            if artifact.content_hash != canonical_json_v3_sha256(graph):
+                raise ResearchV3IntegrityError("ProblemGraph Artifact content hash does not match")
+            return artifact, graph
 
     def seal_problem_graph(
         self,
@@ -2621,6 +2710,262 @@ class SQLiteResearchV3Repository:
             self._advance_state(connection, invocation.run_id, expected_state_version)
             return unknown
 
+    def _validate_preview_record_append(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        record: PreviewRecordAppendV3,
+    ) -> None:
+        value = record.value
+        if record.record_kind == "requirement":
+            if not isinstance(value, RequirementVersionV3) or (
+                value.run_id != run_id
+                or record.natural_key != value.id
+                or record.sequence_number != value.version
+                or record.requirement_version_id != value.id
+                or record.plan_version_id is not None
+                or record.artifact is not None
+            ):
+                raise ResearchV3IntegrityError("preview Requirement append metadata is invalid")
+            duplicate = connection.execute(
+                """SELECT 1 FROM research_v3_records
+                WHERE run_id = ? AND record_kind = 'requirement' AND sequence_number = ?""",
+                (run_id, value.version),
+            ).fetchone()
+            if duplicate is not None:
+                raise ResearchV3ConflictError("Requirement version was already appended")
+            return
+        if record.record_kind == "candidate_set":
+            requirement_id = record.requirement_version_id
+            requirement = (
+                self._read_record(
+                    connection,
+                    run_id=run_id,
+                    record_kind="requirement",
+                    natural_key=requirement_id,
+                    schema_version="research-task-v3",
+                    model_type=RequirementVersionV3,
+                )
+                if requirement_id is not None
+                else None
+            )
+            if (
+                not isinstance(value, PlanCandidateSetV3)
+                or requirement is None
+                or record.natural_key != requirement_id
+                or record.sequence_number is not None
+                or record.plan_version_id is not None
+                or record.artifact is not None
+            ):
+                raise ResearchV3ConflictError("preview candidate set Requirement is not persisted")
+            return
+        if record.record_kind == "problem_graph":
+            if not isinstance(value, ProblemGraphV1):
+                raise ResearchV3IntegrityError("preview ProblemGraph append type is invalid")
+            requirement = self._read_record(
+                connection,
+                run_id=run_id,
+                record_kind="requirement",
+                natural_key=value.requirement_version_id,
+                schema_version="research-task-v3",
+                model_type=RequirementVersionV3,
+            )
+            expected_artifact = _sealed_ref(
+                run_id=run_id,
+                kind="problem_graph",
+                schema_version="problem-graph-v1",
+                value=value,
+            )
+            if (
+                requirement is None
+                or record.requirement_version_id != value.requirement_version_id
+                or record.natural_key != expected_artifact.artifact_id
+                or record.artifact is None
+                or not _artifact_refs_equal(record.artifact, expected_artifact)
+                or record.sequence_number is not None
+                or record.plan_version_id is not None
+            ):
+                raise ResearchV3ConflictError("preview ProblemGraph lineage is not persisted exactly")
+            return
+        if record.record_kind == "control_snapshot":
+            if not isinstance(value, ResearchControlSnapshotV3):
+                raise ResearchV3IntegrityError("preview control snapshot append type is invalid")
+            for actor in value.actors:
+                try:
+                    _IDENTIFIER_ADAPTER.validate_python(actor.implementation_id)
+                except (TypeError, ValueError, ValidationError):
+                    raise ResearchV3IntegrityError(
+                        "persisted Actor implementation_id must satisfy the v3 Identifier contract"
+                    ) from None
+            expected_artifact = _sealed_ref(
+                run_id=run_id,
+                kind="research_control_snapshot",
+                schema_version="research-control-snapshot-v3",
+                value=value,
+            )
+            if (
+                record.natural_key != expected_artifact.artifact_id
+                or record.artifact is None
+                or not _artifact_refs_equal(record.artifact, expected_artifact)
+                or record.sequence_number is not None
+                or record.requirement_version_id is not None
+                or record.plan_version_id is not None
+            ):
+                raise ResearchV3IntegrityError("preview control snapshot Artifact metadata is invalid")
+            return
+        if record.record_kind == "plan":
+            if not isinstance(value, ExecutionPlanVersionV3) or value.run_id != run_id:
+                raise ResearchV3IntegrityError("preview Plan append type is invalid")
+            requirement = self._read_record(
+                connection,
+                run_id=run_id,
+                record_kind="requirement",
+                natural_key=value.requirement_version_id,
+                schema_version="research-task-v3",
+                model_type=RequirementVersionV3,
+            )
+            graph_rows = self._validated_record_rows(
+                connection,
+                run_id=run_id,
+                record_kind="problem_graph",
+                schema_version="problem-graph-v1",
+                model_type=ProblemGraphV1,
+            )
+            snapshot_rows = self._validated_record_rows(
+                connection,
+                run_id=run_id,
+                record_kind="control_snapshot",
+                schema_version="research-control-snapshot-v3",
+                model_type=ResearchControlSnapshotV3,
+            )
+            graph_row = next(
+                (
+                    row
+                    for row, _graph in graph_rows
+                    if row["artifact_id"] == value.payload.problem_graph_artifact.artifact_id
+                ),
+                None,
+            )
+            snapshot_row = next(
+                (
+                    row
+                    for row, _snapshot in snapshot_rows
+                    if row["artifact_id"] == value.payload.control_snapshot_artifact.artifact_id
+                ),
+                None,
+            )
+            duplicate = connection.execute(
+                """SELECT 1 FROM research_v3_records
+                WHERE run_id = ? AND record_kind = 'plan' AND sequence_number = ?""",
+                (run_id, value.version),
+            ).fetchone()
+            if (
+                requirement is None
+                or value.payload.requirement_content_hash != requirement.content_hash
+                or record.natural_key != value.id
+                or record.sequence_number != value.version
+                or record.requirement_version_id != value.requirement_version_id
+                or record.plan_version_id != value.id
+                or record.artifact is not None
+                or graph_row is None
+                or snapshot_row is None
+                or not _artifact_refs_equal(
+                    self._artifact_from_row(graph_row),
+                    value.payload.problem_graph_artifact,
+                )
+                or not _artifact_refs_equal(
+                    self._artifact_from_row(snapshot_row),
+                    value.payload.control_snapshot_artifact,
+                )
+            ):
+                raise ResearchV3ConflictError("preview Plan lineage is not persisted exactly")
+            if duplicate is not None:
+                raise ResearchV3ConflictError("Execution Plan version was already appended")
+            return
+        raise ResearchV3IntegrityError("unsupported preview planning record kind")
+
+    def commit_preview_command(
+        self,
+        *,
+        run_id: Identifier,
+        idempotency_key: Identifier,
+        command_type: Identifier,
+        request_hash: Sha256Hex,
+        response_payload: Mapping[str, object],
+        expected_state_version: int,
+        records: tuple[PreviewRecordAppendV3, ...] = (),
+        created_at: datetime | None = None,
+    ) -> tuple[ResearchCommandReceiptV3, bool]:
+        """Atomically append staged planning records and one command receipt/state transition."""
+
+        created = _require_aware(created_at or self._clock(), "command receipt created_at")
+        with self._write() as connection:
+            run = self._require_run(connection, run_id)
+            existing_row = connection.execute(
+                """SELECT * FROM research_v3_command_receipts
+                WHERE run_id = ? AND idempotency_key = ?""",
+                (run_id, idempotency_key),
+            ).fetchone()
+            if existing_row is not None:
+                existing = self._receipt_from_row(existing_row)
+                if existing.command_type != command_type or existing.request_hash != request_hash:
+                    raise ResearchV3ConflictError(
+                        "idempotency key was already used for a different command"
+                    )
+                return existing, True
+            self._check_state(run, expected_state_version)
+            for record in records:
+                self._validate_preview_record_append(
+                    connection,
+                    run_id=run_id,
+                    record=record,
+                )
+                self._append_record(
+                    connection,
+                    run_id=run_id,
+                    record_kind=record.record_kind,
+                    natural_key=record.natural_key,
+                    schema_version=record.schema_version,
+                    value=record.value,
+                    expected_state_version=expected_state_version,
+                    sequence_number=record.sequence_number,
+                    requirement_version_id=record.requirement_version_id,
+                    plan_version_id=record.plan_version_id,
+                    artifact=record.artifact,
+                    advance_state=False,
+                )
+            receipt = ResearchCommandReceiptV3(
+                run_id=run_id,
+                idempotency_key=idempotency_key,
+                command_type=command_type,
+                request_hash=request_hash,
+                response_payload=response_payload,
+                committed_state_version=expected_state_version + 1,
+                created_at=created,
+            )
+            payload, payload_hash = _encode_model(receipt)
+            connection.execute(
+                """
+                INSERT INTO research_v3_command_receipts(
+                    run_id, idempotency_key, command_type, request_hash,
+                    committed_state_version, payload, payload_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    idempotency_key,
+                    command_type,
+                    request_hash,
+                    receipt.committed_state_version,
+                    payload,
+                    payload_hash,
+                    _iso(created),
+                ),
+            )
+            self._advance_state(connection, run_id, expected_state_version)
+            return receipt, False
+
     def record_command_receipt(
         self,
         *,
@@ -2750,12 +3095,24 @@ class SQLiteResearchV3Repository:
             if run["tombstoned_at"] is not None:
                 raise ResearchV3ConflictError("run is already tombstoned")
             self._check_state(run, expected_state_version)
+            purged_artifact_count = connection.execute(
+                """SELECT
+                    (SELECT COUNT(*) FROM research_v3_records
+                     WHERE run_id = ? AND artifact_id IS NOT NULL)
+                    +
+                    (SELECT COUNT(*) FROM research_v3_verified_artifacts
+                     WHERE run_id = ?)""",
+                (run_id, run_id),
+            ).fetchone()[0]
             receipt = ResearchCommandReceiptV3(
                 run_id=run_id,
                 idempotency_key=idempotency_key,
                 command_type="purge",
                 request_hash=request_hash,
-                response_payload={"purged": True},
+                response_payload={
+                    "purged": True,
+                    "purged_artifact_count": purged_artifact_count,
+                },
                 committed_state_version=expected_state_version + 1,
                 created_at=purged,
             )
