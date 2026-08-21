@@ -4,11 +4,11 @@ Date: 2026-08-21
 
 ## Current references
 
-- Source implementation branch: `agent/research-v3-gate2-preview-composition`
-- Local integration branch: `agent/research-v3-gate2-main-integration`
-- Integration base/head before this checklist: `4c6123128cd258b6b11f1b7f5a5436698820e6da`
-- Integration tree before this checklist: `75f3dc5362c33f7e87a7f4ea06e1b9fd3fec8cfe`
-- Current `main`: `dec6b55b3e97913c052ee2b665c063aec77a9dd3`
+- Preserved WIP branch: `user/main-wip-before-multibranch-merge-20260821` at `b3436c9ef27bf736379e1c71414d9ba3359b25c4`.
+- Reviewed Gate 2 integration branch: `agent/research-v3-gate2-main-integration` at `fed453f85902b62b85c01b127b4db50c3f23aced`.
+- Combined merge commit: `c484b583c757b0f2ec13af54c0c08da33edb7ca9`.
+- Local `main` after recording all absorbed branches: `fed9ac5774eef45e896bef8cdbcb1697c6382f59` before this checklist update.
+- Combined tree: `f99956cf70f76bd895dd1905f0d555bc40e331e0` before this checklist update.
 - Production mode remains `off`; active writer remains `research-v2`.
 
 ## Checklist
@@ -21,23 +21,30 @@ Date: 2026-08-21
 - [x] Classify every review finding as blocker or recorded non-blocking debt.
 - [x] Fix the four confirmed code blockers without reopening Gate 0/Foundation.
 - [x] Re-run only the directly affected focused verification after blocker fixes.
-- [ ] Resume the independent reviewer against the latest corrected exact HEAD and obtain final sign-off.
-- [ ] Reconcile the conflicting untracked main-Worktree file:
-  `docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md`.
-- [ ] Confirm the main Worktree has no tracked modification and no untracked path that the integration branch would overwrite.
-- [ ] Fast-forward `main` with:
-  `git merge --ff-only agent/research-v3-gate2-main-integration`.
-- [ ] Verify post-merge `main` has the exact integration commit/tree and no merge commit.
-- [ ] Record that no push, deployment, allowlist population, control-row change, Provider call, or cutover occurred.
+- [x] Obtain final independent code sign-off for `fed453f85902b62b85c01b127b4db50c3f23aced`.
+- [x] Preserve current main WIP in a dedicated local branch and commit.
+- [x] Reconcile the conflicting plan by using the accepted Gate 2 version while preserving the former draft in WIP history.
+- [x] Merge the WIP and reviewed Gate 2 branches into a clean `main` Worktree.
+- [x] Record all remaining local development branches as integrated or superseded without changing the merged tree.
+- [x] Verify every local branch tip is an ancestor of `main`.
+- [x] Run final full backend, Ruff, frontend unit, build, bundle, and E2E gates.
+- [x] Record that no push, deployment, allowlist population, control-row change, Provider call, or cutover occurred.
 
-## Merge blockers
+## Merge result
 
-1. Corrected HEAD still requires follow-up sign-off from the same independent reviewer.
-2. Main contains 10,737 untracked paths at the last inventory.
-3. One untracked path directly conflicts with a tracked integration path, and its content differs by 225 lines:
-   `docs/superpowers/plans/2026-08-20-ai-x-workbench-full-parity-migration-plan.md`.
+All local branch tips are ancestors of local `main`. Patch-equivalent Slice 1 lane branches were recorded with no tree change, and the stale `backup/candidate-tip` snapshot was recorded as superseded with the `ours` strategy. The original dirty root Worktree remains on its preserved WIP branch; the merge and verification ran in `.worktrees/main-multibranch-integration`.
 
-The conflicting file is user work. It must not be moved, overwritten, deleted, or silently replaced without a separate explicit decision.
+The only textual merge conflict was the migration plan. The accepted Gate 2 version was selected because it contains the final immutable source identity, single-writer routing table, schema namespaces, owner ledger, and cutover boundary. The older Proposed draft remains recoverable from `b3436c9`.
+
+## Final verification
+
+- backend: 1,274 passed;
+- full Ruff: passed;
+- research-v3/parity focused follow-up: 250 passed;
+- frontend unit: 146 passed;
+- TypeScript/Vite build and bundle budget: passed;
+- Playwright E2E: 54 passed;
+- real Provider calls: not run and not authorized.
 
 ## Closed code findings
 
