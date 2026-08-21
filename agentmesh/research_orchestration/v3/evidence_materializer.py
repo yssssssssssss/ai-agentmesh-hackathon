@@ -29,6 +29,70 @@ class EvidenceMaterializationError(ValueError):
     pass
 
 
+def read_verified_actor_artifacts(
+    artifacts: ArtifactReadPort,
+    actor_results: tuple[ActorExecutionResultV3, ...],
+) -> tuple[VerifiedArtifactContentV3, ...]:
+    """Read back and verify every Actor Artifact against its immutable result envelope."""
+
+    step_numbers = tuple(result.step_number for result in actor_results)
+    artifact_ids = tuple(result.result_artifact.artifact_id for result in actor_results)
+    if len(set(step_numbers)) != len(step_numbers):
+        raise EvidenceMaterializationError("Actor results contain duplicate Step completions")
+    if len(set(artifact_ids)) != len(artifact_ids):
+        raise EvidenceMaterializationError("Actor results must reference distinct Artifacts")
+    verified_artifacts: list[VerifiedArtifactContentV3] = []
+    for result in sorted(actor_results, key=lambda item: item.step_number):
+        verified = artifacts.read_verified_json(
+            run_id=result.run_id,
+            plan_version_id=result.plan_version_id,
+            attempt_id=result.attempt_id,
+            step_number=result.step_number,
+            artifact=result.result_artifact,
+        )
+        if verified is None:
+            raise EvidenceMaterializationError(
+                f"Actor result Artifact for Step {result.step_number} failed verified readback"
+            )
+        validate_verified_actor_artifact(result, verified)
+        verified_artifacts.append(verified)
+    return tuple(verified_artifacts)
+
+
+def validate_verified_actor_artifact(
+    result: ActorExecutionResultV3,
+    verified: VerifiedArtifactContentV3,
+) -> None:
+    if (
+        verified.run_id,
+        verified.plan_version_id,
+        verified.attempt_id,
+        verified.step_number,
+        verified.actor_type,
+        verified.actor_id,
+        verified.step_contract_hash,
+        verified.receipt_id,
+        verified.implementation_id,
+        verified.execution_mode,
+        verified.artifact,
+    ) != (
+        result.run_id,
+        result.plan_version_id,
+        result.attempt_id,
+        result.step_number,
+        result.actor_type,
+        result.actor_id,
+        result.step_contract_hash,
+        result.receipt_id,
+        result.implementation_id,
+        result.execution_mode,
+        result.result_artifact,
+    ):
+        raise EvidenceMaterializationError(
+            "verified Actor Artifact identity does not match its Actor result"
+        )
+
+
 class EvidenceManifestMaterializer:
     """Materialize public text Evidence only after exact Actor Artifact readback."""
 
@@ -111,34 +175,7 @@ class EvidenceManifestMaterializer:
         result: ActorExecutionResultV3,
         verified: VerifiedArtifactContentV3,
     ) -> None:
-        if (
-            verified.run_id,
-            verified.plan_version_id,
-            verified.attempt_id,
-            verified.step_number,
-            verified.actor_type,
-            verified.actor_id,
-            verified.step_contract_hash,
-            verified.receipt_id,
-            verified.implementation_id,
-            verified.execution_mode,
-            verified.artifact,
-        ) != (
-            result.run_id,
-            result.plan_version_id,
-            result.attempt_id,
-            result.step_number,
-            result.actor_type,
-            result.actor_id,
-            result.step_contract_hash,
-            result.receipt_id,
-            result.implementation_id,
-            result.execution_mode,
-            result.result_artifact,
-        ):
-            raise EvidenceMaterializationError(
-                "verified Tool Artifact identity does not match its Actor result"
-            )
+        validate_verified_actor_artifact(result, verified)
 
     @staticmethod
     def _materialize_artifact_sources(
