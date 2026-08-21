@@ -9,11 +9,14 @@ wires and releases them.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
+import re
 from collections.abc import Mapping
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, quote, unquote, urlsplit, urlunsplit
 
 from agents import Agent, ModelSettings, RunConfig, Runner
 from agents.agent_output import AgentOutputSchemaBase
@@ -25,10 +28,10 @@ from pydantic import Field, model_validator
 
 from agentmesh.agent_runtime.model_factory import AgentMeshModelFactory
 from agentmesh.models import AgentToolGrant, ToolDefinition
-from agentmesh.provider_status import redact_sensitive_text, redact_url
+from agentmesh.provider_status import redact_sensitive_text
 from agentmesh.research_orchestration.v3.adapter_resources import (
-    CompetitiveTextResourceLoaderV3,
     CompetitiveTextResourceError,
+    CompetitiveTextResourceLoaderV3,
     VerifiedCompetitiveTextResourceV3,
     verify_frozen_catalog_document,
 )
@@ -38,7 +41,6 @@ from agentmesh.research_orchestration.v3.canonical import (
     strict_json_v3_loads,
 )
 from agentmesh.research_orchestration.v3.common import (
-    ActorType,
     FrozenJson,
     FrozenJsonObject,
     Identifier,
@@ -57,7 +59,14 @@ from agentmesh.research_orchestration.v3.snapshots import (
     FrozenModelPolicyV3,
     ResearchControlSnapshotV3,
 )
+from agentmesh.risk import RiskDecision, assess_external_content
 from agentmesh.tool_runtime.gateway import ToolRuntimeDescriptor
+from agentmesh.tool_runtime.guardrails import (
+    contains_credential,
+)
+from agentmesh.tool_runtime.guardrails import (
+    redact_sensitive_text as redact_tool_sensitive_text,
+)
 
 _TAVILY_ACTOR_ID = "tavily-web-search"
 _TAVILY_TOOL_DEFINITION_ID = "tool_web_research"
@@ -67,6 +76,33 @@ _TAVILY_IMPLEMENTATION_VERSION = "1"
 _MAX_MODEL_VISIBLE_BYTES = 524_288
 _MAX_SOURCE_TITLE = 500
 _MAX_SOURCE_SNIPPET = 4000
+_MAX_SOURCE_URL = 2000
+_UNSAFE_HOST_LABELS = frozenset({"instance-data", "localhost", "metadata"})
+_UNSAFE_HOST_SUFFIXES = (
+    ".arpa",
+    ".corp",
+    ".home",
+    ".internal",
+    ".lan",
+    ".local",
+    ".localdomain",
+    ".localhost",
+    ".onion",
+)
+_COMMON_COUNTRY_SECOND_LEVEL_SUFFIXES = frozenset({"ac", "co", "com", "edu", "gov", "net", "org"})
+_BEARER_TOKEN = re.compile(r"(?i)\bbearer\s+[^\s,;&]+")
+_BASE64_LIKE = re.compile(r"(?<![A-Za-z0-9_+/-])[A-Za-z0-9_+/-]{32,}={0,2}(?![A-Za-z0-9_+/-])")
+_UNTRUSTED_INSTRUCTION = re.compile(
+    r"(?i)(?:"
+    r"ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions?|messages?|prompts?)|"
+    r"(?:system|developer)\s+(?:message|prompt)|"
+    r"(?:reveal|print|return|exfiltrate)\s+(?:the\s+)?(?:secret|credential|token|api\s*key)|"
+    r"(?:call|invoke|execute|run)\s+(?:a\s+|the\s+)?(?:tool|command|shell)|"
+    r"you\s+are\s+now|<\/?(?:system|developer)>"
+)
+_RFC3339_DATETIME = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$"
+)
 
 
 class ActorAdapterError(ValueError):
@@ -624,22 +660,213 @@ def _validate_tavily_runtime(
         raise ActorAdapterError("tool_provider_identity_drifted")
 
 
-def _public_url(value: str) -> tuple[str, str]:
-    redacted = redact_url(value)
+def _registrable_domain(hostname: str) -> str:
+    """Return the stable publisher grouping used by the established evidence path."""
+
     try:
-        parsed = urlsplit(redacted)
-        hostname = (parsed.hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
-    except (UnicodeError, ValueError):
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        return hostname
+    labels = hostname.rstrip(".").split(".")
+    if len(labels) <= 2:
+        return hostname
+    if len(labels[-1]) == 2 and labels[-2] in _COMMON_COUNTRY_SECOND_LEVEL_SUFFIXES:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
+
+
+def _normalized_public_hostname(hostname: str) -> str:
+    try:
+        normalized = hostname.encode("idna").decode("ascii").lower().rstrip(".")
+    except UnicodeError:
         raise ActorAdapterError("tool_public_source_url_invalid") from None
-    if parsed.scheme != "https" or "." not in hostname:
+    if not normalized or len(normalized) > 253 or "%" in normalized:
         raise ActorAdapterError("tool_public_source_url_invalid")
-    return redacted, hostname
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        labels = normalized.split(".")
+        if (
+            len(labels) < 2
+            or all(label.isdigit() for label in labels)
+            or any(not label or len(label) > 63 or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) for label in labels)
+            or any(label in _UNSAFE_HOST_LABELS for label in labels)
+            or normalized.endswith(_UNSAFE_HOST_SUFFIXES)
+        ):
+            raise ActorAdapterError("tool_public_source_url_invalid") from None
+    else:
+        if not address.is_global:
+            raise ActorAdapterError("tool_public_source_url_invalid")
+    return normalized
+
+
+def _redact_provider_text(value: str) -> tuple[str, set[str], bool]:
+    """Return a persistable value plus explicit reasons why it changed."""
+
+    flags: set[str] = set()
+    provider_redacted = redact_sensitive_text(value)
+    credential_detected = contains_credential(value) or _BEARER_TOKEN.search(value) is not None
+    if _BEARER_TOKEN.search(value):
+        flags.add("bearer_token_redacted")
+    if credential_detected:
+        flags.add("credential_redacted")
+    if _UNTRUSTED_INSTRUCTION.search(value) or assess_external_content(value).decision != RiskDecision.ALLOW:
+        flags.add("prompt_injection_suspected")
+    redacted = redact_tool_sensitive_text(provider_redacted)
+    if redacted != value and not credential_detected:
+        flags.add("sensitive_content_redacted")
+    if _BASE64_LIKE.search(redacted):
+        flags.add("base64_payload_redacted")
+        redacted = _BASE64_LIKE.sub("[REDACTED_BASE64]", redacted)
+    if "prompt_injection_suspected" in flags:
+        redacted = "[REDACTED_UNTRUSTED_INSTRUCTION]"
+    return redacted, flags, redacted != value
+
+
+def _redact_provider_json(value: object) -> tuple[object, set[str], bool]:
+    if isinstance(value, str):
+        return _redact_provider_text(value)
+    if isinstance(value, Mapping):
+        redacted_mapping: dict[str, object] = {}
+        flags: set[str] = set()
+        changed = False
+        for key, item in value.items():
+            redacted_item, item_flags, item_changed = _redact_provider_json(item)
+            redacted_mapping[str(key)] = redacted_item
+            flags.update(item_flags)
+            changed = changed or item_changed
+        return redacted_mapping, flags, changed
+    if isinstance(value, (list, tuple)):
+        redacted_items: list[object] = []
+        flags = set()
+        changed = False
+        for item in value:
+            redacted_item, item_flags, item_changed = _redact_provider_json(item)
+            redacted_items.append(redacted_item)
+            flags.update(item_flags)
+            changed = changed or item_changed
+        return redacted_items, flags, changed
+    return value, set(), False
+
+
+def _redacted_provider_identifier(value: str) -> tuple[str, set[str], bool]:
+    _redacted, flags, changed = _redact_provider_text(value)
+    if not changed:
+        return value, flags, False
+    digest = canonical_json_v3_sha256({"provider_identifier": value})[:24]
+    return f"redacted_{digest}", flags, True
+
+
+def _redact_tavily_receipt(
+    receipt: TavilyToolCallReceiptV3,
+) -> tuple[TavilyToolCallReceiptV3, set[str], bool]:
+    provider_request_id, flags, changed = _redacted_provider_identifier(receipt.provider_request_id)
+    if not changed:
+        return receipt, flags, False
+    return (
+        TavilyToolCallReceiptV3.model_validate(
+            {**receipt.model_dump(mode="python"), "provider_request_id": provider_request_id}
+        ),
+        flags,
+        True,
+    )
+
+
+def _redact_model_receipt(
+    receipt: ActorModelCallReceiptV3,
+) -> tuple[ActorModelCallReceiptV3, set[str], bool]:
+    provider_receipt_id, identifier_flags, identifier_changed = _redacted_provider_identifier(
+        receipt.provider_receipt_id
+    )
+    usage, usage_flags, usage_changed = _redact_provider_json(thaw_json_value(receipt.usage))
+    return (
+        ActorModelCallReceiptV3.model_validate(
+            {
+                **receipt.model_dump(mode="python"),
+                "provider_receipt_id": provider_receipt_id,
+                "usage": usage,
+            }
+        ),
+        identifier_flags | usage_flags,
+        identifier_changed or usage_changed,
+    )
+
+
+def _public_url(value: str) -> tuple[str, str, set[str], bool]:
+    if any(character.isspace() or ord(character) < 32 for character in value):
+        raise ActorAdapterError("tool_public_source_url_invalid")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        raise ActorAdapterError("tool_public_source_url_invalid") from None
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise ActorAdapterError("tool_public_source_url_invalid")
+    hostname = _normalized_public_hostname(parsed.hostname)
+    flags: set[str] = set()
+    components_redacted = bool(parsed.username or parsed.password or parsed.query or parsed.fragment)
+    for component in (
+        parsed.username or "",
+        parsed.password or "",
+        unquote(parsed.path),
+        unquote(parsed.query),
+        unquote(parsed.fragment),
+    ):
+        _redacted, component_flags, changed = _redact_provider_text(component)
+        flags.update(component_flags)
+        components_redacted = components_redacted or changed
+    path = parsed.path or "/"
+    _redacted_path, path_flags, path_changed = _redact_provider_text(unquote(path))
+    flags.update(path_flags)
+    if path_changed:
+        path = "/%5BREDACTED%5D"
+    if components_redacted:
+        flags.add("url_components_redacted")
+    display_host = f"[{hostname}]" if ":" in hostname else hostname
+    netloc = display_host if port in {None, 443} else f"{display_host}:{port}"
+    canonical = urlunsplit(
+        SplitResult(
+            scheme="https",
+            netloc=netloc,
+            path=quote(unquote(path), safe="/%:@-._~%"),
+            query="",
+            fragment="",
+        )
+    )
+    if len(canonical) > _MAX_SOURCE_URL:
+        raise ActorAdapterError("tool_public_source_url_invalid")
+    return canonical, _registrable_domain(hostname), flags, components_redacted or path_changed
+
+
+def _published_date(value: str | None) -> tuple[str | None, set[str], bool]:
+    if value is None:
+        return None, set(), False
+    _redacted, flags, unsafe = _redact_provider_text(value)
+    if unsafe:
+        flags.add("published_date_dropped")
+        return None, flags, True
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            return date.fromisoformat(value).isoformat(), flags, False
+        if _RFC3339_DATETIME.fullmatch(value):
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError
+            return parsed.isoformat().replace("+00:00", "Z"), flags, False
+    except ValueError:
+        pass
+    flags.add("published_date_dropped")
+    return None, flags, True
 
 
 def _normalize_tavily_output(
     payload: FrozenJsonObject,
     *,
     retrieved_at: object,
+    inherited_risk_flags: set[str] | None = None,
+    inherited_redaction: bool = False,
 ) -> FrozenJsonObject:
     raw = thaw_json_value(payload)
     results = raw.get("results") if isinstance(raw, dict) else None
@@ -653,16 +880,33 @@ def _normalize_tavily_output(
         raw_title = item.get("title")
         raw_url = item.get("url")
         raw_snippet = item.get("snippet")
-        if not all(isinstance(value, str) for value in (raw_title, raw_url, raw_snippet)):
+        raw_published_date = item.get("published_date")
+        if not all(isinstance(value, str) for value in (raw_title, raw_url, raw_snippet)) or not (
+            raw_published_date is None or isinstance(raw_published_date, str)
+        ):
             raise ActorAdapterError("tool_output_schema_invalid")
-        title = redact_sensitive_text(raw_title).strip()
-        snippet = redact_sensitive_text(raw_snippet).strip()
-        url, domain = _public_url(raw_url)
+        title, title_flags, title_redacted = _redact_provider_text(raw_title)
+        snippet, snippet_flags, snippet_redacted = _redact_provider_text(raw_snippet)
+        url, domain, url_flags, url_redacted = _public_url(raw_url)
+        published_date, date_flags, date_redacted = _published_date(raw_published_date)
+        title = title.strip()
+        snippet = snippet.strip()
         if not title or not snippet:
             raise ActorAdapterError("tool_public_source_text_missing")
         truncated = len(title) > _MAX_SOURCE_TITLE or len(snippet) > _MAX_SOURCE_SNIPPET
         title = title[:_MAX_SOURCE_TITLE]
         snippet = snippet[:_MAX_SOURCE_SNIPPET]
+        risk_flags = sorted(
+            title_flags | snippet_flags | url_flags | date_flags | (inherited_risk_flags or set())
+        )
+        was_redacted = (
+            title_redacted
+            or snippet_redacted
+            or url_redacted
+            or date_redacted
+            or truncated
+            or inherited_redaction
+        )
         source_id = "source_" + canonical_json_v3_sha256(
             {"index": index, "title": title, "url": url}
         )[:24]
@@ -673,16 +917,24 @@ def _normalize_tavily_output(
                 "url": url,
                 "snippet": snippet,
                 "score": item.get("score"),
-                "published_date": item.get("published_date"),
+                "published_date": published_date,
                 "retrieved_at": retrieved_at_value,
                 "registrable_domain": domain,
-                "independence_group": domain.replace(".", "_"),
+                "independence_group": domain,
                 "conflict_status": "none",
-                "risk_flags": [],
+                "risk_flags": risk_flags,
                 "truncated": truncated,
-                "redaction": "masked",
+                "redaction": "masked" if was_redacted else "none",
             }
         )
+    by_url: dict[object, list[dict[str, object]]] = {}
+    for source in normalized:
+        by_url.setdefault(source["url"], []).append(source)
+    for duplicates in by_url.values():
+        content = {(source["title"], source["snippet"], source["published_date"]) for source in duplicates}
+        if len(content) > 1:
+            for source in duplicates:
+                source["conflict_status"] = "conflicting"
     return freeze_json_object(_json_with_decimal_numbers({"results": normalized}))
 
 
@@ -756,20 +1008,26 @@ class TavilyToolGatewayAdapterV3:
             or receipt.result_count != len(raw_results)
         ):
             raise ActorAdapterError("tool_call_receipt_drifted")
-        output = _normalize_tavily_output(response.payload, retrieved_at=self._clock.now())
+        safe_receipt, receipt_risk_flags, receipt_redacted = _redact_tavily_receipt(receipt)
+        output = _normalize_tavily_output(
+            response.payload,
+            retrieved_at=self._clock.now(),
+            inherited_risk_flags=receipt_risk_flags,
+            inherited_redaction=receipt_redacted,
+        )
         content = freeze_json_object(
             {
                 "output": thaw_json_value(output),
                 "redacted_output_hash": canonical_json_v3_sha256(output),
                 "operation_key": operation_key,
-                "tool_call_receipt": receipt.model_dump(mode="json"),
+                "tool_call_receipt": safe_receipt.model_dump(mode="json"),
             }
         )
         return _settle_result(
             request=request,
             actor=self.frozen_actor,
             settlement=self._settlement,
-            receipt=receipt,
+            receipt=safe_receipt,
             content=content,
             schema_version="tool-result-v1",
         )
@@ -953,17 +1211,33 @@ class _ModelActorAdapterV3:
             thaw_json_value(response.payload),
             error_code="model_actor_output_schema_invalid",
         )
+        safe_output_value, output_risk_flags, output_redacted = _redact_provider_json(
+            thaw_json_value(response.payload)
+        )
+        if not isinstance(safe_output_value, dict):
+            raise ActorAdapterError("model_actor_output_schema_invalid")
+        safe_output = freeze_json_object(_json_with_decimal_numbers(safe_output_value))
+        _validate_json_schema(
+            output_schema.content,
+            thaw_json_value(safe_output),
+            error_code="model_actor_output_redaction_invalid",
+        )
+        safe_receipt, receipt_risk_flags, receipt_redacted = _redact_model_receipt(receipt)
+        risk_flags = sorted(output_risk_flags | receipt_risk_flags)
         content = freeze_json_object(
             {
-                "output": thaw_json_value(response.payload),
-                "model_call_receipt": receipt.model_dump(mode="json"),
+                "output": thaw_json_value(safe_output),
+                "redacted_output_hash": canonical_json_v3_sha256(safe_output),
+                "model_call_receipt": safe_receipt.model_dump(mode="json"),
+                "risk_flags": risk_flags,
+                "redaction": "masked" if output_redacted or receipt_redacted else "none",
             }
         )
         return _settle_result(
             request=request,
             actor=self.frozen_actor,
             settlement=self._settlement,
-            receipt=receipt,
+            receipt=safe_receipt,
             content=content,
             schema_version=self.result_schema_version,
         )

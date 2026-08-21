@@ -95,10 +95,11 @@ class CompetitiveTextResourceLoaderV3:
                 raise CompetitiveTextResourceError("catalog_resource_mapping_invalid")
             expected_content = load_catalog_document(self._catalog, document_id)
             frozen_document = _document(snapshot, document_id)
+            expected_hash = canonical_json_v3_sha256(expected_content)
             if (
                 frozen_document.kind != "knowledge"
-                or frozen_document.content_hash != canonical_json_v3_sha256(expected_content)
-                or frozen_document.content != expected_content
+                or frozen_document.content_hash != expected_hash
+                or canonical_json_v3_sha256(frozen_document.content) != expected_hash
             ):
                 raise CompetitiveTextResourceError("frozen_resource_drifted")
             size = len(canonical_json_v3_bytes(frozen_document.content))
@@ -133,10 +134,11 @@ def verify_frozen_catalog_document(
         raise CompetitiveTextResourceError("catalog_document_mapping_invalid")
     frozen_document = _document(snapshot, document_id)
     expected_content = load_catalog_document(locked_catalog, document_id)
+    expected_hash = canonical_json_v3_sha256(expected_content)
     if (
         frozen_document.kind != expected_kind
-        or frozen_document.content_hash != canonical_json_v3_sha256(expected_content)
-        or frozen_document.content != expected_content
+        or frozen_document.content_hash != expected_hash
+        or canonical_json_v3_sha256(frozen_document.content) != expected_hash
     ):
         raise CompetitiveTextResourceError("frozen_catalog_document_drifted")
     if isinstance(frozen_document.content, Mapping) and not frozen_document.content:
