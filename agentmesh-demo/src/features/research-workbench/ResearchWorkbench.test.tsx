@@ -9,6 +9,7 @@ import candidatesFixture from '../../../../tests/fixtures/research_v3_workbench/
 import clarifyFixture from '../../../../tests/fixtures/research_v3_workbench/clarify.json'
 import dagFixture from '../../../../tests/fixtures/research_v3_workbench/dag_or_executing.json'
 import idleFixture from '../../../../tests/fixtures/research_v3_workbench/idle.json'
+import integrationDepthFixture from '../../../../tests/fixtures/research_v3_integration/competitive_text_depth.json'
 import pausedFixture from '../../../../tests/fixtures/research_v3_workbench/paused.json'
 import planFixture from '../../../../tests/fixtures/research_v3_workbench/plan.json'
 import textReportFixture from '../../../../tests/fixtures/research_v3_workbench/text_report.json'
@@ -136,6 +137,21 @@ describe('research-workbench-aggregate-v1 fixture renderer', () => {
     expect(aggregate.workflow.state).toBe(state)
     expect(html).toContain(`data-workbench-state="${state}"`)
     for (const text of expectedText) expect(html).toContain(text)
+  })
+
+  it('consumes the full synthetic Competitive Text integration aggregate through the frozen adapter', () => {
+    const aggregate = adaptWorkbenchAggregate(integrationDepthFixture)
+    const html = renderToStaticMarkup(<ResearchWorkbench aggregate={aggregate} />)
+
+    expect(aggregate.render_kind).toBe('current')
+    if (aggregate.render_kind !== 'current') throw new Error('expected current render projection')
+    expect(aggregate.provenance.source_kind).toBe('repository_projection')
+    expect(aggregate.workflow.state).toBe('text_report')
+    expect(aggregate.selected_plan?.payload.candidate_id).toBe('depth')
+    expect(aggregate.attempt?.steps).toHaveLength(4)
+    expect(html).toContain('Alpha vs Beta — Competitive Analysis')
+    expect(html).toContain('Alpha synthetic product documentation')
+    expect(html).not.toContain('artifact_actor_attempt_depth_1')
   })
 
   it('keeps candidate controls keyboard-addressable and exposes carousel semantics', () => {
