@@ -30,6 +30,7 @@ def _login(client: TestClient) -> None:
 def _projection(run_id: str, *, state_version: int = 1) -> ResearchRunProjection:
     return ResearchRunProjection(
         run_id=run_id,
+        status=AgentRunStatus.PLANNING,
         workflow=ResearchWorkflowProjection(
             phase=ResearchPhase.PLANNING,
             active_gate=ResearchGate.PLAN_CONFIRMATION,
@@ -109,6 +110,8 @@ def test_research_get_is_owner_scoped_projection_only_and_refresh_safe(
     refreshed = client.get("/api/agent/runs/run_research_http/research")
 
     assert first.status_code == refreshed.status_code == 200
+    assert first.json()["status"] == "planning"
+    assert first.json()["error_code"] is None
     assert first.json()["workflow"]["active_gate"] == "plan_confirmation"
     assert [call["method"] for call in service.calls] == ["get_projection", "get_projection"]
     assert all(call["owner"].user_id == USER.id for call in service.calls)

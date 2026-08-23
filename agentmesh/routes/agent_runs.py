@@ -43,6 +43,11 @@ from agentmesh.store import store
 
 router = APIRouter(prefix="/api/agent/runs", tags=["agent-runs"])
 _TERMINAL = {"completed", "partial", "failed", "rejected", "cancelled"}
+_RESEARCH_READINESS_MESSAGES = {
+    "tool_runtime_unregistered": "Web Research 执行器未注册，请联系管理员完成配置后重试。",
+    "tool_runtime_not_real": "Web Research 未连接真实 Provider，请完成配置后重试。",
+    "tool_runtime_unhealthy": "Web Research Provider 当前不可用，请检查配置与连接后重试。",
+}
 
 
 def _visible_run(run_id: str, user: User):
@@ -173,6 +178,15 @@ async def start_agent_run(
         research_runtime = getattr(http_request.app.state, "research_runtime", None)
         if research_runtime is None or not callable(getattr(research_runtime, "start_run", None)):
             raise HTTPException(status_code=503, detail="Research Runtime is unavailable")
+        readiness_error = research_runtime.web_research_readiness_error()
+        if readiness_error is not None:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": readiness_error,
+                    "message": _RESEARCH_READINESS_MESSAGES[readiness_error],
+                },
+            )
     elif rollout.target == "research-v3":
         research_v3_preview = getattr(http_request.app.state, "research_v3_preview", None)
         if research_v3_preview is None or not callable(getattr(research_v3_preview, "start_run", None)):

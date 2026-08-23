@@ -7,6 +7,7 @@ import logging
 import os
 from collections.abc import Callable
 from datetime import timedelta
+from typing import Literal
 
 from agentmesh.agent_runtime.model_factory import AgentMeshModelFactory
 from agentmesh.agent_runtime.settings import (
@@ -52,6 +53,11 @@ from agentmesh.tool_runtime.gateway import ToolGateway
 
 _COMPETITIVE_RESOURCE_PATHS = ("methods/toolbox/analysis/competitive-analysis.md",)
 _LOGGER = logging.getLogger(__name__)
+ResearchProviderReadinessErrorCode = Literal[
+    "tool_runtime_unregistered",
+    "tool_runtime_not_real",
+    "tool_runtime_unhealthy",
+]
 
 
 class CompetitiveResearchPlanning:
@@ -154,6 +160,7 @@ class ResearchRuntime:
         workflow_service: ResearchWorkflowService,
         *,
         execution_enabled: bool = False,
+        tool_gateway: ToolGateway | None = None,
         mode_provider: Callable[[], SkillOrchestrationMode] = skill_orchestration_mode,
         reconcile_interval: timedelta = timedelta(seconds=30),
     ):
@@ -162,6 +169,7 @@ class ResearchRuntime:
         self.repository = repository
         self.workflow_service = workflow_service
         self.execution_enabled = execution_enabled
+        self.tool_gateway = tool_gateway
         self.mode_provider = mode_provider
         self.reconcile_interval = reconcile_interval
         self._started = False
@@ -170,6 +178,18 @@ class ResearchRuntime:
     @property
     def started(self) -> bool:
         return self._started
+
+    def web_research_readiness_error(self) -> ResearchProviderReadinessErrorCode | None:
+        if self.tool_gateway is None:
+            return "tool_runtime_unregistered"
+        descriptor = self.tool_gateway.describe("web_research")
+        if descriptor is None:
+            return "tool_runtime_unregistered"
+        if descriptor.execution_mode != "real":
+            return "tool_runtime_not_real"
+        if descriptor.health_state != "healthy":
+            return "tool_runtime_unhealthy"
+        return None
 
     async def start(self) -> None:
         if self._started:
@@ -306,4 +326,4 @@ def build_research_runtime(
         artifacts,
         execution_allowed=execution_allowed,
     )
-    return ResearchRuntime(repository, service, execution_enabled=True)
+    return ResearchRuntime(repository, service, execution_enabled=True, tool_gateway=tool_gateway)

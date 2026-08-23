@@ -8,6 +8,8 @@ function projection(): ResearchRunProjection {
   return {
     run_id: 'run-research-1',
     orchestration_version: 'research-v2',
+    status: 'waiting_plan_approval',
+    error_code: null,
     workflow: {
       phase: 'planning',
       active_gate: 'plan_confirmation',
@@ -101,6 +103,8 @@ describe('ResearchPreview', () => {
 
   it('does not claim that a plan is still being generated after fail-closed termination', () => {
     const failed = projection()
+    failed.status = 'failed'
+    failed.error_code = 'tool_runtime_not_real'
     failed.workflow = {
       ...failed.workflow,
       phase: 'terminal',
@@ -112,7 +116,46 @@ describe('ResearchPreview', () => {
 
     const html = renderToStaticMarkup(<ResearchPreview projection={failed} />)
 
-    expect(html).toContain('研究已结束')
+    expect(html).toContain('研究执行失败')
+    expect(html).toContain('未连接真实 Provider')
+    expect(html).toContain('tool_runtime_not_real')
+    expect(html).not.toContain('研究已结束')
+    expect(html).not.toContain('计划预览')
     expect(html).not.toContain('正在生成推荐研究计划')
+  })
+
+  it('uses a safe generic explanation while retaining an unknown technical error code', () => {
+    const failed = projection()
+    failed.status = 'failed'
+    failed.error_code = 'unexpected_internal_failure'
+    failed.workflow = {
+      ...failed.workflow,
+      phase: 'terminal',
+      active_gate: 'none',
+      state_version: 3,
+    }
+
+    const html = renderToStaticMarkup(<ResearchPreview projection={failed} />)
+
+    expect(html).toContain('研究流程未能完成')
+    expect(html).toContain('unexpected_internal_failure')
+  })
+
+  it.each([
+    ['completed', '研究结果已就绪'],
+    ['cancelled', '研究已安全终止'],
+  ] as const)('renders the %s terminal state truthfully', (status, title) => {
+    const terminal = projection()
+    terminal.status = status
+    terminal.workflow = {
+      ...terminal.workflow,
+      phase: 'terminal',
+      active_gate: 'none',
+      state_version: 3,
+    }
+
+    const html = renderToStaticMarkup(<ResearchPreview projection={terminal} />)
+
+    expect(html).toContain(title)
   })
 })

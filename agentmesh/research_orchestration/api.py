@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from agentmesh.models import AgentRunStatus
 from agentmesh.research_orchestration.contracts import ResearchGate, ResearchPhase
 
 ResearchCommandType = Literal["clarify", "confirm_plan", "revise", "execute", "recover", "purge"]
@@ -328,6 +329,8 @@ class ResearchRunProjection(BaseModel):
 
     run_id: str = Field(min_length=1, max_length=120)
     orchestration_version: Literal["research-v2"] = "research-v2"
+    status: AgentRunStatus
+    error_code: str | None = Field(default=None, max_length=120)
     workflow: ResearchWorkflowProjection
     requirement: ResearchRequirementProjection | None = None
     plans: list[ResearchPlanProjection] = Field(default_factory=list, max_length=2)

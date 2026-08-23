@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -30,13 +32,37 @@ from agentmesh.research_orchestration.workflow import ResearchWorkflowService
 from agentmesh.seed import PROJECT, TEAM_LEAD, USER, WORKSPACE, ensure_seed_data
 from agentmesh.skill_runtime.service import SkillCatalogService, catalog_service
 from agentmesh.store import SQLiteStore, store
-from agentmesh.tool_runtime.gateway import ToolGateway
+from agentmesh.tool_runtime.gateway import ToolGateway, ToolRuntimeDescriptor
 from tests.research_orchestration_testkit import competitive_snapshot
 
 
 def _login(client: TestClient, user_id: str, password: str) -> None:
     response = client.post("/api/auth/login", json={"user_id": user_id, "password": password})
     assert response.status_code == 200
+
+
+def _research_state_counts() -> dict[str, int]:
+    tables = (
+        "agent_runs",
+        "agent_run_events",
+        "artifacts",
+        "research_workflows",
+        "research_requirement_versions",
+        "research_plan_versions",
+        "research_attempts",
+        "research_tool_invocations",
+    )
+    with sqlite3.connect(store.db_path) as connection:
+        counts = {
+            table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])  # noqa: S608
+            for table in tables
+        }
+        counts["chat_records"] = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM records WHERE collection IN ('chat_threads', 'chat_messages')"
+            ).fetchone()[0]
+        )
+        return counts
 
 
 class DeterministicPlanning:
@@ -94,22 +120,39 @@ class SynchronousPreviewRuntime(ResearchRuntime):
         return self.repository.get_agent_run(run.id)
 
 
+class MutableReadinessGateway:
+    def __init__(self) -> None:
+        self.descriptor: ToolRuntimeDescriptor | None = ToolRuntimeDescriptor(
+            implementation_id="agentmesh.tool_runtime.gateway.ToolGateway.web_research",
+            implementation_version="1",
+            execution_mode="real",
+            health_state="healthy",
+            health_checked_at=datetime(2026, 8, 22, tzinfo=UTC),
+        )
+
+    def describe(self, tool_name: str) -> ToolRuntimeDescriptor | None:
+        assert tool_name == "web_research"
+        return self.descriptor
+
+
 @dataclass
 class PreviewHarness:
     runtime: ResearchRuntime
     planning: DeterministicPlanning
     execution: CountingExecution
+    readiness: MutableReadinessGateway
 
 
 @pytest.fixture
 def preview_harness(monkeypatch: pytest.MonkeyPatch) -> PreviewHarness:
     planning = DeterministicPlanning()
     execution = CountingExecution()
+    readiness = MutableReadinessGateway()
     service = ResearchWorkflowService(store, planning, execution, ArtifactStore(store))
-    runtime = SynchronousPreviewRuntime(store, service)
+    runtime = SynchronousPreviewRuntime(store, service, tool_gateway=readiness)
     asyncio.run(runtime.start())
     monkeypatch.setattr(app.state, "research_runtime", runtime, raising=False)
-    yield PreviewHarness(runtime=runtime, planning=planning, execution=execution)
+    yield PreviewHarness(runtime=runtime, planning=planning, execution=execution, readiness=readiness)
     asyncio.run(runtime.shutdown())
 
 
@@ -304,6 +347,83 @@ def test_eligible_request_fails_closed_when_runtime_is_missing(monkeypatch: pyte
     assert response.status_code == 503
     assert response.json()["detail"] == "Research Runtime is unavailable"
     assert {thread.id for thread in store.chat_threads} == thread_ids_before
+
+
+@pytest.mark.parametrize(
+    ("descriptor", "expected_code"),
+    [
+        (None, "tool_runtime_unregistered"),
+        (
+            ToolRuntimeDescriptor(
+                implementation_id="test.fake-web",
+                implementation_version="1",
+                execution_mode="fake",
+                health_state="healthy",
+                health_checked_at=datetime(2026, 8, 22, tzinfo=UTC),
+            ),
+            "tool_runtime_not_real",
+        ),
+        (
+            ToolRuntimeDescriptor(
+                implementation_id="test.real-web",
+                implementation_version="1",
+                execution_mode="real",
+                health_state="unavailable",
+                health_checked_at=datetime(2026, 8, 22, tzinfo=UTC),
+            ),
+            "tool_runtime_unhealthy",
+        ),
+    ],
+)
+def test_research_v2_rejects_unready_provider_before_creating_durable_state(
+    monkeypatch: pytest.MonkeyPatch,
+    preview_harness: PreviewHarness,
+    descriptor: ToolRuntimeDescriptor | None,
+    expected_code: str,
+) -> None:
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "execute")
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", ForbiddenV1Runtime())
+    preview_harness.readiness.descriptor = descriptor
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+    counts_before = _research_state_counts()
+
+    response = client.post(
+        "/api/agent/runs",
+        json={
+            "content": "对比 Figma 和 Miro 的协作能力",
+            "client_turn_id": f"research-provider-{expected_code}",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == expected_code
+    assert isinstance(response.json()["detail"]["message"], str)
+    assert _research_state_counts() == counts_before
+    assert preview_harness.planning.prepare_calls == 0
+    assert preview_harness.runtime.workflow_service.background_task_count == 0
+
+
+def test_existing_client_turn_replays_before_live_provider_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+    preview_harness: PreviewHarness,
+) -> None:
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "preview")
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", ForbiddenV1Runtime())
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+    payload = {
+        "content": "对比 Figma 和 Miro 的协作能力",
+        "client_turn_id": "research-provider-replay-before-readiness",
+    }
+
+    created = client.post("/api/agent/runs", json=payload)
+    preview_harness.readiness.descriptor = None
+    replayed = client.post("/api/agent/runs", json=payload)
+
+    assert created.status_code == replayed.status_code == 202
+    assert replayed.json()["item"]["id"] == created.json()["item"]["id"]
+    assert preview_harness.planning.prepare_calls == 1
 
 
 class NoModelFactory:

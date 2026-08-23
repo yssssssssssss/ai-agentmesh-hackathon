@@ -931,6 +931,8 @@ class ResearchWorkflowService:
             )
         return ResearchRunProjection(
             run_id=context.run.id,
+            status=context.run.status,
+            error_code=context.run.error_code,
             workflow=ResearchWorkflowProjection(
                 phase=context.workflow.phase,
                 active_gate=context.workflow.active_gate,

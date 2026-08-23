@@ -1,4 +1,4 @@
-import { ArrowDown, CircleHelp, Search, Sparkles } from 'lucide-react'
+import { ArrowDown, CircleHelp, Search, Sparkles, TriangleAlert } from 'lucide-react'
 
 import type {
   ResearchRunProjection,
@@ -29,6 +29,34 @@ const STEP_TITLES: Record<string, string> = {
   'Build competitive analysis': '基于证据生成竞品分析',
 }
 
+const FAILURE_MESSAGES: Record<string, string> = {
+  tool_runtime_unregistered: '系统未注册 Web Research 执行器，请联系管理员完成配置后重新提交。',
+  tool_runtime_not_real: 'Web Research 未连接真实 Provider，无法执行真实研究。请完成配置后重新提交。',
+  tool_runtime_unhealthy: 'Web Research Provider 当前不可用，请检查配置与连接后重新提交。',
+}
+const DEFAULT_FAILURE_MESSAGE = '研究流程未能完成。请检查配置或联系管理员，然后重新提交。'
+
+function terminalTitle(status: ResearchRunProjection['status']): string | null {
+  if (status === 'completed') return '研究结果已就绪'
+  if (status === 'partial') return '研究部分完成'
+  if (status === 'failed') return '研究执行失败'
+  if (status === 'rejected') return '研究计划已拒绝'
+  if (status === 'cancelled') return '研究已安全终止'
+  return null
+}
+
+function projectionViewLabel(
+  status: ResearchRunProjection['status'],
+  hasStartedExecution: boolean,
+  hasPlan: boolean,
+): string {
+  if (status === 'completed' || status === 'partial') return '结果视图'
+  if (status === 'failed') return '失败状态'
+  if (status === 'rejected' || status === 'cancelled') return '已终止'
+  if (hasStartedExecution) return '执行视图'
+  return hasPlan ? '计划预览' : '准备中'
+}
+
 function actorLabel(actorType: 'tool' | 'skill', actorId: string): string {
   if (actorType === 'tool' && actorId === 'tool_web_research') return 'web_research'
   if (actorType === 'skill') return '$competitive-analysis'
@@ -42,13 +70,10 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
   const steps = plan?.steps ?? []
   const questions = requirement?.clarification_questions?.slice(0, 3) ?? []
   const hasStartedExecution = projection.attempt !== null && projection.attempt !== undefined
-  const statusTitle = workflow.phase === 'terminal'
-    ? projection.attempt?.status === 'completed'
-      ? '研究结果已就绪'
-      : projection.attempt?.status === 'cancelled'
-        ? '研究已安全终止'
-        : '研究已结束'
-    : GATE_LABELS[workflow.active_gate]
+  const terminalStatusTitle = terminalTitle(projection.status)
+  const statusTitle = terminalStatusTitle ?? GATE_LABELS[workflow.active_gate]
+  const viewLabel = projectionViewLabel(projection.status, hasStartedExecution, Boolean(plan))
+  const failureMessage = FAILURE_MESSAGES[projection.error_code ?? ''] ?? DEFAULT_FAILURE_MESSAGE
 
   return (
     <section aria-label="研究任务预览" className="mt-6 overflow-hidden rounded-[16px] border border-mint-400/15 bg-surface-1 shadow-card">
@@ -67,12 +92,25 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
             </p>
           </div>
           <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs font-semibold text-amber-200">
-            {hasStartedExecution ? '执行视图' : '计划预览'}
+            {viewLabel}
           </span>
         </div>
       </div>
 
       <div className="space-y-5 px-5 py-5 sm:px-6">
+        {projection.status === 'failed' ? (
+          <section role="alert" className="rounded-[12px] border border-rose/25 bg-rose/[0.08] p-4">
+            <div className="flex items-center gap-2 text-rose">
+              <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+              <h3 className="text-sm font-semibold">研究未完成</h3>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-slate-300">{failureMessage}</p>
+            <p className="mt-2 break-all font-mono text-xs text-slate-500">
+              错误代码：{projection.error_code ?? 'research_failed'}
+            </p>
+          </section>
+        ) : null}
+
         {requirement ? (
           <section aria-labelledby="research-requirement-title">
             <h3 id="research-requirement-title" className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -146,7 +184,9 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
         ) : null}
 
         <p role="status" className="rounded-[10px] border border-white/[0.06] bg-base px-4 py-3 text-sm text-slate-400">
-          {hasStartedExecution
+          {projection.status === 'failed' && !hasStartedExecution
+            ? '本次运行在执行开始前失败，未调用任何工具或 Skill。'
+            : hasStartedExecution
             ? '执行状态已建立，请以当前研究进度为准。'
             : '尚未执行任何工具或 Skill。刷新或重新连接只会恢复这份预览。'}
         </p>

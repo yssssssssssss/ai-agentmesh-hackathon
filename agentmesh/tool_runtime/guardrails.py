@@ -19,6 +19,8 @@ _CREDENTIAL_PATTERN = re.compile(
 _LOCAL_PATH_PATTERN = re.compile(
     r"(?<![\w:])(?:/(?:Users|home|private|tmp|var/folders)/[^\s,;]+|[A-Za-z]:\\[^\s,;]+)"
 )
+_EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_PHONE_PATTERN = re.compile(r"(?<![A-Za-z0-9])1[3-9]\d{9}(?![A-Za-z0-9])")
 
 
 def contains_credential(text: str) -> bool:
@@ -26,9 +28,14 @@ def contains_credential(text: str) -> bool:
 
 
 def redact_sensitive_text(text: str) -> str:
-    """Remove credential-like values and host-local paths before secondary persistence."""
+    """Remove credentials, contact data, and host-local paths before persistence."""
     redacted = _CREDENTIAL_PATTERN.sub("[REDACTED_CREDENTIAL]", text)
-    return _LOCAL_PATH_PATTERN.sub("[REDACTED_LOCAL_PATH]", redacted)
+    redacted = _LOCAL_PATH_PATTERN.sub("[REDACTED_LOCAL_PATH]", redacted)
+    if "@" in redacted:
+        redacted = _EMAIL_PATTERN.sub("[REDACTED_EMAIL]", redacted)
+    if "1" in redacted:
+        redacted = _PHONE_PATTERN.sub("[REDACTED_PHONE]", redacted)
+    return redacted
 
 
 def unsafe_tool_output_reason(text: str) -> str | None:

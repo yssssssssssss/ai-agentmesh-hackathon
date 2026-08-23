@@ -39,6 +39,7 @@ from agentmesh.research_orchestration.v3.composition import ResearchV3PreviewCom
 from agentmesh.research_orchestration.workflow import ResearchWorkflowService
 from agentmesh.routes.deps import current_user
 from agentmesh.store import SQLiteStore
+from agentmesh.tool_runtime.gateway import ToolRuntimeDescriptor
 
 NOW = datetime(2026, 8, 21, 10, 30, tzinfo=UTC)
 OWNER = ResearchV3OwnerScope(
@@ -585,7 +586,19 @@ def test_concurrent_identical_v2_client_turn_replays_one_run_and_thread(
         coroutine.close()
 
     monkeypatch.setattr(workflow, "_schedule", suppress_planning)
-    runtime = ResearchRuntime(store, workflow)
+    runtime = ResearchRuntime(
+        store,
+        workflow,
+        tool_gateway=SimpleNamespace(
+            describe=lambda _tool_name: ToolRuntimeDescriptor(
+                implementation_id="test.real-web",
+                implementation_version="1",
+                execution_mode="real",
+                health_state="healthy",
+                health_checked_at=NOW,
+            )
+        ),
+    )
     asyncio.run(runtime.start())
 
     isolated = FastAPI()

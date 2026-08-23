@@ -75,6 +75,13 @@ def _web_provider_status() -> dict[str, object]:
     provider_type = os.getenv("AGENTMESH_WEB_PROVIDER", "").strip().lower()
     if provider_type:
         payload["provider_type"] = provider_type
+    if provider_type == "tavily" and os.getenv("AGENTMESH_FIRECRAWL_ENABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        payload["content_provider"] = "firecrawl"
     if status.configured and not status.ready:
         payload["status"] = "command_not_found" if provider_type in {"opencli", "agent_browser"} else "degraded"
     return payload

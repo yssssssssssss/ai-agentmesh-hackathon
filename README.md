@@ -419,7 +419,20 @@ export AGENTMESH_TAVILY_API_KEY=your-api-key
 export AGENTMESH_TAVILY_TIMEOUT_SECONDS=20
 ```
 
-The Tavily connector sends a basic search request, returns only title/URL/content snippets, and never returns its key or provider response body. Command-backed providers remain available as alternatives.
+The Tavily connector sends a basic search request, returns only title/URL/content snippets, and never returns its key or provider response body. To enrich the selected Tavily results with page body text through Firecrawl's REST API, enable the optional scraper:
+
+```bash
+export AGENTMESH_FIRECRAWL_ENABLED=true
+export AGENTMESH_FIRECRAWL_API_URL=https://api.firecrawl.dev/v2/scrape
+export AGENTMESH_FIRECRAWL_API_KEY=your-api-key
+export AGENTMESH_FIRECRAWL_TIMEOUT_SECONDS=60
+export AGENTMESH_FIRECRAWL_MAX_PAGES=3
+export AGENTMESH_FIRECRAWL_MAX_CONTENT_CHARS=1200
+```
+
+Tavily remains the discovery provider. Firecrawl scrapes only the first configured results and replaces their search snippets with bounded Markdown excerpts. Failed Firecrawl enrichment falls back to the original Tavily snippet and is recorded in Provider metadata. For a trusted self-hosted Firecrawl endpoint, set `AGENTMESH_FIRECRAWL_API_URL` to its `/v2/scrape` URL; an API key is optional outside `*.firecrawl.dev`. Never expose an unauthenticated self-hosted endpoint publicly.
+
+Command-backed providers remain available as alternatives.
 
 To enable command-backed Web research instead:
 

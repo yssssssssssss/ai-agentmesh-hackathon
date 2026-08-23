@@ -5376,6 +5376,9 @@ export interface components {
              * @constant
              */
             orchestration_version: "research-v2";
+            status: components["schemas"]["AgentRunStatus"];
+            /** Error Code */
+            error_code?: string | null;
             workflow: components["schemas"]["ResearchWorkflowProjection"];
             requirement?: components["schemas"]["ResearchRequirementProjection"] | null;
             /** Plans */

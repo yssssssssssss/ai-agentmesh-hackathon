@@ -482,8 +482,31 @@ def test_sdk_model_input_contains_the_frozen_problem_contract(
         del kwargs
         captured["instructions"] = agent.instructions
         captured["model_input"] = json.loads(model_input)
+        output = _empty_skill_output()
+        output["facts"] = [
+            {
+                "claim_id": "claim_direct_fact",
+                "statement": "A directly observed fact.",
+                "evidence_ids": ["evidence_1"],
+                "parent_claim_ids": [],
+                "question_ids": ["q_evidence_comparison"],
+                "success_criterion_ids": ["sc_evidence_comparison"],
+                "confidence": "medium",
+                "conflict_status": "unknown",
+            },
+            {
+                "claim_id": "claim_parent_backed_fact",
+                "statement": "A derived statement incorrectly labelled as a fact.",
+                "evidence_ids": [],
+                "parent_claim_ids": ["claim_direct_fact"],
+                "question_ids": ["q_evidence_comparison"],
+                "success_criterion_ids": ["sc_evidence_comparison"],
+                "confidence": "medium",
+                "conflict_status": "unknown",
+            },
+        ]
         return SimpleNamespace(
-            final_output=_empty_skill_output(),
+            final_output=output,
             context_wrapper=None,
             raw_responses=[],
         )
@@ -496,7 +519,7 @@ def test_sdk_model_input_contains_the_frozen_problem_contract(
         review_rubric=body.control_snapshot.review_rubric,
     )
 
-    asyncio.run(
+    result = asyncio.run(
         model_port.generate(
             run=run,
             frozen_skill=body.control_snapshot.skill,
@@ -515,8 +538,13 @@ def test_sdk_model_input_contains_the_frozen_problem_contract(
         "review_rubric": body.control_snapshot.review_rubric.content,
     }
     assert "question_ids and success_criterion_ids" in captured["instructions"]
+    assert "Facts must cite evidence_ids directly and must use an empty parent_claim_ids list" in captured["instructions"]
+    assert "Inferences must cite evidence_ids or parent_claim_ids" in captured["instructions"]
+    assert "Recommendations must cite at least one parent_claim_id" in captured["instructions"]
     assert "maximum_confidence" in captured["instructions"]
     assert "possible or conflicting" in captured["instructions"]
+    assert [claim["claim_id"] for claim in result.payload["facts"]] == ["claim_direct_fact"]
+    assert [claim["claim_id"] for claim in result.payload["inferences"]] == ["claim_parent_backed_fact"]
 
 
 def test_skill_rejects_model_output_with_forged_evidence_id(tmp_path) -> None:

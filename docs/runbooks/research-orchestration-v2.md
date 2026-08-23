@@ -23,6 +23,7 @@ Research v2 只接管 eligible competitive research 请求。普通聊天、其�
 - Python 环境与前端依赖已按根目录 `README.md` 安装；
 - `AGENTMESH_WIKI_ROOT` 指向批准的 Wiki 目录；
 - real Web 验证使用批准的 Tavily 配置，密钥只从 secret manager 或 ignored `.env` 注入；
+- 新 research-v2 请求只接受 `execution_mode=real` 且 `health_state=healthy` 的 Web Runtime；空配置与 `mock` 都会在创建 Thread/Run 前失败；
 - 模型池只配置实际启用的 GPT-5.2、GPT-5.4、GPT-5.5；Kimi 不在备选池；
 - Provider 验证必须使用隔离的 demo 数据库，不能对共享或生产 SQLite 运行 smoke；
 - `.env`、SQLite、完整 prompt、Provider 原文、cookie 和 API key 不得进入 Git 或验证文档。
@@ -34,9 +35,12 @@ Research v2 只接管 eligible competitive research 请求。普通聊天、其�
 ```bash
 export AGENTMESH_AGENT_RUNTIME=v2
 export AGENTMESH_SKILL_ORCHESTRATION=execute
+export AGENTMESH_WEB_PROVIDER=tavily
+export AGENTMESH_TAVILY_API_URL=https://api.tavily.com/search
+# AGENTMESH_TAVILY_API_KEY 仅从 secret manager 或 ignored .env 注入
 export AGENTMESH_WIKI_ROOT=/absolute/path/to/approved/wiki
 export AGENTMESH_DEMO_MODE=1
-.venv/bin/uvicorn agentmesh.app:app --reload --port 8010
+.venv/bin/python -m uvicorn agentmesh.app:app --reload --port 8010
 ```
 
 前端终端：
@@ -60,6 +64,8 @@ npm --prefix agentmesh-demo run dev -- --port 5178 --strictPort
 7. 技术详情中的 requested/actual model、Tool implementation、Artifact 和 plan hash。
 
 离开工作台后从左侧历史对话重新进入同一线程，即使 URL 没有 `?run=`，也应自动恢复该线程最新的 research-v2 审计面板；该读取不得创建新 Run 或 Provider 调用。
+
+若 Provider 在提交时未就绪，`POST /api/agent/runs` 返回 `503`，`detail` 中包含稳定 `code` 与安全 `message`，且不会创建 Thread、Run 或后台任务。修复配置后应重新提交任务；不要修改或续跑在规划阶段已经失败的旧 Run。若 Provider 在准入后、计划冻结前失效，Run 仍会 fail closed，Workspace 必须显示“研究执行失败”和稳定错误代码，不能显示“研究已结束”或“计划预览”。
 
 如果外部调用进入 `UNKNOWN`，页面只能显示 `retry` 与 `abort`：
 
@@ -101,6 +107,7 @@ export AGENTMESH_DB_PATH="$RESEARCH_GATE_DIR/agentmesh.sqlite3"
 export AGENTMESH_DEMO_MODE=1
 export AGENTMESH_AGENT_RUNTIME=v2
 export AGENTMESH_SKILL_ORCHESTRATION=execute
+export AGENTMESH_WEB_PROVIDER=tavily
 ```
 
 在批准凭证已经注入的前提下启动后端，然后依次运行：
@@ -158,7 +165,10 @@ export AGENTMESH_SKILL_ORCHESTRATION=off
 | Tool Approval 超时 | 读取最新 gate；不得直接调用 Provider 或复用过期 approval |
 | Invocation `UNKNOWN` | 先向 Provider/审计系统核对；确认未执行才 retry，否则 abort |
 | Artifact integrity error | 停止下游 Report；保留证据并重新运行任务，不手工覆盖 hash |
-| Provider health 不可用 | 保持 Run 在可解释失败/恢复状态；不得换 Mock 冒充真实通过 |
+| 新请求返回 `503 tool_runtime_unregistered` | 注册 Web Research Runtime，确认服务加载的是当前配置后重新提交；不会产生 Run |
+| 新请求返回 `503 tool_runtime_not_real` | 将空配置或 `mock` 替换为批准的 Tavily 配置；不得用 Mock 冒充真实通过 |
+| 新请求返回 `503 tool_runtime_unhealthy` | 检查 Tavily 凭据、端点和连通性，通过 Provider smoke 后重新提交 |
+| 已接受 Run 因 Provider health 失败 | 保留失败 Run 供审计，修复配置后提交新任务；不得改写旧 Run |
 | `off` 后仍出现 research-v2 新 Run | 立即停止灰度，检查唯一服务端开关和进程环境 |
 
 Runtime 默认每 30 秒扫描恢复候选；运行中 Attempt 每 15 秒 heartbeat，lease 默认 60 秒。超过一个扫描周期仍未收敛时，保存脱敏 Run/Attempt/Invocation ID 和事件序列，禁止通过重复点击制造新的 mutation。

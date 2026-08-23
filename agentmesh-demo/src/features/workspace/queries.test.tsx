@@ -2,8 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiError } from '../../api/client'
 import { workspaceKeys } from './keys'
-import { useRetryAgentRunMutation } from './queries'
+import { useRetryAgentRunMutation, workspaceErrorMessage } from './queries'
 import type { WorkspaceScope } from './types'
 
 const scope: WorkspaceScope = {
@@ -80,5 +81,17 @@ describe('Agent Run retry mutation', () => {
     expect(queryClient.getQueryState(workspaceKeys.thread(scope, 'thread-1'))?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(workspaceKeys.threads(scope))?.isInvalidated).toBe(true)
     expect(queryClient.getQueryData(workspaceKeys.run(scope, 'run-retried'))).toEqual(response)
+  })
+})
+
+describe('workspaceErrorMessage', () => {
+  it('shows a safe structured API error message', () => {
+    const error = new ApiError(
+      503,
+      { code: 'tool_runtime_not_real', message: 'Web Research 未连接真实 Provider，请完成配置后重试。' },
+      {},
+    )
+
+    expect(workspaceErrorMessage(error)).toBe('Web Research 未连接真实 Provider，请完成配置后重试。')
   })
 })

@@ -40,7 +40,13 @@ export class ChatSendError extends Error {
 
 
 export function workspaceErrorMessage(error: unknown): string {
-  if (error instanceof ApiError && typeof error.detail === 'string') return error.detail
+  if (error instanceof ApiError) {
+    if (typeof error.detail === 'string') return error.detail
+    if (error.detail && typeof error.detail === 'object' && 'message' in error.detail) {
+      const message = error.detail.message
+      if (typeof message === 'string' && message.trim()) return message
+    }
+  }
   if (error instanceof Error) return error.message
   return '请求失败，请稍后重试'
 }

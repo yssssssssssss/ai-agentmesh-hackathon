@@ -30,6 +30,8 @@ const researchRun = {
 const projection = {
   run_id: researchRun.id,
   orchestration_version: 'research-v2',
+  status: 'waiting_plan_approval',
+  error_code: null,
   workflow: {
     phase: 'planning',
     active_gate: 'plan_confirmation',

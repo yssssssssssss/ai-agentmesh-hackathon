@@ -78,7 +78,7 @@ function ClaimList({ claims }: { claims: ClaimProjection[] }) {
 }
 
 export function ResearchResults({ projection }: { projection: ResearchRunProjection }) {
-  const terminal = projection.workflow.phase === 'terminal'
+  const completed = projection.status === 'completed'
   const integrityErrors = projection.integrity_errors ?? []
   const result = integrityErrors.length === 0 ? projection.result : undefined
   const evidence = result?.evidence ?? []
@@ -96,7 +96,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
     if (key === 'report_id' && integrityErrors.length > 0) return []
     return id ? [{ id, label }] : []
   })
-  const showResults = terminal
+  const showResults = completed
     || artifactEntries.length > 0
     || (projection.gaps?.length ?? 0) > 0
     || evidence.length > 0
@@ -132,7 +132,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
               <h4 id="research-report-title" className="text-base font-semibold text-slate-100">{report.title}</h4>
               <MarkdownContent className="mt-4" content={withoutDuplicateLeadingTitle(report.markdown, report.title)} />
             </article>
-          ) : terminal && integrityErrors.length === 0 ? (
+          ) : completed && integrityErrors.length === 0 ? (
             <p className="mt-3 text-sm text-slate-400">本次运行未生成可展示的最终 Report。</p>
           ) : null}
 

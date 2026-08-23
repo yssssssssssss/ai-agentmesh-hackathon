@@ -316,6 +316,7 @@ class TestProviderHealthCheck:
             "AGENTMESH_WEB_PROVIDER": "tavily",
             "AGENTMESH_TAVILY_API_URL": "https://api.tavily.com/search",
             "AGENTMESH_TAVILY_API_KEY": "secret-tavily-key",
+            "AGENTMESH_FIRECRAWL_ENABLED": "",
         }
         with (
             patch.dict("os.environ", env),
@@ -329,6 +330,31 @@ class TestProviderHealthCheck:
         assert web["provider_type"] == "tavily"
         assert "secret-tavily-key" not in response.text
         assert "api.tavily.com" not in response.text
+
+    def test_tavily_firecrawl_provider_is_ready_and_secret_safe(self, auth_client: TestClient):
+        env = {
+            "AGENTMESH_WEB_PROVIDER": "tavily",
+            "AGENTMESH_TAVILY_API_URL": "https://api.tavily.com/search",
+            "AGENTMESH_TAVILY_API_KEY": "secret-tavily-key",
+            "AGENTMESH_FIRECRAWL_ENABLED": "true",
+            "AGENTMESH_FIRECRAWL_API_URL": "https://api.firecrawl.dev/v2/scrape",
+            "AGENTMESH_FIRECRAWL_API_KEY": "secret-firecrawl-key",
+        }
+        with (
+            patch.dict("os.environ", env),
+            patch("agentmesh.web_research._tavily_telemetry", ProviderTelemetry()),
+            patch("agentmesh.web_research._firecrawl_telemetry", ProviderTelemetry()),
+        ):
+            response = auth_client.get("/api/health/providers")
+
+        web = next(item for item in response.json()["providers"] if item["name"] == "web_research")
+        assert web["configured"] is True
+        assert web["ready"] is True
+        assert web["provider_type"] == "tavily"
+        assert web["content_provider"] == "firecrawl"
+        assert "secret-tavily-key" not in response.text
+        assert "secret-firecrawl-key" not in response.text
+        assert "api.firecrawl.dev" not in response.text
 
     def test_o2_not_installed(self, auth_client: TestClient):
         """O2 CLI 未安装时返回 not_installed。"""

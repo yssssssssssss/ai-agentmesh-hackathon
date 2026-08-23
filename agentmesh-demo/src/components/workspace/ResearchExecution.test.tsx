@@ -8,6 +8,8 @@ function projection(): ResearchRunProjection {
   return {
     run_id: 'run-research-execute',
     orchestration_version: 'research-v2',
+    status: 'waiting_plan_approval',
+    error_code: null,
     workflow: {
       phase: 'planning',
       active_gate: 'plan_confirmation',
@@ -136,6 +138,8 @@ describe('ResearchExecution', () => {
 
   it('hides a Report after integrity failure while preserving verified artifacts and details', () => {
     const value = projection()
+    value.status = 'failed'
+    value.error_code = 'artifact_integrity_failed'
     value.workflow = {
       ...value.workflow,
       phase: 'terminal',
@@ -172,6 +176,7 @@ describe('ResearchExecution', () => {
 
   it('renders readable verified results and links each factual Claim to its Evidence excerpt', () => {
     const value = projection()
+    value.status = 'completed'
     value.workflow = {
       ...value.workflow,
       phase: 'terminal',
@@ -251,5 +256,36 @@ describe('ResearchExecution', () => {
     expect(html).toContain('确定性 Review · 通过')
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
     expect(html).not.toContain('<script>alert(1)</script>')
+  })
+
+  it('does not present a failed empty run as a successful empty Report', () => {
+    const value = projection()
+    value.status = 'failed'
+    value.error_code = 'tool_runtime_not_real'
+    value.workflow = {
+      ...value.workflow,
+      phase: 'terminal',
+      active_gate: 'none',
+      active_plan_version_id: null,
+      state_version: 3,
+    }
+    value.plans = []
+
+    const html = render(value)
+
+    expect(html).not.toContain('本次运行未生成可展示的最终 Report')
+  })
+
+  it('keeps the empty Report message for a completed run', () => {
+    const value = projection()
+    value.status = 'completed'
+    value.workflow = {
+      ...value.workflow,
+      phase: 'terminal',
+      active_gate: 'none',
+      state_version: 3,
+    }
+
+    expect(render(value)).toContain('本次运行未生成可展示的最终 Report')
   })
 })

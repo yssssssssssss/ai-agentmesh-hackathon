@@ -20,7 +20,7 @@ from agentmesh.research_orchestration.api import (
     ResearchRevisePlanRequest,
 )
 from agentmesh.research_orchestration.artifacts import ArtifactReaderScope, ResearchResultSnapshot
-from agentmesh.research_orchestration.compiler import CompetitivePlanCompiler
+from agentmesh.research_orchestration.compiler import CompetitivePlanCompiler, PlanCompileError
 from agentmesh.research_orchestration.contracts import (
     AttemptStatus,
     InvocationState,
@@ -319,6 +319,13 @@ class FakePlanning:
         )
 
 
+class LateFailingPlanning(FakePlanning):
+    def compile_plan(self, run: AgentRun, requirement, *, version: int):  # noqa: ANN001, ANN201
+        del run, requirement, version
+        self.compile_calls += 1
+        raise PlanCompileError("tool_runtime_unhealthy")
+
+
 class FakeExecutionEngine:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str | None]] = []
@@ -448,6 +455,8 @@ async def test_start_builds_clear_plan_and_get_projection_never_schedules_work(
     second = harness.service.get_projection("run_clear", owner=OWNER)
 
     assert first == second
+    assert first.status == context.run.status
+    assert first.error_code is None
     assert first.workflow.phase == ResearchPhase.PLANNING
     assert first.workflow.active_gate == ResearchGate.PLAN_CONFIRMATION
     assert len(first.plans) == 1
@@ -456,6 +465,55 @@ async def test_start_builds_clear_plan_and_get_projection_never_schedules_work(
     assert (harness.planning.prepare_calls, harness.planning.compile_calls) == planning_calls
     assert harness.engine.calls == []
     assert harness.service.background_task_count == 0
+
+
+@pytest.mark.anyio
+async def test_projection_exposes_failed_run_status_without_plan_or_attempt(
+    harness: Harness,
+) -> None:
+    context = await start_clear_run(harness, "run_projection_failed")
+    harness.repository.contexts[context.run.id] = replace(
+        context,
+        run=context.run.model_copy(
+            update={"status": AgentRunStatus.FAILED, "error_code": "tool_runtime_not_real"}
+        ),
+        workflow=context.workflow.model_copy(
+            update={"phase": ResearchPhase.TERMINAL, "active_gate": ResearchGate.NONE}
+        ),
+        active_plan=None,
+        plans=(),
+    )
+
+    projection = harness.service.get_projection(context.run.id, owner=OWNER)
+
+    assert projection.status == AgentRunStatus.FAILED
+    assert projection.error_code == "tool_runtime_not_real"
+    assert projection.plans == []
+    assert projection.attempt is None
+
+
+@pytest.mark.anyio
+async def test_late_provider_failure_still_fails_closed_and_is_visible() -> None:
+    repository = FakeRepository()
+    planning = LateFailingPlanning()
+    service = ResearchWorkflowService(
+        repository,
+        planning,
+        FakeExecutionEngine(),
+        FakePurger(),
+        clock=FixedClock(),
+        id_factory=SequentialIds(),
+    )
+    run = make_run("run_late_provider_failure", "对比 Figma 和 Miro 的协作与恢复能力")
+
+    assert await service.start_if_applicable(run) is not None
+    await service.wait_for_idle()
+    projection = service.get_projection(run.id, owner=OWNER)
+
+    assert projection.status == AgentRunStatus.FAILED
+    assert projection.error_code == "tool_runtime_unhealthy"
+    assert projection.workflow.phase == ResearchPhase.TERMINAL
+    assert projection.attempt is None
 
 
 @pytest.mark.anyio
