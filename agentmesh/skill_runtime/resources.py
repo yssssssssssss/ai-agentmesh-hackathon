@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 from agents import FunctionTool
@@ -15,6 +16,7 @@ from agentmesh.store import SQLiteStore
 
 _MAX_RESOURCE_BYTES = 200 * 1024
 _MAX_RESOURCE_BATCH_BYTES = 400 * 1024
+_RESOURCE_REFERENCE_PATTERN = re.compile(r"`([^`\n]+\.(?:md|json|ya?ml|txt))`")
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -113,6 +115,25 @@ def resolve_skill_resource(skill: SkillDefinition, reference: str) -> Path | Non
     return None
 
 
+def skill_resource_manifest(skill: SkillDefinition) -> dict[str, str]:
+    references: set[str] = set()
+    package_root = Path(skill.source_path).resolve().parent
+    try:
+        for path in package_root.rglob("*"):
+            if path.is_file() and path.name != "SKILL.md" and not path.is_symlink():
+                references.add(path.relative_to(package_root).as_posix())
+    except OSError:
+        pass
+    references.update(_RESOURCE_REFERENCE_PATTERN.findall(skill.instructions))
+    manifest: dict[str, str] = {}
+    for reference in sorted(references):
+        resource = resolve_skill_resource(skill, reference)
+        if resource is None:
+            continue
+        manifest[reference] = hashlib.sha256(resource.read_bytes()).hexdigest()
+    return manifest
+
+
 def build_skill_resource_tool(repository: SQLiteStore, skill: SkillDefinition) -> FunctionTool:
     async def invoke(ctx, raw_arguments: str) -> str:  # noqa: ANN001
         if not isinstance(ctx.context, AgentMeshRunContext):
@@ -136,11 +157,20 @@ def build_skill_resource_tool(repository: SQLiteStore, skill: SkillDefinition) -
 
         resolved_resources: list[tuple[str, Path, str]] = []
         total_size = 0
+        approved_manifest = ctx.context.approved_resource_hashes
         for relative in references:
             resource = resolve_skill_resource(skill, relative)
             if resource is None:
-                raise FileNotFoundError("Skill resource is unavailable in the approved roots")
+                safe_reference = relative.replace("\n", " ").replace("\r", " ")[:240]
+                raise FileNotFoundError(
+                    f"Skill resource is unavailable in the approved roots: {safe_reference}"
+                )
+            if approved_manifest and relative not in approved_manifest:
+                raise PermissionError("Skill resource is outside the frozen node resource manifest")
             size = resource.stat().st_size
+            actual_hash = hashlib.sha256(resource.read_bytes()).hexdigest()
+            if approved_manifest and actual_hash != approved_manifest[relative]:
+                raise PermissionError("Skill resource changed after the node resource manifest was frozen")
             if size > _MAX_RESOURCE_BYTES:
                 raise ValueError("Skill resource exceeds the 200 KiB read limit")
             total_size += size

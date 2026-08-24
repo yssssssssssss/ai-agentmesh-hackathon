@@ -344,6 +344,24 @@ def _build_research_query(task: ResearchTaskV2) -> str:
     return "\n".join(parts)[:4000]
 
 
+def _build_question_queries(task: ResearchTaskV2) -> list[dict[str, object]]:
+    scope = (task.competitor_scope or task.research_goal).strip()
+    if not task.analysis_dimensions:
+        return [
+            {
+                "query": f"{scope} 官方文档 产品能力 适用场景 局限 来源"[:4000],
+                "question_ids": ["q_evidence_comparison", "q_scenarios"],
+            }
+        ]
+    return [
+        {
+            "query": f"{scope} {dimension} 官方文档 功能 支持 限制"[:4000],
+            "question_ids": ["q_evidence_comparison", "q_scenarios"],
+        }
+        for dimension in task.analysis_dimensions[:3]
+    ]
+
+
 def _schema_error(document: FrozenDocument) -> bool:
     if not isinstance(document.content, dict):
         return True
@@ -478,7 +496,10 @@ class CompetitivePlanCompiler:
             actor_id=snapshot.tool.tool_id,
             question_ids=["q_evidence_comparison", "q_scenarios"],
             depends_on=[],
-            initial_input={"query": _build_research_query(task)},
+            initial_input={
+                "query": _build_research_query(task),
+                "question_queries": _build_question_queries(task),
+            },
             input_bindings=[],
             expected_outputs=["sealed_evidence_manifest"],
             acceptance_criteria=[

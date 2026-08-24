@@ -1544,23 +1544,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/memory/user/daily-summary/run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run Daily Memory Summary */
-        post: operations["run_daily_memory_summary_api_memory_user_daily_summary_run_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/memory/retrieval-metrics": {
         parameters: {
             query?: never;
@@ -2084,6 +2067,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skills/routing-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Task Routing */
+        post: operations["preview_task_routing_api_skills_routing_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/skills/recommendations": {
         parameters: {
             query?: never;
@@ -2596,6 +2596,8 @@ export interface components {
             skill_name?: string | null;
             /** Plan Id */
             plan_id?: string | null;
+            /** Retry Of Run Id */
+            retry_of_run_id?: string | null;
             /**
              * Orchestration Version
              * @default v1
@@ -3459,6 +3461,43 @@ export interface components {
             /** Evidence Ids */
             evidence_ids: string[];
         };
+        /** CompletionCheckResult */
+        CompletionCheckResult: {
+            /**
+             * Completed
+             * @default false
+             */
+            completed: boolean;
+            /** Scenario Outputs */
+            scenario_outputs?: {
+                [key: string]: unknown;
+            };
+            /** Missing Outputs */
+            missing_outputs?: string[];
+            /** Criteria Results */
+            criteria_results?: {
+                [key: string]: boolean;
+            };
+            /**
+             * Evidence Sufficient
+             * @default false
+             */
+            evidence_sufficient: boolean;
+            /** @default low */
+            confidence: components["schemas"]["RoutingConfidence"];
+            /** Gaps */
+            gaps?: string[];
+            /**
+             * Human Confirmation Required
+             * @default false
+             */
+            human_confirmation_required: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
         /** ConclusionNodeV3 */
         ConclusionNodeV3: {
             /** Id */
@@ -3588,6 +3627,26 @@ export interface components {
             schema_version: "evidence-manifest-v3";
             /** Content Hash */
             content_hash: string;
+        };
+        /** EvidenceRequirement */
+        EvidenceRequirement: {
+            /**
+             * External Evidence Required
+             * @default false
+             */
+            external_evidence_required: boolean;
+            /** Freshness */
+            freshness?: string | null;
+            /**
+             * Minimum Sources
+             * @default 0
+             */
+            minimum_sources: number;
+            /**
+             * Independent Sources
+             * @default 0
+             */
+            independent_sources: number;
         };
         /** EvidenceRequirementV1 */
         EvidenceRequirementV1: {
@@ -3723,6 +3782,11 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * ExecutionRelation
+         * @enum {string}
+         */
+        ExecutionRelation: "serial" | "parallel" | "parallel_then_merge" | "conditional";
         /** ExpectedOutputV3 */
         ExpectedOutputV3: {
             /** Pointer */
@@ -3791,6 +3855,19 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HumanConfirmationDecision */
+        HumanConfirmationDecision: {
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
         };
         /** ImpactV1 */
         ImpactV1: {
@@ -3920,6 +3997,22 @@ export interface components {
             /** Statement */
             statement: string;
         };
+        /** InputCheckResult */
+        InputCheckResult: {
+            /** Available Inputs */
+            available_inputs?: string[];
+            /** Missing Required Inputs */
+            missing_required_inputs?: string[];
+            /** Missing Optional Inputs */
+            missing_optional_inputs?: string[];
+            /** @default continue */
+            input_decision: components["schemas"]["InputDecision"];
+        };
+        /**
+         * InputDecision
+         * @enum {string}
+         */
+        InputDecision: "continue" | "degrade" | "clarify" | "human_confirmation";
         /**
          * Intent
          * @enum {string}
@@ -3940,6 +4033,15 @@ export interface components {
         ItemsResponse: {
             /** Items */
             items: unknown[];
+        };
+        /** KnowledgeRoutingDecision */
+        KnowledgeRoutingDecision: {
+            /** Required Knowledge */
+            required_knowledge?: string[];
+            /** Optional Knowledge */
+            optional_knowledge?: string[];
+            /** Excluded Knowledge */
+            excluded_knowledge?: string[];
         };
         /** ListBlockV3 */
         ListBlockV3: {
@@ -6085,6 +6187,36 @@ export interface components {
             /** Validation Method */
             validation_method: string;
         };
+        /**
+         * RoutingConfidence
+         * @enum {string}
+         */
+        RoutingConfidence: "high" | "medium" | "low";
+        /** RoutingContext */
+        RoutingContext: {
+            /** Domain */
+            domain?: string | null;
+            /** Page */
+            page?: string | null;
+            /** Journey */
+            journey?: string[];
+            /** Project */
+            project?: string | null;
+            /** User Segment */
+            user_segment?: string | null;
+            /** Data Scope */
+            data_scope?: string | null;
+        };
+        /** ScenarioRoute */
+        ScenarioRoute: {
+            /** Scenario Id */
+            scenario_id: string;
+            confidence: components["schemas"]["RoutingConfidence"];
+            /** Supporting Scenarios */
+            supporting_scenarios?: string[];
+            /** Alternative Scenarios */
+            alternative_scenarios?: string[];
+        };
         /** ScheduledAgentTaskCreateRequest */
         ScheduledAgentTaskCreateRequest: {
             /** Agent Id */
@@ -6419,6 +6551,15 @@ export interface components {
             input_kinds?: string[];
             /** Deliverables */
             deliverables?: string[];
+            /** Analysis Requirements */
+            analysis_requirements?: string[];
+            /** Presentation Requirements */
+            presentation_requirements?: string[];
+            /**
+             * External Evidence Required
+             * @default false
+             */
+            external_evidence_required: boolean;
             constraints?: components["schemas"]["SkillIntentConstraints"];
             /** Explicit Skill Names */
             explicit_skill_names?: string[];
@@ -6465,6 +6606,10 @@ export interface components {
             findings?: string[];
             /** Recommendations */
             recommendations?: string[];
+            /** Scenario Outputs */
+            scenario_outputs?: string[];
+            /** Completion Criteria Met */
+            completion_criteria_met?: string[];
             /** Sources */
             sources?: components["schemas"]["SkillResultSource"][];
             /**
@@ -6521,16 +6666,22 @@ export interface components {
             /** @default planning */
             status: components["schemas"]["SkillPlanStatus"];
             intent: components["schemas"]["SkillIntent"];
+            routing_result?: components["schemas"]["TaskRoutingResult"] | null;
             /** Candidate Skill Ids */
             candidate_skill_ids?: string[];
             /** Output Contract */
             output_contract?: string[];
+            /** Synthesis Output Contract */
+            synthesis_output_contract?: string[];
+            /** Capability Gaps */
+            capability_gaps?: string[];
             /** Preferred Order */
             preferred_order?: string[];
             /** Nodes */
             nodes?: components["schemas"]["SkillPlanNode"][];
             /** Degradation */
             degradation?: string | null;
+            completion_check?: components["schemas"]["CompletionCheckResult"] | null;
             /** Synthesis */
             synthesis?: {
                 [key: string]: unknown;
@@ -6553,6 +6704,15 @@ export interface components {
             results?: components["schemas"]["SkillNodeResult"][];
             synthesis?: components["schemas"]["SkillSynthesisResult"] | null;
         };
+        /** SkillPlanKnowledgeBindings */
+        SkillPlanKnowledgeBindings: {
+            /** Required */
+            required?: string[];
+            /** Optional */
+            optional?: string[];
+            /** Excluded */
+            excluded?: string[];
+        };
         /** SkillPlanNode */
         SkillPlanNode: {
             /** Id */
@@ -6565,6 +6725,14 @@ export interface components {
             skill_content_hash: string;
             /** Reason */
             reason: string;
+            /** Task Id */
+            task_id?: string | null;
+            /** Scenario Id */
+            scenario_id?: string | null;
+            /** Skill Registry Id */
+            skill_registry_id?: string | null;
+            /** Skill Status */
+            skill_status?: ("draft" | "reviewed" | "validated") | null;
             /**
              * Required
              * @default true
@@ -6574,10 +6742,17 @@ export interface components {
             depends_on?: string[];
             /** Parallel Group */
             parallel_group?: string | null;
+            /** Condition */
+            condition?: string | null;
             /** Input Bindings */
             input_bindings?: string[];
             /** Output Contract */
             output_contract?: string[];
+            knowledge_bindings?: components["schemas"]["SkillPlanKnowledgeBindings"];
+            /** Required Tool Names */
+            required_tool_names?: string[];
+            /** Completion Criteria */
+            completion_criteria?: string[];
             /** @default read */
             side_effect: components["schemas"]["SkillSideEffect"];
             /** @default pending */
@@ -6652,6 +6827,19 @@ export interface components {
              */
             reference: string;
         };
+        /** SkillRoutingDecision */
+        SkillRoutingDecision: {
+            /** Default Skills */
+            default_skills?: string[];
+            /** Optional Skills */
+            optional_skills?: string[];
+            /** Planned Skills */
+            planned_skills?: string[];
+            /** @default serial */
+            execution_mode: components["schemas"]["ExecutionRelation"];
+            /** Fallback Skill */
+            fallback_skill?: string | null;
+        };
         /**
          * SkillSideEffect
          * @enum {string}
@@ -6682,6 +6870,8 @@ export interface components {
             summary: string;
             /** Sections */
             sections?: string[];
+            /** Presentation Outputs */
+            presentation_outputs?: string[];
             /** Claims */
             claims?: components["schemas"]["SkillSynthesisClaim"][];
             /** Limitations */
@@ -6815,6 +7005,54 @@ export interface components {
              * Format: date-time
              */
             updated_at?: string;
+        };
+        /** TaskRoute */
+        TaskRoute: {
+            /** Task Id */
+            task_id: string;
+            confidence: components["schemas"]["RoutingConfidence"];
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Secondary Tasks */
+            secondary_tasks?: string[];
+            /** @default serial */
+            execution_relation: components["schemas"]["ExecutionRelation"];
+        };
+        /** TaskRoutingPreviewRequest */
+        TaskRoutingPreviewRequest: {
+            /** Content */
+            content: string;
+            /** Thread Id */
+            thread_id?: string | null;
+        };
+        /** TaskRoutingPreviewResponse */
+        TaskRoutingPreviewResponse: {
+            routing_result: components["schemas"]["TaskRoutingResult"];
+            /** Diagnostics */
+            diagnostics?: string[];
+        };
+        /** TaskRoutingResult */
+        TaskRoutingResult: {
+            /** Catalog Version */
+            catalog_version: string;
+            /** Catalog Hash */
+            catalog_hash: string;
+            task: components["schemas"]["TaskRoute"];
+            scenario: components["schemas"]["ScenarioRoute"];
+            context?: components["schemas"]["RoutingContext"];
+            input_check?: components["schemas"]["InputCheckResult"];
+            skill_routing?: components["schemas"]["SkillRoutingDecision"];
+            knowledge_routing?: components["schemas"]["KnowledgeRoutingDecision"];
+            evidence_requirement?: components["schemas"]["EvidenceRequirement"];
+            /** Analysis Requirements */
+            analysis_requirements?: string[];
+            /** Presentation Requirements */
+            presentation_requirements?: string[];
+            completion_check?: components["schemas"]["CompletionCheckResult"];
+            human_confirmation?: components["schemas"]["HumanConfirmationDecision"];
         };
         /**
          * TaskStatus
@@ -10607,28 +10845,6 @@ export interface operations {
             };
         };
     };
-    run_daily_memory_summary_api_memory_user_daily_summary_run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
     retrieval_metrics_list_api_memory_retrieval_metrics_get: {
         parameters: {
             query?: {
@@ -11543,6 +11759,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SkillCatalogResponse"];
+                };
+            };
+        };
+    };
+    preview_task_routing_api_skills_routing_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskRoutingPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRoutingPreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -32,6 +32,7 @@ export function SkillPlanPreview({
   onReject,
 }: SkillPlanPreviewProps) {
   const nodes = detail.plan.nodes ?? []
+  const route = detail.plan.routing_result
   const candidateSkillIds = detail.plan.candidate_skill_ids ?? []
   const [selected, setSelected] = useState(() => new Set(nodes.map((node) => node.skill_id)))
   const [order, setOrder] = useState(() => nodes.map((node) => node.skill_id))
@@ -97,6 +98,39 @@ export function SkillPlanPreview({
         </div>
         <span className="rounded-full bg-amber-300/10 px-3 py-1.5 text-xs font-medium text-amber-300">尚未执行任何节点</span>
       </div>
+
+      {route ? (
+        <section aria-label="任务路由" className="mt-5 rounded-[10px] border border-mint-400/15 bg-mint-400/[0.04] px-3.5 py-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-semibold text-mint-300">{route.task.task_id}</span>
+            <span className="text-slate-600">/</span>
+            <span className="text-slate-200">{route.scenario.scenario_id}</span>
+            <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] text-slate-400">
+              {route.task.execution_relation}
+            </span>
+          </div>
+          {(route.scenario.supporting_scenarios ?? []).length > 0 ? (
+            <p className="mt-2 text-[11px] leading-5 text-slate-400">
+              前置场景：{(route.scenario.supporting_scenarios ?? []).join('、')}
+            </p>
+          ) : null}
+          <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+            {route.evidence_requirement?.external_evidence_required ? (
+              <span className="rounded-full bg-knowledge/10 px-2 py-1 text-knowledge">需要外部证据</span>
+            ) : null}
+            {(detail.plan.capability_gaps ?? []).map((gap) => (
+              <span key={gap} className="rounded-full bg-rose/10 px-2 py-1 text-rose">
+                能力缺口：{gap}
+              </span>
+            ))}
+            {(route.skill_routing?.planned_skills ?? []).map((skillId) => (
+              <span key={skillId} className="rounded-full bg-amber-300/10 px-2 py-1 text-amber-300">
+                能力缺口：{skillId}
+              </span>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <dl className="mt-5 grid gap-3 text-xs sm:grid-cols-2">
         <div className="rounded-[10px] bg-base px-3.5 py-3">

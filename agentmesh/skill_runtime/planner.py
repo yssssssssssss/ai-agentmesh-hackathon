@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from agents import Agent, RunConfig, Runner
 from agents.models.interface import Model
 
+from agentmesh.agent_runtime.settings import task_scenario_routing_enabled
 from agentmesh.models import (
     SkillCandidate,
     SkillIntent,
@@ -15,6 +16,10 @@ from agentmesh.models import (
     SkillPlanDraft,
     SkillPlanNode,
 )
+from agentmesh.skill_runtime.profiles import kinds_compatible
+from agentmesh.skill_runtime.retrieval import tool_names_for_profile
+from agentmesh.task_routing.catalog import TaskCatalog
+from agentmesh.task_routing.contracts import TaskRoutingResult
 from agentmesh.tool_runtime.guardrails import redact_sensitive_text
 
 _INTENT_INSTRUCTIONS = """Normalize the user's design-workflow request into the required schema.
@@ -39,6 +44,13 @@ When repair_error_codes are present, correct every listed violation.
 
 _SYMBOLIC_IDENTIFIER = re.compile(r"[a-z][a-z0-9_]*")
 _SYNTHESIS_OUTPUTS = ["executive_summary", "summary", "synthesis"]
+_SYNTHESIS_SCENARIO_PRESENTATIONS = {
+    "opportunity-direction-evaluation": {"opportunity_list"},
+    "strategy-synthesis": {"strategy_map", "design_principles", "report"},
+    "priority-roadmap": {"prioritized_actions", "roadmap"},
+    "metrics-validation": {"metrics_plan"},
+    "solution-comparison": {"comparison_table"},
+}
 
 
 class PlannerUnavailable(RuntimeError):
@@ -129,11 +141,32 @@ def deterministic_intent(content: str, *, explicit_skill_name: str | None = None
     explicit = explicit_skill_name.removeprefix("$") if explicit_skill_name else None
     if explicit:
         complexity = SkillIntentComplexity.DIRECT
+    from agentmesh.task_routing.catalog import TaskCatalogLoadError
+    from agentmesh.task_routing.router import TaskScenarioRouter
+
+    try:
+        if not task_scenario_routing_enabled():
+            raise TaskCatalogLoadError("task_scenario_routing_disabled")
+        routing_result, _routing_diagnostics = TaskScenarioRouter().route(text)
+        analysis_requirements = routing_result.analysis_requirements
+        presentation_requirements = routing_result.presentation_requirements
+        external_evidence_required = routing_result.evidence_requirement.external_evidence_required
+        if not explicit and deliverables == ["design_analysis"] and presentation_requirements:
+            deliverables = ["synthesis"]
+            if len(analysis_requirements) >= 2:
+                complexity = SkillIntentComplexity.WORKFLOW
+    except TaskCatalogLoadError:
+        analysis_requirements = []
+        presentation_requirements = []
+        external_evidence_required = False
     return SkillIntent(
         goal=text,
         primary_stage=stage,
         input_kinds=input_kinds,
         deliverables=deliverables,
+        analysis_requirements=analysis_requirements,
+        presentation_requirements=presentation_requirements,
+        external_evidence_required=external_evidence_required,
         explicit_skill_names=[explicit] if explicit else [],
         complexity=complexity,
     )
@@ -186,6 +219,9 @@ class SkillIntentAnalyzer:
                     "goal": redact_sensitive_text(intent.goal)[:1000],
                     "input_kinds": list(dict.fromkeys([*canonical.input_kinds, *model_inputs])),
                     "deliverables": list(dict.fromkeys([*canonical.deliverables, *model_outputs])),
+                    "analysis_requirements": canonical.analysis_requirements,
+                    "presentation_requirements": canonical.presentation_requirements,
+                    "external_evidence_required": canonical.external_evidence_required,
                     "explicit_skill_names": [],
                 }
             ), []
@@ -218,6 +254,138 @@ def single_skill_draft(intent: SkillIntent, candidate: SkillCandidate) -> SkillP
                 side_effect=profile.side_effect,
             )
         ],
+    )
+
+
+def route_skill_draft(
+    intent: SkillIntent,
+    candidates: list[SkillCandidate],
+    routing_result: TaskRoutingResult,
+    task_catalog: TaskCatalog,
+) -> SkillPlanDraft:
+    candidate_by_name = {candidate.skill_name: candidate for candidate in candidates}
+    scenario_order = [*routing_result.scenario.supporting_scenarios, routing_result.scenario.scenario_id]
+    assignments: dict[str, tuple[int, str, str]] = {}
+    for position, scenario_id in enumerate(scenario_order):
+        mapping = task_catalog.get_mapping(scenario_id)
+        if mapping is None:
+            continue
+        registry_skill_ids = [*mapping.default_skill_ids, *mapping.optional_skill_ids]
+        for registry_skill_id in registry_skill_ids:
+            catalog_skill = task_catalog.get_skill(registry_skill_id)
+            if catalog_skill is None or catalog_skill.runtime_skill_name not in candidate_by_name:
+                continue
+            runtime_name = catalog_skill.runtime_skill_name
+            assignments[runtime_name] = (position, scenario_id, registry_skill_id)
+            break
+    selected = sorted(assignments.items(), key=lambda item: (item[1][0], item[0]))[:6]
+    if not selected:
+        raise PlannerUnavailable("No executable Skill is bound to the selected Scenarios")
+    if routing_result.evidence_requirement.external_evidence_required and not any(
+        "web_research" in tool_names_for_profile(candidate_by_name[name].profile)
+        for name, _assignment in selected
+    ):
+        raise PlannerUnavailable("External evidence is required but no authorized research Skill is available")
+
+    provisional: list[tuple[SkillPlanNode, SkillCandidate, str]] = []
+    for index, (runtime_name, (_position, scenario_id, registry_skill_id)) in enumerate(selected, start=1):
+        candidate = candidate_by_name[runtime_name]
+        profile = candidate.profile
+        scenario = task_catalog.get_scenario(scenario_id)
+        mapping = task_catalog.get_mapping(scenario_id)
+        catalog_skill = task_catalog.get_skill(registry_skill_id)
+        if scenario is None or mapping is None or catalog_skill is None:
+            raise PlannerUnavailable("The selected Scenario mapping is incomplete")
+        direct_inputs = [kind for kind in intent.input_kinds if kind in profile.input_kinds]
+        provisional.append(
+            (
+                SkillPlanNode(
+                    id=f"node_{index}_{runtime_name.replace('-', '_')}",
+                    skill_id=candidate.skill_id,
+                    skill_version=profile.skill_version,
+                    skill_content_hash=profile.skill_content_hash,
+                    reason=f"{scenario.title}：{candidate.reason}",
+                    task_id=scenario.parent_task,
+                    scenario_id=scenario.id,
+                    skill_registry_id=registry_skill_id,
+                    skill_status=catalog_skill.status.value,
+                    required=True,
+                    input_bindings=[f"user.{kind}" for kind in direct_inputs] or ["user.request"],
+                    output_contract=profile.output_kinds,
+                    knowledge_bindings={
+                        "required": [*mapping.required_knowledge_ids, *mapping.required_knowledge_descriptors],
+                        "optional": [*mapping.optional_knowledge_ids, *mapping.optional_knowledge_descriptors],
+                        "excluded": routing_result.knowledge_routing.excluded_knowledge,
+                    },
+                    required_tool_names=sorted(tool_names_for_profile(profile)),
+                    completion_criteria=list(scenario.completion_criteria),
+                    side_effect=profile.side_effect,
+                ),
+                candidate,
+                scenario_id,
+            )
+        )
+
+    primary_scenario_id = routing_result.scenario.scenario_id
+    node_by_scenario = {scenario_id: node for node, _candidate, scenario_id in provisional}
+    nodes: list[SkillPlanNode] = []
+    for node, candidate, scenario_id in provisional:
+        scenario = task_catalog.get_scenario(scenario_id)
+        assert scenario is not None
+        if scenario_id == primary_scenario_id or scenario.parent_task == "define-strategy":
+            dependencies = [
+                other.id
+                for other, _other_candidate, other_scenario_id in provisional
+                if other.id != node.id
+                and scenario_order.index(other_scenario_id) < scenario_order.index(scenario_id)
+            ]
+        else:
+            dependencies = [
+                node_by_scenario[dependency].id
+                for dependency in scenario.dependencies
+                if dependency in node_by_scenario
+            ]
+        bindings: list[str] = []
+        for dependency_id in dependencies:
+            producer = next(item for item, _item_candidate, _scenario_id in provisional if item.id == dependency_id)
+            output_kind = next(
+                (
+                    output
+                    for output in producer.output_contract
+                    if any(kinds_compatible(output, input_kind) for input_kind in candidate.profile.input_kinds)
+                ),
+                None,
+            )
+            if output_kind is not None:
+                bindings.append(f"{dependency_id}.{output_kind}")
+        if not bindings:
+            bindings = node.input_bindings
+        nodes.append(node.model_copy(update={"depends_on": dependencies, "input_bindings": bindings}))
+
+    root_nodes = [node for node in nodes if not node.depends_on]
+    if len(root_nodes) > 1:
+        root_ids = {node.id for node in root_nodes[:3]}
+        nodes = [
+            node.model_copy(update={"parallel_group": "upstream_1"}) if node.id in root_ids else node
+            for node in nodes
+        ]
+    output_contract = intent.presentation_requirements or ["synthesis"]
+    covered_scenarios = {scenario_id for _name, (_position, scenario_id, _skill_id) in selected}
+    requested_presentations = set(intent.presentation_requirements)
+    capability_gaps = [
+        f"runtime_skill_unbound:{scenario_id}"
+        for scenario_id in scenario_order
+        if scenario_id not in covered_scenarios
+        and not (
+            requested_presentations
+            & _SYNTHESIS_SCENARIO_PRESENTATIONS.get(scenario_id, set())
+        )
+    ]
+    return SkillPlanDraft(
+        output_contract=output_contract,
+        synthesis_output_contract=list(intent.presentation_requirements),
+        capability_gaps=capability_gaps,
+        nodes=nodes,
     )
 
 

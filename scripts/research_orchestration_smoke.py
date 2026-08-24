@@ -244,7 +244,7 @@ def _drive_new_run(client: HttpClient, *, timeout_seconds: float, poll_seconds: 
         if workflow.get("phase") == "terminal":
             run = _get_run(client, run_id)
             attempt = projection.get("attempt")
-            if run.get("status") != "completed" or not isinstance(attempt, dict) or attempt.get("status") != "completed":
+            if run.get("status") not in {"completed", "partial"} or not isinstance(attempt, dict) or attempt.get("status") != "completed":
                 raise SmokeError("research_run_not_successful")
             return run_id, projection
         time.sleep(max(0.05, poll_seconds))
@@ -526,7 +526,7 @@ def run_smoke(
         run = _get_run(client, run_id)
         projection = _get_projection(client, run_id)
         workflow = projection.get("workflow")
-        if run.get("status") != "completed" or not isinstance(workflow, dict) or workflow.get("phase") != "terminal":
+        if run.get("status") not in {"completed", "partial"} or not isinstance(workflow, dict) or workflow.get("phase") != "terminal":
             raise SmokeError("historical_run_not_readable")
         mode = "off_rollback" if verify_off_run_id is not None else "verify_existing"
     result = _validate_durable_result(database, run_id=run_id, projection=projection, mode=mode)

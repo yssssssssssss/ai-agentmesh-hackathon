@@ -55,6 +55,7 @@ from agentmesh.models import (
     TaskStatus,
     User,
     UserMemoryItem,
+    memory_date_for,
     new_id,
     now_utc,
 )
@@ -2347,7 +2348,7 @@ class PersonalAgent:
             ),
             source_kind=f"chat_workflow:{intent.value}",
             memory_type=self._short_term_memory_type(intent),
-            memory_date=now_utc().date(),
+            memory_date=memory_date_for(),
             workspace_id=user.workspace_id,
             project_id=user.default_project_id,
             source_thread_id=task.thread_id,

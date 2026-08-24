@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -102,6 +103,30 @@ class _ToolPort:
                         start=1,
                     )
                 ],
+                "source_evidence": [
+                    {
+                        "source_id": f"source_{index}",
+                        "content_provider": "test-web",
+                        "excerpt": f"Evidence from source {index}",
+                        "retrieved_at": self.clock.now().isoformat(),
+                        "content_hash": hashlib.sha256(f"Evidence from source {index}".encode()).hexdigest(),
+                        "truncated": False,
+                        "risk_flags": [],
+                        "question_ids": ["q_evidence_comparison", "q_scenarios"],
+                    }
+                    for index in range(1, 3)
+                ],
+                "provider_calls": [
+                    {
+                        "provider": "test-web",
+                        "operation": "search",
+                        "request_hash": hashlib.sha256(b"compare").hexdigest(),
+                        "status": "success",
+                        "latency_ms": 12,
+                        "result_count": 2,
+                        "error_code": None,
+                    }
+                ],
                 "permission": "project_visible",
                 "metadata": {"actual_provider": "test-web", "mode": "real"},
             },
@@ -120,9 +145,10 @@ class _ToolPort:
 
 
 class _ModelPort:
-    def __init__(self, *, forge_evidence: bool = False):
+    def __init__(self, *, forge_evidence: bool = False, review_blocked: bool = False):
         self.calls = 0
         self.forge_evidence = forge_evidence
+        self.review_blocked = review_blocked
 
     async def generate(
         self,
@@ -138,9 +164,9 @@ class _ModelPort:
     ) -> SkillModelResult:
         del run, frozen_skill, generation_contract, resolved_input, resources, timeout_seconds
         self.calls += 1
-        evidence_id = evidence[0]["evidence_id"]
+        evidence_ids = [item["evidence_id"] for item in evidence]
         if self.forge_evidence:
-            evidence_id = "evidence_forged"
+            evidence_ids = ["evidence_forged"]
         return SkillModelResult(
             payload={
                 "summary": "Traceability and recovery differ.",
@@ -148,10 +174,18 @@ class _ModelPort:
                     {
                         "claim_id": "claim_fact_traceability",
                         "statement": "The products expose different traceability and recovery mechanisms.",
-                        "evidence_ids": [evidence_id],
+                        "evidence_ids": evidence_ids,
                         "parent_claim_ids": [],
-                        "question_ids": ["q_evidence_comparison", "q_scenarios"],
-                        "success_criterion_ids": ["sc_evidence_comparison", "sc_scenarios"],
+                        "question_ids": (
+                            ["q_evidence_comparison"]
+                            if self.review_blocked
+                            else ["q_evidence_comparison", "q_scenarios"]
+                        ),
+                        "success_criterion_ids": (
+                            ["sc_evidence_comparison"]
+                            if self.review_blocked
+                            else ["sc_evidence_comparison", "sc_scenarios"]
+                        ),
                         "confidence": "medium",
                         "conflict_status": "unknown",
                     }
@@ -160,7 +194,7 @@ class _ModelPort:
                     {
                         "claim_id": "claim_inference_scenarios",
                         "statement": "Teams may prefer different products by risk profile.",
-                        "evidence_ids": [evidence_id],
+                        "evidence_ids": [evidence_ids[0]],
                         "parent_claim_ids": ["claim_fact_traceability"],
                         "question_ids": ["q_scenarios"],
                         "success_criterion_ids": ["sc_scenarios"],
@@ -255,9 +289,10 @@ def _engine(  # noqa: ANN001, ANN202
     *,
     forge_evidence: bool = False,
     fail_tool_calls: int = 0,
+    review_blocked: bool = False,
 ):
     tool_port = _ToolPort(clock, fail_calls=fail_tool_calls)
-    model_port = _ModelPort(forge_evidence=forge_evidence)
+    model_port = _ModelPort(forge_evidence=forge_evidence, review_blocked=review_blocked)
     engine = ExecutionEngine(
         context.repository,
         context.artifacts,
@@ -443,6 +478,33 @@ def test_execution_engine_runs_tool_skill_delivery_and_strict_finish(tmp_path) -
             if message.role == ChatRole.ASSISTANT and message.content == run.output_text
         ]
     ) == 1
+
+
+def test_review_block_persists_readable_summary_and_assistant_message(tmp_path) -> None:
+    context = research_execution_context(tmp_path / "engine-review-block.sqlite3", run_id="run_review_block")
+    _authorize_execution(context)
+    clock = _FixedClock(datetime.now(UTC))
+    engine, _tool_port, _model_port = _engine(context, clock, review_blocked=True)
+
+    with pytest.raises(ExecutionError, match="deterministic_review_blocked"):
+        asyncio.run(engine.run(context.lineage_step_1.attempt_id or "", context.lease))
+
+    run = context.repository.get_agent_run(context.plan.run_id)
+    assert run is not None
+    assert run.status == AgentRunStatus.FAILED
+    assert run.error_code == "deterministic_review_blocked"
+    assert run.output_text is not None
+    assert "本次研究未通过最终审核" in run.output_text
+    assert "required_question_coverage" in run.output_text
+    assert "已获取来源" in run.output_text
+    messages = [
+        message
+        for message in context.repository.list_thread_messages(run.thread_id)
+        if message.role == ChatRole.ASSISTANT and message.content == run.output_text
+    ]
+    assert len(messages) == 1
+    assert "Source 1: https://alpha.example/research" in messages[0].content
+    assert "Source 2: https://beta.example/report" in messages[0].content
 
 
 def test_result_projection_hides_report_when_referenced_evidence_source_is_tampered(tmp_path) -> None:

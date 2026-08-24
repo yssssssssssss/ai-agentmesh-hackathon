@@ -14,5 +14,9 @@ negative_examples:
   - 分析已有满意度数据为什么下降
   - 生成可直接投放的问卷
 required_capabilities: [wiki.corpus]
+task_types: [data-behavior-diagnosis, solution-comparison, priority-roadmap, metrics-validation]
+archetypes: [measurement, validation]
+required_resources: [wiki.corpus]
+report_policy: on_request
 side_effect: draft
 planner_eligible: true

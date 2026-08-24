@@ -25,6 +25,8 @@ from agentmesh.skill_runtime.planner import SkillIntentAnalyzer
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
+from agentmesh.task_routing.contracts import TaskRoutingPreviewRequest, TaskRoutingPreviewResponse
+from agentmesh.task_routing.router import TaskScenarioRouter
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 _package_service = SkillPackageService(
@@ -32,6 +34,7 @@ _package_service = SkillPackageService(
     Path(os.getenv("AGENTMESH_SKILL_PACKAGE_DIR", Path(__file__).resolve().parents[2] / "data" / "skill_packages")),
 )
 _intent_analyzer = SkillIntentAnalyzer()
+_task_router = TaskScenarioRouter()
 
 
 @router.get("", response_model=SkillCatalogResponse)
@@ -50,6 +53,32 @@ def list_skills(user: User = Depends(current_user)) -> SkillCatalogResponse:
         for skill, enabled in catalog.list_for_agent(user.personal_agent_id)
     ]
     return SkillCatalogResponse(items=items)
+
+
+@router.post("/routing-preview", response_model=TaskRoutingPreviewResponse)
+def preview_task_routing(
+    request: TaskRoutingPreviewRequest,
+    user: User = Depends(current_user),
+) -> TaskRoutingPreviewResponse:
+    project = require_default_project(user, store)
+    thread_summary = ""
+    if request.thread_id:
+        thread = store.get_chat_thread(request.thread_id)
+        if (
+            thread is None
+            or thread.user_id != user.id
+            or thread.workspace_id != user.workspace_id
+            or thread.project_id != user.default_project_id
+        ):
+            raise HTTPException(status_code=404, detail="Chat thread not found")
+        thread_summary = "\n".join(message.content[:500] for message in store.list_thread_messages(thread.id)[-6:])
+    routing_result, diagnostics = _task_router.route(
+        request.content,
+        project_summary=project.goal,
+        thread_summary=thread_summary,
+    )
+    require_default_project(user, store)
+    return TaskRoutingPreviewResponse(routing_result=routing_result, diagnostics=diagnostics)
 
 
 @router.post("/recommendations", response_model=SkillRecommendationResponse)

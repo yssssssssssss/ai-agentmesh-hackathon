@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "CatalogStatus": {
+      "enum": [
+        "draft",
+        "reviewed",
+        "validated",
+        "planned"
+      ],
+      "title": "CatalogStatus",
+      "type": "string"
+    },
+    "SkillCatalogEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "business_domain": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Business Domain",
+          "type": "string"
+        },
+        "capability_domain": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Domain",
+          "type": "array"
+        },
+        "dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "related_items": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Items",
+          "type": "array"
+        },
+        "runtime_skill_name": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime Skill Name"
+        },
+        "source_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Hash",
+          "type": "string"
+        },
+        "source_path": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CatalogStatus"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "task_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Task Types",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "source_hash",
+        "id",
+        "title",
+        "business_domain",
+        "status"
+      ],
+      "title": "SkillCatalogEntry",
+      "type": "object"
+    }
+  },
+  "$id": "https://agentmesh.local/schemas/task-catalog/user-research-v1/skill-registry.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "#/$defs/SkillCatalogEntry"
+  },
+  "type": "array"
+}

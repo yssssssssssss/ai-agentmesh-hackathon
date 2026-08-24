@@ -6,7 +6,15 @@ from agentmesh.store import SQLiteStore
 
 WEB_RESEARCH_OUTPUT_SCHEMA = {
     "type": "object",
-    "required": ["title", "content", "sources", "permission", "metadata"],
+    "required": [
+        "title",
+        "content",
+        "sources",
+        "source_evidence",
+        "provider_calls",
+        "permission",
+        "metadata",
+    ],
     "properties": {
         "title": {"type": "string", "minLength": 1},
         "content": {"type": "string", "minLength": 1},
@@ -37,6 +45,68 @@ WEB_RESEARCH_OUTPUT_SCHEMA = {
                     "run_id": {"type": ["string", "null"]},
                     "skill_id": {"type": ["string", "null"]},
                     "created_at": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "source_evidence": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+                "type": "object",
+                "required": [
+                    "source_id",
+                    "content_provider",
+                    "excerpt",
+                    "retrieved_at",
+                    "content_hash",
+                    "truncated",
+                    "risk_flags",
+                    "question_ids",
+                ],
+                "properties": {
+                    "source_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "content_provider": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "excerpt": {"type": "string", "minLength": 1, "maxLength": 8192},
+                    "retrieved_at": {"type": "string"},
+                    "content_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                    "truncated": {"type": "boolean"},
+                    "risk_flags": {
+                        "type": "array",
+                        "maxItems": 10,
+                        "items": {"type": "string"},
+                    },
+                    "question_ids": {
+                        "type": "array",
+                        "maxItems": 20,
+                        "items": {"type": "string", "minLength": 1, "maxLength": 120},
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+        "provider_calls": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+                "type": "object",
+                "required": [
+                    "provider",
+                    "operation",
+                    "request_hash",
+                    "status",
+                    "latency_ms",
+                    "result_count",
+                    "error_code",
+                ],
+                "properties": {
+                    "provider": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "operation": {"type": "string", "minLength": 1, "maxLength": 80},
+                    "request_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                    "status": {"type": "string", "enum": ["success", "error"]},
+                    "latency_ms": {"type": "number", "minimum": 0},
+                    "result_count": {"type": "integer", "minimum": 0},
+                    "error_code": {"type": ["string", "null"], "maxLength": 120},
                 },
                 "additionalProperties": False,
             },
@@ -73,9 +143,29 @@ SYSTEM_TOOLS = [
         idempotency_support="none",
         approval_required=True,
         evidence_class="provider_summary",
+        timeout_seconds=120,
         input_schema={
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "要调研的主题"}},
+            "properties": {
+                "query": {"type": "string", "description": "要调研的主题"},
+                "question_queries": {
+                    "type": "array",
+                    "maxItems": 4,
+                    "items": {
+                        "type": "object",
+                        "required": ["query", "question_ids"],
+                        "properties": {
+                            "query": {"type": "string", "minLength": 1, "maxLength": 4000},
+                            "question_ids": {
+                                "type": "array",
+                                "maxItems": 20,
+                                "items": {"type": "string", "minLength": 1, "maxLength": 120},
+                            },
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+            },
             "required": ["query"],
             "additionalProperties": False,
         },

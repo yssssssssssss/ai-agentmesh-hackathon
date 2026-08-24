@@ -604,6 +604,8 @@ def test_orchestrated_retry_revalidates_plan_and_reuses_only_side_effect_free_re
                 node_id=node.id,
                 skill_id=node.skill_id,
                 summary=f"completed {node.id}",
+                reused_from_run_id="run_original_source" if node.id == "node_retry_prd" else None,
+                reused_from_result_id="result_original_source" if node.id == "node_retry_prd" else None,
                 attempt=1,
             ),
         )
@@ -630,6 +632,8 @@ def test_orchestrated_retry_revalidates_plan_and_reuses_only_side_effect_free_re
 
     assert repeated.id == retried.id
     assert retried.id != prior_run.id
+    assert retried.retry_of_run_id == prior_run.id
+    assert retried.project_id == prior_run.project_id
     assert retried.status == AgentRunStatus.WAITING_PLAN_APPROVAL
     retry_plan = repository.get_skill_plan_for_run(retried.id)
     assert retry_plan is not None and retry_plan.status == SkillPlanStatus.WAITING_APPROVAL
@@ -641,8 +645,8 @@ def test_orchestrated_retry_revalidates_plan_and_reuses_only_side_effect_free_re
     reused = repository.list_skill_node_results(retry_plan.id)
     assert len(reused) == 1
     assert reused[0].node_id == "node_retry_prd"
-    assert reused[0].reused_from_run_id == prior_run.id
-    assert reused[0].reused_from_result_id == "result_prior_node_retry_prd"
+    assert reused[0].reused_from_run_id == "run_original_source"
+    assert reused[0].reused_from_result_id == "result_original_source"
     assert len(repository.list_thread_messages(thread.id)) == 1
 
 

@@ -160,7 +160,26 @@ def competitive_snapshot(
                 {
                     "type": "object",
                     "required": ["query"],
-                    "properties": {"query": {"type": "string"}},
+                    "properties": {
+                        "query": {"type": "string"},
+                        "question_queries": {
+                            "type": "array",
+                            "maxItems": 4,
+                            "items": {
+                                "type": "object",
+                                "required": ["query", "question_ids"],
+                                "properties": {
+                                    "query": {"type": "string", "minLength": 1, "maxLength": 4000},
+                                    "question_ids": {
+                                        "type": "array",
+                                        "maxItems": 20,
+                                        "items": {"type": "string", "minLength": 1, "maxLength": 120},
+                                    },
+                                },
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
                     "additionalProperties": False,
                 }
             ),

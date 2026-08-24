@@ -24,7 +24,11 @@ from agentmesh.models import (
     UserMemoryItem,
 )
 from agentmesh.seed import USER, ensure_base_workspace_data
-from agentmesh.skill_runtime.resources import build_skill_resource_tool, resolve_skill_resource
+from agentmesh.skill_runtime.resources import (
+    build_skill_resource_tool,
+    resolve_skill_resource,
+    skill_resource_manifest,
+)
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
 from agentmesh.tool_runtime.factory import AgentMeshToolFactory
@@ -476,6 +480,7 @@ def test_skill_resource_tool_reads_only_approved_roots(tmp_path) -> None:
         project_id=USER.default_project_id,
         thread_id="thread_resource",
         run_id="run_resource",
+        approved_resource_hashes=skill_resource_manifest(skill),
     )
     wrapper = SimpleNamespace(context=context)
 
@@ -486,6 +491,9 @@ def test_skill_resource_tool_reads_only_approved_roots(tmp_path) -> None:
     assert payload["source"]["source_type"] == "skill_resource"
     assert payload["source"]["run_id"] == context.run_id
     assert context.source_ids == [payload["source"]["id"]]
+    (references / "guide.md").write_text("changed after manifest", encoding="utf-8")
+    with pytest.raises(PermissionError, match="changed after"):
+        asyncio.run(tool.on_invoke_tool(wrapper, json.dumps({"path": "references/guide.md"})))
     with pytest.raises(FileNotFoundError):
         asyncio.run(tool.on_invoke_tool(wrapper, json.dumps({"path": "../outside.txt"})))
 

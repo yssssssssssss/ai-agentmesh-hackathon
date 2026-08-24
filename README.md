@@ -111,6 +111,7 @@ Multi-Skill orchestration is disabled by default and requires Agent Runtime v2 p
 export AGENTMESH_AGENT_RUNTIME=v2
 export AGENTMESH_WIKI_ROOT=/absolute/path/to/approved/wiki
 export AGENTMESH_SKILL_ORCHESTRATION=preview
+export AGENTMESH_TASK_SCENARIO_ROUTING=true
 ```
 
 The server is the only configuration authority; the React app reads the effective mode from `/api/bootstrap` and does not use a Vite feature flag.
@@ -121,7 +122,7 @@ The server is the only configuration authority; the React app reads the effectiv
 | `preview` | Recommend and persist a plan; confirmation never executes its DAG | Single Skill Runtime v2 | Legacy chat path |
 | `execute` | Confirmed plans execute a bounded DAG | Single Skill Runtime v2 | Legacy chat path |
 
-Plans with two or more domain Skills always stop at the Plan Approval gate. Confirming a plan does not approve a Tool call: local or external writes still create a separate Inbox item and are approved once per `call_id`. The parent Run is the durable control record; refresh or SSE reconnect reads the same Run and Plan instead of starting work again.
+Legacy plans with two or more domain Skills still stop at the Plan Approval gate. Task/Scenario plans with high or medium confidence and only read/draft effects continue automatically in `execute` mode; `preview`, high-risk decisions, and write effects still pause. Confirming a plan does not approve a Tool call: approved external tools use a separate node-level approval, without repeating approval for internal Provider subcalls. The parent Run is the durable control record; refresh or SSE reconnect reads the same Run and Plan instead of starting work again.
 
 Roll out in order: `off` → `preview` → `execute`. To roll back without deleting Plans, node results, artifacts, events, or audits:
 
@@ -134,6 +135,7 @@ Open Tool approvals remain stopped after rollback and are never auto-resumed.
 The orchestration API surface is:
 
 - `POST /api/skills/recommendations`
+- `POST /api/skills/routing-preview`
 - `POST /api/agent/runs`
 - `GET|PATCH /api/agent/runs/{run_id}/plan`
 - `POST /api/agent/runs/{run_id}/plan/approve`
@@ -150,7 +152,7 @@ Run the deterministic release gates before moving beyond `preview`:
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
 .venv/bin/python eval/research_orchestration/run_eval.py
 .venv/bin/python -m pytest
-.venv/bin/ruff check .
+.venv/bin/ruff check agentmesh tests scripts eval
 npm --prefix agentmesh-demo test -- --run
 npm --prefix agentmesh-demo run api:types
 npm --prefix agentmesh-demo run build
@@ -360,10 +362,11 @@ export AGENTMESH_LLM_API_KEY=your-api-key
 .venv/bin/uvicorn agentmesh.app:app --port 8010
 ```
 
-Chat uses a shorter model timeout than background memory jobs so the workspace stays responsive:
+Chat and orchestrated research Skills use separate timeout budgets; the parent orchestrated Run keeps its 300-second deadline:
 
 ```bash
-export AGENTMESH_CHAT_LLM_TIMEOUT_SECONDS=2.5
+export AGENTMESH_CHAT_LLM_TIMEOUT_SECONDS=120
+export AGENTMESH_RESEARCH_SKILL_TIMEOUT_SECONDS=180
 export AGENTMESH_LLM_TIMEOUT_SECONDS=30
 export AGENTMESH_LLM_CONNECT_TIMEOUT_SECONDS=5
 ```
@@ -426,11 +429,11 @@ export AGENTMESH_FIRECRAWL_ENABLED=true
 export AGENTMESH_FIRECRAWL_API_URL=https://api.firecrawl.dev/v2/scrape
 export AGENTMESH_FIRECRAWL_API_KEY=your-api-key
 export AGENTMESH_FIRECRAWL_TIMEOUT_SECONDS=60
-export AGENTMESH_FIRECRAWL_MAX_PAGES=3
-export AGENTMESH_FIRECRAWL_MAX_CONTENT_CHARS=1200
+export AGENTMESH_FIRECRAWL_MAX_PAGES=6
+export AGENTMESH_FIRECRAWL_MAX_CONTENT_CHARS=4000
 ```
 
-Tavily remains the discovery provider. Firecrawl scrapes only the first configured results and replaces their search snippets with bounded Markdown excerpts. Failed Firecrawl enrichment falls back to the original Tavily snippet and is recorded in Provider metadata. For a trusted self-hosted Firecrawl endpoint, set `AGENTMESH_FIRECRAWL_API_URL` to its `/v2/scrape` URL; an API key is optional outside `*.firecrawl.dev`. Never expose an unauthenticated self-hosted endpoint publicly.
+Tavily remains the discovery provider. For research-v2, AgentMesh derives at most three question-scoped queries from the frozen comparison dimensions and may issue one bounded supplemental query when a required question has fewer than two candidate sources. Results are canonically deduplicated and primary documentation paths are ranked ahead of known secondary-content domains. Firecrawl then scrapes at most six selected pages and replaces their search snippets with bounded, query-relevant Markdown excerpts. Each source keeps an independent Evidence record with its retrieval time, content hash, question IDs, and truncation state. Failed Firecrawl enrichment falls back to the original Tavily snippet and is recorded in Provider metadata. For a trusted self-hosted Firecrawl endpoint, set `AGENTMESH_FIRECRAWL_API_URL` to its `/v2/scrape` URL; an API key is optional outside `*.firecrawl.dev`. Never expose an unauthenticated self-hosted endpoint publicly.
 
 Command-backed providers remain available as alternatives.
 
@@ -511,7 +514,7 @@ Blackboard also has an auto-post queue for Agent background jobs:
 
 Auto-post requests must be reviewed before drain publishes them into the BBS. A background worker is available but disabled by default; enable it with `AGENTMESH_AUTO_POST_WORKER_ENABLED=true` and configure the interval with `AGENTMESH_AUTO_POST_WORKER_INTERVAL_SECONDS`.
 
-User memory daily summaries also have a disabled-by-default worker. Enable it with `AGENTMESH_DAILY_MEMORY_WORKER_ENABLED=true` and configure the interval with `AGENTMESH_DAILY_MEMORY_WORKER_INTERVAL_SECONDS`. The worker only creates one `daily_summary` per active user/project/date and skips users without short-term source memory.
+User memory daily summaries also have a disabled-by-default worker. Enable it in the production environment with `AGENTMESH_DAILY_MEMORY_WORKER_ENABLED=true`. The worker runs at 00:05 Asia/Shanghai, summarizes the previous calendar day, and performs one idempotent catch-up pass for yesterday on startup. It creates at most one `daily_summary` per active user/project/date and skips users without short-term source memory.
 
 Project memory summaries use the configured LLM when available, then fall back to deterministic source rollups if the model is unavailable.
 Project archives now include a recall-index section, and personal search can resolve the current user's layered memory items.
@@ -531,8 +534,7 @@ Uploaded documents are indexed for personal search, written to short-term docume
 - `POST /api/memory/user`
 - `POST /api/memory/user/daily-summary`
 - `POST /api/memory/user/group-summary`
-- `POST /api/memory/user/daily-summary/run`
-- `GET /api/memory/user/daily-summary/worker`
+- `GET /api/memory/user/daily-summary/worker` admin only
 - `POST /api/memory/user/project-summary`
 - `POST /api/memory/user/archive-project`
 - `GET /api/users`

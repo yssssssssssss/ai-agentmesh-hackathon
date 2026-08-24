@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -114,6 +115,29 @@ class RecordingToolPort:
                         "run_id": context.run_id,
                         "skill_id": context.skill_id,
                         "created_at": self.clock.now().isoformat(),
+                    }
+                ],
+                "source_evidence": [
+                    {
+                        "source_id": "source_provider_1",
+                        "content_provider": "web_real",
+                        "excerpt": VERIFIED_QUOTE,
+                        "retrieved_at": self.clock.now().isoformat(),
+                        "content_hash": hashlib.sha256(VERIFIED_QUOTE.encode()).hexdigest(),
+                        "truncated": False,
+                        "risk_flags": [],
+                        "question_ids": [],
+                    }
+                ],
+                "provider_calls": [
+                    {
+                        "provider": "web_real",
+                        "operation": "search",
+                        "request_hash": hashlib.sha256(b"compare").hexdigest(),
+                        "status": "success",
+                        "latency_ms": 12,
+                        "result_count": 1,
+                        "error_code": None,
                     }
                 ],
                 "permission": "public",
@@ -440,6 +464,7 @@ def test_skill_model_receives_only_verified_quote_view(tmp_path) -> None:
             "evidence_id": tool_output.evidence_inputs[0].evidence_id,
             "quote": VERIFIED_QUOTE,
             "source_tier": "provider_summary",
+            "question_ids": [],
             "conflict_status": "unknown",
             "risk_flags": [],
             "sources": [
@@ -477,8 +502,11 @@ def test_sdk_model_input_contains_the_frozen_problem_contract(
         )
     )
     captured: dict[str, Any] = {}
+    provider_calls = 0
 
     async def provider_call(agent, model_input, **kwargs):  # noqa: ANN001, ANN003, ANN202
+        nonlocal provider_calls
+        provider_calls += 1
         del kwargs
         captured["instructions"] = agent.instructions
         captured["model_input"] = json.loads(model_input)
@@ -543,6 +571,10 @@ def test_sdk_model_input_contains_the_frozen_problem_contract(
     assert "Recommendations must cite at least one parent_claim_id" in captured["instructions"]
     assert "maximum_confidence" in captured["instructions"]
     assert "possible or conflicting" in captured["instructions"]
+    assert captured["model_input"]["repair_error_codes"] == ["missing_fact_claim:q_scenarios"]
+    assert captured["model_input"]["previous_output"]["facts"][0]["claim_id"] == "claim_direct_fact"
+    assert provider_calls == 2
+    assert result.usage["repair_attempts"] == 1
     assert [claim["claim_id"] for claim in result.payload["facts"]] == ["claim_direct_fact"]
     assert [claim["claim_id"] for claim in result.payload["inferences"]] == ["claim_parent_backed_fact"]
 

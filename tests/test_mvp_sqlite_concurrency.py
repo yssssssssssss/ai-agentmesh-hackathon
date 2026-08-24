@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 
-from agentmesh.models import MemoryItem, Scope, Workspace
+from agentmesh.models import MemoryItem, MemoryLayer, Scope, UserMemoryItem, Workspace
 from agentmesh.store import SQLiteStore
 
 
@@ -16,6 +18,47 @@ def _memory(record_id: str, text: str) -> MemoryItem:
         scope=Scope.TEAM_ACCEPTED,
         workspace_id="ws_test",
     )
+
+
+def _daily_summary(record_id: str) -> UserMemoryItem:
+    return UserMemoryItem(
+        id=record_id,
+        user_id="usr_daily",
+        layer=MemoryLayer.SHORT_TERM,
+        title="2026-08-24 每日短期记忆摘要",
+        summary="当天关键记忆。",
+        source_kind="daily_summary",
+        memory_type="daily_summary",
+        memory_date=date(2026, 8, 24),
+        workspace_id="ws_test",
+        project_id="prj_daily",
+    )
+
+
+def test_daily_summary_insert_is_atomic_under_concurrency(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "daily-summary-concurrency.sqlite3")
+    workers = 20
+    barrier = threading.Barrier(workers)
+
+    def insert(index: int) -> bool:
+        barrier.wait(timeout=5)
+        _item, created = repository.add_daily_summary_if_absent(_daily_summary(f"summary_{index}"))
+        return created
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        created = list(executor.map(insert, range(workers)))
+
+    assert created.count(True) == 1
+    assert created.count(False) == workers - 1
+    assert len(
+        repository.list_user_memory_items(
+            "usr_daily",
+            MemoryLayer.SHORT_TERM,
+            "prj_daily",
+            date(2026, 8, 24),
+            "daily_summary",
+        )
+    ) == 1
 
 
 def test_blocked_embedding_does_not_hold_sqlite_write_transaction(tmp_path, monkeypatch) -> None:

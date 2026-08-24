@@ -6,12 +6,14 @@ import asyncio
 import contextlib
 import os
 from datetime import date as dt_date
+from datetime import datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agentmesh.llm import LLMClient
 from agentmesh.model_registry import resolve_agent_model_id
 from agentmesh.models import (
+    MEMORY_TIME_ZONE,
     DailyMemorySummaryRequest,
     GroupMemorySummaryRequest,
     ItemResponse,
@@ -33,9 +35,10 @@ from agentmesh.models import (
     UserMemoryCreateRequest,
     UserMemoryItem,
     UserRole,
+    memory_date_for,
     now_utc,
 )
-from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, ensure_can_update_memory, has_permission
+from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, ensure_admin, ensure_can_update_memory, has_permission
 from agentmesh.routes.deps import current_user
 from agentmesh.skill_runtime.materialize import materialize_learned_skill
 from agentmesh.skill_runtime.service import catalog_service
@@ -44,31 +47,39 @@ from agentmesh.store import store
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
 
-def _positive_int_env(name: str, default: int) -> int:
-    try:
-        return max(1, int(os.getenv(name, str(default))))
-    except ValueError:
-        return default
-
-
 DAILY_SUMMARY_WORKER_ENABLED = os.getenv("AGENTMESH_DAILY_MEMORY_WORKER_ENABLED", "").lower() in {
     "1",
     "true",
     "yes",
     "on",
 }
-DAILY_SUMMARY_WORKER_INTERVAL_SECONDS = _positive_int_env("AGENTMESH_DAILY_MEMORY_WORKER_INTERVAL_SECONDS", 3600)
+DAILY_SUMMARY_RUN_AT = time(hour=0, minute=5)
 daily_summary_worker_task: asyncio.Task | None = None
 daily_summary_worker_state: dict[str, object] = {
     "enabled": DAILY_SUMMARY_WORKER_ENABLED,
-    "interval_seconds": DAILY_SUMMARY_WORKER_INTERVAL_SECONDS,
+    "run_at": DAILY_SUMMARY_RUN_AT.isoformat(timespec="minutes"),
+    "timezone": str(MEMORY_TIME_ZONE),
     "running": False,
+    "next_run_at": None,
     "last_run_at": None,
     "last_created": 0,
     "last_skipped_existing": 0,
     "last_skipped_empty": 0,
     "last_error": None,
 }
+
+
+def next_daily_memory_run(now: datetime | None = None) -> datetime:
+    local_now = (now or now_utc()).astimezone(MEMORY_TIME_ZONE)
+    candidate = datetime.combine(local_now.date(), DAILY_SUMMARY_RUN_AT, tzinfo=MEMORY_TIME_ZONE)
+    if candidate <= local_now:
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def daily_summary_target_date(run_at: datetime | None = None) -> dt_date:
+    local_run_at = (run_at or now_utc()).astimezone(MEMORY_TIME_ZONE)
+    return local_run_at.date() - timedelta(days=1)
 
 
 @router.get("", response_model=MemoryItemsResponse)
@@ -165,7 +176,7 @@ def create_user_memory_item(request: UserMemoryCreateRequest, user: User = Depen
         summary=request.summary,
         source_kind=request.source_kind,
         memory_type=request.memory_type,
-        memory_date=request.memory_date or now_utc().date(),
+        memory_date=request.memory_date or memory_date_for(),
         workspace_id=user.workspace_id,
         project_id=project_id,
     )
@@ -178,10 +189,10 @@ def create_daily_memory_summary(
     user: User = Depends(current_user),
 ) -> ItemResponse:
     project_id = _resolve_user_project_id(user, request.project_id)
-    target_date = request.date or now_utc().date()
-    if _daily_summary_exists(user.id, project_id, target_date):
+    target_date = request.date or memory_date_for()
+    item, created = create_daily_summary_for_user(user, project_id, target_date)
+    if not created:
         raise HTTPException(status_code=409, detail="Daily summary already exists for the requested date")
-    item = create_daily_summary_for_user(user, project_id, target_date)
     return ItemResponse(item=item)
 
 
@@ -191,7 +202,7 @@ def create_group_memory_summary(
     user: User = Depends(current_user),
 ) -> ItemResponse:
     project_id = _resolve_user_project_id(user, request.project_id)
-    memory_date = request.memory_date or now_utc().date()
+    memory_date = request.memory_date or memory_date_for()
     item = UserMemoryItem(
         user_id=user.id,
         layer=MemoryLayer.SHORT_TERM,
@@ -331,7 +342,11 @@ def _resolve_user_project_id(user: User, requested_project_id: str | None) -> st
     return project_id
 
 
-def create_daily_summary_for_user(user: User, project_id: str, target_date: dt_date) -> UserMemoryItem:
+def create_daily_summary_for_user(
+    user: User,
+    project_id: str,
+    target_date: dt_date,
+) -> tuple[UserMemoryItem, bool]:
     source_items = _daily_summary_source_items(user.id, project_id, target_date)
     _ensure_source_items(source_items, "No short-term memory found for the requested date")
     item = UserMemoryItem(
@@ -345,11 +360,11 @@ def create_daily_summary_for_user(user: User, project_id: str, target_date: dt_d
         workspace_id=user.workspace_id,
         project_id=project_id,
     )
-    return store.add_user_memory_item(item)
+    return store.add_daily_summary_if_absent(item)
 
 
 def generate_daily_memory_summaries(target_date: dt_date | None = None) -> dict[str, object]:
-    date_value = target_date or now_utc().date()
+    date_value = target_date or daily_summary_target_date()
     created: list[UserMemoryItem] = []
     skipped_existing = 0
     skipped_empty = 0
@@ -360,32 +375,39 @@ def generate_daily_memory_summaries(target_date: dt_date | None = None) -> dict[
         if store.get_project(project_id) is None:
             skipped_empty += 1
             continue
-        if _daily_summary_exists(user.id, project_id, date_value):
-            skipped_existing += 1
-            continue
         if not _daily_summary_source_items(user.id, project_id, date_value):
             skipped_empty += 1
             continue
-        created.append(create_daily_summary_for_user(user, project_id, date_value))
+        item, was_created = create_daily_summary_for_user(user, project_id, date_value)
+        if was_created:
+            created.append(item)
+        else:
+            skipped_existing += 1
     return {
         "date": date_value.isoformat(),
         "created": len(created),
         "skipped_existing": skipped_existing,
         "skipped_empty": skipped_empty,
-        "items": created,
     }
+
+
+def _record_daily_summary_worker_result(result: dict[str, object]) -> None:
+    daily_summary_worker_state["last_created"] = result["created"]
+    daily_summary_worker_state["last_skipped_existing"] = result["skipped_existing"]
+    daily_summary_worker_state["last_skipped_empty"] = result["skipped_empty"]
+    daily_summary_worker_state["last_error"] = None
 
 
 async def daily_memory_worker_loop() -> None:
     while True:
-        await asyncio.sleep(DAILY_SUMMARY_WORKER_INTERVAL_SECONDS)
+        next_run = next_daily_memory_run()
+        daily_summary_worker_state["next_run_at"] = next_run.isoformat()
+        delay_seconds = max(0.0, (next_run - now_utc()).total_seconds())
+        await asyncio.sleep(delay_seconds)
         daily_summary_worker_state["last_run_at"] = now_utc().isoformat()
         try:
-            result = await asyncio.to_thread(generate_daily_memory_summaries)
-            daily_summary_worker_state["last_created"] = result["created"]
-            daily_summary_worker_state["last_skipped_existing"] = result["skipped_existing"]
-            daily_summary_worker_state["last_skipped_empty"] = result["skipped_empty"]
-            daily_summary_worker_state["last_error"] = None
+            result = await asyncio.to_thread(generate_daily_memory_summaries, daily_summary_target_date(next_run))
+            _record_daily_summary_worker_result(result)
         except Exception as error:  # pragma: no cover - defensive worker boundary
             daily_summary_worker_state["last_error"] = str(error)
 
@@ -395,8 +417,14 @@ async def start_daily_memory_worker() -> None:
     if DAILY_SUMMARY_WORKER_ENABLED and (
         daily_summary_worker_task is None or daily_summary_worker_task.done()
     ):
-        daily_summary_worker_task = asyncio.create_task(daily_memory_worker_loop())
         daily_summary_worker_state["running"] = True
+        daily_summary_worker_state["last_run_at"] = now_utc().isoformat()
+        try:
+            result = await asyncio.to_thread(generate_daily_memory_summaries, daily_summary_target_date())
+            _record_daily_summary_worker_result(result)
+        except Exception as error:  # pragma: no cover - defensive worker boundary
+            daily_summary_worker_state["last_error"] = str(error)
+        daily_summary_worker_task = asyncio.create_task(daily_memory_worker_loop())
 
 
 async def stop_daily_memory_worker() -> None:
@@ -407,22 +435,13 @@ async def stop_daily_memory_worker() -> None:
             await daily_summary_worker_task
         daily_summary_worker_task = None
     daily_summary_worker_state["running"] = False
+    daily_summary_worker_state["next_run_at"] = None
 
 
 @router.get("/user/daily-summary/worker")
-def daily_memory_worker_status(_: User = Depends(current_user)) -> dict[str, object]:
+def daily_memory_worker_status(user: User = Depends(current_user)) -> dict[str, object]:
+    ensure_admin(user)
     return daily_summary_worker_state
-
-
-@router.post("/user/daily-summary/run")
-def run_daily_memory_summary(_: User = Depends(current_user)) -> dict[str, object]:
-    result = generate_daily_memory_summaries()
-    daily_summary_worker_state["last_run_at"] = now_utc().isoformat()
-    daily_summary_worker_state["last_created"] = result["created"]
-    daily_summary_worker_state["last_skipped_existing"] = result["skipped_existing"]
-    daily_summary_worker_state["last_skipped_empty"] = result["skipped_empty"]
-    daily_summary_worker_state["last_error"] = None
-    return result
 
 
 def _daily_summary_source_items(user_id: str, project_id: str, target_date: dt_date) -> list[UserMemoryItem]:
@@ -431,19 +450,6 @@ def _daily_summary_source_items(user_id: str, project_id: str, target_date: dt_d
         for item in store.list_user_memory_items(user_id, MemoryLayer.SHORT_TERM, project_id, target_date)
         if item.source_kind != "daily_summary"
     ]
-
-
-def _daily_summary_exists(user_id: str, project_id: str, target_date: dt_date) -> bool:
-    return any(
-        item.source_kind == "daily_summary"
-        for item in store.list_user_memory_items(
-            user_id,
-            MemoryLayer.SHORT_TERM,
-            project_id,
-            target_date,
-            "daily_summary",
-        )
-    )
 
 
 def _project_name(project_id: str) -> str:
@@ -603,8 +609,8 @@ def retrieval_metrics_list(
     user: User = Depends(current_user),
 ) -> dict[str, object]:
     """Return recent retrieval metrics for recall quality analysis."""
-    all_metrics = sorted(store.retrieval_metrics, key=lambda m: m.created_at, reverse=True)
-    items = all_metrics[:limit]
+    user_metrics = (metric for metric in store.retrieval_metrics if metric.user_id == user.id)
+    items = sorted(user_metrics, key=lambda metric: metric.created_at, reverse=True)[:limit]
     if not items:
         return {"items": [], "summary": {"total": 0, "avg_citation_rate": 0.0, "avg_latency_ms": 0}}
     total = len(items)

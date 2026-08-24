@@ -12,6 +12,9 @@ from agentmesh.models import (
     SkillPlanUpdateRequest,
     new_id,
 )
+from agentmesh.skill_runtime.profiles import kinds_compatible
+from agentmesh.skill_runtime.retrieval import tool_names_for_profile
+from agentmesh.task_routing.contracts import TaskRoutingResult
 
 MAX_CANDIDATES = 12
 MAX_NODES = 6
@@ -90,6 +93,11 @@ def validate_draft(
             errors.append("side_effect_mismatch")
         if not set(node.output_contract).issubset(profile.output_kinds):
             errors.append("unsupported_node_output")
+        if node.scenario_id is not None:
+            if not node.task_id or not node.skill_registry_id or not node.skill_status:
+                errors.append("route_metadata_incomplete")
+            if set(node.required_tool_names) != tool_names_for_profile(profile):
+                errors.append("required_tool_mismatch")
         if node.id in node.depends_on:
             errors.append("self_dependency")
     depths, depth_errors = _depths(draft.nodes)
@@ -125,9 +133,15 @@ def validate_draft(
                 errors.append("invalid_input_binding")
             elif output_kind not in producer.output_contract:
                 errors.append("input_output_mismatch")
-            elif consumer is not None and output_kind not in consumer.profile.input_kinds:
+            elif consumer is not None and not any(
+                kinds_compatible(output_kind, input_kind) for input_kind in consumer.profile.input_kinds
+            ):
                 errors.append("unsupported_node_input")
-    available_outputs = {output for node in draft.nodes for output in node.output_contract} | _SYNTHESIS_OUTPUTS
+    available_outputs = (
+        {output for node in draft.nodes for output in node.output_contract}
+        | _SYNTHESIS_OUTPUTS
+        | set(draft.synthesis_output_contract)
+    )
     if not set(draft.output_contract).issubset(available_outputs):
         errors.append("output_contract_unsatisfied")
     if errors:
@@ -141,6 +155,7 @@ def build_plan(
     candidates: list[SkillCandidate],
     draft: SkillPlanDraft,
     status: SkillPlanStatus,
+    routing_result: TaskRoutingResult | None = None,
 ) -> SkillPlan:
     validate_draft(draft, candidates, intent=intent)
     return SkillPlan(
@@ -148,8 +163,11 @@ def build_plan(
         run_id=run_id,
         status=status,
         intent=intent,
+        routing_result=routing_result,
         candidate_skill_ids=[candidate.skill_id for candidate in candidates[:MAX_CANDIDATES]],
         output_contract=draft.output_contract,
+        synthesis_output_contract=draft.synthesis_output_contract,
+        capability_gaps=draft.capability_gaps,
         preferred_order=[node.skill_id for node in draft.nodes],
         nodes=draft.nodes,
     )
@@ -223,14 +241,20 @@ def adjust_plan(
                 for candidate_node in nodes
                 if candidate_node.id != node.id
                 and (not node.required or candidate_node.required)
-                and set(candidate_node.output_contract) & set(profile.input_kinds)
+                and any(
+                    kinds_compatible(output_kind, input_kind)
+                    for output_kind in candidate_node.output_contract
+                    for input_kind in profile.input_kinds
+                )
             ]
             if producers:
                 producer = min(producers, key=lambda item: position[item.skill_id])
                 if position[producer.skill_id] >= position[node.skill_id]:
                     raise PlanValidationError(["preferred_order_breaks_dependency"])
                 output_kind = next(
-                    output for output in producer.output_contract if output in profile.input_kinds
+                    output
+                    for output in producer.output_contract
+                    if any(kinds_compatible(output, input_kind) for input_kind in profile.input_kinds)
                 )
                 dependencies = [producer.id]
                 bindings = [f"{producer.id}.{output_kind}"]
@@ -244,7 +268,12 @@ def adjust_plan(
     adjusted = plan.model_copy(deep=True)
     adjusted.nodes = nodes
     adjusted.preferred_order = order
-    draft = SkillPlanDraft(output_contract=adjusted.output_contract, nodes=nodes)
+    draft = SkillPlanDraft(
+        output_contract=adjusted.output_contract,
+        synthesis_output_contract=adjusted.synthesis_output_contract,
+        capability_gaps=adjusted.capability_gaps,
+        nodes=nodes,
+    )
     validate_draft(
         draft,
         [candidate_by_id[skill_id] for skill_id in selected],

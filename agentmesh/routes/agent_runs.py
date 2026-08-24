@@ -12,6 +12,7 @@ from agentmesh.agent_runtime.settings import (
     SkillOrchestrationMode,
     research_preview_allowlist,
     skill_orchestration_mode,
+    task_scenario_routing_enabled,
 )
 from agentmesh.models import (
     AgentRunCreateRequest,
@@ -20,6 +21,7 @@ from agentmesh.models import (
     AgentRunStatus,
     ChatThread,
     ItemResponse,
+    SkillOrchestrationRequestMode,
     SkillPlanDetailResponse,
     SkillPlanDraft,
     SkillPlanStatus,
@@ -40,8 +42,11 @@ from agentmesh.skill_runtime.plan_validation import PlanValidationError, adjust_
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
+from agentmesh.task_routing.catalog import load_default_task_catalog
+from agentmesh.task_routing.router import TaskScenarioRouter
 
 router = APIRouter(prefix="/api/agent/runs", tags=["agent-runs"])
+_task_router = TaskScenarioRouter()
 _TERMINAL = {"completed", "partial", "failed", "rejected", "cancelled"}
 _RESEARCH_READINESS_MESSAGES = {
     "tool_runtime_unregistered": "Web Research 执行器未注册，请联系管理员完成配置后重试。",
@@ -82,7 +87,19 @@ def _reject_expired_plan_approval(run, user: User) -> None:  # noqa: ANN001
 
 
 def _current_plan_candidates(plan, user: User):  # noqa: ANN001, ANN201
-    candidates, _diagnostics = SkillCandidateRetriever(store, catalog_service()).recommend(user, plan.intent)
+    retriever = SkillCandidateRetriever(store, catalog_service())
+    if plan.routing_result is None:
+        candidates, _diagnostics = retriever.recommend(user, plan.intent)
+    else:
+        task_catalog = load_default_task_catalog()
+        if plan.routing_result.catalog_hash != task_catalog.manifest.catalog_hash:
+            raise HTTPException(status_code=409, detail="The Task Catalog changed after Plan creation")
+        candidates, _diagnostics = retriever.recommend_for_route(
+            user,
+            plan.intent,
+            plan.routing_result,
+            task_catalog,
+        )
     by_id = {candidate.skill_id: candidate for candidate in candidates}
     selected = [by_id[skill_id] for skill_id in plan.candidate_skill_ids if skill_id in by_id]
     if any(node.skill_id not in by_id for node in plan.nodes):
@@ -157,9 +174,24 @@ async def start_agent_run(
     if explicit_skill_name and skill is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     mode = skill_orchestration_mode()
-    research_eligible = mode != SkillOrchestrationMode.OFF and is_competitive_research_request(
-        request.content,
-        explicit_skill_name=explicit_skill_name,
+    prefer_task_orchestration = False
+    if (
+        task_scenario_routing_enabled()
+        and request.orchestration_mode == SkillOrchestrationRequestMode.AUTO
+        and explicit_skill_name is None
+    ):
+        routing_result, _routing_diagnostics = _task_router.route(request.content)
+        prefer_task_orchestration = bool(
+            routing_result.scenario.supporting_scenarios
+            and routing_result.presentation_requirements
+        )
+    research_eligible = (
+        not prefer_task_orchestration
+        and mode != SkillOrchestrationMode.OFF
+        and is_competitive_research_request(
+            request.content,
+            explicit_skill_name=explicit_skill_name,
+        )
     )
     control = store.get_research_writer_control()
     rollout = decide_research_rollout(
@@ -311,7 +343,12 @@ async def approve_agent_run_plan(
     candidates = _current_plan_candidates(plan, user)
     try:
         validate_draft(
-            SkillPlanDraft(output_contract=plan.output_contract, nodes=plan.nodes),
+            SkillPlanDraft(
+                output_contract=plan.output_contract,
+                synthesis_output_contract=plan.synthesis_output_contract,
+                capability_gaps=plan.capability_gaps,
+                nodes=plan.nodes,
+            ),
             candidates,
             intent=plan.intent,
         )
@@ -446,20 +483,39 @@ async def retry_agent_run(
                 mode=mode,
             )
         else:
-            skill = (
-                catalog_service().get_by_name(prior.skill_name or "", user.personal_agent_id)
-                if prior.skill_name
-                else None
-            )
-            retried = await runtime.start(
-                content=prior.input_text,
-                user=user,
-                thread_id=prior.thread_id,
-                history=store.list_thread_messages(prior.thread_id),
-                skill=skill,
-                client_turn_id=request.client_turn_id,
-                project_id=prior.project_id,
-            )
+            if prior.requested_orchestration_mode == SkillOrchestrationRequestMode.AUTO:
+                mode = skill_orchestration_mode()
+                if mode == SkillOrchestrationMode.OFF:
+                    raise HTTPException(status_code=409, detail="Skill orchestration is disabled")
+                retried = await runtime.start_orchestrated(
+                    content=prior.input_text,
+                    user=user,
+                    thread_id=prior.thread_id,
+                    history=store.list_thread_messages(prior.thread_id),
+                    client_turn_id=request.client_turn_id,
+                    mode=mode,
+                    project_id=prior.project_id,
+                    retry_of_run_id=prior.id,
+                )
+            else:
+                skill = (
+                    catalog_service().get_by_name(prior.skill_name or "", user.personal_agent_id)
+                    if prior.skill_name
+                    else None
+                )
+                if prior.skill_name and skill is None:
+                    raise HTTPException(status_code=409, detail="The original Skill is no longer ready or authorized")
+                retried = await runtime.start(
+                    content=prior.input_text,
+                    user=user,
+                    thread_id=prior.thread_id,
+                    history=store.list_thread_messages(prior.thread_id),
+                    skill=skill,
+                    client_turn_id=request.client_turn_id,
+                    project_id=prior.project_id,
+                    requested_orchestration_mode=prior.requested_orchestration_mode,
+                    retry_of_run_id=prior.id,
+                )
     except PlanValidationError as error:
         raise HTTPException(status_code=409, detail={"codes": error.codes}) from error
     except RuntimeError as error:

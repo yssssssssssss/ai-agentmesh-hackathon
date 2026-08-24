@@ -31,6 +31,24 @@ PILOT_BUILTIN_SKILL_NAMES = frozenset(
     }
 )
 
+_INPUT_COMPATIBILITY: dict[str, frozenset[str]] = {
+    "competitive_material": frozenset({"research_evidence", "competitive_analysis"}),
+    "research_material": frozenset({"research_evidence", "competitive_analysis", "provider_summary"}),
+    "research_findings": frozenset(
+        {"research_evidence", "competitive_analysis", "jtbd_analysis", "opportunity_definition"}
+    ),
+    "issue_list": frozenset({"competitive_analysis", "jtbd_analysis", "opportunity_definition"}),
+    "metric_context": frozenset({"prioritized_issues", "action_plan", "competitive_analysis", "jtbd_analysis"}),
+}
+
+
+def kinds_compatible(output_kind: str, input_kind: str) -> bool:
+    return output_kind == input_kind or output_kind in _INPUT_COMPATIBILITY.get(input_kind, frozenset())
+
+
+def compatible_input_kind(output_kind: str, input_kinds: list[str]) -> str | None:
+    return next((input_kind for input_kind in input_kinds if kinds_compatible(output_kind, input_kind)), None)
+
 
 class ProfileError(ValueError):
     pass

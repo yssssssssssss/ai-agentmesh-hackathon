@@ -741,9 +741,11 @@ def test_failure_finish_accepts_completed_steps_only_for_blocking_review(tmp_pat
         expected_state_version=1,
         error_code="deterministic_review_blocked",
         review_artifact_id=artifacts["review"],
+        output_text="Blocked research summary",
         completed_at=datetime.now(UTC),
     )
     assert finished is not None and finished[1].status == AgentRunStatus.FAILED
+    assert finished[1].output_text == "Blocked research summary"
 
 
 def test_expired_attempt_scan_filters_runtime_state_and_detects_corruption(tmp_path) -> None:

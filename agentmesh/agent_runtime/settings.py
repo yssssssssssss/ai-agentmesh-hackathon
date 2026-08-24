@@ -26,6 +26,10 @@ def skill_orchestration_mode() -> SkillOrchestrationMode:
         return SkillOrchestrationMode.OFF
 
 
+def task_scenario_routing_enabled() -> bool:
+    return os.getenv("AGENTMESH_TASK_SCENARIO_ROUTING", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def research_preview_allowlist() -> frozenset[str]:
     from agentmesh.research_orchestration.current import parse_research_preview_allowlist
 

@@ -25,6 +25,7 @@ class _FlowClient:
         self.phase = "preview"
         self.calls: list[tuple[str, str]] = []
         self.research_reads = 0
+        self.run_status = "completed"
 
     @staticmethod
     def _projection(phase: str) -> dict[str, Any]:
@@ -58,7 +59,7 @@ class _FlowClient:
                     }
                 )
             return _Response(self._projection(self.phase))
-        return _Response({"item": {"id": "run_smoke", "status": "completed"}})
+        return _Response({"item": {"id": "run_smoke", "status": self.run_status}})
 
     def post(self, path: str, **_kwargs: Any) -> _Response:
         self.calls.append(("POST", path))
@@ -125,6 +126,16 @@ def test_http_smoke_keeps_plan_and_tool_approval_as_separate_gates() -> None:
         "/api/agent/runs/run_smoke/research/execute",
         "/api/inbox/inbox_smoke/resolve-tool-approval",
     ]
+
+
+def test_http_smoke_accepts_partial_terminal_runs_with_verified_results() -> None:
+    client = _FlowClient()
+    client.run_status = "partial"
+
+    run_id, projection = smoke._drive_new_run(client, timeout_seconds=1, poll_seconds=0.01)
+
+    assert run_id == "run_smoke"
+    assert projection["workflow"]["phase"] == "terminal"
 
 
 def test_artifact_validation_recomputes_hash_without_exposing_content() -> None:

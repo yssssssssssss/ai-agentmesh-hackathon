@@ -1,11 +1,28 @@
 from __future__ import annotations
 
+import hashlib
+from datetime import datetime
 from typing import Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agentmesh.models import Intent, Source
 from agentmesh.provider_status import provider_metadata
+
+
+class AcquisitionQuery(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+    question_ids: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ProviderCallRecord(BaseModel):
+    provider: str = Field(min_length=1, max_length=120)
+    operation: str = Field(min_length=1, max_length=80)
+    request_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    status: str = Field(pattern=r"^(success|error)$")
+    latency_ms: int = Field(ge=0)
+    result_count: int = Field(default=0, ge=0)
+    error_code: str | None = Field(default=None, max_length=120)
 
 
 class AcquisitionRequest(BaseModel):
@@ -16,6 +33,37 @@ class AcquisitionRequest(BaseModel):
     user_id: str
     task_id: str
     request_post_id: str
+    question_queries: list[AcquisitionQuery] = Field(default_factory=list, max_length=4)
+
+
+class AcquiredEvidenceItem(BaseModel):
+    source_id: str = Field(min_length=1, max_length=120)
+    content_provider: str = Field(min_length=1, max_length=120)
+    excerpt: str = Field(min_length=1, max_length=8192)
+    retrieved_at: datetime
+    content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    truncated: bool = False
+    risk_flags: list[str] = Field(default_factory=list, max_length=10)
+    question_ids: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("retrieved_at")
+    @classmethod
+    def require_aware_retrieval_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("retrieved_at must be timezone-aware")
+        return value
+
+    @model_validator(mode="after")
+    def validate_content_hash(self) -> AcquiredEvidenceItem:
+        if hashlib.sha256(self.excerpt.encode("utf-8")).hexdigest() != self.content_hash:
+            raise ValueError("content_hash must match excerpt")
+        if self.risk_flags != sorted(set(self.risk_flags)):
+            raise ValueError("risk_flags must be ordered and unique")
+        if self.question_ids != list(dict.fromkeys(self.question_ids)):
+            raise ValueError("question_ids must be ordered and unique")
+        if self.truncated != ("truncated" in self.risk_flags):
+            raise ValueError("truncated evidence must carry the matching risk flag")
+        return self
 
 
 class AcquisitionResult(BaseModel):
@@ -23,8 +71,20 @@ class AcquisitionResult(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1, max_length=4000)
     sources: list[Source] = Field(default_factory=list)
+    source_evidence: list[AcquiredEvidenceItem] = Field(default_factory=list, max_length=100)
+    provider_calls: list[ProviderCallRecord] = Field(default_factory=list, max_length=20)
     permission: str = "project_visible"
     metadata: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_source_evidence(self) -> AcquisitionResult:
+        source_ids = {source.id for source in self.sources}
+        evidence_ids = [item.source_id for item in self.source_evidence]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("source_evidence source IDs must be unique")
+        if not set(evidence_ids).issubset(source_ids):
+            raise ValueError("source_evidence must reference returned sources")
+        return self
 
 
 class AcquisitionAgent(Protocol):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from datetime import UTC, datetime
 
@@ -42,7 +43,7 @@ from agentmesh.research_orchestration.evidence import (
     EVIDENCE_SOURCE_KIND,
     EVIDENCE_SOURCE_SCHEMA,
     TOOL_RESULT_KIND,
-    TOOL_RESULT_SCHEMA,
+    TOOL_RESULT_SCHEMA_V1,
     EvidenceInputRef,
     EvidenceManifest,
     EvidenceService,
@@ -56,25 +57,58 @@ def _web_payload(
     *,
     urls: tuple[str, ...] = ("https://alpha.example/research", "https://beta.example/report"),
     content: str = "RAW_PROVIDER_ONLY: Alpha and Beta snippets.",
+    evidence_excerpts: tuple[str, ...] | None = None,
+    evidence_question_ids: tuple[str, ...] = ("q_evidence_comparison", "q_scenarios"),
 ) -> dict[str, object]:
     created_at = datetime.now(UTC).isoformat()
+    sources = [
+        {
+            "id": f"source_{index}",
+            "title": f"Source {index}",
+            "source_type": "web_page",
+            "reference": url,
+            "workspace_id": context.lineage_step_1.workspace_id,
+            "project_id": context.lineage_step_1.project_id,
+            "user_id": context.lineage_step_1.user_id,
+            "run_id": context.lineage_step_1.run_id,
+            "skill_id": "skill_competitive",
+            "created_at": created_at,
+        }
+        for index, url in enumerate(urls, start=1)
+    ]
+    excerpts = (
+        evidence_excerpts
+        if evidence_excerpts is not None
+        else tuple(f"{content} Source {index}" for index, _url in enumerate(urls, start=1))
+    )
+    source_evidence = [
+        {
+            "source_id": sources[index]["id"],
+            "content_provider": "firecrawl",
+            "excerpt": excerpt,
+            "retrieved_at": created_at,
+            "content_hash": hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
+            "truncated": False,
+            "risk_flags": [],
+            "question_ids": list(evidence_question_ids),
+        }
+        for index, excerpt in enumerate(excerpts)
+    ]
     return {
         "title": "Web research",
         "content": content,
-        "sources": [
+        "sources": sources,
+        "source_evidence": source_evidence,
+        "provider_calls": [
             {
-                "id": f"source_{index}",
-                "title": f"Source {index}",
-                "source_type": "web_page",
-                "reference": url,
-                "workspace_id": context.lineage_step_1.workspace_id,
-                "project_id": context.lineage_step_1.project_id,
-                "user_id": context.lineage_step_1.user_id,
-                "run_id": context.lineage_step_1.run_id,
-                "skill_id": "skill_competitive",
-                "created_at": created_at,
+                "provider": "tavily",
+                "operation": "search",
+                "request_hash": hashlib.sha256(b"compare").hexdigest(),
+                "status": "success",
+                "latency_ms": 8,
+                "result_count": len(sources),
+                "error_code": None,
             }
-            for index, url in enumerate(urls, start=1)
         ],
         "permission": "project_visible",
         "metadata": {
@@ -91,6 +125,8 @@ def _prepare_evidence(
     *,
     urls: tuple[str, ...] = ("https://alpha.example/research", "https://beta.example/report"),
     content: str = "RAW_PROVIDER_ONLY: Alpha and Beta snippets.",
+    evidence_excerpts: tuple[str, ...] | None = None,
+    evidence_question_ids: tuple[str, ...] = ("q_evidence_comparison", "q_scenarios"),
 ) -> PreparedEvidence:
     request_ref = context.artifacts.seal(
         context.lineage_step_1,
@@ -102,13 +138,19 @@ def _prepare_evidence(
         ),
         lease=context.lease,
     )
-    payload = _web_payload(context, urls=urls, content=content)
+    payload = _web_payload(
+        context,
+        urls=urls,
+        content=content,
+        evidence_excerpts=evidence_excerpts if evidence_excerpts is not None else (),
+        evidence_question_ids=evidence_question_ids,
+    )
     raw_ref = context.artifacts.seal(
         context.lineage_step_1,
         ArtifactDraft(
             artifact_id=f"artifact_raw_{context.lineage_step_1.run_id}",
             kind=TOOL_RESULT_KIND,
-            schema_version=TOOL_RESULT_SCHEMA,
+            schema_version=TOOL_RESULT_SCHEMA_V1,
             content=payload,
         ),
         lease=context.lease,
@@ -721,6 +763,31 @@ def test_deterministic_review_blocks_report_for_quality_failures(tmp_path, failu
     assert report_count == 0
 
 
+def test_review_counts_only_evidence_associated_with_the_factual_question(tmp_path) -> None:
+    context = research_execution_context(
+        tmp_path / "question-scoped-evidence.sqlite3",
+        run_id="run_question_scoped_evidence",
+    )
+    prepared = _prepare_evidence(
+        context,
+        evidence_excerpts=("Alpha source evidence.", "Beta source evidence."),
+        evidence_question_ids=("q_evidence_comparison",),
+    )
+    evidence_ids = [item.evidence_id for item in prepared.evidence_inputs]
+    payload = _valid_skill_payload(evidence_ids[0])
+    payload["facts"][0]["evidence_ids"] = evidence_ids
+    payload["inferences"][0]["evidence_ids"] = evidence_ids
+
+    _, _, outcome = _finalize(context, prepared, payload)
+
+    assert outcome.status == "block"
+    review_artifact = context.artifacts.read_verified(outcome.review_ref, scope=context.lineage_step_2)
+    review = DeterministicReview.model_validate_json(review_artifact.content)
+    checks = {check.code: check.passed for check in review.checks}
+    assert checks["required_question_coverage"]
+    assert not checks["evidence_policy"]
+
+
 @pytest.mark.parametrize(
     ("group", "claim_type"),
     [
@@ -828,7 +895,7 @@ def test_fact_conflict_propagates_to_descendants_and_is_disclosed(tmp_path) -> N
     assert "source_conflict" in report_artifact.content
 
 
-def test_fact_conflicting_medium_confidence_blocks_report_and_discloses_gap(tmp_path) -> None:
+def test_fact_conflicting_medium_confidence_is_capped_before_review(tmp_path) -> None:
     context = research_execution_context(
         tmp_path / "conflicting-medium.sqlite3",
         run_id="run_conflicting_medium",
@@ -841,14 +908,17 @@ def test_fact_conflicting_medium_confidence_blocks_report_and_discloses_gap(tmp_
 
     _, _, outcome = _finalize(context, prepared, payload)
 
-    assert outcome.status == "block" and outcome.report_ref is None
+    assert outcome.status == "pass" and outcome.report_ref is not None
     deliverable_artifact = context.artifacts.read_verified(outcome.deliverable_ref, scope=context.lineage_step_2)
     deliverable = DeliverableDocument.model_validate_json(deliverable_artifact.content)
     assert "source_conflict" in deliverable.payload.limitations
     review_artifact = context.artifacts.read_verified(outcome.review_ref, scope=context.lineage_step_2)
     review = DeterministicReview.model_validate_json(review_artifact.content)
     checks = {check.code: check.passed for check in review.checks}
-    assert not checks["conflict_confidence_cap"]
+    assert checks["conflict_confidence_cap"]
+    ledger_artifact = context.artifacts.read_verified(outcome.claim_ledger_ref, scope=context.lineage_step_2)
+    ledger = ClaimLedger.model_validate_json(ledger_artifact.content)
+    assert all(claim.confidence == ClaimConfidence.LOW for claim in ledger.claims)
 
 
 def test_review_status_cannot_override_a_failed_deterministic_check() -> None:

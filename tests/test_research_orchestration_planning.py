@@ -251,6 +251,10 @@ def test_compiler_freezes_one_tool_to_skill_plan_with_reproducible_hash() -> Non
         {"source_step": 1, "source_pointer": "/evidence_inputs", "target_pointer": "/evidence_inputs"}
     ]
     assert "淘宝与拼多多" in plan.payload["steps"][0]["initial_input"]["query"]
+    question_queries = plan.payload["steps"][0]["initial_input"]["question_queries"]
+    assert 1 <= len(question_queries) <= 4
+    assert all(item["question_ids"] for item in question_queries)
+    assert any("q_scenarios" in item["question_ids"] for item in question_queries)
     validate_execution_plan_version(plan)
     assert {"review", "report"}.isdisjoint(step["actor_type"] for step in plan.payload["steps"])
 

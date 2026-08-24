@@ -47,6 +47,7 @@ from agentmesh.models import (
     LearnedSkill,
     MarketParticipation,
     MemoryItem,
+    MemoryLayer,
     MemoryRelation,
     ModelDefinition,
     PermissionPolicyRule,
@@ -403,6 +404,43 @@ class SQLiteStore:
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_records_collection ON records(collection, created_order)"
+        )
+        connection.execute(
+            """
+            WITH ranked_daily_summaries AS (
+                SELECT created_order,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY
+                               json_extract(payload, '$.user_id'),
+                               json_extract(payload, '$.project_id'),
+                               json_extract(payload, '$.memory_date')
+                           ORDER BY created_order DESC
+                       ) AS duplicate_rank
+                FROM records
+                WHERE collection = 'user_memory_items'
+                  AND json_extract(payload, '$.memory_type') = 'daily_summary'
+                  AND json_extract(payload, '$.status') = 'active'
+                  AND json_valid(payload)
+            )
+            UPDATE records
+            SET payload = json_set(payload, '$.status', 'archived')
+            WHERE created_order IN (
+                SELECT created_order FROM ranked_daily_summaries WHERE duplicate_rank > 1
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_user_daily_summary_unique
+            ON records(
+                json_extract(payload, '$.user_id'),
+                json_extract(payload, '$.project_id'),
+                json_extract(payload, '$.memory_date')
+            )
+            WHERE collection = 'user_memory_items'
+              AND json_extract(payload, '$.memory_type') = 'daily_summary'
+              AND json_extract(payload, '$.status') = 'active'
+            """
         )
         connection.execute(
             """
@@ -4708,7 +4746,11 @@ class SQLiteStore:
         )
         if run_cursor.rowcount != 1:
             raise ResearchStoreConflict("Agent run finish lost its compare-and-swap")
-        if run_status in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL} and output_text:
+        if run_status in {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.PARTIAL,
+            AgentRunStatus.FAILED,
+        } and output_text:
             receipt_row = connection.execute(
                 """
                 SELECT payload FROM research_model_call_receipts
@@ -4897,6 +4939,7 @@ class SQLiteStore:
         error_code: str,
         completed_at: datetime,
         review_artifact_id: str | None = None,
+        output_text: str | None = None,
     ) -> tuple[ResearchWorkflow, AgentRun] | None:
         if not error_code:
             raise ValueError("failed research execution requires an error code")
@@ -4946,7 +4989,7 @@ class SQLiteStore:
                 attempt_status=AttemptStatus.FAILED,
                 run_status=AgentRunStatus.FAILED,
                 error_code=error_code,
-                output_text=None,
+                output_text=output_text,
                 completed_at=effective_completed_at,
             )
 
@@ -7244,6 +7287,56 @@ class SQLiteStore:
     def add_user_memory_item(self, item: UserMemoryItem) -> UserMemoryItem:
         self._upsert("user_memory_items", item)
         return item
+
+    def add_daily_summary_if_absent(self, item: UserMemoryItem) -> tuple[UserMemoryItem, bool]:
+        if (
+            item.layer != MemoryLayer.SHORT_TERM
+            or item.source_kind != "daily_summary"
+            or item.memory_type != "daily_summary"
+            or item.project_id is None
+        ):
+            raise ValueError("daily summary identity is invalid")
+
+        work: VectorWork | None = None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM records
+                WHERE collection = 'user_memory_items'
+                  AND json_extract(payload, '$.user_id') = ?
+                  AND json_extract(payload, '$.project_id') = ?
+                  AND json_extract(payload, '$.memory_date') = ?
+                  AND json_extract(payload, '$.memory_type') = 'daily_summary'
+                  AND json_extract(payload, '$.status') = 'active'
+                LIMIT 1
+                """,
+                (item.user_id, item.project_id, item.memory_date.isoformat()),
+            ).fetchone()
+            if row is not None:
+                return UserMemoryItem.model_validate_json(row["payload"]), False
+
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                ("user_memory_items", item.id, item.model_dump_json()),
+            )
+            self._sync_fts(connection, "user_memory_items", item)
+            doc = _extract_fts_doc("user_memory_items", item)
+            if doc is not None:
+                work = self.vector_index.prepare(
+                    connection,
+                    "user_memory_items",
+                    item.id,
+                    f"{doc.title} {doc.body}".strip(),
+                )
+
+        if work is not None:
+            from agentmesh.embedding import EMBEDDING_ENABLED
+
+            if EMBEDDING_ENABLED:
+                self.vector_index.process(work)
+        return item, True
 
     def save_user_memory_item(self, item: UserMemoryItem) -> UserMemoryItem:
         self._upsert("user_memory_items", item)

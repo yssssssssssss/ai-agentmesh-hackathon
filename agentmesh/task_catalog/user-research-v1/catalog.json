@@ -1,0 +1,34 @@
+{
+  "catalog_hash": "480d88f8f9d11c0f24bcff7ecb6f2a333d5852391bb80ee2de9217b81b6b9629",
+  "catalog_version": "user-research-v1",
+  "counts": {
+    "knowledge": 184,
+    "mappings": 15,
+    "scenarios": 15,
+    "skills": 25,
+    "tasks": 5
+  },
+  "files": {
+    "knowledge-registry.json": "02dcebd9e6c6d9ce2648bc865b527eb659bf97221b1861f8a44087e9228b8281",
+    "scenarios.json": "53051b7f06094ad85931a7478064d2ea5da9411534d1d9a75818ca43bcc4b1f5",
+    "schemas/completion-check.schema.json": "7e0cede935d179a076ab8b2fff6f66fe460b1975a4c615d8f141cd798d82f781",
+    "schemas/knowledge-registry.schema.json": "af8a2f78e7604a268ea6f4a566e9f29dfe15fb0ebe2fae32c839713f8b370316",
+    "schemas/routing-result.schema.json": "0106be371eaa6df07c71957a0bf46832526bec6c19382ca3f71384de95f6392d",
+    "schemas/scenario.schema.json": "8d8f8b73c1667b79226364d69f6e0437471569a874dc2e2ed258d14dffc2922c",
+    "schemas/skill-registry.schema.json": "2857e48383bf84e9d86c5698e3c3e452b4944040910a722adb772fdf69b5ec7a",
+    "schemas/task-skill-mapping.schema.json": "f4617b5618f58e106009aac8c3a687e212df568267a7a006df5b999578dda762",
+    "schemas/task.schema.json": "0841737fa94b023f775088e29372e6bb5379e812e0e65820f94e0e1e146c3e1a",
+    "skill-registry.json": "10e1e894d4b3c06a1c528d23102c24c6e2f7c72bb423900eb45a13f664d58ae5",
+    "task-skill-mapping.json": "0d28191e0a63494941a80a901e66bfba18d82898f53b187bbb1f88ca30136059",
+    "tasks.json": "13b27c6da296bbb36eed9a0903c8a8b8b0bc893f1e907a83f53ab50c729e7c27"
+  },
+  "hash_algorithm": "sha256-bytes+agentmesh-canonical-json-v3",
+  "schema_version": "task-catalog-manifest-v1",
+  "source_registry_hashes": {
+    "01-task-任务/task-skill-knowledge-mapping.md": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "05-registry-索引/knowledge-registry.yaml": "4cef6e2241f4b46a318d579fa0d47f5637f63e502ecb7971d4b333dd209c7a04",
+    "05-registry-索引/skill-registry.yaml": "351b7d413579daa681f4521b1e31e655423cd81711577dff3d0055c1e8d6ee00",
+    "05-registry-索引/task-registry.yaml": "ca9c10e77d1be96b44a0d5ef7d539c8233c924dd8245b45f7b420150bb4b3580"
+  },
+  "source_updated_at": "2026-08-05"
+}

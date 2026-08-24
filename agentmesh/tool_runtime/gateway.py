@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from agentmesh.acquisition import AcquisitionRequest
+from agentmesh.acquisition import AcquisitionQuery, AcquisitionRequest
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.data_authorization import authorize_data_query
 from agentmesh.datasources import default_data_source_registry
@@ -252,9 +252,17 @@ class ToolGateway:
         query = str(arguments.get("query") or "").strip()
         if not query:
             raise ValueError("query is required")
+        raw_question_queries = arguments.get("question_queries", [])
+        if not isinstance(raw_question_queries, list):
+            raise ValueError("question_queries must be a list")
+        try:
+            question_queries = [AcquisitionQuery.model_validate(item) for item in raw_question_queries]
+        except (TypeError, ValueError):
+            raise ValueError("question_queries are invalid") from None
         result = self.acquisition_agent.acquire(
             AcquisitionRequest(
                 query=query,
+                question_queries=question_queries,
                 intent=Intent.REQUEST_EXTERNAL_RESEARCH,
                 workspace_id=context.workspace_id,
                 project_id=context.project_id,
@@ -285,6 +293,8 @@ class ToolGateway:
             "title": result.title,
             "content": result.content,
             "sources": [source.model_dump(mode="json") for source in sources],
+            "source_evidence": [item.model_dump(mode="json") for item in result.source_evidence],
+            "provider_calls": [item.model_dump(mode="json") for item in result.provider_calls],
             "permission": result.permission,
             "metadata": {
                 **result.metadata,

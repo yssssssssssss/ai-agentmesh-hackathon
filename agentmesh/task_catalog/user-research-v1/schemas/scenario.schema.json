@@ -1,0 +1,187 @@
+{
+  "$defs": {
+    "CatalogSkillReference": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CatalogStatus"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "title": "CatalogSkillReference",
+      "type": "object"
+    },
+    "CatalogStatus": {
+      "enum": [
+        "draft",
+        "reviewed",
+        "validated",
+        "planned"
+      ],
+      "title": "CatalogStatus",
+      "type": "string"
+    },
+    "ScenarioCatalogEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "completion_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Completion Criteria",
+          "type": "array"
+        },
+        "default_skills": {
+          "items": {
+            "$ref": "#/$defs/CatalogSkillReference"
+          },
+          "title": "Default Skills",
+          "type": "array"
+        },
+        "definition": {
+          "minLength": 1,
+          "title": "Definition",
+          "type": "string"
+        },
+        "dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "fallback": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fallback",
+          "type": "array"
+        },
+        "human_confirmation": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Human Confirmation",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "knowledge_requirements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Knowledge Requirements",
+          "type": "array"
+        },
+        "optional_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Inputs",
+          "type": "array"
+        },
+        "optional_skills": {
+          "items": {
+            "$ref": "#/$defs/CatalogSkillReference"
+          },
+          "title": "Optional Skills",
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Outputs",
+          "type": "array"
+        },
+        "owner": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Owner",
+          "type": "string"
+        },
+        "parent_task": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Parent Task",
+          "type": "string"
+        },
+        "required_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Inputs",
+          "type": "array"
+        },
+        "source_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Hash",
+          "type": "string"
+        },
+        "source_path": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CatalogStatus"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "trigger_examples": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trigger Examples",
+          "type": "array"
+        },
+        "updated_at": {
+          "format": "date",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "source_hash",
+        "id",
+        "title",
+        "parent_task",
+        "definition",
+        "outputs",
+        "completion_criteria",
+        "status",
+        "owner",
+        "updated_at"
+      ],
+      "title": "ScenarioCatalogEntry",
+      "type": "object"
+    }
+  },
+  "$id": "https://agentmesh.local/schemas/task-catalog/user-research-v1/scenario.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "#/$defs/ScenarioCatalogEntry"
+  },
+  "type": "array"
+}

@@ -14,5 +14,9 @@ negative_examples:
   - 从零生成研究计划
   - 查询历史 AB 实验
 required_capabilities: [wiki.corpus]
+task_types: [opportunity-direction-evaluation, solution-comparison, priority-roadmap]
+archetypes: [prioritization, roadmap]
+required_resources: [wiki.corpus]
+report_policy: on_request
 side_effect: draft
 planner_eligible: true

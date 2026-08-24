@@ -77,6 +77,7 @@ function detail(status: SkillPlanNode['status'] = 'pending'): SkillPlanDetailRes
         input_kinds: ['prd'],
         deliverables: ['feasibility_review'],
         constraints: { external_write: false, project_scope: 'current' },
+        external_evidence_required: false,
         explicit_skill_names: [],
         complexity: 'assisted',
       },
@@ -130,6 +131,65 @@ describe('Skill orchestration views', () => {
     expect(html).toContain('可添加候选')
     expect(html).toContain('用户访谈提纲')
     expect(html).toContain('加入计划')
+  })
+
+  it('shows Task, Scenario, evidence, and capability gaps in route plans', () => {
+    const preview = detail()
+    preview.plan.routing_result = {
+      catalog_version: 'user-research-v1',
+      catalog_hash: 'a'.repeat(64),
+      task: {
+        task_id: 'define-strategy',
+        confidence: 'high',
+        reason: '最终交付需要形成策略和优先级',
+        secondary_tasks: ['find-direction', 'understand-users'],
+        execution_relation: 'parallel_then_merge',
+      },
+      scenario: {
+        scenario_id: 'priority-roadmap',
+        confidence: 'high',
+        supporting_scenarios: ['competitor-benchmark-research', 'user-journey-insight'],
+      },
+      skill_routing: {
+        planned_skills: ['planned-opportunity-evaluation-skill'],
+        execution_mode: 'parallel_then_merge',
+      },
+      evidence_requirement: {
+        external_evidence_required: true,
+        minimum_sources: 5,
+        independent_sources: 3,
+      },
+    }
+    const routedNode = preview.plan.nodes?.[0]
+    if (!routedNode) throw new Error('expected a plan node')
+    preview.plan.nodes = [{
+      ...routedNode,
+      scenario_id: 'competitor-benchmark-research',
+      skill_status: 'draft',
+      required_tool_names: ['web_research'],
+      knowledge_bindings: { required: ['method-one'], optional: [], excluded: [] },
+      completion_criteria: ['结论有来源'],
+    }]
+
+    const html = renderToStaticMarkup(
+      <SkillPlanPreview
+        detail={preview}
+        candidates={[skill]}
+        orchestrationMode="preview"
+        pendingAction={null}
+        error={null}
+        onUpdate={vi.fn()}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('define-strategy')
+    expect(html).toContain('priority-roadmap')
+    expect(html).toContain('需要外部证据')
+    expect(html).toContain('能力缺口：planned-opportunity-evaluation-skill')
+    expect(html).toContain('web_research')
+    expect(html).toContain('完成标准：结论有来源')
   })
 
   it('moves preview controls below node content on narrow screens', () => {

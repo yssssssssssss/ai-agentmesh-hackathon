@@ -12,7 +12,7 @@ from agentmesh.models import (
     RetrievalMetrics,
     Scope,
 )
-from agentmesh.seed import PROJECT, USER, WORKSPACE
+from agentmesh.seed import PROJECT, TEAM_LEAD, USER, WORKSPACE
 from agentmesh.store import store
 
 
@@ -157,3 +157,26 @@ class TestRetrievalMetricsAPI:
         assert data["summary"]["total_cited"] == 3
         assert data["summary"]["avg_citation_rate"] == 0.375
         assert data["summary"]["avg_latency_ms"] == 40.0
+
+    def test_api_returns_only_current_users_metrics(self) -> None:
+        store.add_retrieval_metrics(
+            RetrievalMetrics(
+                query_text="当前用户查询",
+                user_id=USER.id,
+                results_returned=1,
+            )
+        )
+        store.add_retrieval_metrics(
+            RetrievalMetrics(
+                query_text="其他用户私密查询",
+                user_id=TEAM_LEAD.id,
+                results_returned=1,
+            )
+        )
+
+        response = _authenticated_client().get("/api/memory/retrieval-metrics")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["summary"]["total"] == 1
+        assert [item["query_text"] for item in payload["items"]] == ["当前用户查询"]

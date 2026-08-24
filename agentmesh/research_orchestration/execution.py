@@ -46,20 +46,29 @@ from agentmesh.research_orchestration.contracts import (
     canonical_sha256,
 )
 from agentmesh.research_orchestration.delivery import (
+    DELIVERABLE_KIND,
+    DELIVERABLE_SCHEMA,
     REPORT_KIND,
     REPORT_SCHEMA,
+    REVIEW_KIND,
+    REVIEW_SCHEMA,
     SKILL_RESULT_KIND,
     SKILL_RESULT_SCHEMA,
+    DeliverableDocument,
     DeliveryError,
     DeliveryOutcome,
+    DeterministicReview,
     ReportDocument,
     ResultPipeline,
 )
 from agentmesh.research_orchestration.evidence import (
     EVIDENCE_MANIFEST_KIND,
     EVIDENCE_MANIFEST_SCHEMA,
+    EVIDENCE_SOURCE_KIND,
+    EVIDENCE_SOURCE_SCHEMA,
     EvidenceError,
     EvidenceManifest,
+    EvidenceSource,
     resolve_json_pointer,
 )
 from agentmesh.store import ResearchStoreConflict, SQLiteStore
@@ -389,6 +398,12 @@ class ExecutionEngine:
         manifest = self._read_manifest(tool_output.evidence_manifest_ref, context.tool_lineage)
         gaps = [item.value for item in manifest.gap_codes]
         if delivery.status == "block":
+            blocked_output = self._blocked_output_text(
+                delivery,
+                delivery_lineage=context.skill_lineage,
+                manifest=manifest,
+                evidence_lineage=context.tool_lineage,
+            )
             failed = self.repository.fail_research_execution(
                 context.run.id,
                 attempt_id=context.attempt.id,
@@ -396,6 +411,7 @@ class ExecutionEngine:
                 expected_state_version=context.workflow.state_version,
                 error_code="deterministic_review_blocked",
                 review_artifact_id=delivery.review_ref.artifact_id,
+                output_text=blocked_output,
                 completed_at=self.clock.now(),
             )
             if failed is None:
@@ -649,6 +665,89 @@ class ExecutionEngine:
             return EvidenceManifest.model_validate_json(artifact.content)
         except (ArtifactStoreError, RecursionError, TypeError, ValueError):
             raise ExecutionError("evidence_manifest_invalid") from None
+
+    def _blocked_output_text(
+        self,
+        delivery: DeliveryOutcome,
+        *,
+        delivery_lineage: ArtifactLineage,
+        manifest: EvidenceManifest,
+        evidence_lineage: ArtifactLineage,
+    ) -> str:
+        try:
+            deliverable_artifact = self.artifacts.read_verified(
+                delivery.deliverable_ref,
+                scope=delivery_lineage,
+                expected_kind=DELIVERABLE_KIND,
+                expected_schema_version=DELIVERABLE_SCHEMA,
+            )
+            review_artifact = self.artifacts.read_verified(
+                delivery.review_ref,
+                scope=delivery_lineage,
+                expected_kind=REVIEW_KIND,
+                expected_schema_version=REVIEW_SCHEMA,
+            )
+            deliverable = DeliverableDocument.model_validate_json(deliverable_artifact.content)
+            review = DeterministicReview.model_validate_json(review_artifact.content)
+        except (ArtifactStoreError, RecursionError, TypeError, ValueError):
+            return (
+                "# 本次研究未通过最终审核\n\n"
+                "研究中间结果未能通过完整性校验，因此没有发布正式报告。请在研究工作台查看审计信息。"
+            )
+
+        facts = [item.statement for item in deliverable.payload.comparison if item.claim_type == "fact"]
+        inferences = [item.statement for item in deliverable.payload.comparison if item.claim_type == "inference"]
+        failed_checks = [item.code for item in review.checks if not item.passed]
+        source_lines: list[str] = []
+        seen_source_ids: set[str] = set()
+        for entry in manifest.entries:
+            try:
+                artifact = self.artifacts.read_verified(
+                    ArtifactRef(artifact_id=entry.artifact_id, content_hash=entry.content_hash),
+                    scope=evidence_lineage,
+                    expected_kind=EVIDENCE_SOURCE_KIND,
+                    expected_schema_version=EVIDENCE_SOURCE_SCHEMA,
+                )
+                evidence = EvidenceSource.model_validate_json(artifact.content)
+            except (ArtifactStoreError, RecursionError, TypeError, ValueError):
+                continue
+            for source in evidence.sources:
+                if source.source_id in seen_source_ids:
+                    continue
+                seen_source_ids.add(source.source_id)
+                source_lines.append(f"- {source.title}: {source.url}")
+
+        lines = [
+            "# 本次研究未通过最终审核",
+            "",
+            "以下内容是可追溯的研究草稿，不是已审核通过的正式报告。",
+            "",
+            "## 草稿摘要",
+            "",
+            deliverable.payload.summary,
+        ]
+        if facts:
+            lines.extend(["", "## 已确认事实", "", *(f"- {item}" for item in facts[:8])])
+        if inferences:
+            lines.extend(["", "## 初步推断", "", *(f"- {item}" for item in inferences[:8])])
+        if failed_checks:
+            lines.extend(["", "## 未通过检查", "", *(f"- `{item}`" for item in failed_checks)])
+        if deliverable.payload.limitations:
+            lines.extend(
+                ["", "## 证据缺口与限制", "", *(f"- {item}" for item in deliverable.payload.limitations[:12])]
+            )
+        if source_lines:
+            lines.extend(["", "## 已获取来源", "", *source_lines[:20]])
+        if deliverable.payload.recommendations:
+            lines.extend(
+                [
+                    "",
+                    "## 建议的下一步",
+                    "",
+                    *(f"- {item.statement}" for item in deliverable.payload.recommendations[:8]),
+                ]
+            )
+        return "\n".join(lines)
 
     def _output_text(self, delivery: DeliveryOutcome, lineage: ArtifactLineage) -> str | None:
         if delivery.report_ref is None:

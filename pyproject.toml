@@ -54,4 +54,5 @@ agentmesh = [
   "builtin_skills/**",
   "schemas/research/*.json",
   "research_catalog/research-v3/competitive-text-v1/**",
+  "task_catalog/user-research-v1/**",
 ]

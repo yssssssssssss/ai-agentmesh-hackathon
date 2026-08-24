@@ -12,8 +12,9 @@ from agentmesh.provider_status import ProviderStatus, ProviderTelemetry, build_p
 DEFAULT_MODEL_ID = "default"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
 DEFAULT_LLM_CONNECT_TIMEOUT_SECONDS = 5.0
-DEFAULT_CHAT_LLM_TIMEOUT_SECONDS = 30.0
-DEFAULT_MARKET_LLM_TIMEOUT_SECONDS = 60.0
+DEFAULT_CHAT_LLM_TIMEOUT_SECONDS = 120.0
+DEFAULT_RESEARCH_SKILL_TIMEOUT_SECONDS = 180.0
+DEFAULT_MARKET_LLM_TIMEOUT_SECONDS = 180.0
 _llm_telemetry = ProviderTelemetry()
 
 
@@ -193,6 +194,13 @@ def llm_chat_timeout_seconds() -> float:
     return _positive_float_env("AGENTMESH_CHAT_LLM_TIMEOUT_SECONDS", DEFAULT_CHAT_LLM_TIMEOUT_SECONDS)
 
 
+def research_skill_timeout_seconds() -> float:
+    return _positive_float_env(
+        "AGENTMESH_RESEARCH_SKILL_TIMEOUT_SECONDS",
+        DEFAULT_RESEARCH_SKILL_TIMEOUT_SECONDS,
+    )
+
+
 def market_llm_timeout_seconds() -> float:
     """Timeout for the autonomous market's background LLM calls (signal synthesis, delegated
     answer, match confirm). Much longer than the interactive chat timeout — these run in
@@ -209,6 +217,7 @@ def llm_timeout_config() -> dict[str, Any]:
     return {
         "timeout_seconds": llm_timeout_seconds(),
         "chat_timeout_seconds": llm_chat_timeout_seconds(),
+        "research_skill_timeout_seconds": research_skill_timeout_seconds(),
         "connect_timeout_seconds": llm_connect_timeout_seconds(),
     }
 

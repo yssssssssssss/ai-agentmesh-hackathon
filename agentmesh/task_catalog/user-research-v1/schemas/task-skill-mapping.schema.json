@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "TaskSkillMappingEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "default_skill_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Default Skill Ids",
+          "type": "array"
+        },
+        "optional_knowledge_descriptors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Knowledge Descriptors",
+          "type": "array"
+        },
+        "optional_knowledge_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Knowledge Ids",
+          "type": "array"
+        },
+        "optional_skill_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Skill Ids",
+          "type": "array"
+        },
+        "planned_skill_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Planned Skill Ids",
+          "type": "array"
+        },
+        "required_knowledge_descriptors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Knowledge Descriptors",
+          "type": "array"
+        },
+        "required_knowledge_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Knowledge Ids",
+          "type": "array"
+        },
+        "scenario_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "source_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Hash",
+          "type": "string"
+        },
+        "source_path": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "task_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "source_hash",
+        "scenario_id",
+        "task_id"
+      ],
+      "title": "TaskSkillMappingEntry",
+      "type": "object"
+    }
+  },
+  "$id": "https://agentmesh.local/schemas/task-catalog/user-research-v1/task-skill-mapping.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "#/$defs/TaskSkillMappingEntry"
+  },
+  "type": "array"
+}

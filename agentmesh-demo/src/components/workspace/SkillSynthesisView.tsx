@@ -1,6 +1,7 @@
 import { FileText, Link2, Sparkles, TriangleAlert } from 'lucide-react'
 
 import type {
+  CompletionCheckResult,
   Skill,
   SkillNodeResult,
   SkillResultSource,
@@ -12,6 +13,7 @@ interface SkillSynthesisViewProps {
   results: SkillNodeResult[]
   skillsById: ReadonlyMap<string, Skill>
   partial?: boolean
+  completionCheck?: CompletionCheckResult | null
   onOpenSource: (source: SkillResultSource) => void
   onOpenArtifact: (artifactId: string) => void
 }
@@ -21,6 +23,7 @@ export function SkillSynthesisView({
   results,
   skillsById,
   partial = false,
+  completionCheck,
   onOpenSource,
   onOpenArtifact,
 }: SkillSynthesisViewProps) {
@@ -97,6 +100,23 @@ export function SkillSynthesisView({
               )
             })}
           </ol>
+        </section>
+      ) : null}
+
+      {completionCheck && !completionCheck.completed ? (
+        <section className="mt-5 rounded-[10px] bg-amber-300/[0.07] px-3.5 py-3" aria-label="完成度检查">
+          <h3 className="flex items-center gap-2 text-xs font-semibold text-amber-200">
+            <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
+            完成度检查
+          </h3>
+          {(completionCheck.missing_outputs ?? []).length > 0 ? (
+            <p className="mt-2 text-xs leading-5 text-amber-100/80">
+              缺少输出：{(completionCheck.missing_outputs ?? []).join('、')}
+            </p>
+          ) : null}
+          {(completionCheck.gaps ?? []).length > 0 ? (
+            <p className="mt-1 text-xs leading-5 text-amber-100/70">能力缺口：{(completionCheck.gaps ?? []).join('；')}</p>
+          ) : null}
         </section>
       ) : null}
 

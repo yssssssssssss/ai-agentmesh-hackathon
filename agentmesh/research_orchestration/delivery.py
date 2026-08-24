@@ -688,17 +688,22 @@ class ResultPipeline:
             for claim in claims
         ]
         evidence_by_claim = _claim_evidence_map(claims)
-        return [
-            claim.model_copy(update={"confidence": ClaimConfidence.MEDIUM})
-            if claim.confidence == ClaimConfidence.HIGH
-            and evidence_by_claim[claim.claim_id]
-            and all(
-                evidence_sources[evidence_id].source_tier == "provider_summary"
-                for evidence_id in evidence_by_claim[claim.claim_id]
-            )
-            else claim
-            for claim in claims
-        ]
+        normalized_claims: list[ClaimRecord] = []
+        for claim in claims:
+            confidence = claim.confidence
+            if claim.conflict_status in {"possible", "conflicting"}:
+                confidence = ClaimConfidence.LOW
+            elif (
+                confidence == ClaimConfidence.HIGH
+                and evidence_by_claim[claim.claim_id]
+                and all(
+                    evidence_sources[evidence_id].source_tier == "provider_summary"
+                    for evidence_id in evidence_by_claim[claim.claim_id]
+                )
+            ):
+                confidence = ClaimConfidence.MEDIUM
+            normalized_claims.append(claim.model_copy(update={"confidence": confidence}))
+        return normalized_claims
 
     @staticmethod
     def _deliverable(
@@ -830,6 +835,8 @@ class ResultPipeline:
                 evidence_id
                 for claim in question_claims
                 for evidence_id in evidence_by_claim[claim.claim_id]
+                if not evidence_sources[evidence_id].question_ids
+                or question.id in evidence_sources[evidence_id].question_ids
             }
             source_urls = {
                 source.canonical_url

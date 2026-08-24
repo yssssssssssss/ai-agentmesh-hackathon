@@ -1,0 +1,142 @@
+[
+  {
+    "description": "帮助设计师整合结论、确定优先级和验证计划，形成可评审、可推进的设计策略。",
+    "id": "define-strategy",
+    "outputs": [
+      "策略摘要",
+      "策略地图",
+      "优先级与路径",
+      "指标与验证计划"
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "recommended_skill_ids": [],
+    "required_knowledge_types": [
+      "current-project-materials"
+    ],
+    "source_hash": "1f528e6cc31516b894bc2dd2a66b0115921589754f288d20013df6bd5ae6ae7b",
+    "source_path": "01-task-任务/05-define-strategy-定策略/index.md",
+    "status": "draft",
+    "title": "定策略",
+    "trigger_keywords": [
+      "帮我把这些结论整理成策略",
+      "优先做什么？",
+      "上线后看什么指标验证？"
+    ],
+    "updated_at": "2026-08-05",
+    "workflow_ids": [
+      "planned-design-before-ai-routing-workflow"
+    ]
+  },
+  {
+    "description": "帮助设计师识别趋势、参照对象和机会方向，回答下一步值得往哪里探索。",
+    "id": "find-direction",
+    "outputs": [
+      "方向判断摘要",
+      "外部与内部变化信号",
+      "机会假设",
+      "待验证问题"
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "recommended_skill_ids": [],
+    "required_knowledge_types": [
+      "current-project-materials"
+    ],
+    "source_hash": "cfdbb400480c034e8590234cefb34ab71ed7b4cf59a5b44e32d006e74d509d6f",
+    "source_path": "01-task-任务/01-find-direction-找方向/index.md",
+    "status": "draft",
+    "title": "找方向",
+    "trigger_keywords": [
+      "我们现在应该往哪个方向做？",
+      "竞品最近有什么变化值得看？",
+      "这个业务还有哪些机会点？"
+    ],
+    "updated_at": "2026-08-05",
+    "workflow_ids": [
+      "planned-design-before-ai-routing-workflow"
+    ]
+  },
+  {
+    "description": "帮助设计师识别页面、链路、反馈或数据中存在的问题，并形成可追溯的问题清单。",
+    "id": "find-problems",
+    "outputs": [
+      "问题清单",
+      "问题证据",
+      "严重度与影响范围",
+      "待补证据"
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "recommended_skill_ids": [],
+    "required_knowledge_types": [
+      "current-project-materials"
+    ],
+    "source_hash": "593334b0cad4cb9db323cb78fba43b7d4deddaa295b38b4c593b4ca8b50a12c0",
+    "source_path": "01-task-任务/03-find-problems-找问题/index.md",
+    "status": "draft",
+    "title": "找问题",
+    "trigger_keywords": [
+      "帮我看看这个页面哪里有问题",
+      "这些用户反馈能聚成几类问题？",
+      "数据异常可能说明哪里卡住了？"
+    ],
+    "updated_at": "2026-08-05",
+    "workflow_ids": [
+      "planned-design-before-ai-routing-workflow"
+    ]
+  },
+  {
+    "description": "帮助设计师把已识别的问题拆成根因，并生成、比较可落地的解决方向。",
+    "id": "solve-problems",
+    "outputs": [
+      "根因假设",
+      "解决方向",
+      "方案比较",
+      "风险与取舍"
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "recommended_skill_ids": [],
+    "required_knowledge_types": [
+      "current-project-materials"
+    ],
+    "source_hash": "3dd530703d23ff1a110b17c2002893e80aed681f270361a624f93970aa276feb",
+    "source_path": "01-task-任务/04-solve-problems-解问题/index.md",
+    "status": "draft",
+    "title": "解问题",
+    "trigger_keywords": [
+      "这个问题为什么会发生？",
+      "有哪些解决方案？",
+      "两个方案哪个风险更小？"
+    ],
+    "updated_at": "2026-08-05",
+    "workflow_ids": [
+      "planned-design-before-ai-routing-workflow"
+    ]
+  },
+  {
+    "description": "帮助设计师从已有资料、分层和旅程中理解用户是谁、想完成什么、在哪里卡住。",
+    "id": "understand-users",
+    "outputs": [
+      "用户资料摘要",
+      "重点人群判断",
+      "用户任务与旅程",
+      "需求洞察"
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "recommended_skill_ids": [],
+    "required_knowledge_types": [
+      "current-project-materials"
+    ],
+    "source_hash": "1442f2d334da225887dfc73b58eca9a996ffade9c923277b6c43e4ffb61dc174",
+    "source_path": "01-task-任务/02-understand-users-懂用户/index.md",
+    "status": "draft",
+    "title": "懂用户",
+    "trigger_keywords": [
+      "帮我整理已有用户资料",
+      "我们重点看哪类用户？",
+      "用户在这个链路里到底想完成什么？"
+    ],
+    "updated_at": "2026-08-05",
+    "workflow_ids": [
+      "planned-design-before-ai-routing-workflow"
+    ]
+  }
+]

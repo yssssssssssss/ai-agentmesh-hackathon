@@ -106,6 +106,16 @@ export function SkillPlanNodeCard({
             <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] text-slate-400">
               {node.required ? '必需节点' : '可选节点'}
             </span>
+            {node.skill_status ? (
+              <span className="rounded-full bg-amber-300/10 px-2 py-0.5 text-[10px] text-amber-300">
+                {node.skill_status}
+              </span>
+            ) : null}
+            {node.scenario_id ? (
+              <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] text-slate-400">
+                {node.scenario_id}
+              </span>
+            ) : null}
             {node.parallel_group ? (
               <span className="rounded-full bg-knowledge/10 px-2 py-0.5 text-[10px] text-knowledge">
                 并行组 {node.parallel_group}
@@ -118,6 +128,17 @@ export function SkillPlanNodeCard({
             <div className="flex gap-1"><dt>产出</dt><dd className="text-slate-300">{(node.output_contract ?? []).join('、') || '标准化结果'}</dd></div>
             <div className="flex gap-1"><dt>边界</dt><dd className="text-slate-300">{SIDE_EFFECT_LABEL[node.side_effect]}</dd></div>
           </dl>
+          {(node.required_tool_names ?? []).length > 0 ? (
+            <p className="mt-2 text-[11px] text-knowledge">工具：{(node.required_tool_names ?? []).join('、')}</p>
+          ) : null}
+          {((node.knowledge_bindings?.required ?? []).length + (node.knowledge_bindings?.optional ?? []).length) > 0 ? (
+            <p className="mt-1 text-[11px] text-slate-500">
+              Knowledge：必需 {node.knowledge_bindings?.required?.length ?? 0}，按需 {node.knowledge_bindings?.optional?.length ?? 0}
+            </p>
+          ) : null}
+          {(node.completion_criteria ?? []).length > 0 ? (
+            <p className="mt-1 text-[11px] text-slate-500">完成标准：{(node.completion_criteria ?? []).join('；')}</p>
+          ) : null}
           {(node.depends_on ?? []).length > 0 ? (
             <p className="mt-2 text-[11px] text-slate-500">依赖：{node.depends_on?.join('、')}</p>
           ) : null}

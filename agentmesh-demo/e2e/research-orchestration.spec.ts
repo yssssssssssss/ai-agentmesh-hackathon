@@ -188,6 +188,8 @@ function projection(state: ResearchState) {
   return {
     run_id: RUN_ID,
     orchestration_version: 'research-v2',
+    status: state === 'completed' ? 'completed' : state === 'aborted' ? 'cancelled' : 'running',
+    error_code: state === 'aborted' ? 'recovery_aborted' : null,
     workflow: {
       phase: state === 'completed' || state === 'aborted'
         ? 'terminal'
@@ -442,7 +444,7 @@ for (const action of ['retry', 'abort'] as const) {
     if (action === 'retry') {
       await expect(page.getByRole('heading', { name: '独立 Tool Approval' })).toBeVisible()
     } else {
-      await expect(page.getByRole('heading', { name: '研究已结束' })).toBeVisible()
+      await expect(page.getByRole('heading', { name: '研究已安全终止' })).toBeVisible()
     }
   })
 }

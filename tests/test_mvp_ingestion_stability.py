@@ -338,7 +338,7 @@ def test_app_lifespan_always_shuts_down_ingestion_service(monkeypatch: pytest.Mo
         ),
         pytest.param(
             "agentmesh.routes.memory",
-            "DAILY_SUMMARY_WORKER_INTERVAL_SECONDS",
+            None,
             "generate_daily_memory_summaries",
             "daily_memory_worker_loop",
             {"created": 0, "skipped_existing": 0, "skipped_empty": 0},
@@ -349,7 +349,7 @@ def test_app_lifespan_always_shuts_down_ingestion_service(monkeypatch: pytest.Mo
 def test_background_worker_keeps_event_loop_responsive_during_blocking_step(
     monkeypatch: pytest.MonkeyPatch,
     module_name: str,
-    interval_name: str,
+    interval_name: str | None,
     step_name: str,
     loop_name: str,
     step_result: object,
@@ -363,7 +363,10 @@ def test_background_worker_keeps_event_loop_responsive_during_blocking_step(
         release.wait(timeout=1.0)
         return step_result
 
-    monkeypatch.setattr(module, interval_name, 0)
+    if interval_name is None:
+        monkeypatch.setattr(module, "next_daily_memory_run", now_utc)
+    else:
+        monkeypatch.setattr(module, interval_name, 0)
     monkeypatch.setattr(module, step_name, blocking_step)
 
     async def exercise() -> float:

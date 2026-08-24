@@ -65,8 +65,24 @@ for key in (
     "AGENTMESH_MODEL_FALLBACK_API_KEY",
     "AGENTMESH_MODEL_FALLBACK_MODEL",
     "AGENTMESH_MODEL_FALLBACK_API_STYLE",
+    "AGENTMESH_FIRECRAWL_ENABLED",
+    "AGENTMESH_FIRECRAWL_API_URL",
+    "AGENTMESH_FIRECRAWL_API_KEY",
+    "AGENTMESH_FIRECRAWL_TIMEOUT_SECONDS",
+    "AGENTMESH_FIRECRAWL_MAX_PAGES",
+    "AGENTMESH_FIRECRAWL_MAX_CONTENT_CHARS",
 ):
     os.environ[key] = ""
+
+
+@pytest.fixture(autouse=True)
+def _reset_web_provider_telemetry(monkeypatch: pytest.MonkeyPatch):
+    from agentmesh import web_research
+    from agentmesh.provider_status import ProviderTelemetry
+
+    monkeypatch.setattr(web_research, "_tavily_telemetry", ProviderTelemetry())
+    monkeypatch.setattr(web_research, "_firecrawl_telemetry", ProviderTelemetry())
+    yield
 
 
 @pytest.fixture(autouse=True)

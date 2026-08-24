@@ -20,6 +20,8 @@ import type {
   SkillPlanVersionRequest,
   SkillRecommendationResponse,
   SkillsResponse,
+  TaskRoutingPreviewRequest,
+  TaskRoutingPreviewResponse,
   ThreadDetailResponse,
   ThreadListResponse,
   ThreadResponse,
@@ -250,6 +252,11 @@ export const workspaceApi = {
     apiRequest<SkillRecommendationResponse>('/api/skills/recommendations', {
       method: 'POST',
       body: JSON.stringify({ content, thread_id: threadId || undefined }),
+    }),
+  previewTaskRouting: (request: TaskRoutingPreviewRequest) =>
+    apiRequest<TaskRoutingPreviewResponse>('/api/skills/routing-preview', {
+      method: 'POST',
+      body: JSON.stringify(request),
     }),
   skills: () => apiRequest<SkillsResponse>('/api/chat/skills'),
   skillCatalog: () => apiRequest<SkillsResponse>('/api/skills'),

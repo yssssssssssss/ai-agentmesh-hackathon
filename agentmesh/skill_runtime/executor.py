@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+from agentmesh.llm import llm_chat_timeout_seconds, research_skill_timeout_seconds
 from agentmesh.models import (
     AgentRun,
     AgentRunStatus,
@@ -18,6 +19,8 @@ from agentmesh.models import (
 )
 from agentmesh.skill_runtime.synthesis import render_synthesis
 from agentmesh.store import SQLiteStore
+from agentmesh.task_routing.completion import evaluate_plan_completion
+from agentmesh.tool_runtime.guardrails import redact_sensitive_text
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +74,10 @@ def _error_code(error: Exception) -> str:
     if message and len(message) <= 120 and safe:
         return message
     return type(error).__name__
+
+
+def _error_detail(error: Exception) -> str:
+    return redact_sensitive_text(str(error)).strip()[:500] or type(error).__name__
 
 
 class BoundedDAGExecutor:
@@ -131,7 +138,12 @@ class BoundedDAGExecutor:
             return node, None, RuntimeError("node_claim_conflict")
         self._replace_node(plan, claimed)
         upstream = [result for result in results if result.node_id in set(claimed.depends_on)]
-        remaining = 120.0
+        node_timeout = (
+            research_skill_timeout_seconds()
+            if "web_research" in node.required_tool_names
+            else llm_chat_timeout_seconds()
+        )
+        remaining = node_timeout
         if run.deadline_at is not None:
             remaining = min(remaining, max(0.0, (run.deadline_at - now_utc()).total_seconds()))
         if remaining <= 0:
@@ -288,6 +300,7 @@ class BoundedDAGExecutor:
                                 "node_id": claimed.id,
                                 "attempt": claimed.attempt,
                                 "error_code": error_code,
+                                "error_detail": _error_detail(error),
                             },
                         )
                         continue
@@ -369,13 +382,16 @@ class BoundedDAGExecutor:
 
             plan = self.repository.get_skill_plan(plan.id) or plan
             results = self.repository.list_skill_node_results(plan.id)
+            provisional_completion = evaluate_plan_completion(plan, results)
+            if provisional_completion is not None:
+                plan.completion_check = provisional_completion
             completed_nodes = {result.node_id for result in results}
             available_outputs = {
                 output
                 for node in plan.nodes
                 if node.id in completed_nodes
                 for output in node.output_contract
-            } | {"executive_summary", "summary", "synthesis"}
+            } | {"executive_summary", "summary", "synthesis", *plan.synthesis_output_contract}
             required_results = [node for node in plan.nodes if node.required and node.id in completed_nodes]
             if not required_results or not set(plan.output_contract).issubset(available_outputs):
                 plan.status = SkillPlanStatus.FAILED
@@ -402,6 +418,14 @@ class BoundedDAGExecutor:
                 raise TimeoutError("parent_run_deadline_exceeded")
             async with asyncio.timeout(remaining):
                 synthesis, fallback = await self.synthesis_runner(plan, results)
+            completion_check = evaluate_plan_completion(plan, results, synthesis=synthesis)
+            if completion_check is not None:
+                plan.completion_check = completion_check
+                if not completion_check.completed:
+                    completion_gap = "completion_check_partial:" + ",".join(completion_check.gaps)
+                    plan.degradation = ";".join(
+                        item for item in (plan.degradation, completion_gap) if item
+                    )[:1000]
             plan.synthesis = synthesis.model_dump(mode="json")
             degraded = (
                 fallback

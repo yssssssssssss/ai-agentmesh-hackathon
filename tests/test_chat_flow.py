@@ -2066,39 +2066,23 @@ def test_daily_memory_summary_rejects_duplicate_for_same_user_project_date() -> 
     assert len(summaries) == 1
 
 
-def test_daily_memory_summary_run_creates_once_and_skips_empty_users() -> None:
+def test_daily_memory_summary_batch_run_is_not_public() -> None:
     clear_store()
     client = authenticated_client()
-    target_date = now_utc().date().isoformat()
-    client.post(
-        "/api/memory/user",
-        json={
-            "layer": "short_term",
-            "title": "数据结论",
-            "summary": "data_agent 返回入口点击率环比提升。",
-            "source_kind": "chat_workflow:request_data_query",
-            "memory_type": "data",
-            "memory_date": target_date,
-        },
-    )
 
-    first = client.post("/api/memory/user/daily-summary/run")
-    second = client.post("/api/memory/user/daily-summary/run")
-    status = client.get("/api/memory/user/daily-summary/worker")
+    response = client.post("/api/memory/user/daily-summary/run")
 
-    assert first.status_code == 200
-    assert first.json()["created"] == 1
-    assert first.json()["skipped_empty"] >= 2
-    assert second.status_code == 200
-    assert second.json()["created"] == 0
-    assert second.json()["skipped_existing"] == 1
-    assert status.status_code == 200
-    assert status.json()["running"] is False
-    summaries = client.get(
-        "/api/memory/user",
-        params={"layer": "short_term", "memory_type": "daily_summary", "memory_date": target_date},
-    ).json()["items"]
-    assert len(summaries) == 1
+    assert response.status_code == 404
+
+
+def test_daily_memory_summary_worker_status_is_admin_only() -> None:
+    clear_store()
+
+    regular_response = authenticated_client().get("/api/memory/user/daily-summary/worker")
+    admin_response = authenticated_client(ADMIN.id).get("/api/memory/user/daily-summary/worker")
+
+    assert regular_response.status_code == 403
+    assert admin_response.status_code == 200
 
 
 def test_project_memory_summary_and_archive_are_project_scoped() -> None:

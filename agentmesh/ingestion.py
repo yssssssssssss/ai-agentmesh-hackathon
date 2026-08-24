@@ -19,6 +19,7 @@ from agentmesh.models import (
     Scope,
     Source,
     UserMemoryItem,
+    memory_date_for,
     now_utc,
 )
 
@@ -282,7 +283,7 @@ class DocumentIngestionService:
                 summary=summarize_document_text(current.text),
                 source_kind="document_upload",
                 memory_type="document_summary",
-                memory_date=now_utc().date(),
+                memory_date=memory_date_for(),
                 workspace_id=current.workspace_id,
                 project_id=current.project_id,
                 status="staging",
@@ -322,7 +323,7 @@ class DocumentIngestionService:
                     summary=text,
                     source_kind="document_import",
                     memory_type="document_chunk",
-                    memory_date=now_utc().date(),
+                    memory_date=memory_date_for(),
                     scope=Scope.PRIVATE,
                     workspace_id=current.workspace_id,
                     project_id=current.project_id,

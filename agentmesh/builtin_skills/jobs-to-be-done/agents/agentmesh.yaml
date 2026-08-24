@@ -14,5 +14,9 @@ negative_examples:
   - 生成完整访谈提纲
   - 系统比较多个竞品的战略
 required_capabilities: [wiki.corpus]
+task_types: [user-journey-insight, root-cause-analysis]
+archetypes: [needs_analysis, opportunity_definition]
+required_resources: [wiki.corpus]
+report_policy: on_request
 side_effect: draft
 planner_eligible: true

@@ -116,6 +116,145 @@ def test_atomic_run_claim_rejects_concurrent_orchestration_mode_mismatch(tmp_pat
     assert outcomes.count("client_turn_id was already used for another Agent run") == 1
 
 
+def test_compound_research_request_prefers_task_scenario_orchestration(monkeypatch) -> None:
+    class RuntimeStub:
+        enabled = True
+        orchestrated_calls = 0
+
+        async def start_orchestrated(self, **kwargs):
+            self.orchestrated_calls += 1
+            return AgentRun(
+                id="run_compound_task_route",
+                thread_id=kwargs["thread_id"],
+                user_id=kwargs["user"].id,
+                workspace_id=kwargs["user"].workspace_id,
+                project_id=kwargs["user"].default_project_id,
+                input_text=kwargs["content"],
+                client_turn_id=kwargs["client_turn_id"],
+                requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+                orchestration_mode=kwargs["mode"].value,
+                status=AgentRunStatus.PLANNING,
+            )
+
+        async def start(self, **_kwargs):
+            raise AssertionError("compound auto request must use task orchestration")
+
+    runtime = RuntimeStub()
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", runtime)
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "preview")
+    monkeypatch.setenv("AGENTMESH_TASK_SCENARIO_ROUTING", "true")
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    response = client.post(
+        "/api/agent/runs",
+        json={
+            "content": "研究竞品与用户心智，输出策略地图、设计原则和P0/P1/P2。",
+            "client_turn_id": "compound-task-route-dispatch",
+            "orchestration_mode": "auto",
+        },
+    )
+
+    assert response.status_code == 202
+    assert runtime.orchestrated_calls == 1
+    assert response.json()["item"]["orchestration_version"] == "v1"
+
+
+def test_no_plan_retry_preserves_auto_orchestration(monkeypatch) -> None:
+    prior = store.save_agent_run(
+        AgentRun(
+            id="run_retry_preserves_auto",
+            thread_id="thread_retry_preserves_auto",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="需要公开资料的竞品策略研究",
+            client_turn_id="turn_retry_preserves_auto_original",
+            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            orchestration_mode="execute",
+            status=AgentRunStatus.FAILED,
+            error_code="PlannerUnavailable",
+        )
+    )
+
+    class RuntimeStub:
+        enabled = True
+        orchestrated_calls = 0
+        ordinary_calls = 0
+
+        async def start_orchestrated(self, **kwargs):
+            self.orchestrated_calls += 1
+            return AgentRun(
+                id="run_retry_preserves_auto_new",
+                thread_id=kwargs["thread_id"],
+                user_id=kwargs["user"].id,
+                workspace_id=kwargs["user"].workspace_id,
+                project_id=prior.project_id,
+                input_text=kwargs["content"],
+                client_turn_id=kwargs["client_turn_id"],
+                retry_of_run_id=kwargs["retry_of_run_id"],
+                requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+                orchestration_mode=kwargs["mode"].value,
+                status=AgentRunStatus.PLANNING,
+            )
+
+        async def start(self, **_kwargs):
+            self.ordinary_calls += 1
+            raise AssertionError("auto retry must not use ordinary runtime.start")
+
+    runtime = RuntimeStub()
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", runtime)
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "execute")
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    response = client.post(
+        f"/api/agent/runs/{prior.id}/retry",
+        json={"client_turn_id": "turn_retry_preserves_auto_new"},
+    )
+
+    assert response.status_code == 202
+    assert runtime.orchestrated_calls == 1
+    assert runtime.ordinary_calls == 0
+    assert response.json()["item"]["requested_orchestration_mode"] == "auto"
+    assert response.json()["item"]["retry_of_run_id"] == prior.id
+
+
+def test_single_skill_retry_fails_closed_when_original_skill_is_unavailable(monkeypatch) -> None:
+    prior = store.save_agent_run(
+        AgentRun(
+            id="run_retry_missing_single_skill",
+            thread_id="thread_retry_missing_single_skill",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="run the removed skill",
+            client_turn_id="turn_retry_missing_single_skill_original",
+            skill_name="removed-skill",
+            requested_orchestration_mode=SkillOrchestrationRequestMode.SINGLE,
+            status=AgentRunStatus.FAILED,
+        )
+    )
+
+    class RuntimeStub:
+        enabled = True
+
+        async def start(self, **_kwargs):
+            raise AssertionError("missing explicit Skill must not fall back to general runtime")
+
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", RuntimeStub())
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    response = client.post(
+        f"/api/agent/runs/{prior.id}/retry",
+        json={"client_turn_id": "turn_retry_missing_single_skill_new"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "The original Skill is no longer ready or authorized"
+
+
 def test_agent_run_events_and_artifact_are_owner_scoped() -> None:
     run = store.save_agent_run(
         AgentRun(

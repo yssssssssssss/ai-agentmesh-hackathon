@@ -81,6 +81,8 @@ export type ResearchRecoverRequest = components['schemas']['ResearchRecoverReque
 export type SkillCandidate = components['schemas']['SkillCandidate']
 export type SkillRecommendationRequest = components['schemas']['SkillRecommendationRequest']
 export type SkillRecommendationResponse = components['schemas']['SkillRecommendationResponse']
+export type TaskRoutingPreviewRequest = components['schemas']['TaskRoutingPreviewRequest']
+export type TaskRoutingPreviewResponse = components['schemas']['TaskRoutingPreviewResponse']
 export type SkillPlan = components['schemas']['SkillPlan']
 export type SkillPlanNode = components['schemas']['SkillPlanNode']
 export type SkillPlanDetailResponse = components['schemas']['SkillPlanDetailResponse']
@@ -90,6 +92,7 @@ export type SkillPlanTransitionResponse = components['schemas']['SkillPlanTransi
 export type SkillNodeResult = components['schemas']['SkillNodeResult']
 export type SkillResultSource = components['schemas']['SkillResultSource']
 export type SkillSynthesisResult = components['schemas']['SkillSynthesisResult']
+export type CompletionCheckResult = components['schemas']['CompletionCheckResult']
 
 export type ChatTurnReceipt = {
   client_turn_id: string

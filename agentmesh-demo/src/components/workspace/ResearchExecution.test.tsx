@@ -258,6 +258,45 @@ describe('ResearchExecution', () => {
     expect(html).not.toContain('<script>alert(1)</script>')
   })
 
+  it('labels a blocked deliverable as an unapproved research draft', () => {
+    const value = projection()
+    value.status = 'failed'
+    value.error_code = 'deterministic_review_blocked'
+    value.workflow = {
+      ...value.workflow,
+      phase: 'terminal',
+      active_gate: 'none',
+      state_version: 9,
+      active_attempt_id: 'attempt-1',
+    }
+    value.result = {
+      evidence: [],
+      claims: [],
+      deliverable: {
+        summary: 'Draft findings that need more evidence.',
+        summary_claim_ids: [],
+        comparison: [],
+        recommendations: [],
+        limitations: ['Missing first-party evidence.'],
+      },
+      review: {
+        status: 'block',
+        checks: [
+          { code: 'evidence_policy', passed: false },
+          { code: 'schema_valid', passed: true },
+        ],
+      },
+    }
+
+    const html = render(value)
+
+    expect(html).toContain('未通过审核的研究草稿')
+    expect(html).toContain('不能作为已审核通过的最终报告')
+    expect(html).toContain('evidence_policy')
+    expect(html).toContain('Draft findings that need more evidence.')
+    expect(html).not.toContain('确定性 Review · 通过')
+  })
+
   it('does not present a failed empty run as a successful empty Report', () => {
     const value = projection()
     value.status = 'failed'

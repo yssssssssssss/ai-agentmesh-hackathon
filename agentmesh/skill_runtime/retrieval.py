@@ -16,6 +16,8 @@ from agentmesh.skill_runtime.profiles import is_pilot_orchestration_skill, profi
 from agentmesh.skill_runtime.resources import skill_wiki_corpus_ready
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
+from agentmesh.task_routing.catalog import TaskCatalog
+from agentmesh.task_routing.contracts import TaskRoutingResult
 
 _CAPABILITY_TO_TOOL = {
     "research.request": "web_research",
@@ -24,14 +26,19 @@ _CAPABILITY_TO_TOOL = {
     "memory.project": "memory_search",
     "risk.review": "risk_review",
 }
+_TOOL_REFERENCE_TO_NAME = {
+    "tool_web_research": "web_research",
+}
 
 
 def tool_names_for_profile(profile: SkillCapabilityProfile) -> set[str]:
-    return {
+    capability_tools = {
         tool_name
         for capability in profile.required_capabilities
         if (tool_name := _CAPABILITY_TO_TOOL.get(capability)) is not None
     }
+    declared_tools = {_TOOL_REFERENCE_TO_NAME.get(reference, reference) for reference in profile.required_tools}
+    return capability_tools | declared_tools
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +71,8 @@ class SkillCandidateRetriever:
         self.repository = repository
         self.catalog = catalog
 
-    def _tool_granted(self, user: User, capability: str) -> bool:
-        tool_name = _CAPABILITY_TO_TOOL.get(capability)
-        if tool_name is None:
-            return False
+    def _tool_granted(self, user: User, reference: str) -> bool:
+        tool_name = _CAPABILITY_TO_TOOL.get(reference, _TOOL_REFERENCE_TO_NAME.get(reference, reference))
         tool = next(
             (
                 item
@@ -103,6 +108,9 @@ class SkillCandidateRetriever:
                     diagnostics.append(f"{capability}_unavailable")
             elif not self._tool_granted(user, capability):
                 diagnostics.append(f"{capability}_not_granted")
+        for tool_reference in profile.required_tools:
+            if not self._tool_granted(user, tool_reference):
+                diagnostics.append(f"{tool_reference}_not_granted")
         return diagnostics
 
     def eligible(self, user: User, intent: SkillIntent) -> tuple[list[EligibleSkill], list[str]]:
@@ -197,3 +205,41 @@ class SkillCandidateRetriever:
             )
         candidates.sort(key=lambda candidate: (-candidate.score.total, candidate.skill_name))
         return candidates[: max(1, min(limit, 12))], list(dict.fromkeys(diagnostics))
+
+    def recommend_for_route(
+        self,
+        user: User,
+        intent: SkillIntent,
+        routing_result: TaskRoutingResult,
+        task_catalog: TaskCatalog,
+        *,
+        limit: int = 12,
+    ) -> tuple[list[SkillCandidate], list[str]]:
+        candidates, diagnostics = self.recommend(user, intent, limit=12)
+        scenario_ids = [routing_result.scenario.scenario_id, *routing_result.scenario.supporting_scenarios]
+        registry_skill_ids: list[str] = []
+        for scenario_id in scenario_ids:
+            mapping = task_catalog.get_mapping(scenario_id)
+            if mapping is None:
+                diagnostics.append(f"scenario_mapping_missing:{scenario_id}")
+                continue
+            registry_skill_ids.extend([*mapping.default_skill_ids, *mapping.optional_skill_ids])
+        runtime_names: set[str] = set()
+        for registry_skill_id in dict.fromkeys(registry_skill_ids):
+            catalog_skill = task_catalog.get_skill(registry_skill_id)
+            if catalog_skill is None:
+                diagnostics.append(f"catalog_skill_missing:{registry_skill_id}")
+            elif catalog_skill.runtime_skill_name is None:
+                diagnostics.append(f"runtime_skill_unbound:{registry_skill_id}")
+            else:
+                runtime_names.add(catalog_skill.runtime_skill_name)
+        filtered = [candidate for candidate in candidates if candidate.skill_name in runtime_names]
+        available_names = {candidate.skill_name for candidate in filtered}
+        diagnostics.extend(
+            f"runtime_skill_unavailable:{name}" for name in sorted(runtime_names - available_names)
+        )
+        if routing_result.evidence_requirement.external_evidence_required and not any(
+            "web_research" in tool_names_for_profile(candidate.profile) for candidate in filtered
+        ):
+            diagnostics.append("external_evidence_capability_missing")
+        return filtered[: max(1, min(limit, 12))], list(dict.fromkeys(diagnostics))

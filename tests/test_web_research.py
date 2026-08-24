@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import json
 
 import httpx
 import pytest
 
 import agentmesh.web_research as web_research
-from agentmesh.acquisition import AcquisitionRequest
+from agentmesh.acquisition import AcquisitionQuery, AcquisitionRequest, ProviderCallRecord
 from agentmesh.models import Intent
 from agentmesh.research_orchestration.artifacts import contains_sensitive_artifact_content
 from agentmesh.seed import PROJECT, WORKSPACE
 from agentmesh.web_research import (
     CommandWebSearchProvider,
+    FetchedWebContent,
     FirecrawlContentFetcher,
     MockWebSearchProvider,
     TavilyFirecrawlWebSearchProvider,
@@ -102,7 +104,7 @@ def test_web_acquisition_agent_redacts_sensitive_provider_content_before_artifac
             return [
                 web_research.WebSearchResult(
                     title="Contact demo@example.test",
-                    url="https://example.test/agents",
+                    url="https://example.test/agents?X-Amz-Signature=opaque-signed-secret&code=oauth-secret#private",
                     snippet=(
                         "Call 19601575478; token=synthetic-value; "
                         "local cache /Users/example/private-result."
@@ -131,7 +133,10 @@ def test_web_acquisition_agent_redacts_sensitive_provider_content_before_artifac
     assert "demo@example.test" not in serialized
     assert "19601575478" not in serialized
     assert "synthetic-value" not in serialized
+    assert "opaque-signed-secret" not in serialized
+    assert "oauth-secret" not in serialized
     assert "/Users/example/private-result" not in serialized
+    assert result.sources[0].reference == "https://example.test/agents"
     assert contains_sensitive_artifact_content(serialized) is False
 
 
@@ -205,7 +210,7 @@ def test_firecrawl_fetcher_sends_safe_request_and_returns_markdown() -> None:
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
-    content = fetcher.fetch("https://example.test/agents")
+    content = fetcher.fetch("https://example.test/agents", query="agent systems")
 
     assert captured["url"] == "https://api.firecrawl.dev/v2/scrape"
     assert captured["authorization"] == "Bearer test-firecrawl-key"
@@ -213,8 +218,47 @@ def test_firecrawl_fetcher_sends_safe_request_and_returns_markdown() -> None:
         "url": "https://example.test/agents",
         "formats": ["markdown"],
         "onlyMainContent": True,
+        "timeout": 60000,
     }
-    assert content == "# Agent systems\n\nGrounded page content"
+    assert content.excerpt == "# Agent systems\n\nGrounded page content"
+    assert len(content.content_hash) == 64
+    assert content.truncated is False
+    assert content.provider_call.provider == "firecrawl"
+    assert content.provider_call.operation == "scrape"
+    assert content.provider_call.status == "success"
+
+
+def test_firecrawl_fetcher_selects_relevant_body_instead_of_leading_navigation() -> None:
+    markdown = "\n\n".join(
+        [
+            "登录 注册 首页 导航",
+            "关注作者 举报 搜索关闭",
+            "## 产品概览\n这是一个宽泛的产品介绍。" + "背景" * 150,
+            "## 任务恢复\nTRAE Work 支持 checkpoint、失败重试和历史任务恢复。" + "恢复细节" * 80,
+            "## 协作能力\nWorkBuddy 提供团队空间、角色权限和审批记录。" + "协作细节" * 80,
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, request=request, json={"success": True, "data": {"markdown": markdown}})
+
+    fetcher = FirecrawlContentFetcher(
+        "https://api.firecrawl.dev/v2/scrape",
+        "test-firecrawl-key",
+        max_content_chars=500,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    content = fetcher.fetch(
+        "https://example.test/agents",
+        query="TRAE Work 任务恢复 checkpoint 团队协作 权限",
+    )
+
+    assert "任务恢复" in content.excerpt
+    assert "checkpoint" in content.excerpt
+    assert "登录 注册 首页 导航" not in content.excerpt
+    assert content.truncated is True
+    assert content.risk_flags == ["truncated"]
 
 
 def test_firecrawl_fetcher_rejects_private_target_without_calling_provider() -> None:
@@ -228,7 +272,7 @@ def test_firecrawl_fetcher_rejects_private_target_without_calling_provider() -> 
     )
 
     with pytest.raises(WebResearchError) as captured:
-        fetcher.fetch("http://127.0.0.1/admin")
+        fetcher.fetch("http://127.0.0.1/admin", query="agent systems")
 
     assert captured.value.reason == "invalid_url"
 
@@ -248,7 +292,7 @@ def test_firecrawl_fetcher_classifies_http_errors_without_leaking_body(status_co
     )
 
     with pytest.raises(WebResearchError) as captured:
-        fetcher.fetch("https://example.test/agents")
+        fetcher.fetch("https://example.test/agents", query="agent systems")
 
     assert captured.value.reason == reason
     assert "secret-firecrawl-key" not in str(captured.value)
@@ -261,9 +305,22 @@ def test_tavily_firecrawl_provider_enriches_search_results() -> None:
     class StubFetcher:
         provider_name = "firecrawl"
 
-        def fetch(self, url: str) -> str:
+        def fetch(self, url: str, *, query: str) -> FetchedWebContent:
             assert url == "https://example.invalid/research"
-            return "Full page evidence"
+            assert query == "agent systems"
+            return FetchedWebContent(
+                excerpt="Full page evidence",
+                retrieved_at=web_research.now_utc(),
+                content_hash=hashlib.sha256(b"Full page evidence").hexdigest(),
+                provider_call=ProviderCallRecord(
+                    provider="firecrawl",
+                    operation="scrape",
+                    request_hash="2" * 64,
+                    status="success",
+                    latency_ms=1,
+                    result_count=1,
+                ),
+            )
 
     provider = TavilyFirecrawlWebSearchProvider(search_provider, StubFetcher())
 
@@ -287,6 +344,75 @@ def test_tavily_firecrawl_provider_enriches_search_results() -> None:
     assert acquisition.metadata["requested_provider"] == "web_research"
     assert acquisition.metadata["actual_provider"] == "tavily+firecrawl"
     assert acquisition.metadata["scraped_source_count"] == "1"
+    assert len(acquisition.source_evidence) == 1
+    assert acquisition.source_evidence[0].source_id == acquisition.sources[0].id
+    assert acquisition.source_evidence[0].content_provider == "firecrawl"
+    assert acquisition.source_evidence[0].question_ids == []
+    assert len(acquisition.provider_calls) == 2
+
+
+def test_tavily_firecrawl_batch_deduplicates_and_preserves_question_ids() -> None:
+    class SearchProvider:
+        provider_name = "tavily"
+        mode = "real"
+
+        def search(self, query: str, limit: int = 3) -> list[web_research.WebSearchResult]:
+            del limit
+            if "恢复" in query:
+                return [
+                    web_research.WebSearchResult(
+                        title="Product recovery docs",
+                        url="https://product.example/docs/recovery#overview",
+                        snippet="Recovery overview",
+                    ),
+                    web_research.WebSearchResult(
+                        title="Secondary comparison",
+                        url="https://www.csdn.net/article/1",
+                        snippet="Comparison",
+                    ),
+                ]
+            return [
+                web_research.WebSearchResult(
+                    title="Product collaboration docs",
+                    url="https://product.example/docs/recovery",
+                    snippet="Collaboration overview with more detail",
+                )
+            ]
+
+    class StubFetcher:
+        provider_name = "firecrawl"
+
+        def fetch(self, url: str, *, query: str) -> FetchedWebContent:
+            excerpt = f"Evidence for {url}: {query}"
+            return FetchedWebContent(
+                excerpt=excerpt,
+                retrieved_at=web_research.now_utc(),
+                content_hash=hashlib.sha256(excerpt.encode()).hexdigest(),
+                provider_call=ProviderCallRecord(
+                    provider="firecrawl",
+                    operation="scrape",
+                    request_hash=hashlib.sha256(url.encode()).hexdigest(),
+                    status="success",
+                    latency_ms=1,
+                    result_count=1,
+                ),
+            )
+
+    provider = TavilyFirecrawlWebSearchProvider(SearchProvider(), StubFetcher(), scrape_limit=3)
+    batch = provider.search_batch(
+        [
+            AcquisitionQuery(query="产品 任务恢复", question_ids=["q_recovery"]),
+            AcquisitionQuery(query="产品 协作能力", question_ids=["q_collaboration"]),
+        ],
+        result_limit=3,
+    )
+
+    assert len(batch.results) == 2
+    assert batch.results[0].url == "https://product.example/docs/recovery"
+    assert batch.results[0].question_ids == ["q_recovery", "q_collaboration"]
+    assert len(batch.provider_calls) == 5
+    assert [call.operation for call in batch.provider_calls] == ["search", "search", "search", "scrape", "scrape"]
+    assert len({call.request_hash for call in batch.provider_calls if call.operation == "search"}) == 3
 
 
 def test_tavily_firecrawl_provider_preserves_search_snippet_when_scrape_fails() -> None:
@@ -295,7 +421,7 @@ def test_tavily_firecrawl_provider_preserves_search_snippet_when_scrape_fails() 
     class FailingFetcher:
         provider_name = "firecrawl"
 
-        def fetch(self, url: str) -> str:
+        def fetch(self, url: str, *, query: str) -> FetchedWebContent:
             raise WebResearchError("rate_limited", "Firecrawl rate limit was reached")
 
     provider = TavilyFirecrawlWebSearchProvider(search_provider, FailingFetcher())

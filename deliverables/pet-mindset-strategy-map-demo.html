@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>宠物主粮心智策略地图 Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --canvas: #090b0a;
+      --surface: #101310;
+      --surface-raised: #171b17;
+      --surface-strong: #1d221d;
+      --ink: #edf0e9;
+      --ink-soft: #c1c8bc;
+      --muted: #788174;
+      --line: rgba(237, 240, 233, .09);
+      --line-strong: rgba(237, 240, 233, .17);
+      --moss: #9bc88f;
+      --moss-deep: #233429;
+      --amber: #e6b56f;
+      --amber-deep: #392b19;
+      --coral: #dc8d79;
+      --coral-deep: #38231d;
+      --blue: #91abc7;
+      --blue-deep: #202c39;
+      --radius-s: 6px;
+      --radius-m: 10px;
+      --radius-l: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--canvas); }
+    body { margin: 0; min-width: 320px; background: var(--canvas); color: var(--ink); -webkit-font-smoothing: antialiased; }
+    button { font: inherit; }
+    button:focus-visible { outline: 2px solid var(--moss); outline-offset: 3px; }
+    button:active { transform: scale(.97); }
+
+    .shell { min-height: 100vh; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      min-height: 64px;
+      padding: 12px clamp(18px, 4vw, 58px);
+      border-bottom: 1px solid var(--line);
+      background: rgba(9, 11, 10, .96);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--moss);
+      color: #102014;
+      font: 700 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .brand strong { display: block; font-size: 13px; letter-spacing: .04em; }
+    .brand small { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; letter-spacing: .12em; }
+    .run-state { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 12px; }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--moss); box-shadow: 0 0 0 4px rgba(155, 200, 143, .12); }
+
+    main { width: min(1540px, 100%); margin: 0 auto; padding: 42px clamp(18px, 4vw, 58px) 80px; }
+    .intro { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: 44px; align-items: end; }
+    .kicker { margin: 0 0 12px; color: var(--moss); font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase; }
+    h1 {
+      max-width: 920px;
+      margin: 0;
+      font-family: "Iowan Old Style", "Songti SC", "Noto Serif SC", serif;
+      font-size: clamp(38px, 5.8vw, 76px);
+      font-weight: 500;
+      line-height: 1.03;
+    }
+    .intro-copy { max-width: 520px; margin: 0; color: var(--ink-soft); font-size: 14px; line-height: 1.8; }
+    .demo-warning { margin-top: 14px; color: var(--amber); font-size: 11px; line-height: 1.6; }
+
+    .brief-strip {
+      display: grid;
+      grid-template-columns: 1.3fr repeat(3, minmax(120px, .45fr));
+      margin-top: 38px;
+      border-top: 1px solid var(--line-strong);
+      border-bottom: 1px solid var(--line-strong);
+    }
+    .brief-cell { min-width: 0; padding: 16px 18px; border-right: 1px solid var(--line); }
+    .brief-cell:last-child { border-right: 0; }
+    .brief-cell span { display: block; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; }
+    .brief-cell strong { display: block; margin-top: 7px; color: var(--ink-soft); font-size: 13px; font-weight: 550; line-height: 1.55; }
+
+    .controls { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px; margin-top: 30px; }
+    .filter-group { display: flex; flex-wrap: wrap; gap: 6px; }
+    .filter {
+      min-height: 40px;
+      padding: 0 13px;
+      border: 0;
+      border-radius: var(--radius-s);
+      background: var(--surface-raised);
+      color: var(--muted);
+      cursor: pointer;
+      transition: transform 120ms ease-out, background-color 160ms ease-out, color 160ms ease-out;
+    }
+    .filter:hover { color: var(--ink-soft); background: var(--surface-strong); }
+    .filter.active { background: var(--ink); color: #121411; }
+    .evidence-toggle {
+      min-height: 40px;
+      padding: 0 13px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-s);
+      background: transparent;
+      color: var(--ink-soft);
+      cursor: pointer;
+      transition: transform 120ms ease-out, background-color 160ms ease-out;
+    }
+    .evidence-toggle.active { background: var(--amber-deep); color: var(--amber); }
+
+    .map-shell { margin-top: 18px; overflow-x: auto; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); }
+    .map-canvas { position: relative; min-width: 1180px; padding: 0 0 28px; }
+    .map-lines { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+    .map-lines path { fill: none; stroke-width: 1.5; opacity: .45; transition: opacity 160ms ease-out, stroke-width 160ms ease-out; }
+    .map-lines path.dim { opacity: .07; }
+    .map-lines path.focus { opacity: .95; stroke-width: 2.25; }
+
+    .lane-heads, .strategy-row { position: relative; z-index: 1; display: grid; grid-template-columns: 1.05fr 1.12fr 1.08fr 1.16fr 1.25fr; column-gap: 22px; }
+    .lane-heads { position: sticky; top: 64px; z-index: 8; background: var(--canvas); border-bottom: 1px solid var(--line); }
+    .lane-head { padding: 16px 4px 13px; }
+    .lane-head span { display: block; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; }
+    .lane-head strong { display: block; margin-top: 5px; font-size: 13px; font-weight: 650; }
+
+    .strategy-row { min-height: 190px; padding: 24px 0; border-bottom: 1px solid var(--line); align-items: center; }
+    .strategy-row:last-child { border-bottom: 0; }
+    .row-index { position: absolute; top: 16px; left: 0; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .node {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      min-height: 112px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-m);
+      background: var(--surface);
+      color: var(--ink);
+      text-align: left;
+      cursor: pointer;
+      transition: transform 140ms ease-out, background-color 180ms ease-out, opacity 180ms ease-out, box-shadow 180ms ease-out;
+    }
+    .node:hover { transform: translateY(-2px); background: var(--surface-raised); box-shadow: 0 10px 28px rgba(0, 0, 0, .24); }
+    .node.active { background: var(--surface-strong); box-shadow: inset 0 0 0 1px var(--node-color); }
+    .node.dim { opacity: .18; }
+    .node-type { display: flex; justify-content: space-between; gap: 8px; color: var(--node-color); font: 700 9px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; }
+    .node h3 { margin: 10px 0 0; font-size: 14px; line-height: 1.4; }
+    .node p { margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+    .node small { display: block; margin-top: 10px; color: var(--ink-soft); font-size: 10px; }
+    .signal { --node-color: var(--blue); }
+    .mindset { --node-color: var(--amber); }
+    .tension { --node-color: var(--coral); }
+    .principle { --node-color: var(--moss); }
+    .action { --node-color: var(--ink); }
+    .priority { display: inline-grid; min-width: 25px; height: 20px; place-items: center; margin-right: 6px; border-radius: 4px; background: var(--node-color); color: #11130f; font: 800 9px ui-monospace, monospace; }
+    .source-ref { display: none; margin-top: 8px; color: var(--blue); font: 10px ui-monospace, monospace; }
+    body.show-evidence .source-ref { display: block; }
+
+    .inspection { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 28px; margin-top: 32px; }
+    .journey { min-width: 0; }
+    .section-kicker { color: var(--muted); font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; }
+    .journey h2, .inspector h2 { margin: 8px 0 0; font-family: "Iowan Old Style", "Songti SC", serif; font-size: 25px; font-weight: 500; }
+    .journey-track { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 22px; border-top: 1px solid var(--line-strong); }
+    .journey-step { position: relative; padding: 18px 14px 0 0; }
+    .journey-step::before { content: ""; position: absolute; top: -4px; left: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+    .journey-step.hot::before { background: var(--coral); box-shadow: 0 0 0 5px rgba(220, 141, 121, .1); }
+    .journey-step span { color: var(--muted); font: 10px ui-monospace, monospace; }
+    .journey-step strong { display: block; margin-top: 6px; font-size: 13px; }
+    .journey-step p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+    .inspector { position: sticky; top: 92px; align-self: start; min-height: 300px; padding: 20px; border-radius: var(--radius-l); background: var(--surface-raised); box-shadow: inset 0 0 0 1px var(--line); }
+    .inspector-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+    .chip { padding: 4px 7px; border-radius: 999px; background: rgba(255,255,255,.06); color: var(--ink-soft); font-size: 10px; }
+    .inspector p { margin: 16px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.75; }
+    .detail-list { margin: 18px 0 0; padding: 16px 0 0; border-top: 1px solid var(--line); list-style: none; }
+    .detail-list li { display: grid; grid-template-columns: 74px 1fr; gap: 10px; padding: 6px 0; font-size: 11px; line-height: 1.55; }
+    .detail-list span { color: var(--muted); }
+    .detail-list strong { color: var(--ink-soft); font-weight: 500; }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 28px; color: var(--muted); font-size: 11px; }
+    .legend i { width: 8px; height: 8px; display: inline-block; margin-right: 6px; border-radius: 50%; background: currentColor; }
+    .legend .l-blue { color: var(--blue); }
+    .legend .l-amber { color: var(--amber); }
+    .legend .l-coral { color: var(--coral); }
+    .legend .l-moss { color: var(--moss); }
+
+    @media (max-width: 900px) {
+      .intro { grid-template-columns: 1fr; gap: 20px; }
+      .brief-strip { grid-template-columns: 1fr 1fr; }
+      .brief-cell:nth-child(2) { border-right: 0; }
+      .brief-cell:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .inspection { grid-template-columns: 1fr; }
+      .inspector { position: static; }
+    }
+
+    @media (max-width: 640px) {
+      .topbar { position: static; padding: 12px 16px; }
+      .run-state { display: none; }
+      main { padding: 28px 16px 60px; }
+      h1 { font-size: 38px; }
+      .brief-strip { grid-template-columns: 1fr; }
+      .brief-cell { border-right: 0; border-bottom: 1px solid var(--line); }
+      .brief-cell:last-child { border-bottom: 0; }
+      .map-shell { overflow: visible; }
+      .map-canvas { min-width: 0; }
+      .map-lines, .lane-heads { display: none; }
+      .strategy-row { display: block; padding: 36px 0 18px; }
+      .node { min-height: auto; margin-bottom: 10px; }
+      .node::before { content: attr(data-lane); display: block; margin-bottom: 6px; color: var(--muted); font: 9px ui-monospace, monospace; letter-spacing: .1em; }
+      .journey-track { grid-template-columns: 1fr; border-top: 0; }
+      .journey-step { padding: 10px 0 10px 22px; border-bottom: 1px solid var(--line); }
+      .journey-step::before { top: 18px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">AM</div>
+        <div><strong>AgentMesh Strategy Atlas</strong><small>GRAPHICAL REPORT DEMO</small></div>
+      </div>
+      <div class="run-state"><span class="pulse"></span>分析完成 · 证据覆盖 8 / 10</div>
+    </header>
+
+    <main>
+      <section class="intro">
+        <div>
+          <p class="kicker">Pet food mindset · Strategy map</p>
+          <h1>让“宠物吃得好”<br />变成一条可证明的信任链</h1>
+        </div>
+        <div>
+          <p class="intro-copy">这不是一张汇报流程图，而是一张决策地图。每一列回答一个问题：我们看到了什么，用户怎么想，矛盾在哪里，设计应该坚持什么，下一步先做什么。</p>
+          <p class="demo-warning">演示内容仅用于展示报告形式，不代表真实研究结论。</p>
+        </div>
+      </section>
+
+      <section class="brief-strip" aria-label="研究摘要">
+        <div class="brief-cell"><span>研究命题</span><strong>宠物主粮在认知、比较、购买与持续喂养中的心智表达</strong></div>
+        <div class="brief-cell"><span>核心对象</span><strong>谨慎型宠物主</strong></div>
+        <div class="brief-cell"><span>关键场域</span><strong>品牌 App / 电商 / 内容平台</strong></div>
+        <div class="brief-cell"><span>报告状态</span><strong>Demo · 待真实证据验证</strong></div>
+      </section>
+
+      <section class="controls" aria-label="地图筛选">
+        <div class="filter-group">
+          <button class="filter active" data-filter="all">全部脉络</button>
+          <button class="filter" data-filter="trust">可信心智</button>
+          <button class="filter" data-filter="choice">选择心智</button>
+          <button class="filter" data-filter="care">照护心智</button>
+        </div>
+        <button class="evidence-toggle" aria-pressed="false">显示证据编号</button>
+      </section>
+
+      <section class="map-shell" aria-label="宠物主粮心智策略地图">
+        <div class="map-canvas" id="mapCanvas">
+          <svg class="map-lines" id="mapLines" aria-hidden="true"></svg>
+          <div class="lane-heads">
+            <div class="lane-head"><span>01 / SIGNAL</span><strong>观察信号</strong></div>
+            <div class="lane-head"><span>02 / MINDSET</span><strong>用户心智</strong></div>
+            <div class="lane-head"><span>03 / TENSION</span><strong>核心矛盾</strong></div>
+            <div class="lane-head"><span>04 / PRINCIPLE</span><strong>设计原则</strong></div>
+            <div class="lane-head"><span>05 / ACTION</span><strong>行动与优先级</strong></div>
+          </div>
+
+          <div class="strategy-row" data-row="trust">
+            <span class="row-index">A · TRUST</span>
+            <button class="node signal" data-node="signal-trust" data-stream="trust" data-lane="观察信号"><span class="node-type">Signal <b>外部</b></span><h3>信息很多，可信线索很少</h3><p>成分、检测、产地与口碑散落在不同触点。</p><span class="source-ref">S01 · S04 · S07</span></button>
+            <button class="node mindset" data-node="mind-trust" data-stream="trust" data-lane="用户心智"><span class="node-type">Mindset <b>判断</b></span><h3>“先证明适合它，我才敢买”</h3><p>安全感先于卖点，证据质量决定品牌可信度。</p><span class="source-ref">C02 · C05</span></button>
+            <button class="node tension" data-node="tension-trust" data-stream="trust" data-lane="核心矛盾"><span class="node-type">Tension <b>Gap</b></span><h3>专业表达与可理解性冲突</h3><p>越专业的信息，越容易让普通用户失去判断抓手。</p><span class="source-ref">I03</span></button>
+            <button class="node principle" data-node="principle-trust" data-stream="trust" data-lane="设计原则"><span class="node-type">Principle <b>01</b></span><h3>先证明，再说服</h3><p>所有利益表达先给出处，再给结论和行动建议。</p><span class="source-ref">→ S01 / S04</span></button>
+            <button class="node action" data-node="action-trust" data-stream="trust" data-lane="行动与优先级"><span class="node-type"><i class="priority">P0</i>Action</span><h3>建立“适配证据卡”</h3><p>原料、检测、适用阶段、风险提示同屏呈现。</p><small>指标：证据展开率 · 决策时长</small></button>
+          </div>
+
+          <div class="strategy-row" data-row="choice">
+            <span class="row-index">B · CHOICE</span>
+            <button class="node signal" data-node="signal-choice" data-stream="choice" data-lane="观察信号"><span class="node-type">Signal <b>行为</b></span><h3>搜索词从品牌转向问题</h3><p>用户更常围绕年龄、体质和症状寻找答案。</p><span class="source-ref">S02 · S06</span></button>
+            <button class="node mindset" data-node="mind-choice" data-stream="choice" data-lane="用户心智"><span class="node-type">Mindset <b>任务</b></span><h3>“别让我成为营养专家”</h3><p>用户要的是可解释的缩小范围，而不是更多参数。</p><span class="source-ref">C03 · C08</span></button>
+            <button class="node tension" data-node="tension-choice" data-stream="choice" data-lane="核心矛盾"><span class="node-type">Tension <b>Gap</b></span><h3>选择丰富与决策负担冲突</h3><p>筛选项增加了控制感，却没有减少判断成本。</p><span class="source-ref">I05</span></button>
+            <button class="node principle" data-node="principle-choice" data-stream="choice" data-lane="设计原则"><span class="node-type">Principle <b>02</b></span><h3>从筛选器变成决策助手</h3><p>先问宠物状态，再解释为什么推荐这一组。</p><span class="source-ref">→ C03 / C08</span></button>
+            <button class="node action" data-node="action-choice" data-stream="choice" data-lane="行动与优先级"><span class="node-type"><i class="priority">P0</i>Action</span><h3>三问式选粮路径</h3><p>生命阶段、主要困扰、喂养偏好，三步形成候选集。</p><small>指标：筛选完成率 · 选择回退率</small></button>
+          </div>
+
+          <div class="strategy-row" data-row="care">
+            <span class="row-index">C · CARE</span>
+            <button class="node signal" data-node="signal-care" data-stream="care" data-lane="观察信号"><span class="node-type">Signal <b>旅程</b></span><h3>购买完成后，服务突然结束</h3><p>换粮、喂量、观察和复购缺少连续承接。</p><span class="source-ref">S03 · S09</span></button>
+            <button class="node mindset" data-node="mind-care" data-stream="care" data-lane="用户心智"><span class="node-type">Mindset <b>关系</b></span><h3>“我买的不是粮，是长期照护”</h3><p>一次购买只是照护周期中的一个决定。</p><span class="source-ref">C04 · C09</span></button>
+            <button class="node tension" data-node="tension-care" data-stream="care" data-lane="核心矛盾"><span class="node-type">Tension <b>Gap</b></span><h3>交易效率与长期关系冲突</h3><p>平台优化下单，却没有降低喂养过程的不确定性。</p><span class="source-ref">I07</span></button>
+            <button class="node principle" data-node="principle-care" data-stream="care" data-lane="设计原则"><span class="node-type">Principle <b>03</b></span><h3>把交易变成照护</h3><p>购买后继续提供换粮、观察、提醒与复购支持。</p><span class="source-ref">→ S03 / S09</span></button>
+            <button class="node action" data-node="action-care" data-stream="care" data-lane="行动与优先级"><span class="node-type"><i class="priority">P1</i>Action</span><h3>建立喂养陪伴周期</h3><p>首周换粮计划、状态记录、异常提示和补货预测。</p><small>指标：计划启用率 · 复购留存</small></button>
+          </div>
+        </div>
+      </section>
+
+      <div class="legend" aria-label="图例">
+        <span class="l-blue"><i></i>事实与观察</span>
+        <span class="l-amber"><i></i>用户心智</span>
+        <span class="l-coral"><i></i>矛盾与缺口</span>
+        <span class="l-moss"><i></i>策略原则</span>
+        <span>连线表示“依据与推导”，不是时间顺序</span>
+      </div>
+
+      <section class="inspection">
+        <div class="journey">
+          <span class="section-kicker">Journey pressure</span>
+          <h2>策略应该落在哪些旅程节点</h2>
+          <div class="journey-track">
+            <div class="journey-step"><span>01</span><strong>认知</strong><p>先建立“值得信”的第一印象。</p></div>
+            <div class="journey-step"><span>02</span><strong>种草</strong><p>把内容热度翻译成适配理由。</p></div>
+            <div class="journey-step hot"><span>03</span><strong>搜索</strong><p>决策负担最高，优先介入。</p></div>
+            <div class="journey-step hot"><span>04</span><strong>购买</strong><p>在最后一步补齐证据与风险提示。</p></div>
+            <div class="journey-step"><span>05</span><strong>喂养</strong><p>用持续服务建立复购关系。</p></div>
+          </div>
+        </div>
+
+        <aside class="inspector" aria-live="polite">
+          <span class="section-kicker" id="detailType">NODE INSPECTOR</span>
+          <h2 id="detailTitle">点击任意节点</h2>
+          <div class="inspector-meta" id="detailMeta"><span class="chip">交互演示</span></div>
+          <p id="detailBody">查看该节点的判断依据、证据状态、设计含义和验证方式。</p>
+          <ul class="detail-list" id="detailList">
+            <li><span>怎么读</span><strong>从左向右看推导，从上向下看三条策略脉络。</strong></li>
+            <li><span>怎么用</span><strong>评审时点击节点，追踪它来自哪些证据和洞察。</strong></li>
+            <li><span>怎么决策</span><strong>最右侧动作按 P0/P1/P2 进入路线图。</strong></li>
+          </ul>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const details = {
+      'signal-trust': ['观察信号', '信息很多，可信线索很少', '证据不是越多越好，而是要让用户知道来源、适用边界和结论强度。', ['来源：S01 / S04 / S07', '成熟度：待真实研究验证', '影响：认知与购买']],
+      'mind-trust': ['用户心智', '“先证明适合它，我才敢买”', '用户先排除风险，再接受产品利益点。信任不是品牌口号，而是可检查的证据链。', ['上游：可信信号', '下游：先证明，再说服', '置信度：中']],
+      'tension-trust': ['核心矛盾', '专业表达与可理解性冲突', '专业信息没有经过解释时，会增加而不是减少用户的判断负担。', ['影响对象：谨慎型宠物主', '关键触点：详情页首屏', '待验证：信息密度阈值']],
+      'principle-trust': ['设计原则', '先证明，再说服', '先展示证据出处和适用条件，再表达利益结论，避免把营销承诺放在证据之前。', ['对应心智：风险排除', '设计层：信息层', '验证：理解正确率']],
+      'action-trust': ['P0 行动', '建立“适配证据卡”', '把原料、检测、适用阶段、风险提示组织成一个可展开、可比较、可追溯的决策单元。', ['优先级：P0', '负责人：商品体验', '验证：A/B + 访谈']],
+      'signal-choice': ['观察信号', '搜索词从品牌转向问题', '用户可能从“买哪个品牌”转向“我的宠物现在适合什么”。', ['来源：S02 / S06', '成熟度：待验证', '影响：搜索与比较']],
+      'mind-choice': ['用户心智', '“别让我成为营养专家”', '用户需要的是被解释的推荐，而不是自行理解所有配方参数。', ['上游：问题型搜索', '下游：决策助手', '置信度：中']],
+      'tension-choice': ['核心矛盾', '选择丰富与决策负担冲突', '选项越多并不必然提升控制感，缺少判断顺序时会造成拖延和回退。', ['关键触点：搜索结果页', '风险：推荐黑箱', '待验证：放弃原因']],
+      'principle-choice': ['设计原则', '从筛选器变成决策助手', '从用户状态出发缩小选择，并解释推荐依据和不适用条件。', ['对应心智：降低选择成本', '设计层：链路层', '验证：决策时间']],
+      'action-choice': ['P0 行动', '三问式选粮路径', '通过生命阶段、主要困扰和喂养偏好生成候选集，同时保留用户修改条件的能力。', ['优先级：P0', '依赖：商品标签治理', '验证：任务成功率']],
+      'signal-care': ['观察信号', '购买完成后，服务突然结束', '交易完成后缺少换粮指导、状态观察和下一次购买的连续信息。', ['来源：S03 / S09', '成熟度：待验证', '影响：使用与复购']],
+      'mind-care': ['用户心智', '“我买的不是粮，是长期照护”', '宠物主把主粮选择视为持续责任，而非一次性消费。', ['上游：喂养旅程', '下游：照护服务', '置信度：中']],
+      'tension-care': ['核心矛盾', '交易效率与长期关系冲突', '平台擅长缩短购买路径，但用户的不确定性发生在购买之后。', ['关键触点：订单完成页', '机会：服务连续性', '风险：过度打扰']],
+      'principle-care': ['设计原则', '把交易变成照护', '在购买后继续提供低负担、可退出、与宠物状态相关的照护支持。', ['对应心智：持续负责', '设计层：服务层', '验证：计划留存']],
+      'action-care': ['P1 行动', '建立喂养陪伴周期', '用首周换粮计划连接状态记录、异常提醒与下一次补货，不把提醒做成单纯促销。', ['优先级：P1', '依赖：消息与订单', '验证：复购留存']],
+    };
+
+    const links = [
+      ['signal-trust','mind-trust','trust'],['mind-trust','tension-trust','trust'],['tension-trust','principle-trust','trust'],['principle-trust','action-trust','trust'],
+      ['signal-choice','mind-choice','choice'],['mind-choice','tension-choice','choice'],['tension-choice','principle-choice','choice'],['principle-choice','action-choice','choice'],
+      ['signal-care','mind-care','care'],['mind-care','tension-care','care'],['tension-care','principle-care','care'],['principle-care','action-care','care'],
+    ];
+
+    const colors = { trust: '#91abc7', choice: '#e6b56f', care: '#9bc88f' };
+    const canvas = document.getElementById('mapCanvas');
+    const svg = document.getElementById('mapLines');
+
+    function drawLines() {
+      if (window.innerWidth <= 640) { svg.innerHTML = ''; return; }
+      const box = canvas.getBoundingClientRect();
+      svg.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
+      svg.innerHTML = links.map(([from, to, stream]) => {
+        const a = document.querySelector(`[data-node="${from}"]`).getBoundingClientRect();
+        const b = document.querySelector(`[data-node="${to}"]`).getBoundingClientRect();
+        const x1 = a.right - box.left;
+        const y1 = a.top + a.height / 2 - box.top;
+        const x2 = b.left - box.left;
+        const y2 = b.top + b.height / 2 - box.top;
+        const bend = Math.max(18, (x2 - x1) * .42);
+        return `<path data-stream="${stream}" stroke="${colors[stream]}" d="M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}" />`;
+      }).join('');
+    }
+
+    function selectStream(stream) {
+      document.querySelectorAll('.filter').forEach(button => button.classList.toggle('active', button.dataset.filter === stream));
+      document.querySelectorAll('.node').forEach(node => node.classList.toggle('dim', stream !== 'all' && node.dataset.stream !== stream));
+      document.querySelectorAll('.map-lines path').forEach(path => {
+        path.classList.toggle('dim', stream !== 'all' && path.dataset.stream !== stream);
+        path.classList.toggle('focus', stream !== 'all' && path.dataset.stream === stream);
+      });
+    }
+
+    document.querySelectorAll('.filter').forEach(button => button.addEventListener('click', () => selectStream(button.dataset.filter)));
+    document.querySelector('.evidence-toggle').addEventListener('click', event => {
+      document.body.classList.toggle('show-evidence');
+      const active = document.body.classList.contains('show-evidence');
+      event.currentTarget.classList.toggle('active', active);
+      event.currentTarget.setAttribute('aria-pressed', String(active));
+      event.currentTarget.textContent = active ? '隐藏证据编号' : '显示证据编号';
+    });
+
+    document.querySelectorAll('.node').forEach(node => node.addEventListener('click', () => {
+      document.querySelectorAll('.node').forEach(item => item.classList.remove('active'));
+      node.classList.add('active');
+      const [type, title, body, meta] = details[node.dataset.node];
+      document.getElementById('detailType').textContent = type;
+      document.getElementById('detailTitle').textContent = title;
+      document.getElementById('detailBody').textContent = body;
+      document.getElementById('detailMeta').innerHTML = `<span class="chip">${node.dataset.stream.toUpperCase()}</span><span class="chip">可追溯节点</span>`;
+      document.getElementById('detailList').innerHTML = meta.map(item => {
+        const [label, value] = item.split('：');
+        return `<li><span>${label}</span><strong>${value || ''}</strong></li>`;
+      }).join('');
+    }));
+
+    window.addEventListener('load', drawLines);
+    window.addEventListener('resize', drawLines);
+    drawLines();
+  </script>
+</body>
+</html>

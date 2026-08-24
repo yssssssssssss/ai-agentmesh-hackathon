@@ -127,6 +127,20 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
             <h3 id="research-results-title" className="text-sm font-semibold text-slate-100">研究结果</h3>
           </div>
 
+          {review?.status === 'block' ? (
+            <section role="alert" className="mt-4 rounded-[10px] border border-amber-300/20 bg-amber-300/[0.07] p-4">
+              <h4 className="text-sm font-semibold text-amber-100">未通过审核的研究草稿</h4>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                当前内容仅供补证与修订，不能作为已审核通过的最终报告。
+              </p>
+              <ul className="mt-2 space-y-1 font-mono text-xs text-amber-100/80">
+                {reviewChecks.filter((check) => !check.passed).map((check) => (
+                  <li key={check.code}>• {check.code}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
           {report ? (
             <article aria-labelledby="research-report-title" className="mt-4 rounded-[12px] border border-mint-400/15 bg-base/55 p-5">
               <h4 id="research-report-title" className="text-base font-semibold text-slate-100">{report.title}</h4>

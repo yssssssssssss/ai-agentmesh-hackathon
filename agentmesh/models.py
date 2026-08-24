@@ -6,14 +6,24 @@ from datetime import date as dt_date
 from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentmesh.provider_status import ProviderStatus
+from agentmesh.task_routing.contracts import CompletionCheckResult, TaskRoutingResult
 
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
+
+
+MEMORY_TIME_ZONE = ZoneInfo("Asia/Shanghai")
+
+
+def memory_date_for(instant: datetime | None = None) -> dt_date:
+    value = instant or now_utc()
+    return value.astimezone(MEMORY_TIME_ZONE).date()
 
 
 def new_id(prefix: str) -> str:
@@ -371,6 +381,8 @@ class SkillCapabilityProfile(BaseModel):
                 self.capability_type.value,
                 *self.input_kinds,
                 *self.output_kinds,
+                *self.task_types,
+                *self.archetypes,
                 *self.examples,
             ]
         )
@@ -749,7 +761,7 @@ class UserMemoryItem(BaseModel):
     summary: str
     source_kind: str = Field(min_length=1, max_length=80)
     memory_type: str = Field(default="note", min_length=1, max_length=80)
-    memory_date: dt_date = Field(default_factory=lambda: now_utc().date())
+    memory_date: dt_date = Field(default_factory=memory_date_for)
     sensitivity: str = Field(default="normal", min_length=1, max_length=20)
     scope: Scope = Scope.PRIVATE
     workspace_id: str
@@ -987,6 +999,9 @@ class SkillIntent(BaseModel):
     primary_stage: SkillLifecycleStage = SkillLifecycleStage.PRE_DESIGN
     input_kinds: list[str] = Field(default_factory=list, max_length=20)
     deliverables: list[str] = Field(default_factory=list, max_length=20)
+    analysis_requirements: list[str] = Field(default_factory=list, max_length=20)
+    presentation_requirements: list[str] = Field(default_factory=list, max_length=20)
+    external_evidence_required: bool = False
     constraints: SkillIntentConstraints = Field(default_factory=SkillIntentConstraints)
     explicit_skill_names: list[str] = Field(default_factory=list, max_length=10)
     complexity: SkillIntentComplexity = SkillIntentComplexity.DIRECT
@@ -1052,6 +1067,14 @@ class SkillPlanNodeStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class SkillPlanKnowledgeBindings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    required: list[str] = Field(default_factory=list, max_length=100)
+    optional: list[str] = Field(default_factory=list, max_length=100)
+    excluded: list[str] = Field(default_factory=list, max_length=100)
+
+
 class SkillPlanNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1060,11 +1083,19 @@ class SkillPlanNode(BaseModel):
     skill_version: str
     skill_content_hash: str
     reason: str = Field(min_length=1, max_length=1000)
+    task_id: str | None = Field(default=None, max_length=120)
+    scenario_id: str | None = Field(default=None, max_length=120)
+    skill_registry_id: str | None = Field(default=None, max_length=160)
+    skill_status: Literal["draft", "reviewed", "validated"] | None = None
     required: bool = True
     depends_on: list[str] = Field(default_factory=list, max_length=6)
     parallel_group: str | None = Field(default=None, max_length=120)
+    condition: str | None = Field(default=None, max_length=500)
     input_bindings: list[str] = Field(default_factory=list, max_length=20)
     output_contract: list[str] = Field(default_factory=list, max_length=20)
+    knowledge_bindings: SkillPlanKnowledgeBindings = Field(default_factory=SkillPlanKnowledgeBindings)
+    required_tool_names: list[str] = Field(default_factory=list, max_length=20)
+    completion_criteria: list[str] = Field(default_factory=list, max_length=20)
     side_effect: SkillSideEffect = SkillSideEffect.READ
     status: SkillPlanNodeStatus = SkillPlanNodeStatus.PENDING
     attempt: int = Field(default=0, ge=0, le=2)
@@ -1077,6 +1108,8 @@ class SkillPlanDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     output_contract: list[str] = Field(default_factory=list, max_length=20)
+    synthesis_output_contract: list[str] = Field(default_factory=list, max_length=20)
+    capability_gaps: list[str] = Field(default_factory=list, max_length=100)
     nodes: list[SkillPlanNode] = Field(default_factory=list, max_length=6)
 
 
@@ -1086,11 +1119,15 @@ class SkillPlan(BaseModel):
     version: int = Field(default=1, ge=1)
     status: SkillPlanStatus = SkillPlanStatus.PLANNING
     intent: SkillIntent
+    routing_result: TaskRoutingResult | None = None
     candidate_skill_ids: list[str] = Field(default_factory=list, max_length=12)
     output_contract: list[str] = Field(default_factory=list, max_length=20)
+    synthesis_output_contract: list[str] = Field(default_factory=list, max_length=20)
+    capability_gaps: list[str] = Field(default_factory=list, max_length=100)
     preferred_order: list[str] = Field(default_factory=list, max_length=6)
     nodes: list[SkillPlanNode] = Field(default_factory=list, max_length=6)
-    degradation: str | None = Field(default=None, max_length=500)
+    degradation: str | None = Field(default=None, max_length=1000)
+    completion_check: CompletionCheckResult | None = None
     synthesis: dict[str, Any] | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
@@ -1130,6 +1167,8 @@ class SkillNodeResult(BaseModel):
     summary: str = Field(min_length=1, max_length=8000)
     findings: list[str] = Field(default_factory=list, max_length=100)
     recommendations: list[str] = Field(default_factory=list, max_length=100)
+    scenario_outputs: list[str] = Field(default_factory=list, max_length=100)
+    completion_criteria_met: list[str] = Field(default_factory=list, max_length=100)
     sources: list[SkillResultSource] = Field(default_factory=list, max_length=100)
     confidence: float = Field(default=0.5, ge=0, le=1)
     limitations: list[str] = Field(default_factory=list, max_length=100)
@@ -1154,6 +1193,7 @@ class SkillSynthesisResult(BaseModel):
 
     summary: str = Field(min_length=1, max_length=8000)
     sections: list[str] = Field(default_factory=list, max_length=100)
+    presentation_outputs: list[str] = Field(default_factory=list, max_length=20)
     claims: list[SkillSynthesisClaim] = Field(default_factory=list, max_length=100)
     limitations: list[str] = Field(default_factory=list, max_length=100)
     next_actions: list[str] = Field(default_factory=list, max_length=100)
@@ -1556,6 +1596,7 @@ class AgentRun(BaseModel):
     skill_id: str | None = None
     skill_name: str | None = None
     plan_id: str | None = None
+    retry_of_run_id: str | None = Field(default=None, max_length=120)
     orchestration_version: Literal["v1", "research-v2", "research-v3"] = "v1"
     orchestration_mode: Literal["off", "preview", "execute"] = "off"
     writer_generation_epoch: int | None = Field(default=None, ge=1)

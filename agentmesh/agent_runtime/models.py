@@ -17,6 +17,7 @@ class AgentMeshRunContext(BaseModel):
     node_id: str | None = None
     skill_id: str | None = None
     policy_snapshot_ids: list[str] = Field(default_factory=list)
+    approved_resource_hashes: dict[str, str] = Field(default_factory=dict)
     source_ids: list[str] = Field(default_factory=list)
     artifact_ids: list[str] = Field(default_factory=list)
     resource_references: list[str] = Field(default_factory=list)

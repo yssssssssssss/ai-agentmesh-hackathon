@@ -72,6 +72,15 @@ export function Workspace() {
   const sendAgentRun = useSendAgentRunMutation(scope)
   const runQuery = useAgentRunQuery(scope, runId)
   const currentRun = runQuery.data?.item
+  const runFailureMessage = currentRun?.output_text || (
+    currentRun?.error_code === 'PlannerUnavailable'
+      ? '当前能力不足以生成可靠计划，系统没有降级为无工具回答。'
+      : currentRun?.error_code === 'ProviderTimeoutError'
+        ? '外部资料 Provider 超时。已停止本次调用，可以稍后按原计划重试。'
+        : currentRun?.error_code === 'ModelTimeoutError' || currentRun?.error_code === 'TimeoutError'
+        ? '任务执行超时。请保留当前编排模式后重试，或缩小单次任务范围。'
+        : currentRun?.error_code
+  )
   const isResearchV2 = currentRun?.orchestration_version === 'research-v2'
   const isResearchV3 = currentRun?.orchestration_version === 'research-v3'
   const isResearchRun = isResearchV2 || isResearchV3
@@ -348,7 +357,7 @@ export function Workspace() {
                   <div>
                     <p className="text-xs font-semibold text-mint-300">{currentRun.skill_name ? `$${currentRun.skill_name}` : 'Agent Runtime v2'}</p>
                     <p className="mt-1 text-sm text-slate-300">状态：{currentRun.status}</p>
-                    {currentRun.error_code ? <p className="mt-1 text-xs text-rose">{currentRun.error_code}</p> : null}
+                    {currentRun.error_code ? <p className="mt-1 text-xs leading-5 text-rose">{runFailureMessage}</p> : null}
                   </div>
                   <div className="flex gap-2">
                     {runIsActive ? <Button variant="danger" size="sm" loading={cancelRun.isPending} onClick={cancelCurrentRun}>取消</Button> : null}
@@ -385,6 +394,7 @@ export function Workspace() {
                   results={planDetail.results ?? []}
                   skillsById={skillsById}
                   partial={currentRun.status === 'partial'}
+                  completionCheck={planDetail.plan.completion_check}
                   onOpenSource={openSkillSource}
                   onOpenArtifact={(artifactId) => window.open(`/api/artifacts/${encodeURIComponent(artifactId)}`, '_blank', 'noopener,noreferrer')}
                 />
