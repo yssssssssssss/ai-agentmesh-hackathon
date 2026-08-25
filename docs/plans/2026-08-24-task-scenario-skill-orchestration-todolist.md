@@ -239,8 +239,8 @@
 - [x] 执行前重新校验 Tool Grant。
 - [x] 执行前重新校验 Project 权限。
 - [x] 从冻结 Catalog 按节点加载最小 Knowledge 摘要与来源元数据。
-- [x] Web Research 节点调用前执行一次 Tool Approval。
-- [x] approved 前 Provider 调用数必须为 0，approved 后节点内部 Provider 子调用不重复审批。
+- [x] Web Research 节点继承当前用户个人 Agent 的 Tool Grant，不再重复逐调用审批。
+- [x] 外部写入、不可逆操作或高风险参数仍保留单次调用确认。
 - [x] 上游 SkillResult 按依赖传递。
 - [x] 并行节点使用现有并发上限。
 - [x] 失败节点使依赖节点 skipped。
@@ -345,7 +345,7 @@
 - [x] Scenario 包含 `priority-roadmap`。
 - [x] Plan 中至少包含 2 个可执行 Skill。
 - [x] 需要公开资料，因此 Plan 包含 Web Research。
-- [x] Tool Approval 前 Provider 调用数为 0。
+- [x] 用户级 Tool Grant 有效时，只读 Web Research 直接执行；缺少授权时执行前失败关闭。
 - [x] 真实 Provider 端到端最终输出包含受限版策略地图。
 - [x] 真实 Provider 端到端最终输出包含用户心智模型。
 - [ ] 真实 Provider 端到端最终输出包含至少 5 条设计原则。
@@ -389,7 +389,7 @@
 - [x] Firecrawl Key 轮换由用户明确豁免；继续使用当前 Key 的泄露风险作为已接受残余风险记录。
 - [x] 自动测试和差异中未发现 Tavily Key。
 - [x] Runtime Catalog 不包含内部密钥和原始用户材料。
-- [x] Tool Approval 不能被 Skill 绕过。
+- [x] Skill 不能绕过用户级 Tool Grant；已授权只读工具不重复审批，高风险写入仍需单次确认。
 - [x] 外部内容继续使用现有 Prompt Injection 隔离。
 - [x] 仅高风险业务规则、不可逆操作和无法降级的必需输入进入 Human Confirmation。
 - [x] 多 Skill 节点数、深度、并发和调用次数有上限。
