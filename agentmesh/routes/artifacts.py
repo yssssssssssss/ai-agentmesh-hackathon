@@ -6,24 +6,25 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from agentmesh.models import User
-from agentmesh.research_orchestration.artifacts import (
+from agentmesh.research_orchestration.v2_artifact_history import (
     ArtifactReaderScope,
-    ArtifactStore,
     ArtifactStoreError,
+    V2ArtifactHistoryReader,
 )
 from agentmesh.routes.deps import current_user
 from agentmesh.store import store
 
 router = APIRouter(prefix="/api/artifacts", tags=["artifacts"])
-artifact_store = ArtifactStore(store)
+artifact_reader = V2ArtifactHistoryReader(store)
 
 
 @router.get("/{artifact_id}")
 def get_artifact(artifact_id: str, user: User = Depends(current_user)) -> Response:
     try:
-        artifact, verified = artifact_store.read_for_owner(
+        artifact, verified = artifact_reader.read_for_owner(
             artifact_id,
             reader_scope=ArtifactReaderScope(user_id=user.id, workspace_id=user.workspace_id),
+            invalidate_corrupt=False,
         )
     except ArtifactStoreError as error:
         if error.code == "artifact_not_found":

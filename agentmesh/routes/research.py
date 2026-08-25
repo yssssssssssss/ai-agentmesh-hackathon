@@ -1,28 +1,22 @@
-"""HTTP control plane for owner-scoped research-v2 workflows."""
+"""Read-only research-v2 history and research-v3 preview routes."""
 
 from __future__ import annotations
 
 import inspect
-from collections.abc import Awaitable, Callable
-from typing import Annotated, Protocol
+from collections.abc import Callable
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from agentmesh.models import User
 from agentmesh.research_orchestration.api import (
-    ResearchClarifyRequest,
-    ResearchCommandResponse,
-    ResearchConfirmPlanRequest,
     ResearchConflictError,
-    ResearchExecuteRequest,
     ResearchNotFoundError,
     ResearchOwnerScope,
-    ResearchPurgeRequest,
-    ResearchRecoverRequest,
-    ResearchRevisePlanRequest,
     ResearchRunProjection,
 )
+from agentmesh.research_orchestration.v2_history import V2HistoryReader
 from agentmesh.research_orchestration.v3.api import (
     ResearchV3AbortRequest,
     ResearchV3AbortResponse,
@@ -60,77 +54,11 @@ from agentmesh.store import store
 router = APIRouter(prefix="/api/agent/runs", tags=["research"])
 
 
-class ResearchWorkflowService(Protocol):
-    def get_projection(
-        self,
-        run_id: str,
-        *,
-        owner: ResearchOwnerScope,
-    ) -> ResearchRunProjection | Awaitable[ResearchRunProjection]: ...
-
-    def clarify(
-        self,
-        run_id: str,
-        request: ResearchClarifyRequest,
-        *,
-        owner: ResearchOwnerScope,
-        idempotency_key: str,
-    ) -> ResearchCommandResponse | Awaitable[ResearchCommandResponse]: ...
-
-    def confirm_plan(
-        self,
-        run_id: str,
-        plan_version_id: str,
-        request: ResearchConfirmPlanRequest,
-        *,
-        owner: ResearchOwnerScope,
-        idempotency_key: str,
-    ) -> ResearchCommandResponse | Awaitable[ResearchCommandResponse]: ...
-
-    def revise_plan(
-        self,
-        run_id: str,
-        plan_version_id: str,
-        request: ResearchRevisePlanRequest,
-        *,
-        owner: ResearchOwnerScope,
-        idempotency_key: str,
-    ) -> ResearchCommandResponse | Awaitable[ResearchCommandResponse]: ...
-
-    def execute(
-        self,
-        run_id: str,
-        request: ResearchExecuteRequest,
-        *,
-        owner: ResearchOwnerScope,
-        idempotency_key: str,
-    ) -> ResearchCommandResponse | Awaitable[ResearchCommandResponse]: ...
-
-    def recover(
-        self,
-        run_id: str,
-        request: ResearchRecoverRequest,
-        *,
-        owner: ResearchOwnerScope,
-        idempotency_key: str,
-    ) -> ResearchCommandResponse | Awaitable[ResearchCommandResponse]: ...
-
-    def purge(
-        self,
-        run_id: str,
-        request: ResearchPurgeRequest,
-        *,
-        owner: ResearchOwnerScope,
-        idempotency_key: str,
-    ) -> ResearchCommandResponse | Awaitable[ResearchCommandResponse]: ...
-
-
-def get_research_workflow_service(request: Request) -> ResearchWorkflowService:
-    runtime = getattr(request.app.state, "research_runtime", None)
-    service = getattr(runtime, "workflow_service", None)
-    if service is None:
-        raise HTTPException(status_code=503, detail="Research workflow service is unavailable")
-    return service
+def get_v2_history_reader(request: Request) -> V2HistoryReader:
+    reader = getattr(request.app.state, "research_v2_history_reader", None)
+    if reader is None or not callable(getattr(reader, "get_projection", None)):
+        raise HTTPException(status_code=503, detail="Research history reader is unavailable")
+    return reader
 
 
 def _required_idempotency_key(
@@ -145,7 +73,6 @@ def _required_idempotency_key(
 
 
 IdempotencyKey = Annotated[str, Depends(_required_idempotency_key)]
-Service = Annotated[ResearchWorkflowService, Depends(get_research_workflow_service)]
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
@@ -273,200 +200,85 @@ async def _service_call(operation: Callable[[], object]) -> object:
 async def get_research_run(
     run_id: str,
     user: CurrentUser,
-    service: Service,
     request: Request,
 ) -> ResearchRunProjection | ResearchV3AggregateReadResponse:
     if _stored_version(run_id, user) == "research-v3":
         return await _v3_project(run_id, user, request)
-    result = await _service_call(lambda: service.get_projection(run_id, owner=_owner_scope(user)))
+    reader = get_v2_history_reader(request)
+    result = await _service_call(lambda: reader.get_projection(run_id, owner=_owner_scope(user)))
     return ResearchRunProjection.model_validate(result)
 
 
 @router.post(
     "/{run_id}/research/clarify",
-    response_model=ResearchCommandResponse | ResearchV3ClarifyResponse,
+    response_model=ResearchV3ClarifyResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def clarify_research_run(
     run_id: str,
-    request_body: ResearchClarifyRequest | ResearchV3ClarifyRequest,
+    request_body: ResearchV3ClarifyRequest,
     user: CurrentUser,
     idempotency_key: IdempotencyKey,
-    service: Service,
     request: Request,
-) -> ResearchCommandResponse | ResearchV3ClarifyResponse:
-    if _stored_version(run_id, user) == "research-v3":
-        if not isinstance(request_body, ResearchV3ClarifyRequest):
-            raise HTTPException(status_code=422, detail="Research-v3 clarification body is invalid")
-        return await _v3_mutate(
-            run_id=run_id,
-            command_type="clarify",
-            body=request_body,
-            user=user,
-            idempotency_key=idempotency_key,
-            request=request,
-            response_type=ResearchV3ClarifyResponse,
-        )
-    if not isinstance(request_body, ResearchClarifyRequest):
-        raise HTTPException(status_code=422, detail="Research-v2 clarification body is invalid")
-    result = await _service_call(
-        lambda: service.clarify(
-            run_id,
-            request_body,
-            owner=_owner_scope(user),
-            idempotency_key=idempotency_key,
-        )
+) -> ResearchV3ClarifyResponse:
+    _require_v3_version(run_id, user)
+    return await _v3_mutate(
+        run_id=run_id,
+        command_type="clarify",
+        body=request_body,
+        user=user,
+        idempotency_key=idempotency_key,
+        request=request,
+        response_type=ResearchV3ClarifyResponse,
     )
-    return ResearchCommandResponse.model_validate(result)
-
-
-@router.post(
-    "/{run_id}/research/plans/{plan_version_id}/confirm",
-    response_model=ResearchCommandResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def confirm_research_plan(
-    run_id: str,
-    plan_version_id: str,
-    request: ResearchConfirmPlanRequest,
-    user: CurrentUser,
-    idempotency_key: IdempotencyKey,
-    service: Service,
-) -> ResearchCommandResponse:
-    result = await _service_call(
-        lambda: service.confirm_plan(
-            run_id,
-            plan_version_id,
-            request,
-            owner=_owner_scope(user),
-            idempotency_key=idempotency_key,
-        )
-    )
-    return ResearchCommandResponse.model_validate(result)
-
-
-@router.post(
-    "/{run_id}/research/plans/{plan_version_id}/revise",
-    response_model=ResearchCommandResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def revise_research_plan(
-    run_id: str,
-    plan_version_id: str,
-    request: ResearchRevisePlanRequest,
-    user: CurrentUser,
-    idempotency_key: IdempotencyKey,
-    service: Service,
-) -> ResearchCommandResponse:
-    result = await _service_call(
-        lambda: service.revise_plan(
-            run_id,
-            plan_version_id,
-            request,
-            owner=_owner_scope(user),
-            idempotency_key=idempotency_key,
-        )
-    )
-    return ResearchCommandResponse.model_validate(result)
 
 
 @router.post(
     "/{run_id}/research/execute",
-    response_model=ResearchCommandResponse | ResearchV3ExecuteResponse,
+    response_model=ResearchV3ExecuteResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def execute_research_run(
     run_id: str,
-    request_body: ResearchExecuteRequest | ResearchV3ExecuteRequest,
+    request_body: ResearchV3ExecuteRequest,
     user: CurrentUser,
     idempotency_key: IdempotencyKey,
-    service: Service,
     request: Request,
-) -> ResearchCommandResponse | ResearchV3ExecuteResponse:
-    if _stored_version(run_id, user) == "research-v3":
-        if not isinstance(request_body, ResearchV3ExecuteRequest):
-            raise HTTPException(status_code=422, detail="Research-v3 execute body is invalid")
-        return await _v3_mutate(
-            run_id=run_id,
-            command_type="execute",
-            body=request_body,
-            user=user,
-            idempotency_key=idempotency_key,
-            request=request,
-            response_type=ResearchV3ExecuteResponse,
-        )
-    if not isinstance(request_body, ResearchExecuteRequest):
-        raise HTTPException(status_code=422, detail="Research-v2 execute body is invalid")
-    result = await _service_call(
-        lambda: service.execute(
-            run_id,
-            request_body,
-            owner=_owner_scope(user),
-            idempotency_key=idempotency_key,
-        )
+) -> ResearchV3ExecuteResponse:
+    _require_v3_version(run_id, user)
+    return await _v3_mutate(
+        run_id=run_id,
+        command_type="execute",
+        body=request_body,
+        user=user,
+        idempotency_key=idempotency_key,
+        request=request,
+        response_type=ResearchV3ExecuteResponse,
     )
-    return ResearchCommandResponse.model_validate(result)
-
-
-@router.post(
-    "/{run_id}/research/recover",
-    response_model=ResearchCommandResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def recover_research_run(
-    run_id: str,
-    request: ResearchRecoverRequest,
-    user: CurrentUser,
-    idempotency_key: IdempotencyKey,
-    service: Service,
-) -> ResearchCommandResponse:
-    result = await _service_call(
-        lambda: service.recover(
-            run_id,
-            request,
-            owner=_owner_scope(user),
-            idempotency_key=idempotency_key,
-        )
-    )
-    return ResearchCommandResponse.model_validate(result)
 
 
 @router.delete(
     "/{run_id}/research-data",
-    response_model=ResearchCommandResponse | ResearchV3PurgeResponse,
+    response_model=ResearchV3PurgeResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def purge_research_run_data(
     run_id: str,
-    request_body: ResearchPurgeRequest | ResearchV3PurgeRequest,
+    request_body: ResearchV3PurgeRequest,
     user: CurrentUser,
     idempotency_key: IdempotencyKey,
-    service: Service,
     request: Request,
-) -> ResearchCommandResponse | ResearchV3PurgeResponse:
-    if _stored_version(run_id, user) == "research-v3":
-        if not isinstance(request_body, ResearchV3PurgeRequest):
-            raise HTTPException(status_code=422, detail="Research-v3 purge body is invalid")
-        return await _v3_mutate(
-            run_id=run_id,
-            command_type="purge",
-            body=request_body,
-            user=user,
-            idempotency_key=idempotency_key,
-            request=request,
-            response_type=ResearchV3PurgeResponse,
-        )
-    if not isinstance(request_body, ResearchPurgeRequest):
-        raise HTTPException(status_code=422, detail="Research-v2 purge body is invalid")
-    result = await _service_call(
-        lambda: service.purge(
-            run_id,
-            request_body,
-            owner=_owner_scope(user),
-            idempotency_key=idempotency_key,
-        )
+) -> ResearchV3PurgeResponse:
+    _require_v3_version(run_id, user)
+    return await _v3_mutate(
+        run_id=run_id,
+        command_type="purge",
+        body=request_body,
+        user=user,
+        idempotency_key=idempotency_key,
+        request=request,
+        response_type=ResearchV3PurgeResponse,
     )
-    return ResearchCommandResponse.model_validate(result)
 
 
 def _require_v3_version(run_id: str, user: User) -> None:

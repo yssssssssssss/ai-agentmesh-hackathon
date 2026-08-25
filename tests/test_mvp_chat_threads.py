@@ -113,24 +113,29 @@ def test_thread_detail_exposes_latest_research_run_for_history_recovery() -> Non
         "input_text": "compare research assistants",
         "status": AgentRunStatus.COMPLETED,
     }
-    store.save_agent_run(
+    historical_runs = [
         AgentRun(
             id="run_research_history_old",
             **base,
             orchestration_version="research-v2",
             created_at=timestamp - timedelta(minutes=3),
             updated_at=timestamp - timedelta(minutes=3),
-        )
-    )
-    store.save_agent_run(
+        ),
         AgentRun(
             id="run_research_history_latest",
             **base,
             orchestration_version="research-v2",
             created_at=timestamp - timedelta(minutes=2),
             updated_at=timestamp - timedelta(minutes=2),
-        )
-    )
+        ),
+    ]
+    for historical in historical_runs:
+        store.save_agent_run(historical.model_copy(update={"orchestration_version": "v1"}))
+        with store._connect() as connection:
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, orchestration_version = ? WHERE id = ?",
+                (historical.model_dump_json(), "research-v2", historical.id),
+            )
     store.save_agent_run(
         AgentRun(
             id="run_v1_history_newer_but_ignored",

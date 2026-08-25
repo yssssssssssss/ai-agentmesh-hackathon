@@ -1,8 +1,0 @@
-version: evidence-policy-v1
-provider_summary:
-  maximum_confidence: medium
-  minimum_sources: 2
-  independent_sources: true
-high_confidence_fact:
-  primary_sources: 1
-  reputable_secondary_sources: 2

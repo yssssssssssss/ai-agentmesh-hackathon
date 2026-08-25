@@ -151,6 +151,7 @@ def test_embedding_records_ready_and_degraded_observations(monkeypatch: pytest.M
     monkeypatch.setattr(embedding, "EMBEDDING_ENABLED", True)
     monkeypatch.setattr(embedding, "EMBEDDING_API_URL", "https://embedding.example/v1")
     monkeypatch.setattr(embedding, "EMBEDDING_API_KEY", "secret")
+    monkeypatch.setattr(embedding, "EMBEDDING_DIMENSIONS", 1)
     monkeypatch.setattr(embedding, "_client", FakeEmbeddingClient(FakeEmbeddingResponse({"data": [{"embedding": [0.1]}]})))
 
     assert embedding.embed_text("health") == [0.1]
@@ -165,6 +166,23 @@ def test_embedding_records_ready_and_degraded_observations(monkeypatch: pytest.M
     )
     assert embedding.embed_text("health") is None
     assert embedding.embedding_provider_status().last_error == "timeout"
+
+
+def test_embedding_rejects_a_vector_with_the_wrong_declared_dimension(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(embedding, "EMBEDDING_ENABLED", True)
+    monkeypatch.setattr(embedding, "EMBEDDING_API_URL", "https://embedding.example/v1")
+    monkeypatch.setattr(embedding, "EMBEDDING_API_KEY", "secret")
+    monkeypatch.setattr(embedding, "EMBEDDING_DIMENSIONS", 2)
+    monkeypatch.setattr(
+        embedding,
+        "_client",
+        FakeEmbeddingClient(FakeEmbeddingResponse({"data": [{"embedding": [0.1]}]})),
+    )
+
+    assert embedding.embed_text("health") is None
+    assert embedding.embedding_provider_status().last_error == "malformed_response"
 
 
 def test_embedding_malformed_response_is_explicit_and_redacted(monkeypatch: pytest.MonkeyPatch) -> None:

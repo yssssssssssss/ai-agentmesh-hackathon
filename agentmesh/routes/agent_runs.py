@@ -35,8 +35,8 @@ from agentmesh.models import (
 from agentmesh.research_orchestration.current import (
     ResearchWriterGeneration,
     decide_research_rollout,
+    is_competitive_research_request,
 )
-from agentmesh.research_orchestration.planning import is_competitive_research_request
 from agentmesh.routes.deps import current_user, require_default_project
 from agentmesh.skill_runtime.plan_validation import PlanValidationError, adjust_plan, validate_draft
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
@@ -48,11 +48,7 @@ from agentmesh.task_routing.router import TaskScenarioRouter
 router = APIRouter(prefix="/api/agent/runs", tags=["agent-runs"])
 _task_router = TaskScenarioRouter()
 _TERMINAL = {"completed", "partial", "failed", "rejected", "cancelled"}
-_RESEARCH_READINESS_MESSAGES = {
-    "tool_runtime_unregistered": "Web Research 执行器未注册，请联系管理员完成配置后重试。",
-    "tool_runtime_not_real": "Web Research 未连接真实 Provider，请完成配置后重试。",
-    "tool_runtime_unhealthy": "Web Research Provider 当前不可用，请检查配置与连接后重试。",
-}
+_RESEARCH_V2_READ_ONLY = "Research-v2 runs are historical and read-only"
 
 
 def _visible_run(run_id: str, user: User):
@@ -186,7 +182,8 @@ async def start_agent_run(
             and routing_result.presentation_requirements
         )
     research_eligible = (
-        not prefer_task_orchestration
+        explicit_skill_name is None
+        and not prefer_task_orchestration
         and mode != SkillOrchestrationMode.OFF
         and is_competitive_research_request(
             request.content,
@@ -198,28 +195,15 @@ async def start_agent_run(
         research_eligible=research_eligible,
         configured_mode=mode,
         active_generation=ResearchWriterGeneration(control.active_generation),
+        lifecycle_state=control.lifecycle_state,
         user_id=user.id,
         preview_allowlist=research_preview_allowlist(),
     )
     if rollout.target == "blocked":
         raise HTTPException(status_code=409, detail="Research-v3 execution is not authorized")
-    research_runtime = None
     research_v3_preview = None
     runtime = agent.agent_runtime
-    if rollout.target == "research-v2":
-        research_runtime = getattr(http_request.app.state, "research_runtime", None)
-        if research_runtime is None or not callable(getattr(research_runtime, "start_run", None)):
-            raise HTTPException(status_code=503, detail="Research Runtime is unavailable")
-        readiness_error = research_runtime.web_research_readiness_error()
-        if readiness_error is not None:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "code": readiness_error,
-                    "message": _RESEARCH_READINESS_MESSAGES[readiness_error],
-                },
-            )
-    elif rollout.target == "research-v3":
+    if rollout.target == "research-v3":
         research_v3_preview = getattr(http_request.app.state, "research_v3_preview", None)
         if research_v3_preview is None or not callable(getattr(research_v3_preview, "start_run", None)):
             raise HTTPException(status_code=503, detail="Research-v3 preview Runtime is unavailable")
@@ -238,18 +222,8 @@ async def start_agent_run(
                 requested_orchestration_mode=request.orchestration_mode,
                 explicit_skill=skill,
             )
-        elif research_runtime is not None:
-            run = await research_runtime.start_run(
-                content=request.content,
-                user=user,
-                thread_id=thread.id,
-                client_turn_id=request.client_turn_id,
-                mode=mode,
-                requested_orchestration_mode=request.orchestration_mode,
-                explicit_skill=skill,
-            )
         elif (
-            not research_eligible
+            rollout.target == "v1"
             and skill is None
             and request.orchestration_mode == "auto"
             and mode != SkillOrchestrationMode.OFF
@@ -449,7 +423,7 @@ async def retry_agent_run(
 
     prior = _visible_run(run_id, user)
     if prior.orchestration_version == "research-v2":
-        raise HTTPException(status_code=409, detail="Research-v2 runs must use the research recovery API")
+        raise HTTPException(status_code=409, detail=_RESEARCH_V2_READ_ONLY)
     if prior.orchestration_version == "research-v3":
         raise HTTPException(
             status_code=409,
@@ -567,10 +541,7 @@ async def cancel_agent_run(run_id: str, user: User = Depends(current_user)) -> I
 
     run = _visible_run(run_id, user)
     if run.orchestration_version == "research-v2":
-        cancelled = store.cancel_agent_run_tree(run.id, user_id=user.id)
-        if cancelled is None:
-            raise HTTPException(status_code=404, detail="Agent run not found")
-        return ItemResponse(item=cancelled)
+        raise HTTPException(status_code=409, detail=_RESEARCH_V2_READ_ONLY)
     if run.orchestration_version == "research-v3":
         raise HTTPException(
             status_code=409,

@@ -13,6 +13,12 @@ import {
 
 import type { Skill, SkillNodeResult, SkillPlanNode } from '../../features/workspace/types'
 import { cn } from '../../lib/cn'
+import {
+  degradationCopy,
+  failurePolicy,
+  nodeStatusDescription,
+  skillStatusLabel,
+} from './skillPlanPresentation'
 
 interface SkillPlanNodeCardProps {
   node: SkillPlanNode
@@ -29,13 +35,13 @@ interface SkillPlanNodeCardProps {
 }
 
 const STATUS = {
-  pending: { label: '等待', icon: Circle, tone: 'text-slate-500', dot: 'bg-slate-600' },
-  ready: { label: '可执行', icon: RotateCcw, tone: 'text-knowledge', dot: 'bg-knowledge' },
-  running: { label: '运行中', icon: Loader2, tone: 'text-mint-300', dot: 'bg-mint-400' },
-  waiting_tool_approval: { label: '等待工具审批', icon: Pause, tone: 'text-amber-300', dot: 'bg-amber-300' },
-  completed: { label: '完成', icon: Check, tone: 'text-mint-300', dot: 'bg-mint-400' },
-  failed: { label: '失败', icon: X, tone: 'text-rose', dot: 'bg-rose' },
-  skipped: { label: '已跳过', icon: SkipForward, tone: 'text-slate-500', dot: 'bg-slate-600' },
+  pending: { label: '等待开始', icon: Circle, tone: 'text-slate-500', dot: 'bg-slate-600' },
+  ready: { label: '即将开始', icon: RotateCcw, tone: 'text-knowledge', dot: 'bg-knowledge' },
+  running: { label: '正在分析', icon: Loader2, tone: 'text-mint-300', dot: 'bg-mint-400' },
+  waiting_tool_approval: { label: '等待高风险操作确认', icon: Pause, tone: 'text-amber-300', dot: 'bg-amber-300' },
+  completed: { label: '已完成', icon: Check, tone: 'text-mint-300', dot: 'bg-mint-400' },
+  failed: { label: '执行失败', icon: X, tone: 'text-rose', dot: 'bg-rose' },
+  skipped: { label: '未执行', icon: SkipForward, tone: 'text-slate-500', dot: 'bg-slate-600' },
   cancelled: { label: '已取消', icon: Ban, tone: 'text-slate-500', dot: 'bg-slate-600' },
 } as const
 
@@ -63,6 +69,8 @@ export function SkillPlanNodeCard({
   const StatusIcon = status.icon
   const nodeKey = node.id ?? node.skill_id
   const interactive = mode === 'preview'
+  const registryStatus = skillStatusLabel(node.skill_status)
+  const resultNotice = result?.degradation ? degradationCopy(result.degradation) : null
 
   return (
     <article
@@ -106,9 +114,12 @@ export function SkillPlanNodeCard({
             <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] text-slate-400">
               {node.required ? '必需节点' : '可选节点'}
             </span>
-            {node.skill_status ? (
-              <span className="rounded-full bg-amber-300/10 px-2 py-0.5 text-[10px] text-amber-300">
-                {node.skill_status}
+            {registryStatus ? (
+              <span
+                className="rounded-full bg-amber-300/10 px-2 py-0.5 text-[10px] text-amber-300"
+                title={node.skill_status === 'draft' ? '合约已自动校验，但仍处于草案状态' : undefined}
+              >
+                {registryStatus}
               </span>
             ) : null}
             {node.scenario_id ? (
@@ -117,8 +128,11 @@ export function SkillPlanNodeCard({
               </span>
             ) : null}
             {node.parallel_group ? (
-              <span className="rounded-full bg-knowledge/10 px-2 py-0.5 text-[10px] text-knowledge">
-                并行组 {node.parallel_group}
+              <span
+                className="rounded-full bg-knowledge/10 px-2 py-0.5 text-[10px] text-knowledge"
+                title={`执行组 ${node.parallel_group}`}
+              >
+                可与其他步骤并行
               </span>
             ) : null}
           </div>
@@ -133,7 +147,7 @@ export function SkillPlanNodeCard({
           ) : null}
           {((node.knowledge_bindings?.required ?? []).length + (node.knowledge_bindings?.optional ?? []).length) > 0 ? (
             <p className="mt-1 text-[11px] text-slate-500">
-              Knowledge：必需 {node.knowledge_bindings?.required?.length ?? 0}，按需 {node.knowledge_bindings?.optional?.length ?? 0}
+              知识资料：必需 {node.knowledge_bindings?.required?.length ?? 0}，按需 {node.knowledge_bindings?.optional?.length ?? 0}
             </p>
           ) : null}
           {(node.completion_criteria ?? []).length > 0 ? (
@@ -143,19 +157,36 @@ export function SkillPlanNodeCard({
             <p className="mt-2 text-[11px] text-slate-500">依赖：{node.depends_on?.join('、')}</p>
           ) : null}
           {mode === 'progress' ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-              <span className={cn('inline-flex items-center gap-1', status.tone)}>
-                <StatusIcon className={cn('h-3.5 w-3.5', node.status === 'running' && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />
-                {status.label}
-              </span>
-              {node.attempt > 0 ? <span className="font-mono text-slate-500">attempt {node.attempt}</span> : null}
-              {node.error_code ? <span className="text-rose">{node.error_code}</span> : null}
+            <div className="mt-2.5 rounded-[9px] border border-white/[0.05] bg-surface-1/55 px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className={cn('inline-flex items-center gap-1 font-semibold', status.tone)}>
+                  <StatusIcon className={cn('h-3.5 w-3.5', node.status === 'running' && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />
+                  {status.label}
+                </span>
+                {node.attempt > 0 ? <span className="text-slate-500">第 {node.attempt} 次执行</span> : null}
+              </div>
+              <p className={cn('mt-1.5 text-[11px] leading-5', node.status === 'failed' ? 'text-rose/90' : 'text-slate-400')}>
+                {nodeStatusDescription(node)}
+              </p>
+              {node.status === 'failed' ? (
+                <p className="mt-1.5 text-[11px] leading-5 text-slate-500">{failurePolicy(node.error_code, node.attempt)}</p>
+              ) : null}
+              {node.error_code ? (
+                <details className="mt-1.5 text-[10px] text-slate-500">
+                  <summary className="cursor-pointer select-none hover:text-slate-300">查看技术原因</summary>
+                  <code className="mt-1 block break-all">{node.error_code}</code>
+                </details>
+              ) : null}
             </div>
           ) : null}
           {result ? (
             <div className="mt-3 border-t border-white/[0.06] pt-2.5">
               <p className="text-xs leading-5 text-slate-300">{result.summary}</p>
-              {result.degradation ? <p className="mt-1 text-[11px] text-amber-300">降级：{result.degradation}</p> : null}
+              {resultNotice ? (
+                <div className="mt-2 rounded-[8px] bg-amber-300/[0.06] px-2.5 py-2 text-[11px] leading-5 text-amber-100">
+                  <span className="font-semibold">{resultNotice.title}：</span>{resultNotice.description}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

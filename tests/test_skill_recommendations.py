@@ -260,6 +260,24 @@ def test_unconnected_legacy_capability_is_not_treated_as_ready(tmp_path, configu
     assert "prd-feasibility:brief.create_not_granted" in diagnostics
 
 
+def test_declared_skill_tool_must_be_available_before_automatic_planning(
+    tmp_path,
+    configure_pilot_wiki,
+) -> None:
+    repository, catalog = _catalog(tmp_path, configure_pilot_wiki)
+    skill = catalog.get_by_name("prd-feasibility", USER.personal_agent_id)
+    assert skill is not None
+    catalog._skills[skill.name] = skill.model_copy(update={"requested_tools": ["unconnected-host-tool"]})
+
+    candidates, diagnostics = SkillCandidateRetriever(repository, catalog).recommend(
+        USER,
+        deterministic_intent("评审这份 PRD 的可行性"),
+    )
+
+    assert skill.id not in {candidate.skill_id for candidate in candidates}
+    assert "prd-feasibility:unconnected-host-tool_unavailable" in diagnostics
+
+
 def test_skill_profile_search_does_not_leak_into_memory_search(tmp_path, configure_pilot_wiki) -> None:
     repository, _catalog_service = _catalog(tmp_path, configure_pilot_wiki)
 

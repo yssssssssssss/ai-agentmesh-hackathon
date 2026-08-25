@@ -82,7 +82,11 @@ def chat_skills(user: User = Depends(current_user)) -> ItemsResponse:
     runtime = agent.agent_runtime
     if runtime is not None and runtime.enabled:
         catalog = catalog_service()
-        items.extend(catalog.to_chat_skill(skill) for skill in catalog.list_enabled(user.personal_agent_id))
+        supported_tool_names = catalog.supported_tool_names()
+        items.extend(
+            catalog.to_chat_skill(skill, supported_tool_names=supported_tool_names)
+            for skill in catalog.list_enabled(user.personal_agent_id)
+        )
     return ItemsResponse(items=items)
 
 

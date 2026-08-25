@@ -201,6 +201,45 @@ def test_executor_retries_only_transient_read_or_draft_failure_once(tmp_path) ->
     assert persisted.nodes[0].status == SkillPlanNodeStatus.COMPLETED
 
 
+def test_executor_retries_remote_protocol_disconnect_once(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "remote-protocol-retry.sqlite3")
+    plan, run = _persist_plan(
+        repository,
+        [_node("remote_protocol_retry", output_contract=["analysis"], side_effect=SkillSideEffect.DRAFT)],
+        output_contract=["analysis"],
+        suffix="remote_protocol_retry",
+    )
+    calls = 0
+
+    class RemoteProtocolError(Exception):
+        pass
+
+    async def node_runner(
+        _plan: SkillPlan,
+        node: SkillPlanNode,
+        _upstream: list[SkillNodeResult],
+    ) -> NodeExecutionOutcome:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RemoteProtocolError("peer closed connection without sending complete message body")
+        return NodeExecutionOutcome(result=_result(node))
+
+    asyncio.run(
+        BoundedDAGExecutor(
+            repository,
+            node_runner=node_runner,
+            synthesis_runner=_synthesis_runner([]),
+        ).run(plan, run)
+    )
+
+    persisted = repository.get_skill_plan(plan.id)
+    assert calls == 2
+    assert persisted is not None
+    assert persisted.nodes[0].attempt == 2
+    assert persisted.nodes[0].status == SkillPlanNodeStatus.COMPLETED
+
+
 def test_optional_failure_yields_partial_when_contract_remains_satisfied(tmp_path) -> None:
     repository = SQLiteStore(tmp_path / "partial.sqlite3")
     plan, run = _persist_plan(
@@ -1048,7 +1087,7 @@ def test_synthesis_rejects_a_node_source_that_no_longer_exists(tmp_path, configu
     assert model.calls == ()
 
 
-def test_plan_node_tool_approval_resumes_node_then_remaining_dag(
+def test_plan_node_high_risk_tool_confirmation_resumes_node_then_remaining_dag(
     tmp_path,
     monkeypatch,
     configure_pilot_wiki,
@@ -1126,8 +1165,8 @@ def test_plan_node_tool_approval_resumes_node_then_remaining_dag(
     model = ScriptedModel(
         [
             [
-                function_call("web_research", {"query": "PRD benchmark A"}, call_id="plan_web_call_a"),
-                function_call("web_research", {"query": "PRD benchmark B"}, call_id="plan_web_call_b"),
+                function_call("web_research", {"query": "批量抓取 PRD benchmark A"}, call_id="plan_web_call_a"),
+                function_call("web_research", {"query": "批量抓取 PRD benchmark B"}, call_id="plan_web_call_b"),
             ],
             [
                 assistant_message(

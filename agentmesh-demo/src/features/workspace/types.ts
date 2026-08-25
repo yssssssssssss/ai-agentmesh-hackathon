@@ -74,10 +74,6 @@ export type AgentRunEvent = components['schemas']['AgentRunEvent']
 export type AgentRunResponse = { item: AgentRun }
 export type AgentRunEventsResponse = components['schemas']['AgentRunEventsResponse']
 export type ResearchRunProjection = components['schemas']['ResearchRunProjection']
-export type ResearchCommandResponse = components['schemas']['ResearchCommandResponse']
-export type ResearchConfirmPlanRequest = components['schemas']['ResearchConfirmPlanRequest']
-export type ResearchExecuteRequest = components['schemas']['ResearchExecuteRequest']
-export type ResearchRecoverRequest = components['schemas']['ResearchRecoverRequest']
 export type SkillCandidate = components['schemas']['SkillCandidate']
 export type SkillRecommendationRequest = components['schemas']['SkillRecommendationRequest']
 export type SkillRecommendationResponse = components['schemas']['SkillRecommendationResponse']
@@ -112,6 +108,8 @@ export type ThreadDetailResponse = {
 }
 export type Skill = components['schemas']['SkillCatalogItem']
 export type SkillsResponse = components['schemas']['SkillCatalogResponse']
+export type SkillMatch = components['schemas']['SkillMatchItem']
+export type SkillMatchResponse = components['schemas']['SkillMatchResponse']
 
 export type DocumentRecord = {
   id: string

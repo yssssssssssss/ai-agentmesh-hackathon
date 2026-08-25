@@ -10,6 +10,7 @@ import type {
   SkillSynthesisResult,
 } from '../../features/workspace/types'
 import { SkillPlanNodeCard } from './SkillPlanNodeCard'
+import { SkillPlanningState } from './SkillPlanningState'
 import { SkillPlanPreview } from './SkillPlanPreview'
 import { SkillPlanProgress } from './SkillPlanProgress'
 import { SkillSynthesisView } from './SkillSynthesisView'
@@ -30,6 +31,8 @@ const skill: Skill = {
   binding_enabled: true,
   planner_eligible: true,
   readiness: 'ready',
+  execution_readiness: 'complete',
+  missing_tools: [],
   primary_stage: 'pre_design',
   capability_type: 'review',
   input_kinds: ['prd'],
@@ -93,13 +96,13 @@ function detail(status: SkillPlanNode['status'] = 'pending'): SkillPlanDetailRes
 
 describe('Skill orchestration views', () => {
   it.each([
-    ['pending', '等待'],
-    ['ready', '可执行'],
-    ['running', '运行中'],
-    ['waiting_tool_approval', '等待工具审批'],
-    ['completed', '完成'],
-    ['failed', '失败'],
-    ['skipped', '已跳过'],
+    ['pending', '等待开始'],
+    ['ready', '即将开始'],
+    ['running', '正在分析'],
+    ['waiting_tool_approval', '等待高风险操作确认'],
+    ['completed', '已完成'],
+    ['failed', '执行失败'],
+    ['skipped', '未执行'],
     ['cancelled', '已取消'],
   ] as const)('renders %s node status', (status, label) => {
     const html = renderToStaticMarkup(
@@ -187,7 +190,7 @@ describe('Skill orchestration views', () => {
     expect(html).toContain('define-strategy')
     expect(html).toContain('priority-roadmap')
     expect(html).toContain('需要外部证据')
-    expect(html).toContain('能力缺口：planned-opportunity-evaluation-skill')
+    expect(html).toContain('候选能力尚未接入')
     expect(html).toContain('web_research')
     expect(html).toContain('完成标准：结论有来源')
   })
@@ -237,8 +240,128 @@ describe('Skill orchestration views', () => {
         onOpenToolApproval={vi.fn()}
       />,
     )
-    expect(html).toContain('等待工具审批')
-    expect(html).toContain('处理工具审批')
+    expect(html).toContain('需要确认高风险操作')
+    expect(html).toContain('为什么这次仍需要确认？')
+    expect(html).toContain('常规只读工具会直接继承')
+    expect(html).toContain('查看高风险操作')
+  })
+
+  it('shows verifiable planning stages instead of a static technical status', () => {
+    const run = {
+      id: 'run-planning',
+      thread_id: 'thread-1',
+      user_id: 'user-1',
+      workspace_id: 'workspace-1',
+      project_id: 'project-1',
+      input_text: '分析竞品并形成策略',
+      status: 'planning',
+      orchestration_version: 'v1',
+      orchestration_mode: 'execute',
+      agent_definition_version: '1',
+      project_chat: true,
+      tool_call_count: 0,
+    } satisfies AgentRun
+
+    const html = renderToStaticMarkup(
+      <SkillPlanningState run={run} cancelling={false} onCancel={vi.fn()} />,
+    )
+
+    expect(html).toContain('正在构建执行计划')
+    expect(html).toContain('匹配任务场景')
+    expect(html).toContain('检查能力与权限')
+    expect(html).toContain('此阶段不会调用外部工具')
+    expect(html).toContain('planning-scan')
+    expect(html).not.toContain('状态：planning')
+  })
+
+  it('explains parallel execution as steps in one plan', () => {
+    const progress = detail('running')
+    const first = progress.plan.nodes?.[0]
+    if (!first) throw new Error('expected a plan node')
+    progress.plan.routing_result = {
+      catalog_version: 'user-research-v1',
+      catalog_hash: 'a'.repeat(64),
+      task: {
+        task_id: 'define-strategy',
+        confidence: 'high',
+        reason: '需要合并多类分析',
+        secondary_tasks: [],
+        execution_relation: 'parallel_then_merge',
+      },
+      scenario: {
+        scenario_id: 'strategy-synthesis',
+        confidence: 'high',
+        supporting_scenarios: ['competitor-benchmark-research'],
+      },
+      skill_routing: { planned_skills: [], execution_mode: 'parallel_then_merge' },
+      evidence_requirement: { external_evidence_required: false, minimum_sources: 0, independent_sources: 0 },
+    }
+    progress.plan.nodes = [
+      { ...first, id: 'node-1', parallel_group: 'analysis' },
+      { ...first, id: 'node-2', skill_id: candidateSkill.id, parallel_group: 'analysis' },
+    ]
+    const run = {
+      id: 'run-1', thread_id: 'thread-1', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1',
+      input_text: '并行分析', status: 'running', orchestration_version: 'v1', orchestration_mode: 'execute',
+      agent_definition_version: '1', project_chat: true, tool_call_count: 0,
+    } satisfies AgentRun
+
+    const html = renderToStaticMarkup(
+      <SkillPlanProgress
+        run={run}
+        detail={progress}
+        skillsById={new Map([[skill.id, skill], [candidateSkill.id, candidateSkill]])}
+        cancelling={false}
+        onCancel={vi.fn()}
+        onOpenToolApproval={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('正在同时处理 2 个分析步骤')
+    expect(html).toContain('不是多套方案')
+    expect(html).toContain('完成后会合并为一份结果')
+    expect(html.match(/可与其他步骤并行/g)).toHaveLength(2)
+  })
+
+  it('explains provider disconnects and the automatic retry policy before technical codes', () => {
+    const failedDetail = detail('failed')
+    const failedNode = failedDetail.plan.nodes?.[0]
+    if (!failedNode) throw new Error('expected a plan node')
+    failedNode.error_code = 'RemoteProtocolError'
+    failedNode.attempt = 2
+    const html = renderToStaticMarkup(
+      <SkillPlanNodeCard node={failedNode} skill={skill} mode="progress" />,
+    )
+
+    expect(html).toContain('外部模型服务在返回完整内容前断开')
+    expect(html).toContain('不是你的需求有问题')
+    expect(html).toContain('自动重试一次')
+    expect(html).toContain('查看技术原因')
+  })
+
+  it('translates machine degradation diagnostics into a scope explanation', () => {
+    const progress = detail('running')
+    progress.plan.degradation = 'capability_gaps:required_knowledge_metadata_only:scenario-a:knowledge-a'
+    const run = {
+      id: 'run-1', thread_id: 'thread-1', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1',
+      input_text: '分析', status: 'running', orchestration_version: 'v1', orchestration_mode: 'execute',
+      agent_definition_version: '1', project_chat: true, tool_call_count: 0,
+    } satisfies AgentRun
+
+    const html = renderToStaticMarkup(
+      <SkillPlanProgress
+        run={run}
+        detail={progress}
+        skillsById={new Map([[skill.id, skill]])}
+        cancelling={false}
+        onCancel={vi.fn()}
+        onOpenToolApproval={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('部分知识资料不可直接读取')
+    expect(html).toContain('不能作为证据')
+    expect(html).toContain('查看技术诊断')
   })
 
   it('labels an approved preview as unexecuted instead of completed work', () => {
@@ -304,11 +427,21 @@ describe('Skill orchestration views', () => {
         results={[result]}
         skillsById={new Map([[skill.id, skill]])}
         partial
+        completionCheck={{
+          completed: false,
+          evidence_sufficient: false,
+          confidence: 'medium',
+          human_confirmation_required: false,
+          reason: '自动检查 Scenario 节点、输出血缘和外部证据覆盖。',
+          gaps: ['external_evidence_insufficient:sources=3/5,independent=3/3'],
+        }}
         onOpenSource={vi.fn()}
         onOpenArtifact={vi.fn()}
       />,
     )
-    expect(html).toContain('Partial，部分节点降级')
+    expect(html).toContain('部分完成，有未满足项')
+    expect(html).toContain('为什么是“部分完成”？')
+    expect(html).toContain('外部来源 3/5，独立来源 3/3')
     expect(html).toContain('PRD 可行性评估')
     expect(html).toContain('PRD v4')
     expect(html).toContain('未完成可用性测试')

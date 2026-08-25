@@ -5,11 +5,13 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Composer } from '../components/workspace/Composer'
 import { ConversationThread } from '../components/workspace/ConversationThread'
 import { DetailPanel } from '../components/workspace/DetailPanel'
-import { ResearchExecution, type ResearchPendingAction } from '../components/workspace/ResearchExecution'
+import { ResearchExecution } from '../components/workspace/ResearchExecution'
 import { ResearchPreview } from '../components/workspace/ResearchPreview'
+import { SkillPlanningState } from '../components/workspace/SkillPlanningState'
 import { SkillPlanPreview } from '../components/workspace/SkillPlanPreview'
 import { SkillPlanProgress } from '../components/workspace/SkillPlanProgress'
 import { SkillSynthesisView } from '../components/workspace/SkillSynthesisView'
+import { failureReason } from '../components/workspace/skillPlanPresentation'
 import { WORKSPACE_RESOURCE_GRID_CLASS } from '../components/workspace/layout'
 import { Button } from '../components/ui/Button'
 import { useAuth } from '../features/auth/AuthProvider'
@@ -23,7 +25,6 @@ import {
   useAgentRunQuery,
   useCancelAgentRunMutation,
   useRetryAgentRunMutation,
-  useResearchMutations,
   useResearchRunQuery,
   useSearchQuery,
   useSendAgentRunMutation,
@@ -56,6 +57,19 @@ const JOB_STATUS_LABEL = {
   failed: '失败',
 } as const
 
+const SINGLE_RUN_STATUS_LABEL = {
+  created: '正在准备',
+  planning: '正在规划',
+  waiting_plan_approval: '等待你确认计划',
+  running: '正在执行',
+  waiting_approval: '需要确认高风险操作',
+  completed: '已完成',
+  partial: '部分完成',
+  failed: '执行失败',
+  rejected: '已拒绝',
+  cancelled: '已取消',
+} as const
+
 export function Workspace() {
   const scope = useWorkspaceScope()
   const { bootstrap } = useAuth()
@@ -79,13 +93,12 @@ export function Workspace() {
         ? '外部资料 Provider 超时。已停止本次调用，可以稍后按原计划重试。'
         : currentRun?.error_code === 'ModelTimeoutError' || currentRun?.error_code === 'TimeoutError'
         ? '任务执行超时。请保留当前编排模式后重试，或缩小单次任务范围。'
-        : currentRun?.error_code
+        : failureReason(currentRun?.error_code)
   )
   const isResearchV2 = currentRun?.orchestration_version === 'research-v2'
   const isResearchV3 = currentRun?.orchestration_version === 'research-v3'
   const isResearchRun = isResearchV2 || isResearchV3
   const researchQuery = useResearchRunQuery(scope, isResearchV2 ? currentRun : null)
-  const researchMutations = useResearchMutations(scope, isResearchV2 ? currentRun : null)
   const planQuery = useSkillPlanQuery(scope, runId, isResearchRun ? null : currentRun?.plan_id)
   const planMutations = useSkillPlanMutations(scope, runId)
   const cancelRun = useCancelAgentRunMutation(scope)
@@ -108,8 +121,26 @@ export function Workspace() {
   const searchQuery = useSearchQuery(scope, submittedSearch)
   const [activeTool, setActiveTool] = useState<WorkspaceToolId | null>(null)
   const closeActiveTool = useCallback(() => setActiveTool(null), [])
+  const updateDraft = useCallback((value: string) => {
+    setDraft(value)
+    if (pending && ['retryable', 'failed', 'unknown'].includes(pending.status)) {
+      setPending(null)
+      setClientTurnId(crypto.randomUUID())
+    }
+    setSendError(null)
+  }, [pending])
+  const useRecommendedSkill = useCallback((value: string) => {
+    updateDraft(value)
+    closeActiveTool()
+  }, [closeActiveTool, updateDraft])
   const scrollRef = useRef<HTMLDivElement>(null)
   const [scrollbarGutter, setScrollbarGutter] = useState(0)
+  const runIsPlanning = Boolean(currentRun && ['created', 'planning'].includes(currentRun.status))
+  const singleRunStatusLabel = currentRun?.error_code === 'PlannerUnavailable'
+    ? '当前条件不足，尚未开始执行'
+    : currentRun
+      ? SINGLE_RUN_STATUS_LABEL[currentRun.status]
+      : null
   const runIsActive = Boolean(currentRun && [
     'created',
     'planning',
@@ -194,22 +225,6 @@ export function Workspace() {
     ?? planMutations.approve.error
     ?? planMutations.reject.error
   const planError = planMutationError ? workspaceErrorMessage(planMutationError) : null
-  const researchPendingAction: ResearchPendingAction = researchMutations.confirm.isPending
-    ? 'confirm'
-    : researchMutations.execute.isPending
-      ? 'execute'
-      : researchMutations.resolveTool.isPending
-        ? researchMutations.resolveTool.variables?.action === 'reject' ? 'reject-tool' : 'approve-tool'
-        : researchMutations.recover.isPending
-          ? researchMutations.recover.variables?.action === 'abort' ? 'abort' : 'retry'
-          : cancelRun.isPending && isResearchV2
-            ? 'cancel'
-            : null
-  const researchMutationError = researchMutations.confirm.error
-    ?? researchMutations.execute.error
-    ?? researchMutations.resolveTool.error
-    ?? researchMutations.recover.error
-  const researchError = researchMutationError ? workspaceErrorMessage(researchMutationError) : null
   const canRetryRun = Boolean(currentRun && ['partial', 'failed', 'rejected', 'cancelled'].includes(currentRun.status))
 
   const openSkillSource = (source: SkillResultSource) => {
@@ -320,23 +335,7 @@ export function Workspace() {
               {isResearchV2 && researchQuery.data ? (
                 <>
                   <ResearchPreview projection={researchQuery.data} />
-                  <ResearchExecution
-                    projection={researchQuery.data}
-                    pendingAction={researchPendingAction}
-                    executionEnabled={currentRun?.orchestration_mode === 'execute' && orchestrationMode === 'execute'}
-                    error={researchError}
-                    onConfirmPlan={(planVersionId, stateVersion) => {
-                      researchMutations.confirm.mutate({ planVersionId, stateVersion })
-                    }}
-                    onExecute={(stateVersion) => researchMutations.execute.mutate({ stateVersion })}
-                    onResolveTool={(itemId, callId, action) => {
-                      researchMutations.resolveTool.mutate({ itemId, callId, action })
-                    }}
-                    onRecover={(invocationId, stateVersion, action) => {
-                      researchMutations.recover.mutate({ invocationId, stateVersion, action })
-                    }}
-                    onCancel={cancelCurrentRun}
-                  />
+                  <ResearchExecution projection={researchQuery.data} />
                 </>
               ) : null}
               {isResearchV3 && currentRun ? (
@@ -352,11 +351,18 @@ export function Workspace() {
                   {workspaceErrorMessage(planQuery.error)}
                 </p>
               ) : null}
-              {currentRun && currentRun.orchestration_version === 'v1' && !currentRun.plan_id ? (
+              {!isResearchRun && currentRun?.orchestration_version === 'v1' && !currentRun.plan_id && runIsPlanning ? (
+                <SkillPlanningState
+                  run={currentRun}
+                  cancelling={cancelRun.isPending}
+                  onCancel={cancelCurrentRun}
+                />
+              ) : null}
+              {!isResearchRun && currentRun?.orchestration_version === 'v1' && !currentRun.plan_id && !runIsPlanning ? (
                 <section aria-label="单 Skill 运行状态" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[14px] bg-surface-1 px-5 py-4 shadow-card">
                   <div>
                     <p className="text-xs font-semibold text-mint-300">{currentRun.skill_name ? `$${currentRun.skill_name}` : 'Agent Runtime v2'}</p>
-                    <p className="mt-1 text-sm text-slate-300">状态：{currentRun.status}</p>
+                    <p className="mt-1 text-sm text-slate-300">{singleRunStatusLabel}</p>
                     {currentRun.error_code ? <p className="mt-1 text-xs leading-5 text-rose">{runFailureMessage}</p> : null}
                   </div>
                   <div className="flex gap-2">
@@ -515,20 +521,23 @@ export function Workspace() {
         scrollbarGutter={scrollbarGutter}
         sendState={pending?.status === 'sending' ? null : pending?.status ?? null}
         statusMessage={pending?.status === 'sending' ? null : sendError}
-        toolLauncher={<ToolLauncherBar activeTool={activeTool} onOpen={setActiveTool} />}
-        onChange={(value) => {
-          setDraft(value)
-          if (pending && ['retryable', 'failed', 'unknown'].includes(pending.status)) {
-            setPending(null)
-            setClientTurnId(crypto.randomUUID())
-          }
-          setSendError(null)
-        }}
+        toolLauncher={(
+          <ToolLauncherBar
+            activeTool={activeTool}
+            skillRecommendationsEnabled={runtimeV2}
+            onOpen={setActiveTool}
+          />
+        )}
+        onChange={updateDraft}
         onSend={() => void send()}
         onRetry={() => void send(pending?.content ?? draft)}
         onUpload={(file) => upload.mutate(file)}
       />
-      <WorkspaceToolDialog activeTool={activeTool} onClose={closeActiveTool} />
+      <WorkspaceToolDialog
+        activeTool={activeTool}
+        onClose={closeActiveTool}
+        onUseSkill={useRecommendedSkill}
+      />
       <DetailPanel selection={selection} scope={scope} onClose={() => setSelection(null)} />
     </div>
   )

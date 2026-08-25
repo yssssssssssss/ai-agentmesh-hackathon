@@ -15,6 +15,7 @@ DEFAULT_LLM_CONNECT_TIMEOUT_SECONDS = 5.0
 DEFAULT_CHAT_LLM_TIMEOUT_SECONDS = 120.0
 DEFAULT_RESEARCH_SKILL_TIMEOUT_SECONDS = 180.0
 DEFAULT_MARKET_LLM_TIMEOUT_SECONDS = 180.0
+DEFAULT_SKILL_MATCH_LLM_TIMEOUT_SECONDS = 8.0
 _llm_telemetry = ProviderTelemetry()
 
 
@@ -209,6 +210,14 @@ def market_llm_timeout_seconds() -> float:
     return _positive_float_env("AGENTMESH_MARKET_LLM_TIMEOUT_SECONDS", DEFAULT_MARKET_LLM_TIMEOUT_SECONDS)
 
 
+def skill_match_llm_timeout_seconds() -> float:
+    """Return the interactive Skill-directory model budget."""
+    return _positive_float_env(
+        "AGENTMESH_SKILL_MATCH_LLM_TIMEOUT_SECONDS",
+        DEFAULT_SKILL_MATCH_LLM_TIMEOUT_SECONDS,
+    )
+
+
 def llm_connect_timeout_seconds() -> float:
     return _positive_float_env("AGENTMESH_LLM_CONNECT_TIMEOUT_SECONDS", DEFAULT_LLM_CONNECT_TIMEOUT_SECONDS)
 
@@ -218,6 +227,7 @@ def llm_timeout_config() -> dict[str, Any]:
         "timeout_seconds": llm_timeout_seconds(),
         "chat_timeout_seconds": llm_chat_timeout_seconds(),
         "research_skill_timeout_seconds": research_skill_timeout_seconds(),
+        "skill_match_timeout_seconds": skill_match_llm_timeout_seconds(),
         "connect_timeout_seconds": llm_connect_timeout_seconds(),
     }
 

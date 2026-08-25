@@ -8,16 +8,13 @@ import type {
   DocumentJobResponse,
   DocumentJobsResponse,
   DocumentResponse,
-  ResearchCommandResponse,
-  ResearchConfirmPlanRequest,
-  ResearchExecuteRequest,
-  ResearchRecoverRequest,
   ResearchRunProjection,
   SearchResponse,
   SkillPlanDetailResponse,
   SkillPlanTransitionResponse,
   SkillPlanUpdateRequest,
   SkillPlanVersionRequest,
+  SkillMatchResponse,
   SkillRecommendationResponse,
   SkillsResponse,
   TaskRoutingPreviewRequest,
@@ -177,49 +174,6 @@ export const workspaceApi = {
   agentRun: (runId: string) => apiRequest<AgentRunResponse>(`/api/agent/runs/${pathId(runId)}`),
   researchRun: (runId: string) =>
     apiRequest<ResearchRunProjection>(`/api/agent/runs/${pathId(runId)}/research`),
-  confirmResearchPlan: (
-    runId: string,
-    planVersionId: string,
-    request: ResearchConfirmPlanRequest,
-    idempotencyKey: string,
-  ) => apiRequest<ResearchCommandResponse>(
-    `/api/agent/runs/${pathId(runId)}/research/plans/${pathId(planVersionId)}/confirm`,
-    {
-      method: 'POST',
-      headers: { 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify(request),
-    },
-  ),
-  executeResearch: (
-    runId: string,
-    request: ResearchExecuteRequest,
-    idempotencyKey: string,
-  ) => apiRequest<ResearchCommandResponse>(`/api/agent/runs/${pathId(runId)}/research/execute`, {
-    method: 'POST',
-    headers: { 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify(request),
-  }),
-  recoverResearch: (
-    runId: string,
-    request: ResearchRecoverRequest,
-    idempotencyKey: string,
-  ) => apiRequest<ResearchCommandResponse>(`/api/agent/runs/${pathId(runId)}/research/recover`, {
-    method: 'POST',
-    headers: { 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify(request),
-  }),
-  resolveResearchToolApproval: (
-    itemId: string,
-    callId: string,
-    action: 'approve' | 'reject',
-  ) => apiRequest<{
-    run_id: string
-    attempt_id?: string | null
-    scheduled: boolean
-  }>(
-    `/api/inbox/${pathId(itemId)}/resolve-tool-approval?action=${action}&call_id=${pathId(callId)}`,
-    { method: 'POST' },
-  ),
   agentRunEvents: (runId: string, afterSequence = 0) =>
     apiRequest<AgentRunEventsResponse>(
       `/api/agent/runs/${pathId(runId)}/events?after_sequence=${Math.max(0, afterSequence)}`,
@@ -252,6 +206,11 @@ export const workspaceApi = {
     apiRequest<SkillRecommendationResponse>('/api/skills/recommendations', {
       method: 'POST',
       body: JSON.stringify({ content, thread_id: threadId || undefined }),
+    }),
+  matchSkills: (content: string, limit = 5) =>
+    apiRequest<SkillMatchResponse>('/api/skills/matches', {
+      method: 'POST',
+      body: JSON.stringify({ content, limit }),
     }),
   previewTaskRouting: (request: TaskRoutingPreviewRequest) =>
     apiRequest<TaskRoutingPreviewResponse>('/api/skills/routing-preview', {

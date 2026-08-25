@@ -63,49 +63,6 @@ describe('research-v2 Workspace data flow', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/agent/runs/run%2Fresearch-1/research')
   })
 
-  it('sends research mutations to the versioned control plane with idempotency headers', async () => {
-    const response = {
-      run_id: researchRun.id,
-      command_type: 'confirm_plan',
-      state_version: 3,
-      accepted: true,
-      replayed: false,
-    }
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {
-      status: 202,
-      headers: { 'Content-Type': 'application/json' },
-    }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await workspaceApi.confirmResearchPlan(
-      researchRun.id,
-      'plan/1',
-      { expected_state_version: 2 },
-      'web-confirm-plan-v2',
-    )
-    await workspaceApi.executeResearch(
-      researchRun.id,
-      { expected_state_version: 3 },
-      'web-execute-v3',
-    )
-    await workspaceApi.recoverResearch(
-      researchRun.id,
-      { expected_state_version: 5, invocation_id: 'invocation/1', action: 'retry' },
-      'web-recover-retry-v5',
-    )
-    await workspaceApi.resolveResearchToolApproval('inbox/1', 'call id/1', 'approve')
-
-    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
-      '/api/agent/runs/run%2Fresearch-1/research/plans/plan%2F1/confirm',
-      '/api/agent/runs/run%2Fresearch-1/research/execute',
-      '/api/agent/runs/run%2Fresearch-1/research/recover',
-      '/api/inbox/inbox%2F1/resolve-tool-approval?action=approve&call_id=call%20id%2F1',
-    ])
-    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('Idempotency-Key')).toBe('web-confirm-plan-v2')
-    expect(new Headers(fetchMock.mock.calls[1][1].headers).get('Idempotency-Key')).toBe('web-execute-v3')
-    expect(new Headers(fetchMock.mock.calls[2][1].headers).get('Idempotency-Key')).toBe('web-recover-retry-v5')
-  })
-
   it('invalidates the aggregate projection and coarse run when research SSE changes state', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const researchKey = workspaceKeys.research(scope, researchRun.id)

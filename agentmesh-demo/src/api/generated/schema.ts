@@ -467,40 +467,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/agent/runs/{run_id}/research/plans/{plan_version_id}/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Confirm Research Plan */
-        post: operations["confirm_research_plan_api_agent_runs__run_id__research_plans__plan_version_id__confirm_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent/runs/{run_id}/research/plans/{plan_version_id}/revise": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Revise Research Plan */
-        post: operations["revise_research_plan_api_agent_runs__run_id__research_plans__plan_version_id__revise_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/agent/runs/{run_id}/research/execute": {
         parameters: {
             query?: never;
@@ -512,23 +478,6 @@ export interface paths {
         put?: never;
         /** Execute Research Run */
         post: operations["execute_research_run_api_agent_runs__run_id__research_execute_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent/runs/{run_id}/research/recover": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Recover Research Run */
-        post: operations["recover_research_run_api_agent_runs__run_id__research_recover_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2061,6 +2010,23 @@ export interface paths {
         get: operations["list_skills_api_skills_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Match Skills */
+        post: operations["match_skills_api_skills_matches_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5106,15 +5072,6 @@ export interface components {
             /** Report Id */
             report_id?: string | null;
         };
-        /** ResearchAssumptionRevision */
-        ResearchAssumptionRevision: {
-            /** Assumption Id */
-            assumption_id: string;
-            /** Statement */
-            statement?: string | null;
-            /** Accepted By User */
-            accepted_by_user?: boolean | null;
-        };
         /** ResearchAssumptionV3 */
         ResearchAssumptionV3: {
             /** Key */
@@ -5161,57 +5118,12 @@ export interface components {
              */
             conflict_status: "unknown" | "none" | "possible" | "conflicting";
         };
-        /** ResearchClarificationAnswer */
-        ResearchClarificationAnswer: {
-            /** Question Id */
-            question_id: string;
-            /** Answer */
-            answer: string;
-        };
         /** ResearchClarificationProjection */
         ResearchClarificationProjection: {
             /** Question Id */
             question_id: string;
             /** Prompt */
             prompt: string;
-        };
-        /** ResearchClarifyRequest */
-        ResearchClarifyRequest: {
-            /** Expected State Version */
-            expected_state_version: number;
-            /** Answers */
-            answers: components["schemas"]["ResearchClarificationAnswer"][];
-        };
-        /** ResearchCommandResponse */
-        ResearchCommandResponse: {
-            /** Run Id */
-            run_id: string;
-            /**
-             * Command Type
-             * @enum {string}
-             */
-            command_type: "clarify" | "confirm_plan" | "revise" | "execute" | "recover" | "purge";
-            /** State Version */
-            state_version?: number | null;
-            /**
-             * Accepted
-             * @default true
-             * @constant
-             */
-            accepted: true;
-            /**
-             * Replayed
-             * @default false
-             */
-            replayed: boolean;
-            projection?: components["schemas"]["ResearchRunProjection"] | null;
-            /** Purged Artifact Count */
-            purged_artifact_count?: number | null;
-        };
-        /** ResearchConfirmPlanRequest */
-        ResearchConfirmPlanRequest: {
-            /** Expected State Version */
-            expected_state_version: number;
         };
         /** ResearchConstraintV3 */
         ResearchConstraintV3: {
@@ -5299,11 +5211,6 @@ export interface components {
             /** Risk Flags */
             risk_flags?: string[];
         };
-        /** ResearchExecuteRequest */
-        ResearchExecuteRequest: {
-            /** Expected State Version */
-            expected_state_version: number;
-        };
         /** ResearchGapProjection */
         ResearchGapProjection: {
             /** Code */
@@ -5368,23 +5275,6 @@ export interface components {
             tool_implementation_id?: string | null;
             /** Tool Execution Mode */
             tool_execution_mode?: ("real" | "fake") | null;
-        };
-        /** ResearchPurgeRequest */
-        ResearchPurgeRequest: {
-            /** Expected State Version */
-            expected_state_version: number;
-        };
-        /** ResearchRecoverRequest */
-        ResearchRecoverRequest: {
-            /** Expected State Version */
-            expected_state_version: number;
-            /** Invocation Id */
-            invocation_id: string;
-            /**
-             * Action
-             * @enum {string}
-             */
-            action: "retry" | "abort";
         };
         /** ResearchRecoveryProjection */
         ResearchRecoveryProjection: {
@@ -5452,21 +5342,6 @@ export interface components {
             status: "pass" | "block";
             /** Checks */
             checks?: components["schemas"]["ResearchReviewCheckProjection"][];
-        };
-        /** ResearchRevisePlanRequest */
-        ResearchRevisePlanRequest: {
-            /** Expected State Version */
-            expected_state_version: number;
-            /** Research Goal */
-            research_goal?: string | null;
-            /** Competitor Scope */
-            competitor_scope?: string | null;
-            /** Assumptions */
-            assumptions?: components["schemas"]["ResearchAssumptionRevision"][];
-            /** Preferred Plan Version Id */
-            preferred_plan_version_id?: string | null;
-            /** Remove Optional Step Numbers */
-            remove_optional_step_numbers?: number[];
         };
         /** ResearchRunProjection */
         ResearchRunProjection: {
@@ -6416,6 +6291,8 @@ export interface components {
             profile_version: string;
             /** Profile Content Hash */
             profile_content_hash: string;
+            /** Display Description */
+            display_description?: string | null;
             primary_stage: components["schemas"]["SkillLifecycleStage"];
             /** Lifecycle Tags */
             lifecycle_tags?: components["schemas"]["SkillLifecycleStage"][];
@@ -6524,6 +6401,14 @@ export interface components {
              * @enum {string}
              */
             readiness: "ready" | "unavailable";
+            /**
+             * Execution Readiness
+             * @default complete
+             * @enum {string}
+             */
+            execution_readiness: "complete" | "tool_limited" | "unavailable";
+            /** Missing Tools */
+            missing_tools?: string[];
             primary_stage?: components["schemas"]["SkillLifecycleStage"] | null;
             capability_type?: components["schemas"]["SkillCapabilityType"] | null;
             /** Input Kinds */
@@ -6592,6 +6477,64 @@ export interface components {
          * @enum {string}
          */
         SkillLifecycleStage: "pre_design" | "during_design" | "post_design" | "platform";
+        /** SkillMatchItem */
+        SkillMatchItem: {
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Name */
+            skill_name: string;
+            /** Command */
+            command: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            primary_stage?: components["schemas"]["SkillLifecycleStage"] | null;
+            /** Score */
+            score: number;
+            /** Reason */
+            reason: string;
+            /** Planner Eligible */
+            planner_eligible: boolean;
+            /**
+             * Readiness
+             * @enum {string}
+             */
+            readiness: "ready" | "unavailable";
+            /**
+             * Execution Readiness
+             * @default complete
+             * @enum {string}
+             */
+            execution_readiness: "complete" | "tool_limited" | "unavailable";
+            /** Missing Tools */
+            missing_tools?: string[];
+        };
+        /** SkillMatchRequest */
+        SkillMatchRequest: {
+            /** Content */
+            content: string;
+            /**
+             * Limit
+             * @default 5
+             */
+            limit: number;
+        };
+        /** SkillMatchResponse */
+        SkillMatchResponse: {
+            /** Items */
+            items: components["schemas"]["SkillMatchItem"][];
+            /**
+             * Mode
+             * @default lexical
+             * @enum {string}
+             */
+            mode: "lexical" | "hybrid" | "llm_reranked" | "fallback";
+            /** Clarification */
+            clarification?: string | null;
+            /** Diagnostics */
+            diagnostics?: string[];
+        };
         /** SkillNodeResult */
         SkillNodeResult: {
             /** Id */
@@ -8568,7 +8511,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ResearchClarifyRequest"] | components["schemas"]["ResearchV3ClarifyRequest"];
+                "application/json": components["schemas"]["ResearchV3ClarifyRequest"];
             };
         };
         responses: {
@@ -8578,83 +8521,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchCommandResponse"] | components["schemas"]["ResearchV3ClarifyResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    confirm_research_plan_api_agent_runs__run_id__research_plans__plan_version_id__confirm_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": string;
-            };
-            path: {
-                run_id: string;
-                plan_version_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResearchConfirmPlanRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchCommandResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    revise_research_plan_api_agent_runs__run_id__research_plans__plan_version_id__revise_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": string;
-            };
-            path: {
-                run_id: string;
-                plan_version_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResearchRevisePlanRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchCommandResponse"];
+                    "application/json": components["schemas"]["ResearchV3ClarifyResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8681,7 +8548,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ResearchExecuteRequest"] | components["schemas"]["ResearchV3ExecuteRequest"];
+                "application/json": components["schemas"]["ResearchV3ExecuteRequest"];
             };
         };
         responses: {
@@ -8691,44 +8558,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchCommandResponse"] | components["schemas"]["ResearchV3ExecuteResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    recover_research_run_api_agent_runs__run_id__research_recover_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": string;
-            };
-            path: {
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResearchRecoverRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResearchCommandResponse"];
+                    "application/json": components["schemas"]["ResearchV3ExecuteResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8755,7 +8585,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ResearchPurgeRequest"] | components["schemas"]["ResearchV3PurgeRequest"];
+                "application/json": components["schemas"]["ResearchV3PurgeRequest"];
             };
         };
         responses: {
@@ -8765,7 +8595,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchCommandResponse"] | components["schemas"]["ResearchV3PurgeResponse"];
+                    "application/json": components["schemas"]["ResearchV3PurgeResponse"];
                 };
             };
             /** @description Validation Error */
@@ -11759,6 +11589,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SkillCatalogResponse"];
+                };
+            };
+        };
+    };
+    match_skills_api_skills_matches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillMatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillMatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

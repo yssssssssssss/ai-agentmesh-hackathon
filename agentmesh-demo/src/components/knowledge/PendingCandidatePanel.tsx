@@ -67,10 +67,10 @@ export function PendingCandidatePanel({
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Badge tone={item.status.value === 'snoozed' ? 'neutral' : 'remind'} dot>
-                        {item.status.value === 'snoozed' ? '已稍后处理' : toolApproval ? '待工具审批' : '待确认'}
+                        {item.status.value === 'snoozed' ? '已稍后处理' : toolApproval ? '待高风险确认' : '待确认'}
                       </Badge>
                       <Badge tone="knowledge">{toolApproval ? 'SDK 工具调用' : item.memoryType.value}</Badge>
-                      {toolApproval ? <Badge tone="neutral">非 Plan Approval</Badge> : null}
+                      {toolApproval ? <Badge tone="neutral">单次工具确认</Badge> : null}
                       <Badge tone="neutral">{item.sourceProject.value}</Badge>
                       <DataSourceBadge source={item.title.source} />
                     </div>
@@ -138,7 +138,7 @@ export function PendingCandidatePanel({
 
       <div className="flex items-start gap-2 text-[12px] leading-relaxed text-slate-500">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        Inbox 项只有在服务端返回对应 allowed_actions 后才可处理。工具审批按 call_id 生效；确认 Brief 会携带当前文档版本，避免覆盖并发更新。
+        高风险工具操作只有在服务端返回对应 allowed_actions 后才可处理，并按 call_id 生效；确认 Brief 会携带当前文档版本，避免覆盖并发更新。
       </div>
     </div>
   )
@@ -167,7 +167,7 @@ function ToolApprovalActions({
       <div className="flex items-start gap-2.5 rounded-[10px] border border-remind/20 bg-remind/[0.06] p-3 text-xs leading-5 text-slate-300">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-remind" aria-hidden="true" />
         <p>
-          这是运行中的工具调用审批，不是 Plan Approval。每次决定只作用于对应 call_id，处理后仍可能保留其他待审批调用。
+          Skill 内已获用户授权的常规只读工具不会重复询问。这里仅列出独立工具调用，或涉及写入、不可逆影响和高风险参数的操作；允许只对当前这一次操作生效。
         </p>
       </div>
 
@@ -195,7 +195,7 @@ function ToolApprovalActions({
                     icon={<Check className="h-4 w-4" />}
                     onClick={() => onResolve(item, call.callId, 'approve')}
                   >
-                    批准此调用
+                    允许本次操作
                   </Button>
                 ) : null}
                 {canReject ? (
@@ -207,7 +207,7 @@ function ToolApprovalActions({
                     icon={<X className="h-4 w-4" />}
                     onClick={() => onResolve(item, call.callId, 'reject')}
                   >
-                    拒绝此调用
+                    拒绝本次操作
                   </Button>
                 ) : null}
               </div>

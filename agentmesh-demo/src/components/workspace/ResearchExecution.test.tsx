@@ -44,96 +44,48 @@ function projection(): ResearchRunProjection {
   }
 }
 
-function render(value: ResearchRunProjection, executionEnabled = true): string {
-  return renderToStaticMarkup(
-    <ResearchExecution
-      projection={value}
-      pendingAction={null}
-      executionEnabled={executionEnabled}
-      onConfirmPlan={() => undefined}
-      onExecute={() => undefined}
-      onResolveTool={() => undefined}
-      onRecover={() => undefined}
-      onCancel={() => undefined}
-    />,
-  )
+function render(value: ResearchRunProjection): string {
+  return renderToStaticMarkup(<ResearchExecution projection={value} />)
 }
 
 describe('ResearchExecution', () => {
-  it('keeps Plan Confirmation separate from Tool Approval and Provider execution', () => {
-    const html = render(projection())
-
-    expect(html).toContain('确认研究计划')
-    expect(html).toContain('不会批准工具调用，也不会访问 Provider')
-    expect(html).toContain('确认此计划')
-    expect(html).not.toContain('独立 Tool Approval')
-  })
-
-  it('shows a call-scoped Tool Approval before any Provider execution', () => {
+  it('renders every historical gate without mutation controls', () => {
     const value = projection()
-    value.workflow = {
-      ...value.workflow,
-      phase: 'execution',
-      active_gate: 'tool_approval',
-      state_version: 4,
-      active_attempt_id: 'attempt-1',
-    }
     value.attempt = {
       attempt_id: 'attempt-1',
       attempt_number: 1,
-      status: 'pending',
+      status: 'running',
       steps: [
-        { step_number: 1, status: 'ready', attempt_count: 0 },
+        { step_number: 1, status: 'running', attempt_count: 1 },
         { step_number: 2, status: 'pending', attempt_count: 0 },
       ],
     }
-    value.tool_approval = {
-      inbox_item_id: 'inbox-1',
-      call_id: 'research-tool:attempt-1:1',
-      tool_name: 'web_research',
+    const gates = ['plan_confirmation', 'none', 'tool_approval', 'recovery_decision'] as const
+    const mutationLabels = [
+      '确认此计划',
+      '开始执行研究',
+      '批准工具调用',
+      '拒绝并终止',
+      '确认后再次发送',
+      '安全终止',
+      '取消运行',
+    ]
+
+    for (const activeGate of gates) {
+      value.workflow = {
+        ...value.workflow,
+        phase: activeGate === 'plan_confirmation' || activeGate === 'none' ? 'planning' : 'execution',
+        active_gate: activeGate,
+        active_attempt_id: 'attempt-1',
+      }
+      const html = render(value)
+
+      expect(html).toContain('只读历史记录')
+      expect(html).toContain('执行进度')
+      expect(html).toContain('检索并封存外部证据')
+      expect(html).not.toContain('<button')
+      for (const label of mutationLabels) expect(html).not.toContain(label)
     }
-
-    const html = render(value)
-
-    expect(html).toContain('独立 Tool Approval')
-    expect(html).toContain('Provider 尚未被调用')
-    expect(html).toContain('批准工具调用')
-    expect(html).toContain('拒绝并终止')
-    expect(html).toContain('检索并封存外部证据')
-  })
-
-  it('keeps a confirmed preview read-only when execution is disabled', () => {
-    const value = projection()
-    value.workflow = { ...value.workflow, active_gate: 'none', state_version: 3 }
-
-    const html = render(value, false)
-
-    expect(html).toContain('当前为预览或关闭模式')
-    expect(html).not.toContain('开始执行研究</button>')
-  })
-
-  it('discloses UNKNOWN without silently retrying and offers only retry or abort', () => {
-    const value = projection()
-    value.workflow = {
-      ...value.workflow,
-      phase: 'execution',
-      active_gate: 'recovery_decision',
-      state_version: 7,
-      active_attempt_id: 'attempt-1',
-    }
-    value.recovery = {
-      invocation_id: 'invocation-1',
-      state: 'unknown',
-      send_count: 1,
-      error_code: 'tool_result_unknown',
-    }
-
-    const html = render(value)
-
-    expect(html).toContain('外部结果未知')
-    expect(html).toContain('系统没有自动重试')
-    expect(html).toContain('确认后再次发送')
-    expect(html).toContain('安全终止')
   })
 
   it('hides a Report after integrity failure while preserving verified artifacts and details', () => {
