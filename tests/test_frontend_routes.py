@@ -23,6 +23,7 @@ def test_root_and_explicit_product_routes_serve_react_index(monkeypatch, tmp_pat
         "/insights",
         "/knowledge/item/example",
         "/collaboration",
+        "/tasks/task/example",
         "/admin/users",
     ):
         response = client.get(path)

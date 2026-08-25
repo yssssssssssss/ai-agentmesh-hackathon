@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   LineChart,
+  ListTodo,
   LogOut,
   Network,
   RadioTower,
@@ -34,6 +35,7 @@ const NAV: NavigationItem[] = [
   { to: '/insights', label: '工作洞察', icon: LineChart },
   { to: '/knowledge', label: '我的知识', icon: BookMarked, badgeKey: 'memory' as const },
   { to: '/collaboration', label: '协作网络', icon: Network, badgeKey: 'inbox' as const },
+  { to: '/tasks', label: '任务中心', icon: ListTodo },
   { to: '/market', label: '协作市场', icon: RadioTower },
 ]
 

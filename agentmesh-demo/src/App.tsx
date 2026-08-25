@@ -13,6 +13,7 @@ const Workspace = lazy(() => import('./pages/Workspace').then((module) => ({ def
 const Insights = lazy(() => import('./pages/Insights').then((module) => ({ default: module.Insights })))
 const Knowledge = lazy(() => import('./pages/Knowledge').then((module) => ({ default: module.Knowledge })))
 const Collaboration = lazy(() => import('./pages/Collaboration').then((module) => ({ default: module.Collaboration })))
+const Tasks = lazy(() => import('./pages/Tasks').then((module) => ({ default: module.Tasks })))
 const Market = lazy(() => import('./pages/Market').then((module) => ({ default: module.Market })))
 const DigitalHuman = lazy(() => import('./pages/DigitalHuman').then((module) => ({ default: module.DigitalHuman })))
 
@@ -91,6 +92,7 @@ function AuthenticatedRoutes() {
         <Route path="/insights/*" element={<LazyPage><Insights /></LazyPage>} />
         <Route path="/knowledge/*" element={<LazyPage><Knowledge /></LazyPage>} />
         <Route path="/collaboration/*" element={<LazyPage><Collaboration /></LazyPage>} />
+        <Route path="/tasks/*" element={<LazyPage><Tasks /></LazyPage>} />
         <Route path="/market/*" element={<LazyPage><Market /></LazyPage>} />
         <Route path="/digital-human/*" element={<LazyPage><DigitalHuman /></LazyPage>} />
         <Route path="/admin/*" element={<LazyPage><AdminPage /></LazyPage>} />
