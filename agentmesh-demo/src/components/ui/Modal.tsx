@@ -43,14 +43,14 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
         tabIndex={-1}
         autoFocus
         className={cn(
-          'relative z-10 flex w-full flex-col overflow-hidden rounded-[16px] border border-white/[0.08] bg-surface-2 shadow-pop animate-scale-in',
+          'relative z-10 flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-[16px] border border-white/[0.08] bg-surface-2 shadow-pop animate-scale-in',
           size === 'workspace'
             ? 'h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] sm:h-[86vh] sm:max-w-[94vw]'
             : size === 'lg' ? 'max-w-2xl' : 'max-w-lg',
         )}
       >
         {(title || subtitle) && (
-          <header className="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-5">
+          <header className="flex shrink-0 items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-5">
             <div>
               {title && <h2 id={titleId} className="text-lg font-semibold text-white">{title}</h2>}
               {subtitle && <p className="mt-1 text-sm text-slate-400">{subtitle}</p>}
@@ -59,16 +59,16 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
               type="button"
               data-autofocus
               onClick={onClose}
-              className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+              className="inline-flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-lg text-slate-400 transition-[transform,background-color,color] duration-150 active:scale-[0.96] [@media(hover:hover)]:hover:bg-white/[0.06] [@media(hover:hover)]:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
               aria-label="关闭"
             >
-              <X className="h-5 w-5" />
+              <X className="h-5 w-5" aria-hidden="true" />
             </button>
           </header>
         )}
-        <div className={cn('overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-6 sm:py-5', size === 'workspace' ? 'min-h-0 flex-1' : 'max-h-[70vh]')}>{children}</div>
+        <div className={cn('min-h-0 overscroll-contain overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-6 sm:py-5', size === 'workspace' ? 'flex-1' : 'max-h-[70vh]')}>{children}</div>
         {footer && (
-          <footer className="flex items-center justify-end gap-3 border-t border-white/[0.06] bg-surface-1/60 px-6 py-4">
+          <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-white/[0.06] bg-surface-1/60 px-6 py-4">
             {footer}
           </footer>
         )}
