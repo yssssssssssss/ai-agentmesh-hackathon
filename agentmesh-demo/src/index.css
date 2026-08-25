@@ -54,4 +54,79 @@
   .text-faint {
     @apply text-slate-500;
   }
+
+  .planning-orbit {
+    animation: planning-orbit 2.2s linear infinite;
+  }
+
+  .planning-scan {
+    animation: planning-scan 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  .planning-stage-dot {
+    animation: planning-stage-pulse 2.4s ease-in-out infinite;
+  }
+
+  .planning-stage:nth-child(2) .planning-stage-dot {
+    animation-delay: 0.35s;
+  }
+
+  .planning-stage:nth-child(3) .planning-stage-dot {
+    animation-delay: 0.7s;
+  }
+
+  .planning-stage:nth-child(4) .planning-stage-dot {
+    animation-delay: 1.05s;
+  }
+}
+
+@keyframes planning-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes planning-scan {
+  0% {
+    opacity: 0;
+    transform: translateX(-110%) scaleX(0.55);
+  }
+  18% {
+    opacity: 1;
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(410%) scaleX(0.75);
+  }
+}
+
+@keyframes planning-stage-pulse {
+  0%, 55%, 100% {
+    border-color: rgba(255, 255, 255, 0.08);
+    color: rgb(100 116 139);
+    opacity: 0.72;
+    transform: scale(1);
+  }
+  18% {
+    border-color: rgba(45, 212, 168, 0.42);
+    color: rgb(84 230 187);
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planning-orbit,
+  .planning-scan,
+  .planning-stage-dot {
+    animation: none;
+  }
+
+  .planning-scan {
+    opacity: 0.8;
+    transform: translateX(100%);
+  }
 }

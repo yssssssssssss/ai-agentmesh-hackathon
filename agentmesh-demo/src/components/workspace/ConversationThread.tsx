@@ -20,7 +20,7 @@ const PENDING_STATUS_LABEL: Record<PendingMessage['status'], string> = {
   sending: '正在发送…',
   retryable: '服务端未收到，可安全重试',
   processing: '服务端已受理，正在核对状态',
-  approval: '等待工具审批',
+  approval: '需要确认高风险操作',
   failed: '服务端已受理但未完成',
   unknown: '暂时无法核对服务端状态',
 }

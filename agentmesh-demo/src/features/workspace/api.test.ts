@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { parseAgentRunEvent, subscribeAgentRunEvents } from './api'
+import { parseAgentRunEvent, subscribeAgentRunEvents, workspaceApi } from './api'
 
 class FakeEventSource {
   static instances: FakeEventSource[] = []
@@ -91,5 +91,26 @@ describe('Agent Run event stream', () => {
 
     expect(stream.closed).toBe(true)
     close()
+  })
+})
+
+describe('Skill matching API', () => {
+  it('posts a bounded task match request', async () => {
+    const response = { items: [] }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(workspaceApi.matchSkills('评审商品详情页体验', 5)).resolves.toEqual(response)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/skills/matches')
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ method: 'POST' }))
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({
+      content: '评审商品详情页体验',
+      limit: 5,
+    })
   })
 })

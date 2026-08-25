@@ -34,6 +34,7 @@ target-version = "py312"
 line-length = 120
 extend-exclude = [
   "2C-DesignWiki",
+  "wiki",
   "agentmesh/builtin_skills",
   "docs/verification/ai-x-parity-evidence",
   "tests/fixtures/ai_x_history",

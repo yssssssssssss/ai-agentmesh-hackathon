@@ -39,7 +39,7 @@ from agentmesh.models import (
     now_utc,
 )
 from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, ensure_admin, ensure_can_update_memory, has_permission
-from agentmesh.routes.deps import current_user
+from agentmesh.routes.deps import current_user, require_default_project
 from agentmesh.skill_runtime.materialize import materialize_learned_skill
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
@@ -633,10 +633,7 @@ def retrieval_metrics_list(
 @router.get("/skills")
 def list_learned_skills(user: User = Depends(current_user)) -> dict[str, object]:
     """List learned skills for the current user."""
-    skills = [
-        s for s in store.learned_skills
-        if s.user_id == user.id or s.scope in (Scope.PROJECT, Scope.TEAM_ACCEPTED)
-    ]
+    skills = [skill for skill in store.learned_skills if store.learned_skill_visible_to_user(skill, user.id)]
     return {"items": [s.model_dump() for s in sorted(skills, key=lambda s: s.created_at, reverse=True)]}
 
 
@@ -664,7 +661,10 @@ def share_skill_to_project(skill_id: str, user: User = Depends(current_user)) ->
         raise HTTPException(status_code=404, detail="Skill not found")
     if skill.status != SkillStatus.ACTIVE:
         raise HTTPException(status_code=400, detail="Only active skills can be shared")
+    project = require_default_project(user, store)
     skill.scope = Scope.PROJECT
+    skill.workspace_id = project.workspace_id
+    skill.project_id = project.id
     skill.updated_at = now_utc()
     store.save_learned_skill(skill)
     return {"item": skill.model_dump()}

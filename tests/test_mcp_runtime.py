@@ -7,7 +7,15 @@ import pytest
 from mcp.types import CallToolResult, GetPromptResult, ListPromptsResult, TextContent
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
-from agentmesh.models import AgentRun, AgentRunStatus, AgentToolGrant, ChatThread, ToolDefinition
+from agentmesh.models import (
+    AgentRun,
+    AgentRunStatus,
+    AgentToolGrant,
+    ChatThread,
+    SkillDefinition,
+    SkillSourceScope,
+    ToolDefinition,
+)
 from agentmesh.seed import USER, ensure_base_workspace_data
 from agentmesh.store import SQLiteStore, store
 from agentmesh.tool_runtime.mcp import AgentMeshMCPFactory, GovernedMCPServer, load_mcp_config
@@ -84,6 +92,60 @@ def test_mcp_config_builds_only_granted_governed_servers(tmp_path, monkeypatch) 
     assert isinstance(servers[0], GovernedMCPServer)
     assert servers[0].name == "local"
     assert servers[0].allowed_tool_names == {"lookup"}
+
+
+def test_wiki_imported_skill_mcp_servers_are_fail_closed(tmp_path) -> None:
+    _grant()
+    config_path = tmp_path / "wiki-import-mcp.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "servers": [
+                    {
+                        "name": "local",
+                        "tool_id": "tool_mcp_test",
+                        "allowed_tool_names": ["lookup"],
+                        "transport": "stdio",
+                        "command": "python",
+                        "args": ["server.py"],
+                    }
+                ]
+            }
+        )
+    )
+    factory = AgentMeshMCPFactory(store, load_mcp_config(config_path))
+    imported = SkillDefinition(
+        id="skill_wiki_import_mcp",
+        name="wiki-import-mcp",
+        title="Wiki import MCP",
+        description="Imported Skill MCP policy",
+        instructions="Use only explicitly mapped AgentMesh MCP servers.",
+        source_path="tests/wiki-import-mcp/SKILL.md",
+        source_scope=SkillSourceScope.BUILTIN,
+        content_hash="wiki-import-mcp-hash",
+        metadata={"agentmesh-wiki-import": "True"},
+    )
+
+    assert factory.build(user=USER, context=_context(), skill=imported) == []
+    servers = factory.build(
+        user=USER,
+        context=_context(),
+        skill=imported.model_copy(update={"requested_tools": ["mcp_test_gateway"]}),
+    )
+    assert len(servers) == 1
+    assert servers[0].name == "local"
+    assert factory.build(
+        user=USER,
+        context=_context(),
+        skill=imported.model_copy(update={"requested_tools": ["Bash"]}),
+    ) == []
+
+    ungranted_user = USER.model_copy(update={"personal_agent_id": "agent_without_mcp_grant"})
+    assert factory.build(
+        user=ungranted_user,
+        context=_context(),
+        skill=imported.model_copy(update={"requested_tools": ["mcp_test_gateway"]}),
+    ) == []
 
 
 def test_mcp_config_rejects_unresolved_header_secret(tmp_path, monkeypatch) -> None:

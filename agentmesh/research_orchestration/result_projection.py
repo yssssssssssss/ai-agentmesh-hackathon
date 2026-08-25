@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from pydantic import BaseModel
 
@@ -18,13 +19,6 @@ from agentmesh.research_orchestration.api import (
     ResearchReviewProjection,
     ResearchSourceLinkProjection,
 )
-from agentmesh.research_orchestration.artifacts import (
-    ArtifactReaderScope,
-    ArtifactRef,
-    ArtifactStore,
-    ArtifactStoreError,
-    ResearchResultSnapshot,
-)
 from agentmesh.research_orchestration.delivery import (
     ClaimLedger,
     ClaimRecord,
@@ -33,6 +27,12 @@ from agentmesh.research_orchestration.delivery import (
     ReportDocument,
 )
 from agentmesh.research_orchestration.evidence import EvidenceManifest, EvidenceSource
+from agentmesh.research_orchestration.v2_artifact_history import (
+    ArtifactReaderScope,
+    ArtifactRef,
+    ArtifactStoreError,
+    ResearchResultSnapshot,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,8 +46,19 @@ class _ResultProjectionError(RuntimeError):
     pass
 
 
+class ResearchArtifactReader(Protocol):
+    def read_verified_for_owner(
+        self,
+        artifact_id: str,
+        *,
+        reader_scope: ArtifactReaderScope,
+        expected_reference: ArtifactRef | None = None,
+        invalidate_corrupt: bool = True,
+    ) -> Artifact: ...
+
+
 def _read_artifact(
-    artifacts: ArtifactStore,
+    artifacts: ResearchArtifactReader,
     artifact_id: str,
     *,
     reader_scope: ArtifactReaderScope,
@@ -75,7 +86,7 @@ def _read_artifact(
 
 
 def _read_model[ModelT: BaseModel](
-    artifacts: ArtifactStore,
+    artifacts: ResearchArtifactReader,
     artifact_id: str,
     model: type[ModelT],
     *,
@@ -121,7 +132,7 @@ def _claim_projection(claim: ClaimRecord) -> ResearchClaimProjection:
 
 
 def build_verified_research_result(
-    artifacts: ArtifactStore,
+    artifacts: ResearchArtifactReader,
     snapshot: ResearchResultSnapshot,
     *,
     run_id: str,

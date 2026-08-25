@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -9,9 +8,8 @@ from fastapi.testclient import TestClient
 
 import agentmesh.routes.chat as chat_routes
 from agentmesh.app import app
-from agentmesh.models import AgentRun, AgentRunStatus
+from agentmesh.models import AgentRun, AgentRunStatus, InboxItem, Scope
 from agentmesh.research_orchestration.api import (
-    ResearchCommandResponse,
     ResearchConflictError,
     ResearchNotFoundError,
     ResearchRunProjection,
@@ -20,6 +18,9 @@ from agentmesh.research_orchestration.api import (
 from agentmesh.research_orchestration.contracts import ResearchGate, ResearchPhase
 from agentmesh.seed import USER
 from agentmesh.store import store
+
+_REQUEST_HASH = "0" * 64
+_V2_READ_ONLY = "Research-v2 runs are historical and read-only"
 
 
 def _login(client: TestClient) -> None:
@@ -42,57 +43,22 @@ def _projection(run_id: str, *, state_version: int = 1) -> ResearchRunProjection
 
 
 @dataclass
-class FakeResearchWorkflowService:
+class FakeV2HistoryReader:
     calls: list[dict[str, Any]] = field(default_factory=list)
-    failures: dict[str, Exception] = field(default_factory=dict)
-
-    def _call(self, method: str, run_id: str, request=None, **kwargs):  # noqa: ANN001, ANN202
-        failure = self.failures.get(method)
-        if failure is not None:
-            raise failure
-        self.calls.append({"method": method, "run_id": run_id, "request": request, **kwargs})
-        if method == "get_projection":
-            return _projection(run_id)
-        command_type = "confirm_plan" if method == "confirm_plan" else method.removesuffix("_plan")
-        return ResearchCommandResponse(
-            run_id=run_id,
-            command_type=command_type,
-            state_version=request.expected_state_version + 1,
-            projection=_projection(run_id, state_version=request.expected_state_version + 1),
-        )
+    failure: Exception | None = None
 
     def get_projection(self, run_id: str, **kwargs):  # noqa: ANN003, ANN201
-        return self._call("get_projection", run_id, **kwargs)
-
-    def clarify(self, run_id: str, request, **kwargs):  # noqa: ANN001, ANN003, ANN201
-        return self._call("clarify", run_id, request, **kwargs)
-
-    def confirm_plan(self, run_id: str, plan_version_id: str, request, **kwargs):  # noqa: ANN001, ANN003, ANN201
-        return self._call("confirm_plan", run_id, request, plan_version_id=plan_version_id, **kwargs)
-
-    def revise_plan(self, run_id: str, plan_version_id: str, request, **kwargs):  # noqa: ANN001, ANN003, ANN201
-        return self._call("revise_plan", run_id, request, plan_version_id=plan_version_id, **kwargs)
-
-    async def execute(self, run_id: str, request, **kwargs):  # noqa: ANN001, ANN003, ANN201
-        return self._call("execute", run_id, request, **kwargs)
-
-    def recover(self, run_id: str, request, **kwargs):  # noqa: ANN001, ANN003, ANN201
-        return self._call("recover", run_id, request, **kwargs)
-
-    def purge(self, run_id: str, request, **kwargs):  # noqa: ANN001, ANN003, ANN201
-        return self._call("purge", run_id, request, **kwargs)
+        if self.failure is not None:
+            raise self.failure
+        self.calls.append({"run_id": run_id, **kwargs})
+        return _projection(run_id)
 
 
 @pytest.fixture
-def service(monkeypatch: pytest.MonkeyPatch) -> FakeResearchWorkflowService:
-    fake = FakeResearchWorkflowService()
-    monkeypatch.setattr(
-        app.state,
-        "research_runtime",
-        SimpleNamespace(workflow_service=fake),
-        raising=False,
-    )
-    return fake
+def history_reader(monkeypatch: pytest.MonkeyPatch) -> FakeV2HistoryReader:
+    reader = FakeV2HistoryReader()
+    monkeypatch.setattr(app.state, "research_v2_history_reader", reader, raising=False)
+    return reader
 
 
 @pytest.fixture
@@ -102,251 +68,239 @@ def client() -> TestClient:
     return result
 
 
+def _save_v2_run(run_id: str, *, status: AgentRunStatus = AgentRunStatus.FAILED) -> AgentRun:
+    historical = AgentRun(
+        id=run_id,
+        thread_id=f"thread_{run_id}",
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        input_text="compare",
+        status=status,
+        orchestration_version="research-v2",
+        orchestration_mode="execute",
+    )
+    store.save_agent_run(historical.model_copy(update={"orchestration_version": "v1"}))
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE agent_runs SET payload = ?, orchestration_version = ? WHERE id = ?",
+            (historical.model_dump_json(), "research-v2", historical.id),
+        )
+    return historical
+
+
 def test_research_get_is_owner_scoped_projection_only_and_refresh_safe(
     client: TestClient,
-    service: FakeResearchWorkflowService,
+    history_reader: FakeV2HistoryReader,
 ) -> None:
     first = client.get("/api/agent/runs/run_research_http/research")
     refreshed = client.get("/api/agent/runs/run_research_http/research")
 
     assert first.status_code == refreshed.status_code == 200
     assert first.json()["status"] == "planning"
-    assert first.json()["error_code"] is None
     assert first.json()["workflow"]["active_gate"] == "plan_confirmation"
-    assert [call["method"] for call in service.calls] == ["get_projection", "get_projection"]
-    assert all(call["owner"].user_id == USER.id for call in service.calls)
-    assert all(call["owner"].workspace_id == USER.workspace_id for call in service.calls)
+    assert len(history_reader.calls) == 2
+    assert all(call["owner"].user_id == USER.id for call in history_reader.calls)
+    assert all(call["owner"].workspace_id == USER.workspace_id for call in history_reader.calls)
 
 
-@pytest.mark.parametrize(
-    ("http_method", "path", "payload", "service_method", "command_type"),
-    [
-        (
-            "post",
-            "/api/agent/runs/run_research_http/research/clarify",
-            {
-                "expected_state_version": 1,
-                "answers": [{"question_id": "clarify_competitor_scope", "answer": "Figma 与 Miro"}],
-            },
-            "clarify",
-            "clarify",
-        ),
-        (
-            "post",
-            "/api/agent/runs/run_research_http/research/plans/plan_1/confirm",
-            {"expected_state_version": 1},
-            "confirm_plan",
-            "confirm_plan",
-        ),
-        (
-            "post",
-            "/api/agent/runs/run_research_http/research/plans/plan_1/revise",
-            {"expected_state_version": 1, "research_goal": "Compare collaboration and recovery"},
-            "revise_plan",
-            "revise",
-        ),
-        (
-            "post",
-            "/api/agent/runs/run_research_http/research/execute",
-            {"expected_state_version": 1},
-            "execute",
-            "execute",
-        ),
-        (
-            "post",
-            "/api/agent/runs/run_research_http/research/recover",
-            {"expected_state_version": 1, "invocation_id": "invocation_1", "action": "retry"},
-            "recover",
-            "recover",
-        ),
-        (
-            "delete",
-            "/api/agent/runs/run_research_http/research-data",
-            {"expected_state_version": 1},
-            "purge",
-            "purge",
-        ),
-    ],
-)
-def test_research_mutations_forward_owner_version_and_idempotency_and_return_202(
+def test_research_get_does_not_write_v2_state(
     client: TestClient,
-    service: FakeResearchWorkflowService,
-    http_method: str,
-    path: str,
-    payload: dict[str, object],
-    service_method: str,
-    command_type: str,
+    history_reader: FakeV2HistoryReader,
 ) -> None:
-    response = client.request(
-        http_method,
-        path,
-        json=payload,
-        headers={"Idempotency-Key": f"command-{service_method}"},
+    tables = (
+        "agent_runs",
+        "agent_run_events",
+        "artifacts",
+        "research_workflows",
+        "research_requirement_versions",
+        "research_plan_versions",
+        "research_attempts",
+        "research_steps",
+        "research_tool_invocations",
+        "research_commands",
+        "research_model_call_receipts",
     )
+    with store._connect() as connection:
+        before = {
+            table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])  # noqa: S608
+            for table in tables
+        }
 
-    assert response.status_code == 202
-    assert response.json()["command_type"] == command_type
-    call = service.calls[-1]
-    assert call["method"] == service_method
-    assert call["request"].expected_state_version == 1
-    assert call["idempotency_key"] == f"command-{service_method}"
-    assert call["owner"].user_id == USER.id
-    assert call["owner"].project_id == USER.default_project_id
+    response = client.get("/api/agent/runs/run_research_http/research")
+
+    with store._connect() as connection:
+        after = {
+            table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])  # noqa: S608
+            for table in tables
+        }
+    assert response.status_code == 200
+    assert before == after
+    assert len(history_reader.calls) == 1
 
 
-@pytest.mark.parametrize(
-    ("headers", "payload", "expected_status"),
-    [
-        ({}, {"expected_state_version": 1}, 422),
-        ({"Idempotency-Key": "   "}, {"expected_state_version": 1}, 400),
-        ({"Idempotency-Key": "execute-1"}, {}, 422),
-        ({"Idempotency-Key": "execute-1"}, {"expected_state_version": 0}, 422),
-    ],
-)
-def test_research_mutation_rejects_missing_control_inputs_before_service_call(
+def test_research_get_maps_history_errors(
     client: TestClient,
-    service: FakeResearchWorkflowService,
-    headers: dict[str, str],
-    payload: dict[str, object],
-    expected_status: int,
+    history_reader: FakeV2HistoryReader,
 ) -> None:
-    response = client.post(
-        "/api/agent/runs/run_research_http/research/execute",
-        json=payload,
-        headers=headers,
-    )
-
-    assert response.status_code == expected_status
-    assert service.calls == []
-
-
-def test_revise_accepts_only_declarative_changes(
-    client: TestClient,
-    service: FakeResearchWorkflowService,
-) -> None:
-    response = client.post(
-        "/api/agent/runs/run_research_http/research/plans/plan_1/revise",
-        headers={"Idempotency-Key": "revise-forged-plan"},
-        json={
-            "expected_state_version": 1,
-            "research_goal": "Compare recovery",
-            "plan_hash": "0" * 64,
-            "steps": [{"step_number": 99}],
-        },
-    )
-
-    assert response.status_code == 422
-    assert service.calls == []
-
-
-def test_research_routes_map_hidden_owner_and_state_conflicts(
-    client: TestClient,
-    service: FakeResearchWorkflowService,
-) -> None:
-    service.failures["get_projection"] = ResearchNotFoundError("hidden")
+    history_reader.failure = ResearchNotFoundError("hidden")
     hidden = client.get("/api/agent/runs/run_hidden/research")
     assert hidden.status_code == 404
     assert hidden.json()["detail"] == "Research run not found"
 
-    service.failures.clear()
-    service.failures["execute"] = ResearchConflictError("research workflow state version conflict")
-    conflict = client.post(
-        "/api/agent/runs/run_research_http/research/execute",
-        headers={"Idempotency-Key": "stale-execute"},
-        json={"expected_state_version": 1},
-    )
+    history_reader.failure = ResearchConflictError("history integrity conflict")
+    conflict = client.get("/api/agent/runs/run_corrupt/research")
     assert conflict.status_code == 409
-    assert conflict.json()["detail"] == "research workflow state version conflict"
+    assert conflict.json()["detail"] == "history integrity conflict"
 
 
-def test_research_routes_do_not_disguise_programming_errors_as_conflicts(
-    service: FakeResearchWorkflowService,
-) -> None:
-    service.failures["execute"] = RuntimeError("programming bug")
-    client = TestClient(app, raise_server_exceptions=False)
-    _login(client)
-
-    response = client.post(
-        "/api/agent/runs/run_research_http/research/execute",
-        headers={"Idempotency-Key": "buggy-execute"},
-        json={"expected_state_version": 1},
-    )
-
-    assert response.status_code == 500
-
-
-def test_research_routes_require_authentication_and_configured_service(
+def test_research_get_uses_dedicated_history_reader(
     monkeypatch: pytest.MonkeyPatch,
-    service: FakeResearchWorkflowService,
+    history_reader: FakeV2HistoryReader,
 ) -> None:
-    monkeypatch.delattr(app.state, "research_runtime", raising=False)
     anonymous = TestClient(app).get("/api/agent/runs/run_research_http/research")
     assert anonymous.status_code == 401
-    assert service.calls == []
+    assert history_reader.calls == []
 
     client = TestClient(app)
     _login(client)
+    available = client.get("/api/agent/runs/run_research_http/research")
+    assert available.status_code == 200
+    assert len(history_reader.calls) == 1
+
+    monkeypatch.delattr(app.state, "research_v2_history_reader", raising=False)
     unavailable = client.get("/api/agent/runs/run_research_http/research")
     assert unavailable.status_code == 503
+    assert unavailable.json()["detail"] == "Research history reader is unavailable"
 
 
-def test_openapi_exposes_exactly_the_seven_research_interfaces_with_guard_headers() -> None:
+@pytest.mark.parametrize(
+    ("http_method", "suffix", "payload"),
+    [
+        (
+            "post",
+            "research/clarify",
+            {
+                "expected_state_version": 1,
+                "request_hash": _REQUEST_HASH,
+                "answers": [{"question_key": "competitor_scope", "answer": "Figma 与 Miro"}],
+            },
+        ),
+        (
+            "post",
+            "research/execute",
+            {"expected_state_version": 1, "request_hash": _REQUEST_HASH, "plan_version_id": "plan_v3"},
+        ),
+        (
+            "delete",
+            "research-data",
+            {"expected_state_version": 1, "request_hash": _REQUEST_HASH, "confirmation": "PURGE"},
+        ),
+    ],
+)
+def test_shared_research_mutations_reject_historical_v2_before_runtime_dispatch(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    http_method: str,
+    suffix: str,
+    payload: dict[str, object],
+) -> None:
+    run = _save_v2_run(f"run_read_only_{http_method}_{suffix.replace('/', '_').replace('-', '_')}")
+
+    class ForbiddenV3Service:
+        def apply(self, *_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+            raise AssertionError("historical v2 mutation must not reach a Runtime")
+
+    monkeypatch.setattr(app.state, "research_v3_preview", ForbiddenV3Service(), raising=False)
+    response = client.request(
+        http_method,
+        f"/api/agent/runs/{run.id}/{suffix}",
+        json=payload,
+        headers={"Idempotency-Key": f"reject-{http_method}-{run.id}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Command is not available for the stored research version"
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "research/plans/plan_1/confirm",
+        "research/plans/plan_1/revise",
+        "research/recover",
+    ],
+)
+def test_v2_only_research_mutation_routes_are_removed(client: TestClient, suffix: str) -> None:
+    response = client.post(
+        f"/api/agent/runs/run_removed_v2_route/{suffix}",
+        json={"expected_state_version": 1},
+        headers={"Idempotency-Key": "removed-v2-route"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_openapi_exposes_no_v2_mutation_contracts() -> None:
     schema = app.openapi()
-    interfaces = {
-        "/api/agent/runs/{run_id}/research": "get",
-        "/api/agent/runs/{run_id}/research/clarify": "post",
-        "/api/agent/runs/{run_id}/research/plans/{plan_version_id}/confirm": "post",
-        "/api/agent/runs/{run_id}/research/plans/{plan_version_id}/revise": "post",
-        "/api/agent/runs/{run_id}/research/execute": "post",
-        "/api/agent/runs/{run_id}/research/recover": "post",
-        "/api/agent/runs/{run_id}/research-data": "delete",
+    paths = schema["paths"]
+    assert "/api/agent/runs/{run_id}/research/plans/{plan_version_id}/confirm" not in paths
+    assert "/api/agent/runs/{run_id}/research/plans/{plan_version_id}/revise" not in paths
+    assert "/api/agent/runs/{run_id}/research/recover" not in paths
+
+    expected_bodies = {
+        "/api/agent/runs/{run_id}/research/clarify": "ResearchV3ClarifyRequest",
+        "/api/agent/runs/{run_id}/research/execute": "ResearchV3ExecuteRequest",
+        "/api/agent/runs/{run_id}/research-data": "ResearchV3PurgeRequest",
     }
-
-    for path, method in interfaces.items():
-        operation = schema["paths"][path][method]
-        if method == "get":
-            assert all(parameter["name"] != "Idempotency-Key" for parameter in operation["parameters"])
-            assert "200" in operation["responses"]
-            continue
+    for path, schema_name in expected_bodies.items():
+        method = "delete" if path.endswith("research-data") else "post"
+        operation = paths[path][method]
         header = next(parameter for parameter in operation["parameters"] if parameter["name"] == "Idempotency-Key")
-        assert header["in"] == "header"
         assert header["required"] is True
-        assert "202" in operation["responses"]
-
-    recover_schema = schema["components"]["schemas"]["ResearchRecoverRequest"]
-    assert set(recover_schema["required"]) == {"expected_state_version", "invocation_id", "action"}
-    assert recover_schema["properties"]["action"]["enum"] == ["retry", "abort"]
+        body_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+        assert body_schema == {"$ref": f"#/components/schemas/{schema_name}"}
 
 
-def test_legacy_retry_and_cancel_do_not_dispatch_research_v2_into_the_v1_runtime(
+def test_research_tool_approval_is_visible_but_has_no_actions(
+    client: TestClient,
+) -> None:
+    item = store.save_inbox_item(
+        InboxItem(
+            id="inbox_historical_research_tool_approval",
+            title="Historical approval",
+            summary="Retained for audit only",
+            item_type="research_tool_approval",
+            scope=Scope.PRIVATE,
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            metadata={"call_id": "historical_call"},
+        )
+    )
+
+    listed = client.get("/api/inbox")
+    patched = client.patch(f"/api/inbox/{item.id}", json={"status": "snoozed", "ttl_minutes": 10})
+    resolved = client.post(
+        f"/api/inbox/{item.id}/resolve-tool-approval",
+        params={"action": "approve", "call_id": "historical_call"},
+    )
+
+    projected = next(value for value in listed.json()["items"] if value["id"] == item.id)
+    assert projected["allowed_actions"] == []
+    assert patched.status_code == resolved.status_code == 409
+    assert patched.json()["detail"] == resolved.json()["detail"]
+    assert store.get_inbox_item(item.id).status == "open"
+
+
+def test_legacy_retry_and_cancel_leave_research_v2_unchanged(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    retry_run = store.save_agent_run(
-        AgentRun(
-            id="run_research_v2_retry_isolation",
-            thread_id="thread_research_v2_retry_isolation",
-            user_id=USER.id,
-            workspace_id=USER.workspace_id,
-            project_id=USER.default_project_id,
-            input_text="compare",
-            status=AgentRunStatus.FAILED,
-            orchestration_version="research-v2",
-            orchestration_mode="execute",
-        )
-    )
-    cancel_run = store.save_agent_run(
-        AgentRun(
-            id="run_research_v2_cancel_isolation",
-            thread_id="thread_research_v2_cancel_isolation",
-            user_id=USER.id,
-            workspace_id=USER.workspace_id,
-            project_id=USER.default_project_id,
-            input_text="compare",
-            status=AgentRunStatus.RUNNING,
-            orchestration_version="research-v2",
-            orchestration_mode="execute",
-        )
+    retry_run = _save_v2_run("run_research_v2_retry_isolation")
+    cancel_run = _save_v2_run(
+        "run_research_v2_cancel_isolation",
+        status=AgentRunStatus.RUNNING,
     )
 
     class ForbiddenRuntime:
@@ -360,8 +314,7 @@ def test_legacy_retry_and_cancel_do_not_dispatch_research_v2_into_the_v1_runtime
     )
     cancel = client.post(f"/api/agent/runs/{cancel_run.id}/cancel")
 
-    assert retry.status_code == 409
-    assert "research recovery API" in retry.json()["detail"]
-    assert cancel.status_code == 200
-    assert cancel.json()["item"]["status"] == "cancelled"
-    assert store.get_agent_run(cancel_run.id).status == AgentRunStatus.CANCELLED
+    assert retry.status_code == cancel.status_code == 409
+    assert retry.json()["detail"] == cancel.json()["detail"] == _V2_READ_ONLY
+    assert store.get_agent_run(retry_run.id).status == AgentRunStatus.FAILED
+    assert store.get_agent_run(cancel_run.id).status == AgentRunStatus.RUNNING

@@ -46,6 +46,9 @@ test('creates, selects, sends natural and explicit skill messages, and reloads p
   await expect(page.getByRole('button', { name: naturalMessage, exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: '选择 Skill' }).click()
+  const skillCategories = page.getByRole('tablist', { name: 'Skill 分类' })
+  await expect(skillCategories.getByRole('tab', { name: '工具', exact: true })).toBeVisible()
+  await skillCategories.getByRole('tab', { name: '工具', exact: true }).hover()
   await page.getByRole('button', { name: /^\$research\.request 请求外部资料/ }).click()
   await expect(composer).toHaveValue('$research.request ')
   await composer.fill(`$research.request ${researchMarker}`)
@@ -216,6 +219,12 @@ test('shows pending immediately, follows conversation updates, and opens skills 
   const composer = page.getByLabel('消息')
 
   await composer.fill('$')
+  const skillCategories = page.getByRole('tablist', { name: 'Skill 分类' })
+  await expect(skillCategories.getByRole('tab', { name: '工具', exact: true })).toBeVisible()
+  if (await skillCategories.getByRole('tab').count() > 1) {
+    await expect(page.getByRole('button', { name: /^\$memory\.search 查询记忆\/经验/ })).toHaveCount(0)
+  }
+  await skillCategories.getByRole('tab', { name: '工具', exact: true }).hover()
   await expect(page.getByRole('button', { name: /^\$memory\.search 查询记忆\/经验/ })).toBeVisible()
 
   await composer.fill(marker)

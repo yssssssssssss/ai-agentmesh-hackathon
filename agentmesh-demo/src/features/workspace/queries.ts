@@ -166,6 +166,13 @@ export function useSkillRecommendationsMutation() {
   })
 }
 
+export function useSkillMatchesMutation() {
+  return useMutation({
+    mutationFn: ({ content, limit = 5 }: { content: string; limit?: number }) =>
+      workspaceApi.matchSkills(content, limit),
+  })
+}
+
 export function useUpdateSkillBindingMutation(scope: WorkspaceScope) {
   const queryClient = useQueryClient()
   return useMutation({
@@ -375,87 +382,6 @@ export function useSkillPlanMutations(scope: WorkspaceScope, runId: string | nul
     onError: refreshOnConflict,
   })
   return { update, approve, reject }
-}
-
-export function useResearchMutations(scope: WorkspaceScope, run: AgentRun | null | undefined) {
-  const queryClient = useQueryClient()
-  const runId = run?.id ?? null
-  const refresh = async () => {
-    if (!runId) return
-    const work = [
-      queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true }),
-      queryClient.invalidateQueries({ queryKey: workspaceKeys.research(scope, runId), exact: true }),
-      queryClient.invalidateQueries({ queryKey: queryRoots.inbox }),
-    ]
-    if (run?.thread_id) work.push(invalidateCanonicalThread(queryClient, scope, run.thread_id))
-    await Promise.all(work)
-  }
-  const refreshOnConflict = async (error: unknown) => {
-    if (error instanceof ApiError && error.status === 409) await refresh()
-  }
-  const confirm = useMutation({
-    mutationFn: ({ planVersionId, stateVersion }: { planVersionId: string; stateVersion: number }) => {
-      if (!runId) throw new Error('缺少 Research Run')
-      return workspaceApi.confirmResearchPlan(
-        runId,
-        planVersionId,
-        { expected_state_version: stateVersion },
-        `web-confirm-plan-v${stateVersion}`,
-      )
-    },
-    onSuccess: refresh,
-    onError: refreshOnConflict,
-  })
-  const execute = useMutation({
-    mutationFn: ({ stateVersion }: { stateVersion: number }) => {
-      if (!runId) throw new Error('缺少 Research Run')
-      return workspaceApi.executeResearch(
-        runId,
-        { expected_state_version: stateVersion },
-        `web-execute-v${stateVersion}`,
-      )
-    },
-    onSuccess: refresh,
-    onError: refreshOnConflict,
-  })
-  const resolveTool = useMutation({
-    mutationFn: ({
-      itemId,
-      callId,
-      action,
-    }: {
-      itemId: string
-      callId: string
-      action: 'approve' | 'reject'
-    }) => workspaceApi.resolveResearchToolApproval(itemId, callId, action),
-    onSuccess: refresh,
-    onError: refreshOnConflict,
-  })
-  const recover = useMutation({
-    mutationFn: ({
-      stateVersion,
-      invocationId,
-      action,
-    }: {
-      stateVersion: number
-      invocationId: string
-      action: 'retry' | 'abort'
-    }) => {
-      if (!runId) throw new Error('缺少 Research Run')
-      return workspaceApi.recoverResearch(
-        runId,
-        {
-          expected_state_version: stateVersion,
-          invocation_id: invocationId,
-          action,
-        },
-        `web-recover-${action}-v${stateVersion}`,
-      )
-    },
-    onSuccess: refresh,
-    onError: refreshOnConflict,
-  })
-  return { confirm, execute, resolveTool, recover }
 }
 
 export function useCancelAgentRunMutation(scope: WorkspaceScope) {

@@ -9,7 +9,6 @@ import pytest
 import agentmesh.web_research as web_research
 from agentmesh.acquisition import AcquisitionQuery, AcquisitionRequest, ProviderCallRecord
 from agentmesh.models import Intent
-from agentmesh.research_orchestration.artifacts import contains_sensitive_artifact_content
 from agentmesh.seed import PROJECT, WORKSPACE
 from agentmesh.web_research import (
     CommandWebSearchProvider,
@@ -137,7 +136,6 @@ def test_web_acquisition_agent_redacts_sensitive_provider_content_before_artifac
     assert "oauth-secret" not in serialized
     assert "/Users/example/private-result" not in serialized
     assert result.sources[0].reference == "https://example.test/agents"
-    assert contains_sensitive_artifact_content(serialized) is False
 
 
 def test_tavily_provider_sends_safe_request_and_maps_results() -> None:

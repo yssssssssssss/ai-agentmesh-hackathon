@@ -5,16 +5,14 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
-from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from agentmesh.agent_runtime.settings import SkillOrchestrationMode
-from agentmesh.models import ChatThread, SkillOrchestrationRequestMode, User
+from agentmesh.models import AgentRun, AgentRunStatus, ChatThread, SkillOrchestrationRequestMode, User
 from agentmesh.research_orchestration.current import ResearchWriterGeneration
-from agentmesh.research_orchestration.runtime import ResearchRuntime
 from agentmesh.research_orchestration.v3.actor_adapters import (
     AgentSdkSkillAdapterV3,
     LlmSynthesisAdapterV3,
@@ -36,10 +34,8 @@ from agentmesh.research_orchestration.v3.api import (
     research_v3_request_hash,
 )
 from agentmesh.research_orchestration.v3.composition import ResearchV3PreviewComposition
-from agentmesh.research_orchestration.workflow import ResearchWorkflowService
 from agentmesh.routes.deps import current_user
 from agentmesh.store import SQLiteStore
-from agentmesh.tool_runtime.gateway import ToolRuntimeDescriptor
 
 NOW = datetime(2026, 8, 21, 10, 30, tzinfo=UTC)
 OWNER = ResearchV3OwnerScope(
@@ -463,7 +459,6 @@ def test_main_agent_run_route_selects_v3_preview_and_stored_version_reader(
     _activate_v3(store)
     composition = ResearchV3PreviewComposition(store)
     isolated = FastAPI()
-    isolated.state.research_runtime = SimpleNamespace(workflow_service=object())
     isolated.state.research_v3_preview = composition
     isolated.include_router(agent_run_routes.router)
     isolated.include_router(research_routes.router)
@@ -530,7 +525,6 @@ def test_concurrent_identical_client_turn_replays_one_generated_thread(
     _activate_v3(store)
     composition = ResearchV3PreviewComposition(store)
     isolated = FastAPI()
-    isolated.state.research_runtime = SimpleNamespace(workflow_service=object())
     isolated.state.research_v3_preview = composition
     isolated.include_router(agent_run_routes.router)
     isolated.include_router(research_routes.router)
@@ -568,43 +562,37 @@ def test_concurrent_identical_client_turn_replays_one_generated_thread(
     assert len(store.list_agent_runs(USER.id)) == 1
 
 
-def test_concurrent_identical_v2_client_turn_replays_one_run_and_thread(
+def test_concurrent_identical_retired_v2_request_replays_one_v1_run_and_thread(
     tmp_path,
     monkeypatch,
 ) -> None:  # noqa: ANN001
     import agentmesh.routes.agent_runs as agent_run_routes
+    import agentmesh.routes.chat as chat_routes
 
     store = SQLiteStore(tmp_path / "v2-concurrent-replay.sqlite3")
-    workflow = ResearchWorkflowService(
-        store,
-        planning=object(),
-        execution=object(),
-        purger=object(),
-    )
 
-    def suppress_planning(_key, coroutine):  # noqa: ANN001, ANN202
-        coroutine.close()
+    class V1Runtime:
+        enabled = True
 
-    monkeypatch.setattr(workflow, "_schedule", suppress_planning)
-    runtime = ResearchRuntime(
-        store,
-        workflow,
-        tool_gateway=SimpleNamespace(
-            describe=lambda _tool_name: ToolRuntimeDescriptor(
-                implementation_id="test.real-web",
-                implementation_version="1",
-                execution_mode="real",
-                health_state="healthy",
-                health_checked_at=NOW,
+        async def start_orchestrated(self, *, content, user, thread_id, client_turn_id, mode, **_kwargs):  # noqa: ANN001, ANN003, ANN201, E501
+            run = AgentRun(
+                thread_id=thread_id,
+                user_id=user.id,
+                workspace_id=user.workspace_id,
+                project_id=user.default_project_id,
+                input_text=content,
+                client_turn_id=client_turn_id,
+                status=AgentRunStatus.COMPLETED,
+                orchestration_version="v1",
+                orchestration_mode=mode.value,
+                requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
             )
-        ),
-    )
-    asyncio.run(runtime.start())
+            return store.claim_new_agent_run(run)[0]
 
     isolated = FastAPI()
-    isolated.state.research_runtime = runtime
     isolated.include_router(agent_run_routes.router)
     isolated.dependency_overrides[current_user] = lambda: USER
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", V1Runtime())
     monkeypatch.setattr(agent_run_routes, "store", store)
     monkeypatch.setattr(
         agent_run_routes,
@@ -632,6 +620,7 @@ def test_concurrent_identical_v2_client_turn_replays_one_run_and_thread(
     assert [status for status, _body_value in responses] == [202, 202]
     runs = [body["item"] for _status, body in responses]
     assert runs[0]["id"] == runs[1]["id"]
+    assert runs[0]["orchestration_version"] == "v1"
     assert runs[0]["thread_id"] == runs[1]["thread_id"]
     assert len(store.list_agent_runs(USER.id)) == 1
     assert len([thread for thread in store.chat_threads if thread.id == runs[0]["thread_id"]]) == 1

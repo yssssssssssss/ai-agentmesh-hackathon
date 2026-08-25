@@ -2,6 +2,7 @@ skill_id: auto
 skill_version: "1"
 skill_content_hash: 380581bbdc9660f567ff4822ebb062d94bbc81447e9a62f68ff703b0be87e36f
 profile_version: "1"
+display_description: 基于业务目标搭建 HEART/GSM 体验度量体系，明确北极星、护栏指标、采集口径与跨版本追踪方案。
 primary_stage: post_design
 lifecycle_tags: [during_design, post_design]
 capability_type: analysis

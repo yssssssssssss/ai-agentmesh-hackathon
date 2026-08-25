@@ -61,6 +61,7 @@ class _ProfileDocument(BaseModel):
     skill_version: str = Field(min_length=1, max_length=40)
     skill_content_hash: str = Field(min_length=1, max_length=128)
     profile_version: str = Field(min_length=1, max_length=40)
+    display_description: str | None = Field(default=None, max_length=100)
     primary_stage: SkillLifecycleStage
     lifecycle_tags: list[SkillLifecycleStage] = Field(default_factory=list)
     capability_type: SkillCapabilityType
@@ -117,6 +118,7 @@ def load_capability_profile(skill: SkillDefinition) -> SkillCapabilityProfile:
         skill_content_hash=document.skill_content_hash,
         profile_version=document.profile_version,
         profile_content_hash=hashlib.sha256(raw).hexdigest(),
+        display_description=document.display_description,
         primary_stage=document.primary_stage,
         lifecycle_tags=list(dict.fromkeys(lifecycle_tags)),
         capability_type=document.capability_type,

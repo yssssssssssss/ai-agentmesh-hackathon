@@ -348,6 +348,7 @@ class SkillCapabilityProfile(BaseModel):
     skill_content_hash: str = Field(min_length=1, max_length=128)
     profile_version: str = Field(min_length=1, max_length=40)
     profile_content_hash: str = Field(min_length=1, max_length=128)
+    display_description: str | None = Field(default=None, max_length=100)
     primary_stage: SkillLifecycleStage
     lifecycle_tags: list[SkillLifecycleStage] = Field(default_factory=list)
     capability_type: SkillCapabilityType
@@ -404,6 +405,8 @@ class SkillCatalogItem(BaseModel):
     binding_enabled: bool
     planner_eligible: bool
     readiness: Literal["ready", "unavailable"]
+    execution_readiness: Literal["complete", "tool_limited", "unavailable"] = "complete"
+    missing_tools: list[str] = Field(default_factory=list)
     primary_stage: SkillLifecycleStage | None = None
     capability_type: SkillCapabilityType | None = None
     input_kinds: list[str] = Field(default_factory=list)
@@ -417,6 +420,35 @@ class SkillCatalogResponse(BaseModel):
 
 class SkillCatalogItemResponse(BaseModel):
     item: SkillCatalogItem
+
+
+class SkillMatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=4000, pattern=r"\S")
+    limit: int = Field(default=5, ge=1, le=5)
+
+
+class SkillMatchItem(BaseModel):
+    skill_id: str
+    skill_name: str
+    command: str
+    title: str
+    description: str
+    primary_stage: SkillLifecycleStage | None = None
+    score: float = Field(ge=0)
+    reason: str
+    planner_eligible: bool
+    readiness: Literal["ready", "unavailable"]
+    execution_readiness: Literal["complete", "tool_limited", "unavailable"] = "complete"
+    missing_tools: list[str] = Field(default_factory=list)
+
+
+class SkillMatchResponse(BaseModel):
+    items: list[SkillMatchItem]
+    mode: Literal["lexical", "hybrid", "llm_reranked", "fallback"] = "lexical"
+    clarification: str | None = Field(default=None, max_length=300)
+    diagnostics: list[str] = Field(default_factory=list)
 
 
 class ToolDefinition(BaseModel):

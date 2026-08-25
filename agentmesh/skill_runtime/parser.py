@@ -132,7 +132,17 @@ def _metadata(value: Any) -> dict[str, str]:
 
 
 def _title(body: str, name: str) -> str:
+    in_preamble = False
     for line in body.splitlines():
+        stripped = line.strip()
+        if stripped == "<!-- ABSOLUTE-PROHIBITIONS:START -->":
+            in_preamble = True
+            continue
+        if stripped == "<!-- ABSOLUTE-PROHIBITIONS:END -->":
+            in_preamble = False
+            continue
+        if in_preamble:
+            continue
         if line.startswith("# "):
             candidate = line[2:].strip()
             if candidate:

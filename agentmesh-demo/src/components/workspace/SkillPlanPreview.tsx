@@ -9,6 +9,7 @@ import type {
 } from '../../features/workspace/types'
 import { Button } from '../ui/Button'
 import { SkillPlanNodeCard } from './SkillPlanNodeCard'
+import { capabilityGapLabel, degradationCopy } from './skillPlanPresentation'
 
 interface SkillPlanPreviewProps {
   detail: SkillPlanDetailResponse
@@ -58,6 +59,7 @@ export function SkillPlanPreview({
   const selectedOrder = order.filter((skillId) => selected.has(skillId))
   const dirty = selectedOrder.join('|') !== originalSelected.join('|') || selected.size !== originalSelected.length
   const busy = pendingAction !== null
+  const planNotice = detail.plan.degradation ? degradationCopy(detail.plan.degradation) : null
 
   const toggle = (skillId: string) => {
     const node = nodes.find((item) => item.skill_id === skillId)
@@ -119,13 +121,13 @@ export function SkillPlanPreview({
               <span className="rounded-full bg-knowledge/10 px-2 py-1 text-knowledge">需要外部证据</span>
             ) : null}
             {(detail.plan.capability_gaps ?? []).map((gap) => (
-              <span key={gap} className="rounded-full bg-rose/10 px-2 py-1 text-rose">
-                能力缺口：{gap}
+              <span key={gap} className="rounded-full bg-rose/10 px-2 py-1 text-rose" title={gap}>
+                能力缺口：{capabilityGapLabel(gap)}
               </span>
             ))}
             {(route.skill_routing?.planned_skills ?? []).map((skillId) => (
-              <span key={skillId} className="rounded-full bg-amber-300/10 px-2 py-1 text-amber-300">
-                能力缺口：{skillId}
+              <span key={skillId} className="rounded-full bg-amber-300/10 px-2 py-1 text-amber-300" title={skillId}>
+                候选能力尚未接入
               </span>
             ))}
           </div>
@@ -180,7 +182,7 @@ export function SkillPlanPreview({
       {addableCandidates.length > 0 ? (
         <section aria-labelledby="skill-plan-candidates-title" className="mt-4 rounded-[10px] border border-white/[0.06] bg-base/60 p-3.5">
           <h3 id="skill-plan-candidates-title" className="text-xs font-semibold text-slate-300">可添加候选</h3>
-          <p className="mt-1 text-[11px] leading-5 text-slate-500">只能从服务端已校验的候选集中添加；保存后由服务端重建依赖和并行组。</p>
+          <p className="mt-1 text-[11px] leading-5 text-slate-500">只能从服务端已校验的候选集中添加；保存后由服务端重新计算先后依赖和可并行步骤。</p>
           <ul className="mt-3 space-y-2">
             {addableCandidates.map((skill) => {
               const added = selected.has(skill.id)
@@ -206,10 +208,15 @@ export function SkillPlanPreview({
         </section>
       ) : null}
 
-      {detail.plan.degradation ? (
-        <p className="mt-4 rounded-[10px] bg-amber-300/[0.07] px-3.5 py-3 text-xs leading-5 text-amber-200">
-          降级说明：{detail.plan.degradation}
-        </p>
+      {planNotice && detail.plan.degradation ? (
+        <section className="mt-4 rounded-[10px] border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3">
+          <p className="text-xs font-semibold text-amber-100">{planNotice.title}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-300">{planNotice.description}</p>
+          <details className="mt-1.5 text-[10px] text-slate-500">
+            <summary className="cursor-pointer select-none hover:text-slate-300">查看技术诊断</summary>
+            <code className="mt-1 block break-all">{detail.plan.degradation}</code>
+          </details>
+        </section>
       ) : null}
       {error ? <p role="alert" className="mt-4 text-sm text-rose">{error}</p> : null}
 

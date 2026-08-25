@@ -34,7 +34,7 @@ const skills = [
   },
 ]
 
-type Phase = 'preview' | 'running' | 'partial' | 'waiting_tool' | 'cancelled'
+type Phase = 'planning' | 'preview' | 'running' | 'partial' | 'waiting_tool' | 'cancelled'
 
 function node(
   id: string,
@@ -63,6 +63,7 @@ function node(
 
 function run(phase: Phase) {
   const status = {
+    planning: 'planning',
     preview: 'waiting_plan_approval',
     running: 'running',
     partial: 'partial',
@@ -77,7 +78,7 @@ function run(phase: Phase) {
     project_id: 'prj_618_home_appliance',
     input_text: '评审 PRD、分析竞品并准备访谈',
     status,
-    plan_id: 'plan_orchestration_e2e',
+    plan_id: phase === 'planning' ? null : 'plan_orchestration_e2e',
     orchestration_version: 'v1',
     orchestration_mode: 'execute',
     agent_definition_version: '1',
@@ -200,7 +201,7 @@ async function installOrchestrationApi(page: Page, initialPhase: Phase = 'previe
     const url = new URL(route.request().url())
     const method = route.request().method()
     if (url.pathname.endsWith('/events/stream')) {
-      if (phase === 'preview') {
+      if (phase === 'preview' || phase === 'planning') {
         await route.fulfill({ status: 204, body: '' })
         return
       }
@@ -268,6 +269,76 @@ async function installOrchestrationApi(page: Page, initialPhase: Phase = 'previe
   }
 }
 
+test('opens a two-level Skill menu by hover, focus, and mobile click', async ({ page }) => {
+  await enableRuntimeBootstrap(page)
+  const toolSkills = Array.from({ length: 12 }, (_, index) => ({
+    ...skills[0],
+    id: `tool_${index}`,
+    command: index === 0 ? '$memory.search' : `$tool.${index}`,
+    title: index === 0 ? '查询记忆' : `工具 ${index}`,
+    primary_stage: 'platform',
+  }))
+  const categorizedSkills = [
+    { ...skills[0], id: 'skill_pre', command: '$research-plan', title: '研究计划', primary_stage: 'pre_design' },
+    { ...skills[1], id: 'skill_during', command: '$prototype-test', title: '原型验证', primary_stage: 'during_design' },
+    { ...skills[2], id: 'skill_post', command: '$metrics-review', title: '效果评估', primary_stage: 'post_design' },
+    ...toolSkills,
+  ]
+  await page.route('**/api/chat/skills', (route) => route.fulfill({ json: { items: categorizedSkills } }))
+  await loginAs(page)
+  await page.goto('/workspace')
+
+  await page.getByLabel('消息').fill('$')
+  const categories = page.getByRole('tablist', { name: 'Skill 分类' })
+  await expect(categories.getByRole('tab')).toHaveCount(4)
+  await expect(page.getByRole('button', { name: /^\$research-plan 研究计划/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^\$prototype-test 原型验证/ })).toHaveCount(0)
+
+  const menu = page.getByTestId('skill-hierarchy-menu')
+  const beforeHover = await menu.boundingBox()
+  await categories.getByRole('tab', { name: '设计中', exact: true }).hover()
+  const afterHover = await menu.boundingBox()
+  expect(afterHover?.height).toBeCloseTo(beforeHover?.height ?? 0, 1)
+  expect(afterHover?.y).toBeCloseTo(beforeHover?.y ?? 0, 1)
+  await expect(page.getByRole('button', { name: /^\$prototype-test 原型验证/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^\$research-plan 研究计划/ })).toHaveCount(0)
+
+  await categories.getByRole('tab', { name: '工具', exact: true }).hover()
+  const scrollPanel = page.getByTestId('skill-submenu-scroll')
+  const scrollMetrics = await scrollPanel.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }))
+  expect(scrollMetrics.scrollHeight).toBeGreaterThan(scrollMetrics.clientHeight)
+  await scrollPanel.hover()
+  await page.mouse.wheel(0, 400)
+  await expect.poll(() => scrollPanel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+  await page.setViewportSize({ width: 375, height: 812 })
+  await categories.getByRole('tab', { name: '工具', exact: true }).click()
+  await expect(page.getByRole('button', { name: /^\$memory\.search 查询记忆/ })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('shows live, non-technical feedback while the planner is working', async ({ page }) => {
+  await enableRuntimeBootstrap(page)
+  await installOrchestrationApi(page, 'planning')
+  await loginAs(page)
+
+  await page.goto(`/workspace/thread/${THREAD_ID}?run=${RUN_ID}`)
+
+  await expect(page.getByRole('heading', { name: '正在理解任务，并匹配可用能力' })).toBeVisible()
+  await expect(page.getByText('理解目标')).toBeVisible()
+  await expect(page.getByText('生成执行计划')).toBeVisible()
+  await expect(page.getByText('此阶段不会调用外部工具')).toBeVisible()
+  await expect(page.getByText('状态：planning')).toHaveCount(0)
+  await expect(page.locator('.planning-scan')).toHaveCSS('animation-name', 'planning-scan')
+
+  await page.setViewportSize({ width: 375, height: 812 })
+  await expect(page.getByRole('heading', { name: '正在理解任务，并匹配可用能力' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
 test('Skill Center handoff prefills an explicit Skill without sending it', async ({ page }) => {
   await enableRuntimeBootstrap(page)
   let runCreates = 0
@@ -317,36 +388,39 @@ test('handles version conflict, approval, parallel progress, SSE reconnect, Part
   await expect(addableCandidates.getByRole('button', { name: '加入计划' })).toBeVisible()
 
   await page.getByRole('button', { name: '确认并开始执行' }).click()
-  await expect(page.getByRole('heading', { name: '执行中' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '执行计划进行中' })).toBeVisible()
+  await expect(page.getByText('正在处理：竞品分析')).toBeVisible()
   await expect(page.locator('[data-node-status="completed"]')).toHaveCount(1)
   await expect(page.locator('[data-node-status="running"]')).toHaveCount(1)
-  await expect(page.getByText('并行组 evidence')).toHaveCount(2)
+  await expect(page.getByText('可与其他步骤并行')).toHaveCount(2)
+  await expect(page.getByText(/不是多套方案/)).toBeVisible()
 
   api.releaseFirstStream()
   await expect.poll(api.streamConnections, { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
-  await expect(page.getByText('Partial，部分节点降级')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText('部分完成，有未满足项')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('建议先灰度验证首屏入口。')).toBeVisible()
   await expect(page.getByText('618 PRD v4')).toBeVisible()
 
   await page.reload()
   await expect(page).toHaveURL(new RegExp(`${THREAD_ID}\\?run=${RUN_ID}$`))
-  await expect(page.getByText('Partial，部分节点降级')).toBeVisible()
+  await expect(page.getByText('部分完成，有未满足项')).toBeVisible()
   await expect(page.getByText('竞品分析节点失败')).toBeVisible()
 })
 
-test('keeps Tool Approval distinct and cancels the durable Run', async ({ page }) => {
+test('keeps high-risk tool confirmation distinct and cancels the durable Run', async ({ page }) => {
   await enableRuntimeBootstrap(page)
   await installOrchestrationApi(page, 'waiting_tool')
   await loginAs(page)
 
   await page.goto(`/workspace/thread/${THREAD_ID}?run=${RUN_ID}`)
-  await expect(page.getByRole('heading', { name: '等待工具审批' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '需要确认高风险操作' })).toBeVisible()
+  await expect(page.getByText('为什么这次仍需要确认？')).toBeVisible()
   await expect(page.getByText('确认计划不会批准任何写入工具')).toHaveCount(0)
-  await page.getByRole('button', { name: '处理工具审批' }).click()
+  await page.getByRole('button', { name: '查看高风险操作' }).click()
   await expect(page).toHaveURL(/\/knowledge\?tab=pending$/)
 
   await page.goto(`/workspace/thread/${THREAD_ID}?run=${RUN_ID}`)
   await page.getByRole('button', { name: '取消运行' }).click()
-  await expect(page.getByRole('heading', { name: '已取消' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '执行已取消' })).toBeVisible()
   await expect(page.locator('[data-node-status="cancelled"]')).toHaveCount(2)
 })

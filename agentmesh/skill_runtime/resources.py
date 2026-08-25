@@ -16,6 +16,9 @@ from agentmesh.store import SQLiteStore
 
 _MAX_RESOURCE_BYTES = 200 * 1024
 _MAX_RESOURCE_BATCH_BYTES = 400 * 1024
+_MAX_RESOURCE_MANIFEST_BYTES = 4 * 1024 * 1024
+_MAX_RESOURCE_MANIFEST_FILES = 256
+_MAX_RESOURCE_SCAN_ENTRIES = 2000
 _RESOURCE_REFERENCE_PATTERN = re.compile(r"`([^`\n]+\.(?:md|json|ya?ml|txt))`")
 
 
@@ -25,6 +28,68 @@ def _within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _contains_symlink(path: Path, root: Path) -> bool:
+    try:
+        relative = Path(os.path.abspath(path)).relative_to(root)
+    except ValueError:
+        return True
+    current = root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def _read_bounded_resource(path: Path) -> bytes:
+    with path.open("rb") as handle:
+        data = handle.read(_MAX_RESOURCE_BYTES + 1)
+    if len(data) > _MAX_RESOURCE_BYTES:
+        raise ValueError("Skill resource exceeds the 200 KiB read limit")
+    return data
+
+
+def _is_managed_wiki_import(skill: SkillDefinition) -> bool:
+    return (
+        skill.source_scope == SkillSourceScope.BUILTIN
+        and skill.metadata.get("agentmesh-wiki-import", "").strip().lower() == "true"
+    )
+
+
+def _configured_wiki_root() -> Path | None:
+    configured = os.getenv("AGENTMESH_WIKI_ROOT", "").strip()
+    if not configured:
+        return None
+    try:
+        root = Path(configured).expanduser().resolve(strict=True)
+    except OSError:
+        return None
+    return root if root.is_dir() else None
+
+
+def _approved_wiki_source_file(skill: SkillDefinition, configured_root: Path) -> Path | None:
+    if skill.source_scope != SkillSourceScope.BUILTIN:
+        return None
+    source = skill.metadata.get("source", "").strip()
+    if not source or "\\" in source or "\x00" in source:
+        return None
+    parts = Path(source).parts
+    if len(parts) < 2 or parts[0] != "2C-DesignWiki" or any(part in {"", ".", ".."} for part in parts):
+        return None
+    candidate = configured_root.joinpath(*parts[1:])
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError:
+        return None
+    if (
+        not _within(resolved, configured_root)
+        or not resolved.is_file()
+        or _contains_symlink(candidate, configured_root)
+    ):
+        return None
+    return resolved
 
 
 def _wiki_boundary(skill: SkillDefinition) -> tuple[str, ...] | None:
@@ -62,10 +127,9 @@ def _approved_wiki_root(skill: SkillDefinition, configured_root: Path) -> Path |
 
 
 def approved_skill_wiki_root(skill: SkillDefinition) -> Path | None:
-    configured = os.getenv("AGENTMESH_WIKI_ROOT", "").strip()
-    if not configured:
+    configured_root = _configured_wiki_root()
+    if configured_root is None:
         return None
-    configured_root = Path(configured).expanduser().resolve()
     return _approved_wiki_root(skill, configured_root)
 
 
@@ -89,20 +153,29 @@ def skill_wiki_corpus_ready(skill: SkillDefinition, capability: str = "wiki.corp
 
 
 def resolve_skill_resource(skill: SkillDefinition, reference: str) -> Path | None:
+    if not reference or len(reference) > 500 or "\\" in reference or "\x00" in reference:
+        return None
     relative = Path(reference)
-    if not reference or relative.is_absolute() or ".." in relative.parts:
+    managed_import = _is_managed_wiki_import(skill)
+    if relative.is_absolute() or (".." in relative.parts and not managed_import):
         return None
     package_root = Path(skill.source_path).resolve().parent
     candidates: list[tuple[Path, Path]] = [(package_root / relative, package_root)]
-    configured = os.getenv("AGENTMESH_WIKI_ROOT", "").strip()
-    if configured:
-        configured_root = Path(configured).expanduser().resolve()
+    configured_root = _configured_wiki_root()
+    if configured_root is not None:
         allowed_wiki_root = approved_skill_wiki_root(skill)
         if allowed_wiki_root is not None:
+            source_file = _approved_wiki_source_file(skill, configured_root)
+            if source_file is not None:
+                source_boundary = configured_root if managed_import else allowed_wiki_root
+                candidates.append((source_file.parent / relative, source_boundary))
             candidates.extend(
                 [
                     (allowed_wiki_root / relative, allowed_wiki_root),
-                    (configured_root / relative, allowed_wiki_root),
+                    (
+                        configured_root / relative,
+                        configured_root if managed_import else allowed_wiki_root,
+                    ),
                 ]
             )
     for candidate, allowed_root in candidates:
@@ -110,27 +183,60 @@ def resolve_skill_resource(skill: SkillDefinition, reference: str) -> Path | Non
             resolved = candidate.resolve(strict=True)
         except OSError:
             continue
-        if _within(resolved, allowed_root) and resolved.is_file() and not candidate.is_symlink():
+        if _within(resolved, allowed_root) and resolved.is_file() and not _contains_symlink(candidate, allowed_root):
             return resolved
     return None
 
 
-def skill_resource_manifest(skill: SkillDefinition) -> dict[str, str]:
+def _package_resource_references(root: Path) -> set[str]:
     references: set[str] = set()
-    package_root = Path(skill.source_path).resolve().parent
+    scanned = 0
     try:
-        for path in package_root.rglob("*"):
-            if path.is_file() and path.name != "SKILL.md" and not path.is_symlink():
-                references.add(path.relative_to(package_root).as_posix())
+        for directory, names, files in os.walk(root, followlinks=False):
+            base = Path(directory)
+            names[:] = sorted(name for name in names if not (base / name).is_symlink())
+            for name in sorted(files):
+                scanned += 1
+                if scanned > _MAX_RESOURCE_SCAN_ENTRIES:
+                    return references
+                path = base / name
+                if path.name != "SKILL.md" and not path.is_symlink():
+                    references.add(path.relative_to(root).as_posix())
     except OSError:
         pass
-    references.update(_RESOURCE_REFERENCE_PATTERN.findall(skill.instructions))
+    return references
+
+
+def skill_resource_manifest(skill: SkillDefinition) -> dict[str, str]:
+    discovered_references: set[str] = set()
+    package_root = Path(skill.source_path).resolve().parent
+    resource_roots = [package_root]
+    configured_root = _configured_wiki_root()
+    if configured_root is not None:
+        source_file = _approved_wiki_source_file(skill, configured_root)
+        if source_file is not None and source_file.parent != package_root:
+            resource_roots.append(source_file.parent)
+    for resource_root in resource_roots:
+        discovered_references.update(_package_resource_references(resource_root))
+    declared_references = set(_RESOURCE_REFERENCE_PATTERN.findall(skill.instructions))
+    references = [*sorted(declared_references), *sorted(discovered_references - declared_references)]
     manifest: dict[str, str] = {}
-    for reference in sorted(references):
+    total_size = 0
+    for reference in references:
+        if len(manifest) >= _MAX_RESOURCE_MANIFEST_FILES:
+            break
         resource = resolve_skill_resource(skill, reference)
         if resource is None:
             continue
-        manifest[reference] = hashlib.sha256(resource.read_bytes()).hexdigest()
+        try:
+            data = _read_bounded_resource(resource)
+            data.decode("utf-8")
+        except (OSError, UnicodeError, ValueError):
+            continue
+        if total_size + len(data) > _MAX_RESOURCE_MANIFEST_BYTES:
+            continue
+        manifest[reference] = hashlib.sha256(data).hexdigest()
+        total_size += len(data)
     return manifest
 
 
@@ -165,18 +271,23 @@ def build_skill_resource_tool(repository: SQLiteStore, skill: SkillDefinition) -
                 raise FileNotFoundError(
                     f"Skill resource is unavailable in the approved roots: {safe_reference}"
                 )
-            if approved_manifest and relative not in approved_manifest:
+            if (approved_manifest or _is_managed_wiki_import(skill)) and relative not in approved_manifest:
                 raise PermissionError("Skill resource is outside the frozen node resource manifest")
-            size = resource.stat().st_size
-            actual_hash = hashlib.sha256(resource.read_bytes()).hexdigest()
+            try:
+                data = _read_bounded_resource(resource)
+            except OSError as error:
+                raise FileNotFoundError("Skill resource became unavailable") from error
+            actual_hash = hashlib.sha256(data).hexdigest()
             if approved_manifest and actual_hash != approved_manifest[relative]:
                 raise PermissionError("Skill resource changed after the node resource manifest was frozen")
-            if size > _MAX_RESOURCE_BYTES:
-                raise ValueError("Skill resource exceeds the 200 KiB read limit")
-            total_size += size
+            total_size += len(data)
             if total_size > _MAX_RESOURCE_BATCH_BYTES:
                 raise ValueError("Skill resource batch exceeds the 400 KiB read limit")
-            resolved_resources.append((relative, resource, resource.read_text(encoding="utf-8")))
+            try:
+                content = data.decode("utf-8")
+            except UnicodeError as error:
+                raise ValueError("Skill resource is not UTF-8 text") from error
+            resolved_resources.append((relative, resource, content))
 
         results: list[dict[str, object]] = []
         for relative, resource, content in resolved_resources:

@@ -2,6 +2,7 @@ skill_id: auto
 skill_version: 0.1.0
 skill_content_hash: 31fa2f32997de271b29c2f272770eb779682c87953da8337a983136056ba3195
 profile_version: "1"
+display_description: 从业务逻辑、方案设计、用户体验、数据预估和风险副作用评估 PRD，输出可视化可行性报告。
 primary_stage: pre_design
 lifecycle_tags: [pre_design, during_design]
 capability_type: review

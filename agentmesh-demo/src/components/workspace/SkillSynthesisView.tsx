@@ -7,6 +7,7 @@ import type {
   SkillResultSource,
   SkillSynthesisResult,
 } from '../../features/workspace/types'
+import { completionGapLabel } from './skillPlanPresentation'
 
 interface SkillSynthesisViewProps {
   synthesis: SkillSynthesisResult
@@ -40,7 +41,7 @@ export function SkillSynthesisView({
           <h2 id="skill-synthesis-title" className="text-lg font-semibold text-slate-100">综合结果</h2>
         </div>
         <span className={partial ? 'text-xs font-medium text-amber-300' : 'text-xs font-medium text-mint-300'}>
-          {partial ? 'Partial，部分节点降级' : '完整输出'}
+          {partial ? '部分完成，有未满足项' : '完整输出'}
         </span>
       </div>
 
@@ -104,18 +105,29 @@ export function SkillSynthesisView({
       ) : null}
 
       {completionCheck && !completionCheck.completed ? (
-        <section className="mt-5 rounded-[10px] bg-amber-300/[0.07] px-3.5 py-3" aria-label="完成度检查">
-          <h3 className="flex items-center gap-2 text-xs font-semibold text-amber-200">
+        <section className="mt-5 rounded-[10px] border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3" aria-label="完成度检查">
+          <h3 className="flex items-center gap-2 text-xs font-semibold text-amber-100">
             <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
-            完成度检查
+            为什么是“部分完成”？
           </h3>
+          <p className="mt-2 text-xs leading-5 text-slate-300">
+            已有结果可以查看，但以下条件尚未满足。系统不会把缺失内容自动补写成完整结论。
+          </p>
           {(completionCheck.missing_outputs ?? []).length > 0 ? (
             <p className="mt-2 text-xs leading-5 text-amber-100/80">
-              缺少输出：{(completionCheck.missing_outputs ?? []).join('、')}
+              尚未生成：{(completionCheck.missing_outputs ?? []).join('、')}
             </p>
           ) : null}
           {(completionCheck.gaps ?? []).length > 0 ? (
-            <p className="mt-1 text-xs leading-5 text-amber-100/70">能力缺口：{(completionCheck.gaps ?? []).join('；')}</p>
+            <ul className="mt-2 space-y-1 text-xs leading-5 text-amber-100/80">
+              {(completionCheck.gaps ?? []).map((gap) => <li key={gap}>• {completionGapLabel(gap)}</li>)}
+            </ul>
+          ) : null}
+          {(completionCheck.gaps ?? []).length > 0 ? (
+            <details className="mt-2 text-[10px] text-slate-500">
+              <summary className="cursor-pointer select-none hover:text-slate-300">查看技术诊断</summary>
+              <code className="mt-1 block break-all">{(completionCheck.gaps ?? []).join('；')}</code>
+            </details>
           ) : null}
         </section>
       ) : null}

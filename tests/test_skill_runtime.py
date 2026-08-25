@@ -49,6 +49,28 @@ def test_parse_standard_skill_and_preserve_host_fields(tmp_path: Path) -> None:
     assert result.diagnostics == []
 
 
+def test_parse_title_skips_absolute_prohibitions_preamble(tmp_path: Path) -> None:
+    path = _write_skill(
+        tmp_path,
+        "component-generator",
+        "name: component-generator\ndescription: Generate a component.",
+        """<!-- ABSOLUTE-PROHIBITIONS:START -->
+# 绝对禁止事项（最高优先级）
+
+Do not redraw assets.
+<!-- ABSOLUTE-PROHIBITIONS:END -->
+
+# Component Generator
+
+Generate the component.""",
+    )
+
+    result = parse_skill_file(path, source_scope=SkillSourceScope.BUILTIN)
+
+    assert result.skill is not None
+    assert result.skill.title == "Component Generator"
+
+
 def test_parse_lenient_description_with_unquoted_colon(tmp_path: Path) -> None:
     path = _write_skill(
         tmp_path,

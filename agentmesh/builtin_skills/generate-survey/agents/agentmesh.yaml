@@ -2,6 +2,7 @@ skill_id: auto
 skill_version: "1"
 skill_content_hash: 47dcf31674043af0e577efe65b3e0e19a7222694bd2942168b0fead8c66c2ae7
 profile_version: "1"
+display_description: 把定量研究目标转成可投放问卷或意见收集表，包含题型、量表、逻辑跳转、指导语和合规检查。
 primary_stage: during_design
 lifecycle_tags: [pre_design, during_design, post_design]
 capability_type: generation

@@ -19,6 +19,8 @@ from agentmesh.retrieval import RetrievalProfile, RetrievalService
 from agentmesh.risk import assess_risk_review_with_rules
 from agentmesh.store import SQLiteStore
 
+BUILTIN_TOOL_NAMES = frozenset({"memory_search", "document_search", "data_query", "web_research", "risk_review"})
+
 
 @dataclass(frozen=True, slots=True)
 class ToolRuntimeDescriptor:
@@ -77,13 +79,7 @@ class ToolGateway:
         return scoped
 
     def handlers(self) -> dict[str, Callable[[AgentMeshRunContext, dict[str, Any]], Any]]:
-        return {
-            "memory_search": self.memory_search,
-            "document_search": self.document_search,
-            "data_query": self.data_query,
-            "web_research": self.web_research,
-            "risk_review": self.risk_review,
-        }
+        return {name: getattr(self, name) for name in BUILTIN_TOOL_NAMES}
 
     def describe(self, tool_name: str) -> ToolRuntimeDescriptor | None:
         if tool_name not in self.handlers() or tool_name != "web_research":

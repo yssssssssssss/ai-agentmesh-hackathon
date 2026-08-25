@@ -4,7 +4,6 @@ import asyncio
 import json
 from contextlib import AsyncExitStack
 from datetime import datetime, timedelta
-from pathlib import Path
 from time import monotonic
 
 from agents import Agent, ModelSettings, RunConfig, Runner, RunState, ToolExecutionConfig
@@ -147,17 +146,7 @@ class AgentRuntimeService:
 
     @staticmethod
     def _resources(skill: SkillDefinition) -> list[str]:
-        base = Path(skill.source_path).parent
-        resources: list[str] = []
-        try:
-            for path in sorted(base.rglob("*")):
-                if path.is_file() and path.name != "SKILL.md" and not path.is_symlink():
-                    resources.append(str(path.relative_to(base)))
-                    if len(resources) == 100:
-                        break
-        except OSError:
-            return []
-        return resources
+        return list(skill_resource_manifest(skill))[:100]
 
     @classmethod
     def _instructions(cls, skill: SkillDefinition | None) -> str:
@@ -334,8 +323,8 @@ Follow the activated Skill for this request, subject to the platform rules above
             interruptions = tuple(self._interruption_payload(item) for item in result.interruptions)
             inbox_item = InboxItem(
                 id=f"inbox_tool_approval_{run.id}",
-                title="审批 Agent 工具调用",
-                summary="OpenAI Agents SDK 运行已暂停，等待批准或拒绝工具调用。",
+                title="确认 Agent 工具操作",
+                summary="Agent 运行已暂停，等待确认本次工具调用。",
                 item_type="sdk_tool_approval",
                 scope=Scope.PRIVATE,
                 user_id=run.user_id,
@@ -358,7 +347,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                     raise asyncio.CancelledError
                 raise RuntimeError("Agent run changed while pausing for tool approval")
             return RuntimeAnswer(
-                content="该 Skill 请求调用需要人工批准的工具，已暂停并提交到收件箱。",
+                content="该 Agent 请求了需要单独确认的工具操作，已暂停并提交到收件箱。",
                 llm_used=True,
                 skill_name=skill.name if skill else None,
                 requested_model=selected.requested_model,
@@ -940,7 +929,7 @@ Follow the activated Skill for this request, subject to the platform rules above
             outcome = await self._execute_approved_skill_plan(plan=plan, run=run, user=user)
             if outcome.pause is not None:
                 return RuntimeAnswer(
-                    content="该 Skill 节点请求调用需要人工批准的工具，已暂停并提交到收件箱。",
+                    content="该 Skill 节点请求了超出常规只读权限的高风险操作，已暂停并提交到收件箱。",
                     llm_used=True,
                     requested_model=selected.requested_model,
                     actual_model=selected.actual_model,
@@ -1513,8 +1502,8 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         }
         inbox_item = InboxItem(
             id=f"inbox_tool_approval_{run.id}",
-            title="审批 Skill 节点工具调用",
-            summary="多 Skill 计划已暂停，等待逐调用批准或拒绝。",
+            title="确认 Skill 节点高风险操作",
+            summary="多 Skill 计划已暂停，等待确认写入、不可逆操作或高风险参数。",
             item_type="sdk_tool_approval",
             scope=Scope.PRIVATE,
             user_id=user.id,
@@ -1591,6 +1580,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             project_id=run.project_id,
             thread_id=run.thread_id,
             run_id=run.id,
+            skill_id=skill.id if skill is not None else None,
             approved_resource_hashes=skill_resource_manifest(skill) if skill is not None else {},
         )
         session = AgentMeshSession(run.thread_id, self.repository)
@@ -1869,7 +1859,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         )
         if outcome.pause is not None:
             return RuntimeAnswer(
-                content="下一个 Skill 节点正在等待工具审批。",
+                content="下一个 Skill 节点正在等待高风险操作确认。",
                 llm_used=True,
                 run_id=current_run.id,
                 waiting_approval=True,
@@ -2122,7 +2112,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         outcome = await self._execute_approved_skill_plan(plan=plan, run=run, user=user, resume=True)
         if outcome.pause is not None:
             return RuntimeAnswer(
-                content="下一个 Skill 节点正在等待工具审批。",
+                content="下一个 Skill 节点正在等待高风险操作确认。",
                 llm_used=True,
                 requested_model=selected.requested_model,
                 actual_model=selected.actual_model,

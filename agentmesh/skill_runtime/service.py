@@ -4,7 +4,14 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from agentmesh.models import SkillDefinition, SkillSourceScope, now_utc
+from agentmesh.models import (
+    SkillCapabilityProfile,
+    SkillDefinition,
+    SkillLifecycleStage,
+    SkillSourceScope,
+    SkillStatus,
+    now_utc,
+)
 from agentmesh.skill_runtime.discovery import SkillDiagnostic, SkillRoot, discover_skills
 from agentmesh.skill_runtime.profiles import (
     ProfileError,
@@ -18,6 +25,23 @@ from agentmesh.store import SQLiteStore, store
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 BUILTIN_SKILLS_DIR = ROOT_DIR / "agentmesh" / "builtin_skills"
+_SKILL_DISPLAY_DESCRIPTION_LIMIT = 100
+
+
+def _display_description(skill: SkillDefinition, profile: SkillCapabilityProfile | None) -> str:
+    description = (profile.display_description if profile is not None else None) or skill.description
+    description = " ".join(description.split())
+    if len(description) <= _SKILL_DISPLAY_DESCRIPTION_LIMIT:
+        return description
+    return description[: _SKILL_DISPLAY_DESCRIPTION_LIMIT - 1].rstrip("，。；：、 ") + "…"
+
+
+def _metadata_primary_stage(skill: SkillDefinition) -> SkillLifecycleStage | None:
+    raw_stage = skill.metadata.get("agentmesh-stage", "").strip()
+    try:
+        return SkillLifecycleStage(raw_stage)
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,10 +86,11 @@ class SkillCatalogService:
             if existing is not None:
                 skill.created_at = existing.created_at
                 if existing.content_hash == skill.content_hash and existing.enabled == skill.enabled:
-                    current[name] = existing
+                    skill.updated_at = existing.updated_at
+                    current[name] = self.repository.save_skill_definition(skill, defer_vector=True)
                     continue
             skill.updated_at = now_utc()
-            current[name] = self.repository.save_skill_definition(skill)
+            current[name] = self.repository.save_skill_definition(skill, defer_vector=True)
         for stored in self.repository.skill_definitions:
             if stored.source_path.startswith("learned://") and stored.enabled and stored.name not in current:
                 current[stored.name] = stored
@@ -87,14 +112,15 @@ class SkillCatalogService:
                     )
                 )
                 continue
-            self.repository.save_skill_capability_profile(profile)
+            self.repository.save_skill_capability_profile(profile, defer_vector=True)
             active_profile_ids.add(profile.id)
         for profile in legacy_capability_profiles():
-            self.repository.save_skill_capability_profile(profile)
+            self.repository.save_skill_capability_profile(profile, defer_vector=True)
             active_profile_ids.add(profile.id)
         for profile in self.repository.skill_capability_profiles:
             if profile.id not in active_profile_ids:
                 self.repository.delete_skill_capability_profile(profile.id)
+        self.repository.start_skill_vector_indexing()
         self._skills = current
         return self.list_enabled()
 
@@ -119,12 +145,28 @@ class SkillCatalogService:
             (user.id for user in self.repository.users if user.personal_agent_id == agent_id),
             None,
         )
+        agent_owner = self.repository.get_user(agent_owner_user_id) if agent_owner_user_id is not None else None
         bindings = {binding.skill_id: binding for binding in self.repository.list_agent_skill_bindings(agent_id)}
+        learned_skills = {skill.id: skill for skill in self.repository.learned_skills}
         result: list[tuple[SkillDefinition, bool]] = []
         for skill in self._skills.values():
             owner_user_id = skill.metadata.get("owner_user_id")
             learned_scope = skill.metadata.get("learned_scope", "private")
-            if owner_user_id and learned_scope == "private" and agent_owner_user_id != owner_user_id:
+            learned_skill_id = skill.metadata.get("learned_skill_id")
+            if learned_skill_id is not None or skill.source_path.startswith("learned://"):
+                learned = learned_skills.get(learned_skill_id or "")
+                if (
+                    learned is None
+                    or learned.status != SkillStatus.ACTIVE
+                    or agent_owner is None
+                    or not self.repository.learned_skill_visible_to_user(
+                        learned,
+                        agent_owner.id,
+                        project_id=agent_owner.default_project_id,
+                    )
+                ):
+                    continue
+            elif owner_user_id and learned_scope == "private" and agent_owner_user_id != owner_user_id:
                 continue
             binding = bindings.get(skill.id)
             effective_enabled = self.is_runtime_enabled(
@@ -166,23 +208,46 @@ class SkillCatalogService:
     def get_profile(self, skill_id: str):  # noqa: ANN201
         return self.repository.get_skill_capability_profile(skill_id)
 
+    def supported_tool_names(self) -> set[str]:
+        """Return tool names backed by a configured AgentMesh runtime adapter."""
+        from agentmesh.tool_runtime.gateway import BUILTIN_TOOL_NAMES
+        from agentmesh.tool_runtime.mcp import load_mcp_config
+
+        definitions = {tool.id: tool for tool in self.repository.tool_definitions if tool.enabled}
+        names = {tool.name for tool in definitions.values() if tool.name in BUILTIN_TOOL_NAMES}
+        try:
+            mcp_config = load_mcp_config()
+        except (OSError, ValueError):
+            return names
+        names.update(
+            definition.name
+            for server in mcp_config.servers
+            if (definition := definitions.get(server.tool_id)) is not None
+        )
+        return names
+
     def to_chat_skill(
         self,
         skill: SkillDefinition,
         *,
         enabled: bool = True,
         binding_enabled: bool = True,
+        supported_tool_names: set[str] | None = None,
     ) -> dict[str, object]:
         aliases = [alias if alias.startswith("$") else f"${alias}" for alias in skill.aliases]
         usage_suffix = f" {skill.argument_hint}" if skill.argument_hint else " <input>"
         profile = self.get_profile(skill.id)
         profile_current = profile_matches_skill(profile, skill) if profile is not None else False
-        ready = self.is_runtime_enabled(skill) and profile_current
+        runtime_ready = self.is_runtime_enabled(skill)
+        primary_stage = profile.primary_stage if profile is not None else _metadata_primary_stage(skill)
+        supported_tools = supported_tool_names if supported_tool_names is not None else self.supported_tool_names()
+        missing_tools = sorted(set(skill.requested_tools) - supported_tools)
+        execution_readiness = "unavailable" if not runtime_ready else "tool_limited" if missing_tools else "complete"
         payload: dict[str, object] = {
             "id": skill.id,
             "command": skill.command,
             "title": skill.title,
-            "description": skill.description,
+            "description": _display_description(skill, profile),
             "usage": f"{skill.command}{usage_suffix}" if skill.requires_input else skill.command,
             "placeholder": skill.argument_hint or f"Enter input for {skill.title}",
             "aliases": aliases,
@@ -192,13 +257,23 @@ class SkillCatalogService:
             "activation_policy": skill.activation_policy.value,
             "enabled": enabled,
             "binding_enabled": binding_enabled,
-            "planner_eligible": bool(profile and profile.planner_eligible and ready and enabled),
-            "readiness": "ready" if ready else "unavailable",
+            "planner_eligible": bool(
+                profile
+                and profile.planner_eligible
+                and profile_current
+                and runtime_ready
+                and enabled
+                and not missing_tools
+            ),
+            "readiness": "ready" if runtime_ready else "unavailable",
+            "execution_readiness": execution_readiness,
+            "missing_tools": missing_tools,
         }
+        if primary_stage is not None:
+            payload["primary_stage"] = primary_stage.value
         if profile is not None:
             payload.update(
                 {
-                    "primary_stage": profile.primary_stage.value,
                     "capability_type": profile.capability_type.value,
                     "input_kinds": profile.input_kinds,
                     "output_kinds": profile.output_kinds,

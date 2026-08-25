@@ -21,9 +21,11 @@ from agentmesh.skill_runtime.profiles import (  # noqa: E402
     legacy_capability_profiles,
     load_capability_profile,
     profile_matches_skill,
+    profile_path,
 )
 
-EXPECTED_DOMAIN_SKILLS = len(PILOT_BUILTIN_SKILL_NAMES)
+EXPECTED_DOMAIN_SKILLS = 84
+EXPECTED_PLANNER_PROFILES = len(PILOT_BUILTIN_SKILL_NAMES)
 EXPECTED_LEGACY_PROFILES = 11
 KNOWN_CAPABILITIES = {
     "data.query",
@@ -49,46 +51,57 @@ def main() -> int:
         result = parse_skill_file(path, source_scope=SkillSourceScope.BUILTIN)
         if result.skill is not None:
             names.append(result.skill.name)
-            try:
-                profile = load_capability_profile(result.skill)
-                profiles.append(profile)
-                if not profile_matches_skill(profile, result.skill):
+            if result.skill.name not in PILOT_BUILTIN_SKILL_NAMES:
+                if profile_path(result.skill).is_file():
                     diagnostics.append(
                         {
                             "level": "error",
-                            "code": "profile_stale",
-                            "message": "Capability profile does not match the parsed Skill version and hash",
-                            "path": str(path),
+                            "code": "unexpected_nonpilot_profile",
+                            "message": "Explicit-only imported Skills must not silently enter the planner",
+                            "path": str(profile_path(result.skill)),
                         }
                     )
-                if not profile.planner_eligible:
+            else:
+                try:
+                    profile = load_capability_profile(result.skill)
+                    profiles.append(profile)
+                    if not profile_matches_skill(profile, result.skill):
+                        diagnostics.append(
+                            {
+                                "level": "error",
+                                "code": "profile_stale",
+                                "message": "Capability profile does not match the parsed Skill version and hash",
+                                "path": str(path),
+                            }
+                        )
+                    if not profile.planner_eligible:
+                        diagnostics.append(
+                            {
+                                "level": "error",
+                                "code": "domain_profile_ineligible",
+                                "message": "Pilot domain Skills must be planner eligible",
+                                "path": str(path),
+                            }
+                        )
+                    unknown = sorted(set(profile.required_capabilities) - KNOWN_CAPABILITIES)
+                    if unknown:
+                        diagnostics.append(
+                            {
+                                "level": "error",
+                                "code": "unknown_profile_capability",
+                                "message": ", ".join(unknown),
+                                "path": str(path),
+                            }
+                        )
+                except ProfileError as error:
                     diagnostics.append(
                         {
                             "level": "error",
-                            "code": "domain_profile_ineligible",
-                            "message": "Governed domain Skills must be planner eligible",
+                            "code": str(error),
+                            "message": "Capability profile could not be loaded",
                             "path": str(path),
                         }
                     )
-                unknown = sorted(set(profile.required_capabilities) - KNOWN_CAPABILITIES)
-                if unknown:
-                    diagnostics.append(
-                        {
-                            "level": "error",
-                            "code": "unknown_profile_capability",
-                            "message": ", ".join(unknown),
-                            "path": str(path),
-                        }
-                    )
-            except ProfileError as error:
-                diagnostics.append(
-                    {
-                        "level": "error",
-                        "code": str(error),
-                        "message": "Capability profile could not be loaded",
-                        "path": str(path),
-                    }
-                )
         diagnostics.extend(
             {"level": item.level, "code": item.code, "message": item.message, "path": item.path}
             for item in result.diagnostics
@@ -106,24 +119,30 @@ def main() -> int:
                 "path": str(root),
             }
         )
-    if set(names) != PILOT_BUILTIN_SKILL_NAMES:
+    if len(names) != EXPECTED_DOMAIN_SKILLS or len(counts) != EXPECTED_DOMAIN_SKILLS:
+        diagnostics.append(
+            {
+                "level": "error",
+                "code": "domain_skill_count",
+                "message": f"expected {EXPECTED_DOMAIN_SKILLS} unique Skills, loaded {len(counts)}",
+                "path": str(root),
+            }
+        )
+    if not set(names) >= PILOT_BUILTIN_SKILL_NAMES:
         diagnostics.append(
             {
                 "level": "error",
                 "code": "pilot_skill_set_mismatch",
-                "message": (
-                    f"missing={sorted(PILOT_BUILTIN_SKILL_NAMES - set(names))}, "
-                    f"unexpected={sorted(set(names) - PILOT_BUILTIN_SKILL_NAMES)}"
-                ),
+                "message": f"missing={sorted(PILOT_BUILTIN_SKILL_NAMES - set(names))}",
                 "path": str(root),
             }
         )
-    if len(profiles) != EXPECTED_DOMAIN_SKILLS:
+    if len(profiles) != EXPECTED_PLANNER_PROFILES:
         diagnostics.append(
             {
                 "level": "error",
-                "code": "domain_profile_count",
-                "message": f"expected {EXPECTED_DOMAIN_SKILLS}, loaded {len(profiles)}",
+                "code": "planner_profile_count",
+                "message": f"expected {EXPECTED_PLANNER_PROFILES}, loaded {len(profiles)}",
                 "path": str(root),
             }
         )

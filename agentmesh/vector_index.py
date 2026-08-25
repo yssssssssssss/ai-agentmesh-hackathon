@@ -62,11 +62,18 @@ class VectorIndex:
         )
 
     @staticmethod
+    def _content_hash(text: str, *, index_signature: str | None = None) -> str:
+        payload = text if index_signature is None else f"{index_signature}\0{text}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
     def prepare(
         connection: sqlite3.Connection,
         collection: str,
         record_id: str,
         text: str,
+        *,
+        index_signature: str | None = None,
     ) -> VectorWork | None:
         normalized = text.strip()
         if not normalized:
@@ -80,7 +87,7 @@ class VectorIndex:
             )
             return None
 
-        content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        content_hash = VectorIndex._content_hash(normalized, index_signature=index_signature)
         current = connection.execute(
             "SELECT state, content_hash FROM vector_states WHERE collection = ? AND record_id = ?",
             (collection, record_id),
@@ -115,11 +122,13 @@ class VectorIndex:
         collection: str,
         record_id: str,
         text: str,
+        *,
+        index_signature: str | None = None,
     ) -> None:
         normalized = text.strip()
         if not normalized:
             return
-        content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        content_hash = VectorIndex._content_hash(normalized, index_signature=index_signature)
         connection.execute(
             """
             INSERT OR IGNORE INTO vector_states(collection, record_id, state, content_hash, error)
@@ -147,21 +156,27 @@ class VectorIndex:
 
         try:
             embedding = embed_text(work.text)
+            serialized = serialize_embedding(embedding) if embedding is not None else None
         except Exception as error:
             self._finish_failed(work, str(error) or error.__class__.__name__)
             return
-        if embedding is None:
+        if serialized is None:
             self._finish_failed(work, "embedding_unavailable")
             return
 
-        serialized = serialize_embedding(embedding)
         with sqlite3.connect(self.db_path) as connection:
             adopted = connection.execute(
                 """
                 UPDATE vector_states SET state = ?, error = NULL
-                WHERE collection = ? AND record_id = ? AND content_hash = ?
+                WHERE collection = ? AND record_id = ? AND content_hash = ? AND state != ?
                 """,
-                (VectorState.READY.value, work.collection, work.record_id, work.content_hash),
+                (
+                    VectorState.READY.value,
+                    work.collection,
+                    work.record_id,
+                    work.content_hash,
+                    VectorState.READY.value,
+                ),
             )
             if adopted.rowcount != 1:
                 return
@@ -179,7 +194,7 @@ class VectorIndex:
             connection.execute(
                 """
                 UPDATE vector_states SET state = ?, error = ?
-                WHERE collection = ? AND record_id = ? AND content_hash = ?
+                WHERE collection = ? AND record_id = ? AND content_hash = ? AND state != ?
                 """,
                 (
                     VectorState.FAILED.value,
@@ -187,6 +202,7 @@ class VectorIndex:
                     work.collection,
                     work.record_id,
                     work.content_hash,
+                    VectorState.READY.value,
                 ),
             )
 

@@ -12,8 +12,12 @@ from agentmesh.models import (
     ItemsResponse,
     SkillBinding,
     SkillBindingUpdateRequest,
+    SkillCatalogItem,
     SkillCatalogItemResponse,
     SkillCatalogResponse,
+    SkillMatchItem,
+    SkillMatchRequest,
+    SkillMatchResponse,
     SkillRecommendationRequest,
     SkillRecommendationResponse,
     User,
@@ -22,6 +26,7 @@ from agentmesh.models import (
 from agentmesh.permissions import ensure_admin
 from agentmesh.routes.deps import create_audit_event, current_user, require_default_project
 from agentmesh.skill_runtime.planner import SkillIntentAnalyzer
+from agentmesh.skill_runtime.recommendation import recommend_skill_directory
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
@@ -39,7 +44,12 @@ _task_router = TaskScenarioRouter()
 
 @router.get("", response_model=SkillCatalogResponse)
 def list_skills(user: User = Depends(current_user)) -> SkillCatalogResponse:
+    return _skill_catalog_response(user)
+
+
+def _skill_catalog_response(user: User) -> SkillCatalogResponse:
     catalog = catalog_service()
+    supported_tool_names = catalog.supported_tool_names()
     bindings = {
         binding.skill_id: binding.enabled
         for binding in store.list_agent_skill_bindings(user.personal_agent_id)
@@ -49,10 +59,68 @@ def list_skills(user: User = Depends(current_user)) -> SkillCatalogResponse:
             skill,
             enabled=enabled,
             binding_enabled=bindings.get(skill.id, True),
+            supported_tool_names=supported_tool_names,
         )
         for skill, enabled in catalog.list_for_agent(user.personal_agent_id)
     ]
     return SkillCatalogResponse(items=items)
+
+
+@router.post("/matches", response_model=SkillMatchResponse)
+async def match_skills(
+    request: SkillMatchRequest,
+    user: User = Depends(current_user),
+) -> SkillMatchResponse:
+    catalog = catalog_service()
+    enabled_skills = [
+        skill
+        for skill, enabled in catalog.list_for_agent(user.personal_agent_id)
+        if enabled
+    ]
+    from agentmesh.routes.chat import agent
+
+    selected = None
+    runtime = agent.agent_runtime
+    if runtime is not None and runtime.enabled:
+        try:
+            selected = runtime.select_model(user)
+        except ValueError:
+            selected = None
+    recommendation = await recommend_skill_directory(
+        request.content,
+        enabled_skills,
+        repository=store,
+        limit=request.limit,
+        model=selected.model if selected is not None else None,
+    )
+    supported_tool_names = catalog.supported_tool_names()
+    items: list[SkillMatchItem] = []
+    for match in recommendation.matches:
+        catalog_item = SkillCatalogItem.model_validate(
+            catalog.to_chat_skill(match.skill, supported_tool_names=supported_tool_names)
+        )
+        items.append(
+            SkillMatchItem(
+                skill_id=match.skill.id,
+                skill_name=match.skill.name,
+                command=catalog_item.command,
+                title=catalog_item.title,
+                description=catalog_item.description,
+                primary_stage=catalog_item.primary_stage,
+                score=match.score,
+                reason=match.reason,
+                planner_eligible=catalog_item.planner_eligible,
+                readiness=catalog_item.readiness,
+                execution_readiness=catalog_item.execution_readiness,
+                missing_tools=catalog_item.missing_tools,
+            )
+        )
+    return SkillMatchResponse(
+        items=items,
+        mode=recommendation.mode,
+        clarification=recommendation.clarification,
+        diagnostics=recommendation.diagnostics,
+    )
 
 
 @router.post("/routing-preview", response_model=TaskRoutingPreviewResponse)
@@ -168,6 +236,7 @@ def update_skill_binding(
             skill,
             enabled=effective_enabled,
             binding_enabled=saved.enabled,
+            supported_tool_names=catalog.supported_tool_names(),
         )
     )
 
@@ -241,14 +310,15 @@ def skill_diagnostics(user: User = Depends(current_user)) -> ItemsResponse:
 def reload_skills(user: User = Depends(current_user)) -> SkillCatalogResponse:
     ensure_admin(user)
     catalog = catalog_service()
-    skills = catalog.reload()
+    catalog.reload()
+    response = _skill_catalog_response(user)
     store.add_audit_event(
         create_audit_event(
             user.id,
             "reload_skill_catalog",
             "skill_catalog",
             "workspace",
-            {"count": len(skills), "diagnostics": len(catalog.diagnostics)},
+            {"count": len(response.items), "diagnostics": len(catalog.diagnostics)},
         )
     )
-    return SkillCatalogResponse(items=[catalog.to_chat_skill(skill) for skill in skills])
+    return response

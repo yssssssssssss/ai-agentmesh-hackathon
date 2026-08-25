@@ -2,6 +2,7 @@ skill_id: auto
 skill_version: "1"
 skill_content_hash: 6191fe05eeec6d9e9d1899898c7467d4bf7b463e169651350a3bbfb5261922d8
 profile_version: "1"
+display_description: 为“和用户聊聊、该问什么怎么问”生成可执行访谈提纲，包含开场、主问题、递进追问、收尾与偏误检查。
 primary_stage: pre_design
 lifecycle_tags: [pre_design, during_design]
 capability_type: generation
