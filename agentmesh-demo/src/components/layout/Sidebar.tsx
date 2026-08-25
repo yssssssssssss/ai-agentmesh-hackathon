@@ -32,10 +32,10 @@ interface NavigationItem {
 const NAV: NavigationItem[] = [
   { to: '/digital-self', label: '我的数字员工', icon: Bot },
   { to: '/workspace', label: 'AI 工作台', icon: Sparkles },
+  { to: '/tasks', label: '任务中心', icon: ListTodo },
   { to: '/insights', label: '工作洞察', icon: LineChart },
   { to: '/knowledge', label: '我的知识', icon: BookMarked, badgeKey: 'memory' as const },
   { to: '/collaboration', label: '协作网络', icon: Network, badgeKey: 'inbox' as const },
-  { to: '/tasks', label: '任务中心', icon: ListTodo },
   { to: '/market', label: '协作市场', icon: RadioTower },
 ]
 
