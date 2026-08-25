@@ -31,6 +31,7 @@ from agentmesh.models import (
     Scope,
     Source,
     StructuredHandoffPacket,
+    Task,
     User,
     UserRole,
     now_utc,
@@ -304,7 +305,7 @@ def blackboard_task_detail(task_id: str, user: User = Depends(current_user)) -> 
     card = build_task_card(task, posts, user)
     if card is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    visible_posts = [post for post in posts if post_visible_to_user(post, posts, user)]
+    visible_posts = task_posts_visible_to_user(task, posts, user)
     return BlackboardTaskDetail(
         task_card=card,
         posts=[blackboard_post_view(post, user) for post in visible_posts],
@@ -314,33 +315,36 @@ def blackboard_task_detail(task_id: str, user: User = Depends(current_user)) -> 
 def build_task_card(task, task_posts: list[BlackboardPost], user: User) -> BlackboardTaskCard | None:
     if not task_visible_to_user(task.thread_id, task_posts, user):
         return None
-    latest_post = task_posts[-1] if task_posts else None
+    visible_posts = task_posts_visible_to_user(task, task_posts, user)
+    visible_post_ids = {post.id for post in visible_posts}
+    latest_post = visible_posts[-1] if visible_posts else None
     locked_post = next(
         (post for post in reversed(task_posts) if post.execution_lock and post.execution_lock.active),
         None,
     )
     active_lock = locked_post.execution_lock if locked_post and locked_post.execution_lock else None
-    state_post = locked_post or latest_post
+    state_post = locked_post or (task_posts[-1] if task_posts else None)
+    state_post_visible = state_post is not None and state_post.id in visible_post_ids
     thread = store.get_chat_thread(task.thread_id)
     return BlackboardTaskCard(
         task=task,
         latest_post=blackboard_post_view(latest_post, user) if latest_post else None,
-        stage=state_post.collaboration_stage if state_post else task.collaboration_stage,
+        stage=state_post.collaboration_stage if state_post_visible else task.collaboration_stage,
         owner=(
             state_post.current_owner_label
-            if state_post and state_post.current_owner_label
+            if state_post_visible and state_post.current_owner_label
             else task.current_owner_label
         ),
-        done_when=state_post.done_when if state_post and state_post.done_when else task.done_when,
+        done_when=state_post.done_when if state_post_visible and state_post.done_when else task.done_when,
         active_lock=active_lock,
-        post_count=len(task_posts),
+        post_count=len(visible_posts),
         initiator_user_id=thread.user_id if thread else None,
         initiated_by_current_user=thread is not None and thread.user_id == user.id,
-        claimed_by_personal_agent=task_claimed_by_personal_agent(task, task_posts, user),
-        upstream_agents=task_upstream_agents(task_posts),
-        downstream_agents=task_downstream_agents(task, task_posts, active_lock),
-        target_post_id=state_post.id if state_post else None,
-        allowed_actions=blackboard_allowed_actions(state_post, user) if state_post else [],
+        claimed_by_personal_agent=task_claimed_by_personal_agent(task, visible_posts, user),
+        upstream_agents=task_upstream_agents(visible_posts),
+        downstream_agents=task_downstream_agents(task, visible_posts, active_lock),
+        target_post_id=state_post.id if state_post_visible else None,
+        allowed_actions=blackboard_allowed_actions(state_post, user) if state_post_visible else [],
     )
 
 
@@ -422,18 +426,34 @@ def task_visible_to_user(thread_id: str, posts: list[BlackboardPost], user: User
     return False
 
 
+def task_posts_visible_to_user(task: Task, posts: list[BlackboardPost], user: User) -> list[BlackboardPost]:
+    thread = store.get_chat_thread(task.thread_id)
+    initiator_user_id = thread.user_id if thread is not None else None
+    return [post for post in posts if task_post_visible_to_user(post, initiator_user_id, user)]
+
+
+def task_post_visible_to_user(post: BlackboardPost, initiator_user_id: str | None, user: User) -> bool:
+    if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN} or post.scope != Scope.PRIVATE:
+        return True
+    if post.actor in {user.id, user.personal_agent_id}:
+        return True
+    return post.actor == "personal_agent" and initiator_user_id == user.id
+
+
 def post_visible_to_user(post: BlackboardPost, task_posts: list[BlackboardPost], user: User) -> bool:
     task = store.get_task(post.task_id)
     if task is not None:
         if not task_visible_to_user(task.thread_id, task_posts, user):
             return False
-        if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
-            return True
-        return post.scope != Scope.PRIVATE or post.actor in {user.id, user.personal_agent_id, "personal_agent"}
+        thread = store.get_chat_thread(task.thread_id)
+        initiator_user_id = thread.user_id if thread is not None else None
+        return task_post_visible_to_user(post, initiator_user_id, user)
     if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
         return True
-    if post.scope == Scope.PRIVATE and post.actor not in {user.id, user.personal_agent_id, "personal_agent"}:
-        return False
+    if post.scope == Scope.PRIVATE:
+        return post.actor in {user.id, user.personal_agent_id} or (
+            post.actor == "personal_agent" and post.task_id == f"manual_{user.id}"
+        )
     if post.scope == Scope.PROJECT:
         return True
     return (
