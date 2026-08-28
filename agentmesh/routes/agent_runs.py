@@ -352,6 +352,9 @@ async def start_agent_run(
         orchestration_mode=request.orchestration_mode,
         planning_mode=request.planning_mode,
         retry_of_run_id=None,
+        planning_contract_version=(
+            prior.planning_contract_version if prior is not None else None
+        ),
     )
     if prior is not None:
         prior = _visible_run(prior.id, user)
@@ -367,6 +370,7 @@ async def start_agent_run(
             orchestration_mode=request.orchestration_mode,
             planning_mode=request.planning_mode,
             retry_of_run_id=None,
+            planning_contract_version=prior.planning_contract_version,
         ):
             raise HTTPException(status_code=409, detail={"code": "client_turn_id_conflict"})
         return ItemResponse(item=prior)
@@ -786,6 +790,7 @@ async def retry_agent_run(
     if prior.orchestration_version == "research-v3":
         raise HTTPException(status_code=409, detail=_RESEARCH_V3_RETIRED)
     retry_mode = prior.requested_orchestration_mode
+    existing_retry = store.get_agent_run_by_client_turn(user.id, request.client_turn_id)
     retry_create_request_hash = agent_run_create_request_hash(
         user_id=user.id,
         thread_id=prior.thread_id,
@@ -795,8 +800,12 @@ async def retry_agent_run(
         orchestration_mode=retry_mode,
         planning_mode=prior.planning_mode,
         retry_of_run_id=prior.id,
+        planning_contract_version=(
+            existing_retry.planning_contract_version
+            if existing_retry is not None
+            else None
+        ),
     )
-    existing_retry = store.get_agent_run_by_client_turn(user.id, request.client_turn_id)
     if existing_retry is not None:
         existing_retry = _visible_run(existing_retry.id, user)
         if (
@@ -814,6 +823,7 @@ async def retry_agent_run(
                 orchestration_mode=retry_mode,
                 planning_mode=prior.planning_mode,
                 retry_of_run_id=prior.id,
+                planning_contract_version=existing_retry.planning_contract_version,
             )
         ):
             raise HTTPException(status_code=409, detail={"code": "client_turn_id_conflict"})

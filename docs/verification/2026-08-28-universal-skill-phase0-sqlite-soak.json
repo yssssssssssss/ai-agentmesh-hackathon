@@ -1,0 +1,57 @@
+{
+  "schema_version": "universal-skill-phase0-sqlite-soak-v1",
+  "recorded_at": "2026-08-28",
+  "runner": {
+    "os": "macOS 14.5 (23F79)",
+    "architecture": "arm64",
+    "cpu": "Apple M2 Pro",
+    "python": "3.13.0"
+  },
+  "workload": {
+    "duration_seconds": 1800.0,
+    "writer_count": 3,
+    "reader_count": 10,
+    "writer_interval_ms": 1000.0,
+    "reader_interval_ms": 250.0,
+    "snapshot_payload_bytes": 32768,
+    "expected_runs_per_day": 100,
+    "capacity_sample_runs": 100
+  },
+  "storage": {
+    "journal_mode": "wal",
+    "database_bytes_start": 3911904,
+    "database_bytes_end": 65257472,
+    "wal_peak_bytes": 4293072,
+    "checkpoint_ms": 12.734,
+    "disk_free_bytes": 15813025792,
+    "per_run_p99_bytes": 40960.0,
+    "projected_90_day_bytes": 368640000,
+    "capacity_required_bytes": 998309888,
+    "capacity_passed": true
+  },
+  "integrity": {
+    "expected_events": 5373,
+    "actual_events": 5373,
+    "sequence_gap_groups": 0,
+    "lock_error_count": 0,
+    "lock_errors": []
+  },
+  "latency_ms": {
+    "write_mean": 1.821,
+    "write_p95": 4.349,
+    "write_p99": 14.382,
+    "write_max": 67.934,
+    "read_mean": 1.078,
+    "read_p95": 2.636,
+    "read_p99": 6.817,
+    "read_max": 148.608,
+    "event_loop_lag_max": 73.943
+  },
+  "writer_successes": [1791, 1791, 1791],
+  "reader_calls": [7072, 7073, 7072, 7072, 7071, 7071, 7072, 7072, 7073, 7071],
+  "passed": true,
+  "limitations": [
+    "This run used the local development host, not a separately managed preproduction deployment.",
+    "The 100-runs/day capacity assumption is an explicit test input and must be replaced if pilot traffic expectations change."
+  ]
+}

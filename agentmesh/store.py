@@ -32,6 +32,7 @@ from agentmesh.models import (
     ActivityLog,
     Agent,
     AgentMemoryBinding,
+    AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRun,
     AgentRunEvent,
@@ -124,6 +125,9 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = ROOT_DIR / "data" / "agentmesh.sqlite3"
+_SQLITE_BUSY_TIMEOUT_SECONDS = 5.0
+_SQLITE_BUSY_TIMEOUT_MS = int(_SQLITE_BUSY_TIMEOUT_SECONDS * 1000)
+
 
 class BriefConfirmationError(RuntimeError):
     def __init__(self, code: str, detail: str):
@@ -407,22 +411,32 @@ class SQLiteStore:
         self._backfill_vec()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
+        connection = sqlite3.connect(self.db_path, timeout=_SQLITE_BUSY_TIMEOUT_SECONDS)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        self._ensure_schema(connection)
-        connection.commit()
+        connection.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS}")
+        connection.execute("PRAGMA synchronous = NORMAL")
         return connection
 
     def _read_connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(f"{self.db_path.resolve().as_uri()}?mode=ro", uri=True)
+        connection = sqlite3.connect(
+            f"{self.db_path.resolve().as_uri()}?mode=ro",
+            timeout=_SQLITE_BUSY_TIMEOUT_SECONDS,
+            uri=True,
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS}")
         connection.execute("PRAGMA query_only = ON")
         return connection
 
     def _init_schema(self) -> None:
-        with sqlite3.connect(self.db_path) as connection:
+        with sqlite3.connect(self.db_path, timeout=_SQLITE_BUSY_TIMEOUT_SECONDS) as connection:
+            connection.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS}")
+            journal_mode = str(connection.execute("PRAGMA journal_mode = WAL").fetchone()[0])
+            if journal_mode.lower() != "wal":
+                raise RuntimeError("SQLite WAL mode is required")
+            connection.execute("PRAGMA synchronous = NORMAL")
             self._ensure_schema(connection)
 
     def _backfill_artifact_projections(self) -> None:
@@ -1949,6 +1963,7 @@ class SQLiteStore:
             "skill_name",
             "retry_of_run_id",
             "planning_mode",
+            "planning_contract_version",
             "create_request_hash",
             "orchestration_version",
             "orchestration_mode",
@@ -6963,6 +6978,7 @@ class SQLiteStore:
                 orchestration_mode=run.requested_orchestration_mode,
                 planning_mode=run.planning_mode,
                 retry_of_run_id=run.retry_of_run_id,
+                planning_contract_version=run.planning_contract_version,
             )
         ):
             raise RuntimeError("client_turn_id was already used for another Agent run")
@@ -7064,8 +7080,17 @@ class SQLiteStore:
         ):
             raise ResearchStoreConflict("DeepSearch Run persistence invariants are invalid")
 
+    @staticmethod
+    def _require_planning_contract_mode(run: AgentRun) -> None:
+        contract = run.planning_contract_version
+        if contract is not None and contract.planning_mode is not run.planning_mode:
+            raise ResearchStoreConflict(
+                "Agent Run planning contract is incompatible with planning mode"
+            )
+
     @classmethod
     def _require_new_deepsearch_run_invariants(cls, run: AgentRun) -> None:
+        cls._require_planning_contract_mode(run)
         cls._require_deepsearch_run_claim_invariants(run)
         if (
             run.planning_mode is AgentPlanningMode.DEEPSEARCH
@@ -7297,6 +7322,48 @@ class SQLiteStore:
                 reconciled += 1
         return reconciled
 
+    def list_active_agent_runs_for_planning_contracts(
+        self,
+        contracts: set[AgentPlanningContractVersion],
+    ) -> list[AgentRun]:
+        """Enumerate non-terminal Runs by their immutable JSON contract marker."""
+
+        if not contracts:
+            return []
+        contract_values = sorted(contract.value for contract in contracts)
+        terminal_values = sorted(
+            status.value
+            for status in {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED,
+                AgentRunStatus.CANCELLED,
+            }
+        )
+        contract_placeholders = ", ".join("?" for _ in contract_values)
+        terminal_placeholders = ", ".join("?" for _ in terminal_values)
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                f"""SELECT id, payload, orchestration_version
+                FROM agent_runs
+                WHERE json_extract(payload, '$.planning_contract_version')
+                      IN ({contract_placeholders})
+                  AND json_extract(payload, '$.status') NOT IN ({terminal_placeholders})
+                ORDER BY updated_at, id""",
+                (*contract_values, *terminal_values),
+            ).fetchall()
+        runs: list[AgentRun] = []
+        for row in rows:
+            try:
+                run = self._decode_agent_run_row(row)
+            except (TypeError, ValueError) as error:
+                raise ResearchStoreConflict("Planning-contract Run is invalid") from error
+            if run.id != row["id"] or run.planning_contract_version not in contracts:
+                raise ResearchStoreConflict("Planning-contract Run identity is invalid")
+            runs.append(run)
+        return runs
+
     def list_recoverable_deepsearch_runs(self) -> list[AgentRun]:
         """Return persisted non-terminal v1 DeepSearch runs for the coordinator."""
 
@@ -7307,7 +7374,7 @@ class SQLiteStore:
             AgentRunStatus.REJECTED,
             AgentRunStatus.CANCELLED,
         }
-        with self._connect() as connection:
+        with self._read_connect() as connection:
             rows = connection.execute(
                 """SELECT id, payload, orchestration_version
                 FROM agent_runs

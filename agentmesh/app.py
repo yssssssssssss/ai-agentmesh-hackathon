@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from agentmesh.agent_runtime.settings import skill_orchestration_mode
 from agentmesh.deepsearch.recovery import DeepSearchRecoveryCoordinator
 from agentmesh.marketplace import (
     start_market_publish_worker,
@@ -57,6 +58,7 @@ from agentmesh.seed import (
     ensure_graph_demo_data,
     ensure_initial_blackboard_data,
 )
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
 from agentmesh.skill_runtime.service import ensure_skill_catalog
 from agentmesh.store import SQLiteStore, store
 from agentmesh.tools import ensure_tool_seed_data
@@ -89,8 +91,15 @@ async def lifespan(app: FastAPI):
     research_v2_history_reader = V2HistoryAdapter(store, V2ArtifactHistoryReader(store))
     app.state.research_v2_history_reader = research_v2_history_reader
     runtime = chat_agent.agent_runtime
+    orchestration_admission = OrchestrationQuiesceController()
+    app.state.orchestration_quiesce_controller = orchestration_admission
     deepsearch_recovery = (
-        DeepSearchRecoveryCoordinator(store, runtime)
+        DeepSearchRecoveryCoordinator(
+            store,
+            runtime,
+            admission=orchestration_admission,
+            mode_provider=skill_orchestration_mode,
+        )
         if runtime is not None
         else None
     )
@@ -121,6 +130,11 @@ async def lifespan(app: FastAPI):
                 is deepsearch_recovery
             ):
                 del app.state.deepsearch_recovery_coordinator
+            if (
+                getattr(app.state, "orchestration_quiesce_controller", None)
+                is orchestration_admission
+            ):
+                del app.state.orchestration_quiesce_controller
             await asyncio.to_thread(ingestion_service.shutdown)
 
 

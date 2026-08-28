@@ -2322,6 +2322,11 @@ export interface components {
             model_id?: string | null;
         };
         /**
+         * AgentPlanningContractVersion
+         * @enum {string}
+         */
+        AgentPlanningContractVersion: "standard_legacy_v1" | "standard_universal_v1" | "deepsearch_frozen_v1" | "deepsearch_frozen_v2";
+        /**
          * AgentPlanningMode
          * @enum {string}
          */
@@ -2354,6 +2359,7 @@ export interface components {
             retry_of_run_id?: string | null;
             /** @default standard */
             planning_mode: components["schemas"]["AgentPlanningMode"];
+            planning_contract_version?: components["schemas"]["AgentPlanningContractVersion"] | null;
             /** Create Request Hash */
             create_request_hash?: string | null;
             /**

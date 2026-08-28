@@ -8,7 +8,15 @@ from contextlib import suppress
 from datetime import datetime
 from typing import Protocol
 
+from agentmesh.agent_runtime.settings import (
+    SkillOrchestrationMode,
+    skill_orchestration_mode,
+)
 from agentmesh.models import AgentPlanningMode, AgentRun, AgentRunStatus, now_utc
+from agentmesh.skill_runtime.quiesce import (
+    OrchestrationQuiesceController,
+    OrchestrationQuiescingError,
+)
 
 
 class DeepSearchRecoveryRepository(Protocol):
@@ -61,6 +69,8 @@ class DeepSearchRecoveryCoordinator:
         *,
         interval_seconds: float = 30.0,
         clock: Callable[[], datetime] = now_utc,
+        admission: OrchestrationQuiesceController | None = None,
+        mode_provider: Callable[[], SkillOrchestrationMode] = skill_orchestration_mode,
     ) -> None:
         if interval_seconds <= 0:
             raise ValueError("DeepSearch recovery interval must be positive")
@@ -68,18 +78,37 @@ class DeepSearchRecoveryCoordinator:
         self._runtime = runtime
         self._interval_seconds = interval_seconds
         self._clock = clock
+        self._admission = admission or OrchestrationQuiesceController()
+        self._mode_provider = mode_provider
         self._stop = asyncio.Event()
         self._wake = asyncio.Event()
         self._scan_lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._run_tasks: dict[str, asyncio.Task[AgentRun | None]] = {}
 
+    @property
+    def running(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    def _recovery_allowed(self) -> bool:
+        return (
+            not self._stop.is_set()
+            and self._mode_provider() is not SkillOrchestrationMode.OFF
+            and not self._admission.is_quiescing
+        )
+
     async def recover_once(self) -> int:
         """Schedule each recoverable Run once without awaiting long execution."""
 
         scheduled = 0
+        if not self._recovery_allowed():
+            return scheduled
         async with self._scan_lock:
-            runs = self._repository.list_recoverable_deepsearch_runs()
+            if not self._recovery_allowed():
+                return scheduled
+            runs = await asyncio.to_thread(
+                self._repository.list_recoverable_deepsearch_runs
+            )
             checked_at = self._clock()
             for candidate in runs:
                 if (
@@ -89,7 +118,8 @@ class DeepSearchRecoveryCoordinator:
                 ):
                     continue
                 try:
-                    run = self._repository.expire_deepsearch_run_if_needed(
+                    run = await asyncio.to_thread(
+                        self._repository.expire_deepsearch_run_if_needed,
                         candidate.id,
                         user_id=candidate.user_id,
                         checked_at=checked_at,
@@ -103,17 +133,23 @@ class DeepSearchRecoveryCoordinator:
                     existing = self._run_tasks.get(run.id)
                     if existing is not None and not existing.done():
                         continue
-                    task = asyncio.create_task(
-                        self._runtime.recover_deepsearch_run(run.id),
-                        name=f"agentmesh-deepsearch-recovery-{run.id}",
-                    )
-                    self._run_tasks[run.id] = task
-                    task.add_done_callback(
-                        lambda completed, run_id=run.id: self._finish_run_task(
-                            run_id,
-                            completed,
-                        )
-                    )
+                    try:
+                        with self._admission.permit():
+                            if self._mode_provider() is SkillOrchestrationMode.OFF:
+                                continue
+                            task = asyncio.create_task(
+                                self._runtime.recover_deepsearch_run(run.id),
+                                name=f"agentmesh-deepsearch-recovery-{run.id}",
+                            )
+                            self._run_tasks[run.id] = task
+                            task.add_done_callback(
+                                lambda completed, run_id=run.id: self._finish_run_task(
+                                    run_id,
+                                    completed,
+                                )
+                            )
+                    except OrchestrationQuiescingError:
+                        continue
                     scheduled += 1
                 except asyncio.CancelledError:
                     raise
@@ -127,13 +163,33 @@ class DeepSearchRecoveryCoordinator:
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
             return
+        if not self._recovery_allowed():
+            return
         self._stop.clear()
         self._wake.clear()
         await self.recover_once()
-        self._task = asyncio.create_task(
-            self._run(),
-            name="agentmesh-deepsearch-recovery",
-        )
+        try:
+            with self._admission.permit():
+                if self._mode_provider() is SkillOrchestrationMode.OFF:
+                    return
+                self._task = asyncio.create_task(
+                    self._run(),
+                    name="agentmesh-deepsearch-recovery",
+                )
+        except OrchestrationQuiescingError:
+            return
+
+    async def begin_quiesce(self) -> None:
+        """Stop future scans and wait for any current scan to leave its lock."""
+
+        self._stop.set()
+        self._wake.set()
+        async with self._scan_lock:
+            pass
+        task = self._task
+        if task is not None and task is not asyncio.current_task():
+            await task
+        self._task = None
 
     async def stop(self) -> None:
         self._stop.set()
