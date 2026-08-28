@@ -217,6 +217,7 @@ _FTS_COLLECTIONS = frozenset(
 
 _SKILL_FTS_COLLECTIONS = frozenset({"skill_definitions", "skill_capability_profiles"})
 _SKILL_DIRECTORY_VECTOR_SIMILARITY_THRESHOLD = 0.4
+SKILL_PROFILE_VECTOR_SIMILARITY_THRESHOLD = 0.4
 _SKILL_QUERY_EMBEDDING_TIMEOUT_SECONDS = 0.35
 
 _KNOWLEDGE_FTS_COLLECTIONS = frozenset(_FTS_COLLECTIONS - _SKILL_FTS_COLLECTIONS)
@@ -317,15 +318,8 @@ def _extract_fts_doc(collection: str, item: BaseModel) -> _FTSDoc | None:
         user_id = getattr(item, "uploaded_by", "") or ""
         created_at = _dt_str(getattr(item, "created_at", None))
     elif collection == "skill_capability_profiles":
-        title = getattr(item, "skill_name", "")
-        body = " ".join(
-            [
-                getattr(item, "capability_type", ""),
-                *getattr(item, "input_kinds", []),
-                *getattr(item, "output_kinds", []),
-                *getattr(item, "examples", []),
-            ]
-        )
+        title = ""
+        body = item.search_text()
         scope = Scope.PROJECT.value
         created_at = _dt_str(getattr(item, "updated_at", None))
     elif collection == "skill_definitions":
@@ -956,7 +950,14 @@ class SQLiteStore:
             connection.execute("DELETE FROM skill_plan_nodes")
             connection.execute("DELETE FROM skill_plans")
 
-    def _upsert(self, collection: str, item: BaseModel, *, process_vector: bool = True) -> None:
+    def _upsert(
+        self,
+        collection: str,
+        item: BaseModel,
+        *,
+        process_vector: bool = True,
+        index_vector: bool = True,
+    ) -> None:
         work: VectorWork | None = None
         with self._connect() as connection:
             connection.execute(
@@ -971,13 +972,23 @@ class SQLiteStore:
             self._sync_fts(connection, collection, item)
             doc = _extract_fts_doc(collection, item)
             if doc is not None:
-                work = self.vector_index.prepare(
-                    connection,
-                    collection,
-                    item.id,
-                    f"{doc.title} {doc.body}".strip(),
-                    index_signature=_skill_embedding_index_signature(collection),
-                )
+                if index_vector:
+                    work = self.vector_index.prepare(
+                        connection,
+                        collection,
+                        item.id,
+                        f"{doc.title} {doc.body}".strip(),
+                        index_signature=_skill_embedding_index_signature(collection),
+                    )
+                else:
+                    connection.execute(
+                        "DELETE FROM records_vec WHERE collection = ? AND record_id = ?",
+                        (collection, item.id),
+                    )
+                    connection.execute(
+                        "DELETE FROM vector_states WHERE collection = ? AND record_id = ?",
+                        (collection, item.id),
+                    )
             elif collection in _FTS_COLLECTIONS:
                 self.vector_index.mark_stale(connection, collection, item.id)
 
@@ -1082,6 +1093,20 @@ class SQLiteStore:
                 if model_cls is None:
                     continue
                 item = model_cls.model_validate_json(row["payload"])
+                if (
+                    collection == "skill_capability_profiles"
+                    and isinstance(item, SkillCapabilityProfile)
+                    and not item.planner_eligible
+                ):
+                    connection.execute(
+                        "DELETE FROM records_vec WHERE collection = ? AND record_id = ?",
+                        (collection, row["id"]),
+                    )
+                    connection.execute(
+                        "DELETE FROM vector_states WHERE collection = ? AND record_id = ?",
+                        (collection, row["id"]),
+                    )
+                    continue
                 doc = _extract_fts_doc(collection, item)
                 if doc is None:
                     continue
@@ -1163,6 +1188,10 @@ class SQLiteStore:
                 LEFT JOIN records_vec AS vector
                   ON vector.collection = record.collection AND vector.record_id = record.id
                 WHERE record.collection IN ({placeholders})
+                  AND NOT (
+                    record.collection = 'skill_capability_profiles'
+                    AND COALESCE(json_extract(record.payload, '$.planner_eligible'), 0) = 0
+                  )
                   AND (
                     state.record_id IS NULL
                     OR state.state IN (?, ?)
@@ -1578,8 +1607,14 @@ class SQLiteStore:
         profile: SkillCapabilityProfile,
         *,
         defer_vector: bool = False,
+        index_vector: bool = True,
     ) -> SkillCapabilityProfile:
-        self._upsert("skill_capability_profiles", profile, process_vector=not defer_vector)
+        self._upsert(
+            "skill_capability_profiles",
+            profile,
+            process_vector=not defer_vector,
+            index_vector=index_vector and profile.planner_eligible,
+        )
         return profile
 
     def get_skill_capability_profile(self, skill_id: str) -> SkillCapabilityProfile | None:
@@ -1658,7 +1693,7 @@ class SQLiteStore:
             query,
             allowed_skill_ids,
             "skill_capability_profiles",
-            minimum_vector_similarity=None,
+            minimum_vector_similarity=SKILL_PROFILE_VECTOR_SIMILARITY_THRESHOLD,
         )
 
     def rank_skill_definitions(

@@ -5392,6 +5392,13 @@ export interface components {
             skill_id: string;
             /** Skill Name */
             skill_name: string;
+            /**
+             * Skill Title
+             * @default
+             */
+            skill_title: string;
+            /** Skill Aliases */
+            skill_aliases?: string[];
             /** Skill Version */
             skill_version: string;
             /** Skill Content Hash */

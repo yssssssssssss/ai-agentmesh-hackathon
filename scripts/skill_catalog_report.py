@@ -19,13 +19,14 @@ from agentmesh.skill_runtime.profiles import (  # noqa: E402
     PILOT_BUILTIN_SKILL_NAMES,
     ProfileError,
     legacy_capability_profiles,
-    load_capability_profile,
+    load_capability_profile_record,
     profile_matches_skill,
     profile_path,
 )
 
 EXPECTED_DOMAIN_SKILLS = 84
 EXPECTED_PLANNER_PROFILES = len(PILOT_BUILTIN_SKILL_NAMES)
+MINIMUM_PHASE1A_DRAFT_PROFILES = 12
 EXPECTED_LEGACY_PROFILES = 11
 KNOWN_CAPABILITIES = {
     "data.query",
@@ -47,23 +48,17 @@ def main() -> int:
     names: list[str] = []
     diagnostics: list[dict[str, str]] = []
     profiles = []
+    draft_profiles = []
+    legacy_unreviewed_profiles = []
     for path in files:
         result = parse_skill_file(path, source_scope=SkillSourceScope.BUILTIN)
         if result.skill is not None:
             names.append(result.skill.name)
-            if result.skill.name not in PILOT_BUILTIN_SKILL_NAMES:
-                if profile_path(result.skill).is_file():
-                    diagnostics.append(
-                        {
-                            "level": "error",
-                            "code": "unexpected_nonpilot_profile",
-                            "message": "Explicit-only imported Skills must not silently enter the planner",
-                            "path": str(profile_path(result.skill)),
-                        }
-                    )
-            else:
+            sidecar = profile_path(result.skill)
+            if sidecar.is_file():
                 try:
-                    profile = load_capability_profile(result.skill)
+                    loaded = load_capability_profile_record(result.skill)
+                    profile = loaded.profile
                     profiles.append(profile)
                     if not profile_matches_skill(profile, result.skill):
                         diagnostics.append(
@@ -71,15 +66,6 @@ def main() -> int:
                                 "level": "error",
                                 "code": "profile_stale",
                                 "message": "Capability profile does not match the parsed Skill version and hash",
-                                "path": str(path),
-                            }
-                        )
-                    if not profile.planner_eligible:
-                        diagnostics.append(
-                            {
-                                "level": "error",
-                                "code": "domain_profile_ineligible",
-                                "message": "Pilot domain Skills must be planner eligible",
                                 "path": str(path),
                             }
                         )
@@ -93,6 +79,39 @@ def main() -> int:
                                 "path": str(path),
                             }
                         )
+                    if result.skill.name in PILOT_BUILTIN_SKILL_NAMES:
+                        if not profile.planner_eligible:
+                            diagnostics.append(
+                                {
+                                    "level": "error",
+                                    "code": "domain_profile_ineligible",
+                                    "message": "Pilot domain Skills must remain planner eligible",
+                                    "path": str(path),
+                                }
+                            )
+                        if loaded.review_state is None:
+                            legacy_unreviewed_profiles.append(result.skill.name)
+                    else:
+                        if loaded.review_state == "draft":
+                            draft_profiles.append(result.skill.name)
+                        if loaded.review_state != "draft" or loaded.declared_planner_eligible:
+                            diagnostics.append(
+                                {
+                                    "level": "error",
+                                    "code": "nonpilot_profile_not_draft",
+                                    "message": "Phase 1A non-Pilot Profiles must remain draft and planner-ineligible",
+                                    "path": str(sidecar),
+                                }
+                            )
+                        if profile.planner_eligible:
+                            diagnostics.append(
+                                {
+                                    "level": "error",
+                                    "code": "draft_profile_runtime_eligible",
+                                    "message": "Draft Profiles cannot enter the legacy Planner",
+                                    "path": str(sidecar),
+                                }
+                            )
                 except ProfileError as error:
                     diagnostics.append(
                         {
@@ -102,6 +121,15 @@ def main() -> int:
                             "path": str(path),
                         }
                     )
+            elif result.skill.name in PILOT_BUILTIN_SKILL_NAMES:
+                diagnostics.append(
+                    {
+                        "level": "error",
+                        "code": "pilot_profile_missing",
+                        "message": "Pilot domain Skill profile is missing",
+                        "path": str(sidecar),
+                    }
+                )
         diagnostics.extend(
             {"level": item.level, "code": item.code, "message": item.message, "path": item.path}
             for item in result.diagnostics
@@ -137,12 +165,24 @@ def main() -> int:
                 "path": str(root),
             }
         )
-    if len(profiles) != EXPECTED_PLANNER_PROFILES:
+    if len([profile for profile in profiles if profile.planner_eligible]) != EXPECTED_PLANNER_PROFILES:
         diagnostics.append(
             {
                 "level": "error",
                 "code": "planner_profile_count",
-                "message": f"expected {EXPECTED_PLANNER_PROFILES}, loaded {len(profiles)}",
+                "message": (
+                    f"expected {EXPECTED_PLANNER_PROFILES}, loaded "
+                    f"{len([profile for profile in profiles if profile.planner_eligible])}"
+                ),
+                "path": str(root),
+            }
+        )
+    if len(draft_profiles) < MINIMUM_PHASE1A_DRAFT_PROFILES:
+        diagnostics.append(
+            {
+                "level": "error",
+                "code": "phase1a_draft_profile_count",
+                "message": f"expected at least {MINIMUM_PHASE1A_DRAFT_PROFILES}, loaded {len(draft_profiles)}",
                 "path": str(root),
             }
         )
@@ -171,7 +211,10 @@ def main() -> int:
         "files": len(files),
         "loaded": len(names),
         "unique": len(counts),
-        "planner_profiles": len(profiles),
+        "planner_profiles": sum(profile.planner_eligible for profile in profiles),
+        "profile_files": len(profiles),
+        "draft_profiles": len(draft_profiles),
+        "legacy_unreviewed_profiles": len(legacy_unreviewed_profiles),
         "legacy_profiles": len(legacy_profiles),
         "profile_versions": dict(sorted(Counter(profile.profile_version for profile in profiles).items())),
         "required_capabilities": sorted(

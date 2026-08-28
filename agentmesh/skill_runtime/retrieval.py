@@ -12,45 +12,21 @@ from agentmesh.models import (
     SkillSideEffect,
     User,
 )
-from agentmesh.skill_runtime.profiles import is_pilot_orchestration_skill, profile_matches_skill
+from agentmesh.skill_runtime.profiles import (
+    is_pilot_orchestration_skill,
+    is_supported_wiki_capability,
+    profile_matches_skill,
+    public_tool_name,
+    tool_name_for_capability,
+    tool_names_for_profile,
+)
 from agentmesh.skill_runtime.resources import skill_wiki_corpus_ready
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
 from agentmesh.task_routing.catalog import TaskCatalog
 from agentmesh.task_routing.contracts import TaskRoutingResult
 
-_CAPABILITY_TO_TOOL = {
-    "research.request": "web_research",
-    "data.query": "data_query",
-    "memory.search": "memory_search",
-    "memory.project": "memory_search",
-    "risk.review": "risk_review",
-}
-_SUPPORTED_WIKI_CAPABILITIES = frozenset({"wiki.corpus", "wiki.experiments"})
 _SYNTHESIS_OUTPUTS = frozenset({"design_analysis", "executive_summary", "summary", "synthesis"})
-_TOOL_REFERENCE_TO_NAME = {
-    "tool_web_research": "web_research",
-}
-
-
-def tool_name_for_capability(capability: str) -> str | None:
-    """Resolve a supported non-wiki capability to its runtime Tool name."""
-
-    return _CAPABILITY_TO_TOOL.get(capability)
-
-
-def is_supported_wiki_capability(capability: str) -> bool:
-    return capability in _SUPPORTED_WIKI_CAPABILITIES
-
-
-def tool_names_for_profile(profile: SkillCapabilityProfile) -> set[str]:
-    capability_tools = {
-        tool_name
-        for capability in profile.required_capabilities
-        if (tool_name := tool_name_for_capability(capability)) is not None
-    }
-    declared_tools = {_TOOL_REFERENCE_TO_NAME.get(reference, reference) for reference in profile.required_tools}
-    return capability_tools | declared_tools
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +60,7 @@ class SkillCandidateRetriever:
         self.catalog = catalog
 
     def _tool_granted(self, user: User, reference: str) -> bool:
-        tool_name = _CAPABILITY_TO_TOOL.get(reference, _TOOL_REFERENCE_TO_NAME.get(reference, reference))
+        tool_name = tool_name_for_capability(reference) or public_tool_name(reference)
         tool = next(
             (
                 item

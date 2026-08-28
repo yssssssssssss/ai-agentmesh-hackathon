@@ -147,9 +147,19 @@ def test_intent_distinguishes_design_decision_priority_from_issue_prioritization
 def test_builtin_and_legacy_profiles_are_persisted_and_current(tmp_path, configure_pilot_wiki) -> None:
     repository, catalog = _catalog(tmp_path, configure_pilot_wiki)
     domain_profiles = [profile for profile in repository.skill_capability_profiles if profile.planner_eligible]
-    legacy_profiles = [profile for profile in repository.skill_capability_profiles if not profile.planner_eligible]
+    draft_profiles = [
+        profile
+        for profile in repository.skill_capability_profiles
+        if not profile.planner_eligible and not profile.id.startswith("legacy:")
+    ]
+    legacy_profiles = [
+        profile
+        for profile in repository.skill_capability_profiles
+        if profile.id.startswith("legacy:")
+    ]
 
     assert len(domain_profiles) == 10
+    assert len(draft_profiles) == 12
     assert len(legacy_profiles) == 11
     assert not [diagnostic for diagnostic in catalog.diagnostics if diagnostic.level == "error"]
     for profile in domain_profiles:

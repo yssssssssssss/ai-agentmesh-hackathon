@@ -1,0 +1,33 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 3a928a69a842f0f3757babefd49637a1b88b1328a60df12d52064d4daf5feee5
+profile_version: "1"
+display_description: 横向综合多份访谈、开放题或定性笔记，归纳跨场主题、证据和结构化用户洞察，生成用研报告。
+primary_stage: pre_design
+lifecycle_tags: [pre_design, post_design]
+capability_type: synthesis
+input_kinds: [multiple_interview_summaries, qualitative_notes, open_ended_responses]
+output_kinds: [qualitative_insights, research_report, opportunity_themes]
+examples:
+  - 综合多场访谈归纳共性主题并提炼用户洞察
+  - 把一批定性笔记做亲和图聚类和结论总结
+  - 横向分析这些逐字稿说明了哪些需求和矛盾
+  - 汇总开放题与客服工单形成结构化研究报告
+  - 为每个洞察附代表证据、频次和设计机会
+negative_examples:
+  - 只整理一场访谈逐字稿
+  - 把用户分成拟人化角色和 persona
+  - 根据调研材料画完整用户旅程图
+required_capabilities: [wiki.corpus]
+task_types: [qualitative-synthesis, research-report]
+archetypes: [affinity-analysis, insight-synthesis]
+required_tools: []
+required_resources: [wiki.corpus]
+produces_factual_claims: false
+report_policy: default
+cost_level: medium
+risk_level: medium
+owner: research-platform
+side_effect: draft
+review_state: draft
+planner_eligible: false

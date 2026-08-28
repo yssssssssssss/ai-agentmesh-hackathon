@@ -1,0 +1,35 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: c34ccef254ad52ae642c955ad5e97e767297c1034282a8f9f5003ac285bacb4e
+profile_version: "1"
+display_description: 面向垂类频道开展行业规模、供给、竞品与体验诊断，形成机会优先级、设计策略和品类表达方向。
+primary_stage: pre_design
+lifecycle_tags: [pre_design, during_design]
+capability_type: research
+input_kinds: [market_question, category_context, competitive_material]
+output_kinds: [industry_market_analysis, category_opportunities, design_strategy]
+examples:
+  - 分析宠物食品行业市场并给出频道设计策略
+  - 研究母婴品类规模、供给结构和主要竞品
+  - 为图书频道改版做行业机会与体验诊断
+  - 对垂类市场做 Gap 矩阵和机会优先级排序
+  - 从品类属性推导视觉关键词、色板和表达方向
+  - Evaluate an industry landscape and identify underserved strategic space
+  - Turn category market evidence into prioritized design strategy
+negative_examples:
+  - 只比较两个具体竞品功能的体验差异
+  - 对一批用户访谈做主题归纳
+  - 评审现有 PRD 的业务可行性
+required_capabilities: []
+task_types: [market-research, category-strategy]
+archetypes: [market-analysis, strategy-synthesis]
+required_tools: [tool_web_research]
+required_resources: []
+produces_factual_claims: true
+report_policy: default
+cost_level: high
+risk_level: medium
+owner: market-research
+side_effect: draft
+review_state: draft
+planner_eligible: false

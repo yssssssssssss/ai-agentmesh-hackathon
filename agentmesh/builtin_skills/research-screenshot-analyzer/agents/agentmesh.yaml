@@ -1,0 +1,34 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 8caea33900caa13a7550d03c4cd45d7649a58d8dc8b724057af97b889e4a2bb0
+profile_version: "1"
+display_description: 采集、整理并分析用研或竞品截图，输出单图视觉识别、跨平台截图对比和素材分析报告。
+primary_stage: pre_design
+lifecycle_tags: [pre_design, during_design]
+capability_type: analysis
+input_kinds: [screenshot_collection, research_theme, competitor_pages]
+output_kinds: [screenshot_analysis, visual_comparison]
+examples:
+  - 收集几个竞品 App 页面截图并按主题做视觉对比
+  - 分析这张截图的界面结构和视觉元素
+  - 整理用研截图素材并生成跨平台对比报告
+  - 通过 DesignPeek 采集指定页面后做 AI 视觉识别
+  - 按研究主题给截图分类并导出分析结果
+  - 比较同一功能在不同终端上的界面画面差异
+negative_examples:
+  - 根据截图直接下完整业务战略结论
+  - 综合多场用户访谈形成研究洞察
+  - 用可用性原则评审一个已有设计稿
+required_capabilities: []
+task_types: [screenshot-research, visual-analysis]
+archetypes: [material-collection, visual-comparison]
+required_tools: [designpeek]
+required_resources: []
+produces_factual_claims: true
+report_policy: on_request
+cost_level: medium
+risk_level: medium
+owner: research-platform
+side_effect: draft
+review_state: draft
+planner_eligible: false

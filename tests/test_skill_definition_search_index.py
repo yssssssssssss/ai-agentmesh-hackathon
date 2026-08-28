@@ -416,30 +416,38 @@ def test_embedding_model_change_does_not_rebuild_general_knowledge_vectors(tmp_p
     assert later.content_hash == original.content_hash
 
 
-def test_profile_vector_ranking_keeps_the_existing_no_threshold_semantics(tmp_path, monkeypatch) -> None:
+def test_profile_vector_ranking_rejects_zero_and_negative_similarity(tmp_path, monkeypatch) -> None:
     def embed(text: str, **_kwargs) -> list[float]:
-        return [0.0, 1.0] if text == "semantic-only-query" else [1.0, 0.0]
+        if text == "semantic-only-query":
+            return [0.0, 1.0]
+        if "negative-profile-skill" in text:
+            return [0.0, -1.0]
+        return [1.0, 0.0]
 
     monkeypatch.setattr("agentmesh.embedding.EMBEDDING_ENABLED", True)
     monkeypatch.setattr("agentmesh.embedding.embed_text", embed)
     repository = SQLiteStore(tmp_path / "profile-vector-threshold.sqlite3")
-    skill = _skill("planner-profile-skill")
-    profile = SkillCapabilityProfile(
-        id=skill.id,
-        skill_id=skill.id,
-        skill_name=skill.name,
-        skill_version=skill.version,
-        skill_content_hash=skill.content_hash,
-        profile_version="1",
-        profile_content_hash="profile-hash",
-        primary_stage=SkillLifecycleStage.PRE_DESIGN,
-        capability_type=SkillCapabilityType.RESEARCH,
+    skills = [_skill("zero-profile-skill"), _skill("negative-profile-skill")]
+    for skill in skills:
+        profile = SkillCapabilityProfile(
+            id=skill.id,
+            skill_id=skill.id,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skill_content_hash=skill.content_hash,
+            profile_version="1",
+            profile_content_hash=f"profile-hash-{skill.name}",
+            primary_stage=SkillLifecycleStage.PRE_DESIGN,
+            capability_type=SkillCapabilityType.RESEARCH,
+        )
+        repository.save_skill_capability_profile(profile)
+
+    _fts_ids, vector_ids, diagnostics = repository.rank_skill_profiles(
+        "semantic-only-query",
+        {skill.id for skill in skills},
     )
-    repository.save_skill_capability_profile(profile)
 
-    _fts_ids, vector_ids, diagnostics = repository.rank_skill_profiles("semantic-only-query", {skill.id})
-
-    assert vector_ids == [skill.id]
+    assert vector_ids == []
     assert diagnostics == []
 
 

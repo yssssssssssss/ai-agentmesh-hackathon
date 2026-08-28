@@ -1,0 +1,34 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 55bcf5d3c5e9279fe366057ac8d19f4a6cd56fc8f3af71733c5eadf26534c87d
+profile_version: "1"
+display_description: 将单场访谈逐字稿降噪整理为受访者背景、分主题发现、关键原话、痛点和待跟进事项。
+primary_stage: pre_design
+lifecycle_tags: [pre_design, post_design]
+capability_type: transformation
+input_kinds: [single_interview_transcript, research_question]
+output_kinds: [structured_interview_summary]
+examples:
+  - 清理单次深访转写并按讨论主题形成纪要
+  - 对刚完成的一次深访录音转写做降噪整理
+  - 围绕研究问题提取这位受访者的关键原话
+  - 整理单场访谈的背景、发现、痛点和待跟进
+  - 将一份访谈记录按研究内容分主题归档
+negative_examples:
+  - 综合十场访谈提炼跨场主题和洞察
+  - 对多场用户访谈做横向归纳和综合洞察
+  - 根据研究目标生成访谈提纲
+  - 把用户分成多类典型 persona
+required_capabilities: [wiki.corpus]
+task_types: [interview-processing, transcript-structuring]
+archetypes: [transformation, evidence-structuring]
+required_tools: []
+required_resources: [wiki.corpus]
+produces_factual_claims: false
+report_policy: on_request
+cost_level: low
+risk_level: medium
+owner: research-platform
+side_effect: draft
+review_state: draft
+planner_eligible: false
