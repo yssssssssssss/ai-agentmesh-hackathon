@@ -68,7 +68,7 @@ function Provenance({ message }: { message: ChatMessage }) {
   const trace = message.workflow_trace
   if (!trace) return null
   return (
-    <dl data-testid="provider-provenance" className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+    <dl data-testid="provider-provenance" className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
       <div className="flex gap-1"><dt>请求提供方</dt><dd className="text-slate-300">{trace.requested_provider ?? 'agentmesh'}</dd></div>
       <div className="flex gap-1"><dt>实际提供方</dt><dd className="text-slate-300">{trace.actual_provider ?? trace.requested_provider ?? 'agentmesh'}</dd></div>
       {trace.requested_model ? <div className="flex gap-1"><dt>请求模型</dt><dd className="text-slate-300">{trace.requested_model}</dd></div> : null}
@@ -89,7 +89,7 @@ function TraceMeta({ label, value }: { label: string; value: string }) {
 function MemorySearch({ trace }: { trace: MemorySearchTrace }) {
   return (
     <section className="mt-3 border-t border-white/[0.06] pt-3" aria-label="记忆检索">
-      <dl className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+      <dl className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
         <TraceMeta label="检索范围" value={MEMORY_SCOPE_LABELS[trace.requested_scope]} />
         <TraceMeta label="个人" value={String(trace.personal_count)} />
         <TraceMeta label="项目" value={String(trace.project_count)} />
@@ -98,13 +98,13 @@ function MemorySearch({ trace }: { trace: MemorySearchTrace }) {
       {trace.results.length > 0 ? (
         <ol className="mt-3 space-y-2">
           {trace.results.map((result) => (
-            <li key={result.result_id} className="rounded-[9px] border border-white/[0.06] bg-base px-3 py-2.5">
+            <li key={result.result_id} className="rounded-soft border border-white/[0.06] bg-base px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2 text-[11px]">
                 <span className="font-mono font-semibold text-mint-300">[{result.citation_label}]</span>
-                <span className="text-slate-500">{MEMORY_KIND_LABELS[result.memory_kind]}</span>
+                <span className="text-slate-400">{MEMORY_KIND_LABELS[result.memory_kind]}</span>
                 <span className="font-medium text-slate-200">{result.title}</span>
               </div>
-              <p className="mt-1 text-[11px] leading-5 text-slate-500">{result.summary}</p>
+              <p className="mt-1 text-[11px] leading-5 text-slate-400">{result.summary}</p>
             </li>
           ))}
         </ol>
@@ -115,9 +115,9 @@ function MemorySearch({ trace }: { trace: MemorySearchTrace }) {
 
 function TurnTrace({ trace }: { trace: ChatTurnTrace }) {
   return (
-    <section data-testid="turn-trace" className="mt-3 rounded-[10px] border border-white/[0.06] bg-white/[0.025] px-3 py-3" aria-label="本轮执行依据">
+    <section data-testid="turn-trace" className="mt-3 rounded-soft border border-white/[0.06] bg-white/[0.025] px-3 py-3" aria-label="本轮执行依据">
       <div className="text-xs font-semibold text-slate-300">本轮执行依据</div>
-      <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+      <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
         <TraceMeta label="意图" value={trace.intent} />
         <TraceMeta label="来源" value={trace.source} />
         <TraceMeta label="工作流" value={trace.selected_workflow} />
@@ -128,7 +128,7 @@ function TurnTrace({ trace }: { trace: ChatTurnTrace }) {
       {trace.steps.length > 0 ? (
         <ol className="mt-3 flex flex-wrap gap-1.5 border-t border-white/[0.06] pt-3">
           {trace.steps.map((step, index) => (
-            <li key={`${step}-${index}`} className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[10px] text-slate-400" title={step}>
+            <li key={`${step}-${index}`} className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] text-slate-400" title={step}>
               {index + 1}. {STEP_LABELS[step] ?? step}
             </li>
           ))}
@@ -168,9 +168,9 @@ export function ConversationThread({
         <h1 className="mt-1.5 text-xl font-semibold text-white">{title ?? 'AI 工作台'}</h1>
       </header>
 
-      {loading ? <p className="py-10 text-center text-sm text-slate-500">正在加载对话…</p> : null}
+      {loading ? <p className="py-10 text-center text-sm text-slate-400">正在加载对话…</p> : null}
       {!loading && messages.length === 0 && !pending ? (
-        <div className="rounded-[14px] border border-dashed border-white/[0.1] px-5 py-12 text-center">
+        <div className="rounded-soft border border-dashed border-white/[0.1] px-5 py-12 text-center">
           <Bot className="mx-auto h-6 w-6 text-mint-300" aria-hidden="true" />
           <p className="mt-3 text-sm text-slate-300">选择一个对话，或发送第一条消息开始。</p>
         </div>
@@ -182,7 +182,7 @@ export function ConversationThread({
         return (
           <article key={message.id} className={message.role === 'user' ? 'flex justify-end gap-3' : 'flex gap-3'}>
             {message.role === 'assistant' ? (
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-mint-400/10 text-mint-300">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-soft bg-mint-400/10 text-mint-300">
                 <Bot className="h-4 w-4" aria-hidden="true" />
               </span>
             ) : null}
@@ -191,8 +191,8 @@ export function ConversationThread({
               className={cn(
                 MESSAGE_BUBBLE_WIDTH,
                 message.role === 'user'
-                  ? 'rounded-[14px] rounded-tr-sm bg-surface-3 px-4 py-3 text-sm leading-6 text-slate-100'
-                  : 'rounded-[14px] rounded-tl-sm border border-white/[0.06] bg-surface-1 px-4 py-3 text-sm leading-6 text-slate-200',
+                  ? 'rounded-soft rounded-tr-sm bg-surface-3 px-4 py-3 text-sm leading-6 text-slate-100'
+                  : 'rounded-soft rounded-tl-sm border border-white/[0.06] bg-surface-1 px-4 py-3 text-sm leading-6 text-slate-200',
               )}
             >
               {message.role === 'assistant'
@@ -218,7 +218,7 @@ export function ConversationThread({
               {trace ? <TurnTrace trace={trace} /> : null}
             </div>
             {message.role === 'user' ? (
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.06] text-slate-300">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-soft bg-white/[0.06] text-slate-300">
                 <UserRound className="h-4 w-4" aria-hidden="true" />
               </span>
             ) : null}
@@ -230,10 +230,10 @@ export function ConversationThread({
         <article className="flex justify-end gap-3">
           <div className={cn(
             MESSAGE_BUBBLE_WIDTH,
-            'rounded-[14px] rounded-tr-sm bg-surface-3 px-4 py-3 text-sm leading-6 text-slate-100 opacity-75',
+            'rounded-soft rounded-tr-sm bg-surface-3 px-4 py-3 text-sm leading-6 text-slate-100 opacity-75',
           )}>
             <p className="whitespace-pre-wrap">{pending.content}</p>
-            <p className={`mt-1 text-[11px] ${pending.status === 'sending' ? 'text-slate-500' : 'text-rose'}`}>
+            <p className={`mt-1 text-[11px] ${pending.status === 'sending' ? 'text-slate-400' : 'text-rose'}`}>
               {PENDING_STATUS_LABEL[pending.status]}
             </p>
           </div>

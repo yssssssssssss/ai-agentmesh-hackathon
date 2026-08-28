@@ -6,24 +6,39 @@ import os
 import re
 import sqlite3
 import threading
+import unicodedata
+from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from datetime import date as dt_date
+from math import isfinite
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
 
+from agentmesh.agent_run_identity import (
+    agent_run_create_request_hash_for_run,
+    agent_run_create_request_matches,
+)
+from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256, strict_json_loads
+from agentmesh.deepsearch.budget import (
+    DeepSearchBudgetMutationResult,
+    DeepSearchBudgetScope,
+)
 from agentmesh.models import (
     ActivityLog,
     Agent,
     AgentMemoryBinding,
+    AgentPlanningMode,
     AgentRun,
     AgentRunEvent,
     AgentRunStatus,
     AgentToolGrant,
     Artifact,
+    ArtifactVerificationState,
     AuditEvent,
     AuthCredential,
     AuthSession,
@@ -38,6 +53,14 @@ from agentmesh.models import (
     ChatTurnTrace,
     ConsentGrant,
     ContributionPoint,
+    DeepSearchBudgetReservationV1,
+    DeepSearchBudgetUsageV1,
+    DeepSearchBudgetV1,
+    DeepSearchEvidenceCoverageV1,
+    DeepSearchFinalizationStage,
+    DeepSearchReviewOutcomeV1,
+    DeepSearchSynthesisV1,
+    DeepSearchToolInvocationV1,
     DocumentParseJob,
     DocumentRecord,
     InboxItem,
@@ -59,6 +82,7 @@ from agentmesh.models import (
     SkillCapabilityProfile,
     SkillDefinition,
     SkillNodeResult,
+    SkillOrchestrationRequestMode,
     SkillPackage,
     SkillPlan,
     SkillPlanNode,
@@ -89,17 +113,10 @@ from agentmesh.research_orchestration.contracts import (
     ToolReceipt,
     canonical_sha256,
 )
-from agentmesh.research_orchestration.current import (
-    RESEARCH_WRITER_CONTROL_KEY,
-    RESEARCH_WRITER_CONTROL_SEED_HASH,
-    ResearchVersionInitializer,
-    ResearchWriterControlV1,
-    ResearchWriterGeneration,
-    ResearchWriterLifecycle,
-)
 from agentmesh.vector_index import VectorIndex, VectorState, VectorStatus, VectorWork
 
 if TYPE_CHECKING:
+    from agentmesh.deepsearch.contracts import ProblemGraphV1, RequirementVersionV1
     from agentmesh.research_orchestration.api import ResearchOwnerScope
     from agentmesh.research_orchestration.v2_history import WorkflowContext
 
@@ -119,11 +136,65 @@ class ResearchStoreConflict(RuntimeError):
     """A durable research invariant or compare-and-swap precondition failed."""
 
 
+class DeepSearchRequirementConflict(ResearchStoreConflict):
+    """A stable DeepSearch Requirement idempotency or CAS conflict."""
+
+    def __init__(self, code: str, *, current_requirement_version: int | None = None):
+        super().__init__(code)
+        self.code = code
+        self.current_requirement_version = current_requirement_version
+
+
+class DeepSearchBudgetConflict(ResearchStoreConflict):
+    """A stable DeepSearch budget identity, state, capacity, or CAS conflict."""
+
+    def __init__(self, code: str, *, current_budget_version: int | None = None):
+        super().__init__(code)
+        self.code = code
+        self.current_budget_version = current_budget_version
+
+
+class DeepSearchEvidenceConflict(ResearchStoreConflict):
+    """A stable DeepSearch Evidence identity, lineage, or state conflict."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 @dataclass(slots=True)
 class BriefConfirmationResult:
     inbox_item: InboxItem
     document: DocumentRecord
     memory_item: MemoryItem
+
+
+@dataclass(frozen=True, slots=True)
+class DeepSearchRequirementAppendResult:
+    requirement: dict[str, object]
+    run: AgentRun
+    replayed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DeepSearchRequirementPrepareResult:
+    requirement: dict[str, object] | None
+    run: AgentRun
+    replayed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DeepSearchStateSnapshot:
+    run: AgentRun
+    requirement: dict[str, object] | None
+    plan: SkillPlan | None
+
+
+@dataclass(frozen=True, slots=True)
+class DeepSearchEvidenceBatchSaveResult:
+    sources: tuple[Source, ...]
+    artifacts: tuple[Artifact, ...]
+    replayed: bool
 
 # --- FTS5 infrastructure ---
 
@@ -511,66 +582,25 @@ class SQLiteStore:
             )
             """
         )
+        for trigger_name in (
+            "agent_runs_research_writer_guard",
+            "research_writer_generation_fence",
+            "research_writer_admission_fence_v2",
+        ):
+            connection.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
         connection.execute(
             """
-            CREATE TABLE IF NOT EXISTS research_writer_control (
-                control_key TEXT PRIMARY KEY CHECK(control_key = 'global'),
-                active_generation TEXT NOT NULL
-                    CHECK(active_generation IN ('research-v2', 'research-v3')),
-                lifecycle_state TEXT NOT NULL DEFAULT 'retired'
-                    CHECK(lifecycle_state IN ('active', 'draining', 'retired')),
-                generation_epoch INTEGER NOT NULL CHECK(generation_epoch >= 1),
-                decision_receipt_hash TEXT NOT NULL CHECK(length(decision_receipt_hash) = 64),
-                updated_at TEXT NOT NULL
-            )
+            CREATE TRIGGER IF NOT EXISTS retired_research_run_admission_fence
+            BEFORE INSERT ON agent_runs
+            WHEN NEW.orchestration_version IN ('research-v2', 'research-v3')
+              AND NOT EXISTS (
+                  SELECT 1 FROM agent_runs WHERE id = NEW.id
+              )
+            BEGIN
+                SELECT RAISE(ABORT, 'retired research writer is disabled');
+            END
             """
         )
-        SQLiteStore._ensure_column(
-            connection,
-            "research_writer_control",
-            "lifecycle_state",
-            "TEXT NOT NULL DEFAULT 'retired' CHECK(lifecycle_state IN ('active', 'draining', 'retired'))",
-        )
-        connection.execute(
-            """
-            INSERT OR IGNORE INTO research_writer_control(
-                control_key, active_generation, lifecycle_state, generation_epoch,
-                decision_receipt_hash, updated_at
-            ) VALUES (?, 'research-v2', 'retired', 1, ?, ?)
-            """,
-            (
-                RESEARCH_WRITER_CONTROL_KEY,
-                RESEARCH_WRITER_CONTROL_SEED_HASH,
-                now_utc().isoformat(),
-            ),
-        )
-        lifecycle_fence = connection.execute(
-            """SELECT 1 FROM sqlite_master
-            WHERE type = 'trigger' AND name = 'research_writer_admission_fence_v2'"""
-        ).fetchone()
-        if lifecycle_fence is None:
-            connection.execute("DROP TRIGGER IF EXISTS research_writer_generation_fence")
-            connection.execute(
-                """
-                CREATE TRIGGER IF NOT EXISTS research_writer_admission_fence_v2
-                BEFORE INSERT ON agent_runs
-                WHEN NEW.orchestration_version IN ('research-v2', 'research-v3')
-                  AND NOT EXISTS (
-                      SELECT 1 FROM agent_runs WHERE id = NEW.id
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM research_writer_control
-                      WHERE control_key = 'global'
-                        AND lifecycle_state = 'active'
-                        AND active_generation = NEW.orchestration_version
-                        AND generation_epoch = json_extract(NEW.payload, '$.writer_generation_epoch')
-                  )
-                BEGIN
-                    SELECT RAISE(ABORT, 'research writer admission fenced');
-                END
-                """
-            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS agent_run_events (
@@ -585,6 +615,25 @@ class SQLiteStore:
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_run_events_created ON agent_run_events(run_id, created_at)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS deepsearch_requirement_versions (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                request_key TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                derived_from_requirement_version_id TEXT,
+                schema_version TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(run_id, version),
+                UNIQUE(run_id, request_key),
+                FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+            )
+            """
         )
         connection.execute(
             """
@@ -868,11 +917,6 @@ class SQLiteStore:
             )
             """
         )
-        from agentmesh.research_orchestration.v3.sqlite_repository import (
-            SQLiteResearchV3Repository,
-        )
-
-        SQLiteResearchV3Repository.initialize_schema_in_connection(connection)
         VectorIndex.ensure_schema(connection)
 
     def reset(self) -> None:
@@ -883,24 +927,8 @@ class SQLiteStore:
             connection.execute("DELETE FROM vector_states")
             connection.execute("DELETE FROM agent_run_events")
             connection.execute("DELETE FROM agent_run_receipts")
+            connection.execute("DELETE FROM deepsearch_requirement_versions")
             connection.execute("DELETE FROM research_model_call_receipts")
-            connection.execute("DELETE FROM research_v3_verified_artifacts")
-            connection.execute("DELETE FROM research_v3_invocations")
-            connection.execute("DELETE FROM research_v3_attempts")
-            connection.execute("DELETE FROM research_v3_command_receipts")
-            connection.execute("DELETE FROM research_v3_records")
-            connection.execute("DELETE FROM research_v3_runs")
-            connection.execute(
-                """UPDATE research_writer_control
-                SET active_generation = 'research-v2', lifecycle_state = 'retired', generation_epoch = 1,
-                    decision_receipt_hash = ?, updated_at = ?
-                WHERE control_key = ?""",
-                (
-                    RESEARCH_WRITER_CONTROL_SEED_HASH,
-                    now_utc().isoformat(),
-                    RESEARCH_WRITER_CONTROL_KEY,
-                ),
-            )
             connection.execute("DELETE FROM research_tool_invocations")
             connection.execute("DELETE FROM research_steps")
             connection.execute("DELETE FROM research_attempts")
@@ -1903,8 +1931,237 @@ class SQLiteStore:
         return record
 
     @staticmethod
-    def _is_read_only_v2_run(run: AgentRun, stored_version: str | None = None) -> bool:
-        return run.orchestration_version == "research-v2" or stored_version == "research-v2"
+    def _is_retired_research_run(run: AgentRun, stored_version: str | None = None) -> bool:
+        retired_versions = {"research-v2", "research-v3"}
+        return run.orchestration_version in retired_versions or stored_version in retired_versions
+
+    @staticmethod
+    def _agent_run_creation_identity_matches(current: AgentRun, updated: AgentRun) -> bool:
+        fields = (
+            "id",
+            "thread_id",
+            "user_id",
+            "workspace_id",
+            "project_id",
+            "input_text",
+            "client_turn_id",
+            "skill_id",
+            "skill_name",
+            "retry_of_run_id",
+            "planning_mode",
+            "create_request_hash",
+            "orchestration_version",
+            "orchestration_mode",
+            "requested_orchestration_mode",
+        )
+        return all(getattr(current, field) == getattr(updated, field) for field in fields)
+
+    @classmethod
+    def _require_agent_run_creation_identity(cls, current: AgentRun, updated: AgentRun) -> None:
+        if not cls._agent_run_creation_identity_matches(current, updated):
+            raise ResearchStoreConflict("Agent run creation identity is immutable")
+
+    @staticmethod
+    def _decode_agent_run_row(row: sqlite3.Row) -> AgentRun:
+        run = AgentRun.model_validate_json(row["payload"])
+        stored_version = row["orchestration_version"]
+        if stored_version in {"research-v2", "research-v3"} and stored_version != run.orchestration_version:
+            return run.model_copy(update={"orchestration_version": stored_version})
+        return run
+
+    @staticmethod
+    def _decode_deepsearch_requirement_row(row: sqlite3.Row) -> dict[str, object]:
+        try:
+            requirement = json.loads(row["payload"])
+        except (TypeError, json.JSONDecodeError) as error:
+            raise ResearchStoreConflict("DeepSearch Requirement failed integrity verification") from error
+        if not isinstance(requirement, dict):
+            raise ResearchStoreConflict("DeepSearch Requirement failed integrity verification")
+        from agentmesh.deepsearch.contracts import RequirementVersionV1
+
+        try:
+            requirement = RequirementVersionV1.model_validate(requirement).model_dump(mode="json")
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch Requirement failed integrity verification") from error
+        projections = {
+            "id": row["id"],
+            "run_id": row["run_id"],
+            "version": row["version"],
+            "request_key": row["request_key"],
+            "request_hash": row["request_hash"],
+            "content_hash": row["content_hash"],
+            "derived_from_requirement_version_id": row["derived_from_requirement_version_id"],
+            "schema_version": row["schema_version"],
+            "created_at": row["created_at"],
+        }
+        if any(requirement.get(key) != value for key, value in projections.items()):
+            raise ResearchStoreConflict("DeepSearch Requirement failed integrity verification")
+        return requirement
+
+    @staticmethod
+    def _validate_deepsearch_requirement_events(
+        events: list[tuple[str, dict[str, object]]],
+        *,
+        requirement: dict[str, object],
+        previous_requirement: dict[str, object] | None,
+        next_run_status: AgentRunStatus,
+        error_code: str | None,
+    ) -> list[tuple[str, dict[str, object]]]:
+        requirement_payload = requirement["payload"]
+        if not isinstance(requirement_payload, dict):
+            raise ResearchStoreConflict("DeepSearch Requirement event payload is invalid")
+        questions = requirement_payload["clarification_questions"]
+        history = requirement_payload["clarification_history"]
+        if not isinstance(questions, list) or not isinstance(history, list):
+            raise ResearchStoreConflict("DeepSearch Requirement event payload is invalid")
+
+        common_values = {
+            "requirement_version_id": requirement["id"],
+            "requirement_version": requirement["version"],
+            "content_hash": requirement["content_hash"],
+        }
+        expected: list[tuple[str, dict[str, object]]] = []
+        if previous_requirement is None:
+            expected.append(("deepsearch_requirement_created", common_values))
+        else:
+            previous_payload = previous_requirement["payload"]
+            if not isinstance(previous_payload, dict) or not history:
+                raise ResearchStoreConflict("DeepSearch Requirement event payload is invalid")
+            latest_history = history[-1]
+            if not isinstance(latest_history, dict) or not isinstance(latest_history.get("answers"), dict):
+                raise ResearchStoreConflict("DeepSearch Requirement event payload is invalid")
+            expected.append(
+                (
+                    "deepsearch_clarification_answered",
+                    {
+                        **common_values,
+                        "clarification_round": previous_payload["clarification_round"],
+                        "answer_count": len(latest_history["answers"]),
+                    },
+                )
+            )
+        if questions:
+            expected.append(
+                (
+                    "deepsearch_clarification_requested",
+                    {
+                        **common_values,
+                        "clarification_round": requirement_payload["clarification_round"],
+                        "question_count": len(questions),
+                    },
+                )
+            )
+        if next_run_status is AgentRunStatus.FAILED:
+            expected.append(("run_failed", {"error_code": error_code}))
+
+        if events:
+            events_match = len(events) == len(expected) and all(
+                actual_type == expected_type
+                and actual_payload.keys() == expected_payload.keys()
+                and all(
+                    type(actual_payload[key]) is type(expected_value)
+                    and actual_payload[key] == expected_value
+                    for key, expected_value in expected_payload.items()
+                )
+                for (actual_type, actual_payload), (expected_type, expected_payload) in zip(
+                    events,
+                    expected,
+                    strict=True,
+                )
+            )
+            if not events_match:
+                raise ResearchStoreConflict("DeepSearch Requirement event payload is invalid")
+        return expected
+
+    @staticmethod
+    def _validate_deepsearch_requirement_history(
+        *,
+        run_id: str,
+        requirement: object,
+        previous_requirement: dict[str, object] | None,
+    ) -> None:
+        if previous_requirement is None:
+            return
+
+        from agentmesh.deepsearch.contracts import (
+            RequirementVersionV1,
+            clarification_request_hash,
+            normalize_clarification_answers,
+        )
+
+        try:
+            current = RequirementVersionV1.model_validate(requirement)
+            previous = RequirementVersionV1.model_validate(previous_requirement)
+            history = current.payload.clarification_history
+            if len(history) != len(previous.payload.clarification_history) + 1:
+                raise ValueError("clarification history did not append exactly one round")
+            if history[:-1] != previous.payload.clarification_history:
+                raise ValueError("clarification history prefix changed")
+            latest = history[-1]
+            if (
+                latest.round != previous.payload.clarification_round
+                or latest.questions != previous.payload.clarification_questions
+            ):
+                raise ValueError("clarification history does not answer the previous questions")
+            normalized_answers = normalize_clarification_answers(
+                questions=previous.payload.clarification_questions,
+                answers=latest.answers,
+            )
+            expected_request_hash = clarification_request_hash(
+                run_id=run_id,
+                expected_requirement_version=previous.version,
+                normalized_answers=normalized_answers,
+            )
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch Requirement history is invalid") from error
+        if current.request_hash != expected_request_hash:
+            raise ResearchStoreConflict("DeepSearch Requirement request identity is invalid")
+
+    @classmethod
+    def _deepsearch_requirement_parent(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        run: AgentRun,
+        latest_row: sqlite3.Row | None,
+        requirement: dict[str, object],
+    ) -> str | None:
+        if latest_row is not None:
+            return str(latest_row["id"])
+        if run.retry_of_run_id is None:
+            return None
+
+        source_run_row = connection.execute(
+            "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+            (run.retry_of_run_id,),
+        ).fetchone()
+        source_requirement_row = connection.execute(
+            """SELECT * FROM deepsearch_requirement_versions
+            WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+            (run.retry_of_run_id,),
+        ).fetchone()
+        if source_run_row is None or source_requirement_row is None:
+            raise ResearchStoreConflict("DeepSearch retry Requirement source is invalid")
+        source_run = AgentRun.model_validate_json(source_run_row["payload"])
+        if (
+            source_run_row["orchestration_version"] != "v1"
+            or source_run.orchestration_version != "v1"
+            or source_run.planning_mode != AgentPlanningMode.DEEPSEARCH
+            or source_run.id != run.retry_of_run_id
+            or source_run.user_id != run.user_id
+            or source_run.workspace_id != run.workspace_id
+            or source_run.project_id != run.project_id
+        ):
+            raise ResearchStoreConflict("DeepSearch retry Requirement source is invalid")
+        source_requirement = cls._decode_deepsearch_requirement_row(source_requirement_row)
+        if (
+            requirement.get("derived_from_requirement_version_id") != source_requirement["id"]
+            or requirement.get("schema_version") != source_requirement["schema_version"]
+            or requirement.get("content_hash") != source_requirement["content_hash"]
+            or requirement.get("payload") != source_requirement["payload"]
+        ):
+            raise ResearchStoreConflict("DeepSearch retry Requirement clone is invalid")
+        return str(source_requirement["id"])
 
     @staticmethod
     def _write_skill_plan(connection: sqlite3.Connection, plan: SkillPlan) -> None:
@@ -2026,17 +2283,51 @@ class SQLiteStore:
         expiries.extend(InboxItem.model_validate_json(row["payload"]).created_at + timedelta(hours=24) for row in rows)
         return bool(expiries) and checked_at >= min(expiries)
 
+    @staticmethod
+    def _deepsearch_expiration_code(run: AgentRun, *, checked_at: datetime) -> str | None:
+        stable_expiration_codes = {
+            "deepsearch_run_expired",
+            "deepsearch_interaction_expired",
+        }
+        if run.status is AgentRunStatus.CANCELLED and run.error_code in stable_expiration_codes:
+            return run.error_code
+        if run.status in {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.PARTIAL,
+            AgentRunStatus.FAILED,
+            AgentRunStatus.REJECTED,
+            AgentRunStatus.CANCELLED,
+        }:
+            return None
+        if run.absolute_expires_at is not None and checked_at >= run.absolute_expires_at:
+            return "deepsearch_run_expired"
+        if (
+            run.status
+            in {
+                AgentRunStatus.WAITING_CLARIFICATION,
+                AgentRunStatus.WAITING_PLAN_APPROVAL,
+                AgentRunStatus.WAITING_APPROVAL,
+            }
+            and run.interaction_expires_at is not None
+            and checked_at >= run.interaction_expires_at
+        ):
+            return "deepsearch_interaction_expired"
+        return None
+
 
     def _cancel_agent_run_tree_in_transaction(
         self,
         connection: sqlite3.Connection,
         run: AgentRun,
         *,
+        stored_version: str,
         reason: str,
+        error_code: str | None = None,
+        cancelled_at: datetime | None = None,
     ) -> AgentRun:
-        if run.orchestration_version == "research-v2":
+        if self._is_retired_research_run(run, stored_version):
             return run
-        cancelled_at = now_utc()
+        cancelled_at = cancelled_at or now_utc()
         events: list[tuple[str, dict[str, object]]] = []
         plan_row = connection.execute(
             "SELECT payload FROM skill_plans WHERE run_id = ?",
@@ -2044,6 +2335,20 @@ class SQLiteStore:
         ).fetchone()
         if plan_row is not None:
             plan = SkillPlan.model_validate_json(plan_row["payload"])
+            deepsearch_plan = run.planning_mode is AgentPlanningMode.DEEPSEARCH
+            if deepsearch_plan and (
+                stored_version != "v1"
+                or run.orchestration_version != "v1"
+                or plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+                or run.plan_id != plan.id
+                or plan.run_id != run.id
+                or plan.finalization_stage is DeepSearchFinalizationStage.TERMINAL_COMMITTED
+                or DeepSearchFinalizationStage.TERMINAL_COMMITTED in plan.finalization_input_hashes
+                or plan.report_artifact_id is not None
+                or plan.report_content_hash is not None
+                or run.output_text is not None
+            ):
+                raise ResearchStoreConflict("DeepSearch cancellation state is invalid")
             terminal_nodes = {
                 SkillPlanNodeStatus.COMPLETED,
                 SkillPlanNodeStatus.FAILED,
@@ -2057,36 +2362,80 @@ class SQLiteStore:
                 node.completed_at = cancelled_at
                 events.append(("node_cancelled", {"plan_id": plan.id, "node_id": node.id}))
             plan.status = SkillPlanStatus.CANCELLED
-            plan.updated_at = cancelled_at
-            self._write_skill_plan(connection, plan)
-        if run.orchestration_version == "research-v3":
-            preview_row = connection.execute(
-                """SELECT state_version, preview_status FROM research_v3_runs
-                WHERE run_id = ? AND tombstoned_at IS NULL""",
-                (run.id,),
-            ).fetchone()
-            if preview_row is not None and preview_row["preview_status"] == "active":
-                cursor = connection.execute(
-                    """UPDATE research_v3_runs
-                    SET preview_status = 'cancelled', state_version = state_version + 1
-                    WHERE run_id = ? AND state_version = ?
-                      AND preview_status = 'active' AND tombstoned_at IS NULL""",
-                    (run.id, preview_row["state_version"]),
+            if deepsearch_plan:
+                from agentmesh.artifacts import ArtifactAccessError, V1VerifiedArtifactStore
+
+                staging_rows = connection.execute(
+                    """SELECT payload FROM artifacts
+                    WHERE run_id = ?
+                      AND plan_version_id = ?
+                      AND artifact_type = 'deepsearch_report'
+                      AND verification_state = ?""",
+                    (
+                        run.id,
+                        f"{plan.id}:v{plan.version}",
+                        ArtifactVerificationState.STAGING.value,
+                    ),
+                ).fetchall()
+                try:
+                    artifact_store = V1VerifiedArtifactStore(self)
+                    for row in staging_rows:
+                        staging_report = Artifact.model_validate_json(row["payload"])
+                        artifact_store.fail_report(
+                            staging_report.model_copy(
+                                update={
+                                    "verification_state": ArtifactVerificationState.FAILED,
+                                    "updated_at": cancelled_at,
+                                }
+                            ),
+                            connection=connection,
+                        )
+                except (ArtifactAccessError, TypeError, ValueError) as error:
+                    raise ResearchStoreConflict(
+                        "DeepSearch cancellation report state is invalid"
+                    ) from error
+                previous_stage = plan.finalization_stage
+                terminal_input_hash = canonical_json_sha256(
+                    {
+                        "kind": "deepsearch-cancel-without-report-v1",
+                        "run_id": run.id,
+                        "plan_id": plan.id,
+                        "plan_version": plan.version,
+                        "finalization_stage": previous_stage.value,
+                        "finalization_version": plan.finalization_version,
+                        "reason": reason,
+                        "error_code": error_code,
+                    }
                 )
-                if cursor.rowcount != 1:
-                    raise ResearchStoreConflict("research-v3 preview cancellation conflict")
+                plan.finalization_stage = DeepSearchFinalizationStage.TERMINAL_COMMITTED
+                plan.finalization_version += 1
+                plan.finalization_input_hashes = {
+                    **plan.finalization_input_hashes,
+                    DeepSearchFinalizationStage.TERMINAL_COMMITTED: terminal_input_hash,
+                }
                 events.append(
                     (
-                        "research_updated",
+                        "deepsearch_finalization_stage_changed",
                         {
-                            "state_version": preview_row["state_version"] + 1,
-                            "preview_status": "cancelled",
+                            "plan_id": plan.id,
+                            "from_stage": previous_stage.value,
+                            "to_stage": DeepSearchFinalizationStage.TERMINAL_COMMITTED.value,
+                            "finalization_version": plan.finalization_version,
+                            "input_hash": terminal_input_hash,
                         },
                     )
                 )
+            plan.updated_at = cancelled_at
+            plan = SkillPlan.model_validate(plan.model_dump(mode="python"))
+            self._write_skill_plan(connection, plan)
+        if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+            run.deepsearch_budget = self._close_deepsearch_budget_for_terminal(run)
         run.status = AgentRunStatus.CANCELLED
         run.paused_state = None
-        run.error_code = None
+        run.interaction_expires_at = None
+        if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+            run.output_text = None
+        run.error_code = error_code
         run.updated_at = cancelled_at
         connection.execute(
             "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
@@ -2103,7 +2452,8 @@ class SQLiteStore:
         return run
 
     def save_skill_plan(self, plan: SkillPlan) -> SkillPlan:
-        plan.updated_at = now_utc()
+        if plan.planning_mode is AgentPlanningMode.DEEPSEARCH:
+            raise ResearchStoreConflict("DeepSearch Plans require dedicated persistence methods")
         with self._connect() as connection:
             run_row = connection.execute(
                 "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
@@ -2111,8 +2461,11 @@ class SQLiteStore:
             ).fetchone()
             if run_row is not None:
                 run = AgentRun.model_validate_json(run_row["payload"])
-                if self._is_read_only_v2_run(run, run_row["orchestration_version"]):
+                if self._is_retired_research_run(run, run_row["orchestration_version"]):
                     raise ResearchStoreConflict("research-v2 runs are historical and read-only")
+                if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                    raise ResearchStoreConflict("DeepSearch Plans require dedicated persistence methods")
+            plan.updated_at = now_utc()
             self._write_skill_plan(connection, plan)
         return plan
 
@@ -2135,7 +2488,13 @@ class SQLiteStore:
             current = SkillPlan.model_validate_json(row["payload"])
             run = AgentRun.model_validate_json(run_row["payload"])
             if (
-                self._is_read_only_v2_run(run, run_row["orchestration_version"])
+                current.planning_mode is AgentPlanningMode.DEEPSEARCH
+                or plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+                or run.planning_mode is AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("DeepSearch Plans require dedicated persistence methods")
+            if (
+                self._is_retired_research_run(run, run_row["orchestration_version"])
                 or current.run_id != run.id
                 or current.version != expected_version
                 or current.status != SkillPlanStatus.WAITING_APPROVAL
@@ -2173,8 +2532,26 @@ class SQLiteStore:
                 return None
             plan = SkillPlan.model_validate_json(plan_row["payload"])
             run = AgentRun.model_validate_json(run_row["payload"])
+            deepsearch = (
+                plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+                or run.planning_mode is AgentPlanningMode.DEEPSEARCH
+            )
+            if deepsearch and (
+                run_row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+                or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+                or run.plan_id != plan.id
+                or expected_plan_status is not SkillPlanStatus.WAITING_APPROVAL
+                or expected_run_status is not AgentRunStatus.WAITING_PLAN_APPROVAL
+                or next_plan_status is not SkillPlanStatus.REJECTED
+                or next_run_status is not AgentRunStatus.REJECTED
+                or [event_type for event_type, _payload in events]
+                != ["plan_rejected", "run_rejected"]
+            ):
+                raise ResearchStoreConflict("DeepSearch Plans require dedicated transitions")
             if (
-                self._is_read_only_v2_run(run, run_row["orchestration_version"])
+                self._is_retired_research_run(run, run_row["orchestration_version"])
                 or plan.run_id != run.id
                 or plan.version != expected_version
                 or plan.status != expected_plan_status
@@ -2182,6 +2559,8 @@ class SQLiteStore:
             ):
                 return None
             now = now_utc()
+            if deepsearch:
+                run.deepsearch_budget = self._close_deepsearch_budget_for_terminal(run)
             plan.version += 1
             plan.status = next_plan_status
             plan.updated_at = now
@@ -2216,6 +2595,2340 @@ class SQLiteStore:
             row = connection.execute("SELECT payload FROM skill_plans WHERE run_id = ?", (run_id,)).fetchone()
         return SkillPlan.model_validate_json(row["payload"]) if row is not None else None
 
+    @staticmethod
+    def _sum_deepsearch_budget_usage(
+        usages: list[DeepSearchBudgetUsageV1],
+    ) -> DeepSearchBudgetUsageV1:
+        return DeepSearchBudgetUsageV1(
+            **{
+                field: sum(getattr(usage, field) for usage in usages)
+                for field in DeepSearchBudgetUsageV1.model_fields
+            }
+        )
+
+    @classmethod
+    def _billed_deepsearch_budget_usage(
+        cls,
+        reservations: list[DeepSearchBudgetReservationV1],
+    ) -> DeepSearchBudgetUsageV1:
+        return cls._sum_deepsearch_budget_usage(
+            [
+                reservation.actual_usage
+                if reservation.status == "settled" and reservation.actual_usage is not None
+                else reservation.resource_maxima
+                for reservation in reservations
+            ]
+        )
+
+    @staticmethod
+    def _deepsearch_budget_usage_matches(
+        left: DeepSearchBudgetUsageV1,
+        right: DeepSearchBudgetUsageV1,
+    ) -> bool:
+        return all(
+            abs(getattr(left, field) - getattr(right, field)) <= 1e-9
+            if field == "active_seconds"
+            else getattr(left, field) == getattr(right, field)
+            for field in DeepSearchBudgetUsageV1.model_fields
+        )
+
+    @classmethod
+    def _validate_deepsearch_budget_ledger(cls, budget: DeepSearchBudgetV1) -> None:
+        invocation_keys = [reservation.invocation_key for reservation in budget.reservations]
+        attempt_keys = [
+            (reservation.logical_operation_key, reservation.physical_attempt)
+            for reservation in budget.reservations
+        ]
+        if (
+            len(invocation_keys) != len(set(invocation_keys))
+            or len(attempt_keys) != len(set(attempt_keys))
+            or not cls._deepsearch_budget_usage_matches(
+                budget.consumed,
+                cls._billed_deepsearch_budget_usage(budget.reservations),
+            )
+        ):
+            raise DeepSearchBudgetConflict("deepsearch_budget_integrity_failed")
+
+        standard_reservations = [
+            reservation for reservation in budget.reservations if reservation.scope == "standard"
+        ]
+        finalization_reservations = [
+            reservation for reservation in budget.reservations if reservation.scope == "finalization"
+        ]
+        standard_usage = cls._billed_deepsearch_budget_usage(standard_reservations)
+        finalization_usage = cls._billed_deepsearch_budget_usage(finalization_reservations)
+        for field in DeepSearchBudgetUsageV1.model_fields:
+            standard_limit = getattr(budget.limits, field)
+            finalization_limit = 0
+            if field == "active_seconds":
+                finalization_limit = budget.finalization_reserve.active_seconds
+                standard_limit -= finalization_limit
+            elif field == "artifact_bytes":
+                finalization_limit = budget.finalization_reserve.artifact_bytes
+                standard_limit -= finalization_limit
+            standard_value = getattr(standard_usage, field)
+            finalization_value = getattr(finalization_usage, field)
+            tolerance = 1e-9 if field == "active_seconds" else 0
+            if standard_value - standard_limit > tolerance:
+                raise DeepSearchBudgetConflict("deepsearch_budget_exhausted")
+            if finalization_value - finalization_limit > tolerance:
+                code = (
+                    "deepsearch_budget_scope_invalid"
+                    if finalization_limit == 0 and finalization_value > 0
+                    else "deepsearch_budget_exhausted"
+                )
+                raise DeepSearchBudgetConflict(code)
+
+    @classmethod
+    def _load_deepsearch_budget_run_in_transaction(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+    ) -> AgentRun:
+        row = connection.execute(
+            "SELECT id, payload, orchestration_version FROM agent_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            raise DeepSearchBudgetConflict("deepsearch_budget_run_not_found")
+        try:
+            run = AgentRun.model_validate_json(row["payload"])
+        except (TypeError, ValueError) as error:
+            raise DeepSearchBudgetConflict("deepsearch_budget_integrity_failed") from error
+        if (
+            row["id"] != run.id
+            or row["orchestration_version"] != "v1"
+            or run.orchestration_version != "v1"
+            or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            or run.deepsearch_budget is None
+        ):
+            raise DeepSearchBudgetConflict("deepsearch_budget_run_invalid")
+        cls._validate_deepsearch_budget_ledger(run.deepsearch_budget)
+        return run
+
+    @staticmethod
+    def _deepsearch_budget_status_allowed(
+        run: AgentRun,
+        *,
+        scope: DeepSearchBudgetScope,
+        checked_at: datetime,
+    ) -> bool:
+        if run.absolute_expires_at is not None and checked_at >= run.absolute_expires_at:
+            return False
+        if scope == "finalization":
+            return run.status is AgentRunStatus.RUNNING
+        return run.status in {
+            AgentRunStatus.PLANNING,
+            AgentRunStatus.WAITING_CLARIFICATION,
+            AgentRunStatus.RUNNING,
+        }
+
+    @staticmethod
+    def _write_deepsearch_budget_run(
+        connection: sqlite3.Connection,
+        *,
+        run: AgentRun,
+        budget: DeepSearchBudgetV1,
+        updated_at: datetime,
+    ) -> AgentRun:
+        updated_run = AgentRun.model_validate(
+            {
+                **run.model_dump(mode="python"),
+                "deepsearch_budget": budget,
+                "updated_at": updated_at,
+            }
+        )
+        connection.execute(
+            "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+            (updated_run.model_dump_json(), updated_at.isoformat(), updated_run.id),
+        )
+        return updated_run
+
+    @classmethod
+    def _settle_deepsearch_finalization_budget_for_transition(
+        cls,
+        *,
+        run: AgentRun,
+        invocation_key: str,
+        actual_usage: DeepSearchBudgetUsageV1,
+        additional_active_seconds: float = 0,
+    ) -> DeepSearchBudgetV1:
+        """Settle one finalization reservation inside its durable stage transaction."""
+
+        if (
+            not isinstance(invocation_key, str)
+            or not invocation_key
+            or isinstance(additional_active_seconds, bool)
+            or not isinstance(additional_active_seconds, (int, float))
+            or not isfinite(additional_active_seconds)
+            or additional_active_seconds < 0
+        ):
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+        try:
+            actual = DeepSearchBudgetUsageV1.model_validate(
+                {
+                    **actual_usage.model_dump(mode="python"),
+                    "active_seconds": (
+                        actual_usage.active_seconds + additional_active_seconds
+                    ),
+                }
+            )
+        except (AttributeError, TypeError, ValueError) as error:
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid") from error
+        budget = run.deepsearch_budget
+        if budget is None:
+            raise DeepSearchBudgetConflict("deepsearch_budget_run_invalid")
+        cls._validate_deepsearch_budget_ledger(budget)
+        matches = [
+            item for item in budget.reservations if item.invocation_key == invocation_key
+        ]
+        if len(matches) != 1:
+            raise DeepSearchBudgetConflict("deepsearch_budget_reservation_not_found")
+        current = matches[0]
+        if current.scope != "finalization":
+            raise DeepSearchBudgetConflict("deepsearch_budget_scope_invalid")
+        if any(
+            getattr(actual, field) > getattr(current.resource_maxima, field)
+            for field in DeepSearchBudgetUsageV1.model_fields
+        ):
+            raise DeepSearchBudgetConflict("deepsearch_budget_exhausted")
+        if current.status == "settled":
+            if current.actual_usage != actual:
+                raise DeepSearchBudgetConflict("deepsearch_budget_settlement_conflict")
+            return budget
+        if run.status is not AgentRunStatus.RUNNING:
+            raise DeepSearchBudgetConflict("deepsearch_budget_state_conflict")
+        try:
+            settled_reservation = DeepSearchBudgetReservationV1(
+                **current.model_dump(mode="python", exclude={"status", "actual_usage"}),
+                status="settled",
+                actual_usage=actual,
+            )
+        except (TypeError, ValueError) as error:
+            raise DeepSearchBudgetConflict("deepsearch_budget_settlement_invalid") from error
+        reservations = [
+            settled_reservation if item.invocation_key == invocation_key else item
+            for item in budget.reservations
+        ]
+        try:
+            updated_budget = DeepSearchBudgetV1.model_validate(
+                {
+                    **budget.model_dump(mode="python"),
+                    "version": budget.version + 1,
+                    "consumed": cls._billed_deepsearch_budget_usage(reservations),
+                    "reservations": reservations,
+                }
+            )
+            cls._validate_deepsearch_budget_ledger(updated_budget)
+        except (TypeError, ValueError) as error:
+            raise DeepSearchBudgetConflict("deepsearch_budget_settlement_invalid") from error
+        return updated_budget
+
+    @classmethod
+    def _close_deepsearch_budget_for_terminal(
+        cls,
+        run: AgentRun,
+        *,
+        settlement_invocation_key: str | None = None,
+        settlement_actual_usage: DeepSearchBudgetUsageV1 | None = None,
+        settlement_additional_active_seconds: float = 0,
+    ) -> DeepSearchBudgetV1 | None:
+        """Settle every outstanding reservation in one terminal budget version."""
+
+        if (
+            (settlement_invocation_key is None) != (settlement_actual_usage is None)
+            or isinstance(settlement_additional_active_seconds, bool)
+            or not isinstance(settlement_additional_active_seconds, (int, float))
+            or not isfinite(settlement_additional_active_seconds)
+            or settlement_additional_active_seconds < 0
+            or (
+                settlement_invocation_key is None
+                and settlement_additional_active_seconds != 0
+            )
+        ):
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+        budget = run.deepsearch_budget
+        if budget is None:
+            return None
+        cls._validate_deepsearch_budget_ledger(budget)
+
+        settlement_actual: DeepSearchBudgetUsageV1 | None = None
+        if settlement_actual_usage is not None:
+            if not isinstance(settlement_invocation_key, str) or not settlement_invocation_key:
+                raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+            try:
+                settlement_actual = DeepSearchBudgetUsageV1.model_validate(
+                    {
+                        **settlement_actual_usage.model_dump(mode="python"),
+                        "active_seconds": (
+                            settlement_actual_usage.active_seconds
+                            + settlement_additional_active_seconds
+                        ),
+                    }
+                )
+            except (AttributeError, TypeError, ValueError) as error:
+                raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid") from error
+            matches = [
+                reservation
+                for reservation in budget.reservations
+                if reservation.invocation_key == settlement_invocation_key
+            ]
+            if len(matches) != 1:
+                raise DeepSearchBudgetConflict("deepsearch_budget_reservation_not_found")
+            settlement_reservation = matches[0]
+            if settlement_reservation.scope != "finalization":
+                raise DeepSearchBudgetConflict("deepsearch_budget_scope_invalid")
+            if any(
+                getattr(settlement_actual, field)
+                > getattr(settlement_reservation.resource_maxima, field)
+                for field in DeepSearchBudgetUsageV1.model_fields
+            ):
+                raise DeepSearchBudgetConflict("deepsearch_budget_exhausted")
+            if (
+                settlement_reservation.status == "settled"
+                and settlement_reservation.actual_usage != settlement_actual
+            ):
+                raise DeepSearchBudgetConflict("deepsearch_budget_settlement_conflict")
+
+        changed = False
+        reservations: list[DeepSearchBudgetReservationV1] = []
+        for reservation in budget.reservations:
+            if reservation.status == "settled":
+                reservations.append(reservation)
+                continue
+            actual_usage = (
+                settlement_actual
+                if reservation.invocation_key == settlement_invocation_key
+                else reservation.resource_maxima
+            )
+            assert actual_usage is not None
+            try:
+                reservations.append(
+                    DeepSearchBudgetReservationV1(
+                        **reservation.model_dump(
+                            mode="python",
+                            exclude={"status", "actual_usage"},
+                        ),
+                        status="settled",
+                        actual_usage=actual_usage,
+                    )
+                )
+            except (TypeError, ValueError) as error:
+                raise DeepSearchBudgetConflict(
+                    "deepsearch_budget_settlement_invalid"
+                ) from error
+            changed = True
+
+        if not changed:
+            return budget
+        try:
+            updated_budget = DeepSearchBudgetV1.model_validate(
+                {
+                    **budget.model_dump(mode="python"),
+                    "version": budget.version + 1,
+                    "consumed": cls._billed_deepsearch_budget_usage(reservations),
+                    "reservations": reservations,
+                }
+            )
+            cls._validate_deepsearch_budget_ledger(updated_budget)
+        except (TypeError, ValueError) as error:
+            raise DeepSearchBudgetConflict("deepsearch_budget_settlement_invalid") from error
+        return updated_budget
+
+    def reserve_deepsearch_budget(
+        self,
+        *,
+        run_id: str,
+        expected_budget_version: int,
+        logical_operation_key: str,
+        invocation_key: str,
+        physical_attempt: int,
+        resource_maxima: DeepSearchBudgetUsageV1,
+        scope: DeepSearchBudgetScope = "standard",
+        tool_invocation: DeepSearchToolInvocationV1 | None = None,
+    ) -> DeepSearchBudgetMutationResult:
+        """Atomically charge maxima before any external DeepSearch operation starts."""
+
+        if type(expected_budget_version) is not int or expected_budget_version < 1 or scope not in {
+            "standard",
+            "finalization",
+        }:
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+        try:
+            reservation = DeepSearchBudgetReservationV1(
+                logical_operation_key=logical_operation_key,
+                invocation_key=invocation_key,
+                physical_attempt=physical_attempt,
+                scope=scope,
+                resource_maxima=DeepSearchBudgetUsageV1.model_validate(
+                    resource_maxima.model_dump(mode="python")
+                ),
+                status="reserved",
+                tool_invocation=(
+                    DeepSearchToolInvocationV1.model_validate(
+                        tool_invocation.model_dump(mode="python")
+                    )
+                    if tool_invocation is not None
+                    else None
+                ),
+            )
+        except (AttributeError, TypeError, ValueError) as error:
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid") from error
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = self._load_deepsearch_budget_run_in_transaction(
+                connection,
+                run_id=run_id,
+            )
+            budget = run.deepsearch_budget
+            assert budget is not None
+            existing = next(
+                (
+                    item
+                    for item in budget.reservations
+                    if item.invocation_key == reservation.invocation_key
+                ),
+                None,
+            )
+            if existing is not None:
+                if (
+                    existing.logical_operation_key != reservation.logical_operation_key
+                    or existing.physical_attempt != reservation.physical_attempt
+                    or existing.scope != reservation.scope
+                    or existing.resource_maxima != reservation.resource_maxima
+                    or existing.tool_invocation != reservation.tool_invocation
+                ):
+                    raise DeepSearchBudgetConflict("deepsearch_budget_invocation_conflict")
+                return DeepSearchBudgetMutationResult(
+                    budget=budget,
+                    reservation=existing,
+                    replayed=True,
+                )
+            now = now_utc()
+            if not self._deepsearch_budget_status_allowed(run, scope=scope, checked_at=now):
+                raise DeepSearchBudgetConflict("deepsearch_budget_state_conflict")
+            if budget.version != expected_budget_version:
+                raise DeepSearchBudgetConflict(
+                    "deepsearch_budget_version_conflict",
+                    current_budget_version=budget.version,
+                )
+            if reservation.tool_invocation is not None:
+                if reservation.tool_invocation.run_id != run_id:
+                    raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+                try:
+                    (
+                        _lineage_run,
+                        _lineage_plan,
+                        _lineage_node,
+                        tool,
+                        _step_number,
+                        writable,
+                    ) = self._load_deepsearch_evidence_context_in_transaction(
+                        connection,
+                        invocation=reservation.tool_invocation,
+                        require_reservation=False,
+                    )
+                except DeepSearchEvidenceConflict as error:
+                    raise DeepSearchBudgetConflict(error.code) from error
+                if not writable:
+                    raise DeepSearchBudgetConflict("deepsearch_evidence_state_conflict")
+                if (
+                    abs(reservation.resource_maxima.active_seconds - tool.timeout_seconds)
+                    > 1e-9
+                ):
+                    raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+
+            logical_attempts = [
+                item
+                for item in budget.reservations
+                if item.logical_operation_key == reservation.logical_operation_key
+            ]
+            if any(item.status == "reserved" for item in logical_attempts):
+                raise DeepSearchBudgetConflict("deepsearch_budget_previous_attempt_unsettled")
+            expected_attempt = max(
+                (item.physical_attempt for item in logical_attempts),
+                default=0,
+            ) + 1
+            if reservation.physical_attempt != expected_attempt:
+                raise DeepSearchBudgetConflict("deepsearch_budget_attempt_conflict")
+
+            reservations = [*budget.reservations, reservation]
+            candidate_budget = budget.model_copy(
+                update={
+                    "version": budget.version + 1,
+                    "consumed": self._billed_deepsearch_budget_usage(reservations),
+                    "reservations": reservations,
+                }
+            )
+            self._validate_deepsearch_budget_ledger(candidate_budget)
+            updated_budget = DeepSearchBudgetV1.model_validate(
+                candidate_budget.model_dump(mode="python")
+            )
+            self._write_deepsearch_budget_run(
+                connection,
+                run=run,
+                budget=updated_budget,
+                updated_at=now,
+            )
+        return DeepSearchBudgetMutationResult(
+            budget=updated_budget,
+            reservation=reservation,
+            replayed=False,
+        )
+
+    def settle_deepsearch_budget(
+        self,
+        *,
+        run_id: str,
+        expected_budget_version: int,
+        invocation_key: str,
+        actual_usage: DeepSearchBudgetUsageV1,
+    ) -> DeepSearchBudgetMutationResult:
+        """Atomically replace one reserved maximum with trusted actual usage."""
+
+        if type(expected_budget_version) is not int or expected_budget_version < 1:
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+        try:
+            actual = DeepSearchBudgetUsageV1.model_validate(
+                actual_usage.model_dump(mode="python")
+            )
+        except (AttributeError, TypeError, ValueError) as error:
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid") from error
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = self._load_deepsearch_budget_run_in_transaction(
+                connection,
+                run_id=run_id,
+            )
+            budget = run.deepsearch_budget
+            assert budget is not None
+            matches = [
+                item for item in budget.reservations if item.invocation_key == invocation_key
+            ]
+            if len(matches) != 1:
+                raise DeepSearchBudgetConflict("deepsearch_budget_reservation_not_found")
+            current = matches[0]
+            if current.status == "settled":
+                if current.actual_usage != actual:
+                    raise DeepSearchBudgetConflict("deepsearch_budget_settlement_conflict")
+                return DeepSearchBudgetMutationResult(
+                    budget=budget,
+                    reservation=current,
+                    replayed=True,
+                )
+            now = now_utc()
+            if not self._deepsearch_budget_status_allowed(
+                run,
+                scope=current.scope,
+                checked_at=now,
+            ):
+                raise DeepSearchBudgetConflict("deepsearch_budget_state_conflict")
+            if budget.version != expected_budget_version:
+                raise DeepSearchBudgetConflict(
+                    "deepsearch_budget_version_conflict",
+                    current_budget_version=budget.version,
+                )
+            try:
+                settled_reservation = DeepSearchBudgetReservationV1(
+                    **current.model_dump(mode="python", exclude={"status", "actual_usage"}),
+                    status="settled",
+                    actual_usage=actual,
+                )
+            except (TypeError, ValueError) as error:
+                raise DeepSearchBudgetConflict("deepsearch_budget_settlement_invalid") from error
+            reservations = [
+                settled_reservation if item.invocation_key == invocation_key else item
+                for item in budget.reservations
+            ]
+            updated_budget = DeepSearchBudgetV1.model_validate(
+                {
+                    **budget.model_dump(mode="python"),
+                    "version": budget.version + 1,
+                    "consumed": self._billed_deepsearch_budget_usage(reservations),
+                    "reservations": reservations,
+                }
+            )
+            self._validate_deepsearch_budget_ledger(updated_budget)
+            self._write_deepsearch_budget_run(
+                connection,
+                run=run,
+                budget=updated_budget,
+                updated_at=now,
+            )
+        return DeepSearchBudgetMutationResult(
+            budget=updated_budget,
+            reservation=settled_reservation,
+            replayed=False,
+        )
+
+    def _load_deepsearch_evidence_context_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        invocation: DeepSearchToolInvocationV1,
+        require_reservation: bool = True,
+    ) -> tuple[AgentRun, SkillPlan, SkillPlanNode, ToolDefinition, int, bool]:
+        """Validate the durable lineage required by one Tool Evidence batch."""
+
+        run_row = connection.execute(
+            "SELECT id, payload, orchestration_version FROM agent_runs WHERE id = ?",
+            (invocation.run_id,),
+        ).fetchone()
+        plan_row = connection.execute(
+            "SELECT id, run_id, version, status, payload FROM skill_plans WHERE id = ?",
+            (invocation.plan_id,),
+        ).fetchone()
+        node_row = connection.execute(
+            "SELECT id, status, payload FROM skill_plan_nodes WHERE plan_id = ? AND id = ?",
+            (invocation.plan_id, invocation.node_id),
+        ).fetchone()
+        requirement_row = connection.execute(
+            """SELECT * FROM deepsearch_requirement_versions
+            WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+            (invocation.run_id,),
+        ).fetchone()
+        tool_row = connection.execute(
+            "SELECT id, payload FROM records WHERE collection = ? AND id = ?",
+            ("tool_definitions", invocation.tool_definition_id),
+        ).fetchone()
+        if any(row is None for row in (run_row, plan_row, node_row, requirement_row, tool_row)):
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_lineage_invalid")
+
+        try:
+            run = AgentRun.model_validate_json(run_row["payload"])
+            plan = SkillPlan.model_validate_json(plan_row["payload"])
+            node = SkillPlanNode.model_validate_json(node_row["payload"])
+            tool = ToolDefinition.model_validate_json(tool_row["payload"])
+            requirement = self._decode_deepsearch_requirement_row(requirement_row)
+            if run.deepsearch_budget is None:
+                raise ValueError("DeepSearch budget is missing")
+            self._validate_deepsearch_budget_ledger(run.deepsearch_budget)
+        except (DeepSearchBudgetConflict, ResearchStoreConflict, TypeError, ValueError) as error:
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_lineage_invalid") from error
+
+        plan_nodes = {item.id: item for item in plan.nodes}
+        expected_node = plan_nodes.get(invocation.node_id)
+        tool_references = {tool.id, tool.name}
+        if tool.external_name:
+            tool_references.add(tool.external_name)
+        expected_operation_key = canonical_json_sha256(
+            {
+                "run_id": invocation.run_id,
+                "plan_id": invocation.plan_id,
+                "plan_version": invocation.plan_version,
+                "node_id": invocation.node_id,
+                "node_attempt": invocation.node_attempt,
+                "tool_call_id": invocation.tool_call_id,
+            }
+        )
+        if (
+            run_row["id"] != run.id
+            or run_row["orchestration_version"] != "v1"
+            or run.orchestration_version != "v1"
+            or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            or run.plan_id != plan.id
+            or plan_row["id"] != plan.id
+            or plan_row["run_id"] != plan.run_id
+            or plan_row["version"] != plan.version
+            or plan_row["status"] != plan.status.value
+            or plan.run_id != run.id
+            or plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            or plan.version != invocation.plan_version
+            or plan.requirement_version_id != invocation.requirement_version_id
+            or requirement.get("id") != invocation.requirement_version_id
+            or len(plan_nodes) != len(plan.nodes)
+            or expected_node is None
+            or expected_node != node
+            or node_row["id"] != node.id
+            or node_row["status"] != node.status.value
+            or node.attempt != invocation.node_attempt
+            or tool_row["id"] != tool.id
+            or tool.id != invocation.tool_definition_id
+            or not tool.enabled
+            or tool.side_effect != "read"
+            or tool.implementation_id != invocation.implementation_id
+            or tool.implementation_version != invocation.implementation_version
+            or not tool_references.intersection(node.required_tool_names)
+            or invocation.operation_key != expected_operation_key
+            or run.deepsearch_budget is None
+        ):
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_lineage_invalid")
+
+        if require_reservation:
+            reservations = [
+                item
+                for item in run.deepsearch_budget.reservations
+                if item.invocation_key == invocation.operation_key
+            ]
+            if (
+                len(reservations) != 1
+                or reservations[0].scope != "standard"
+                or reservations[0].resource_maxima.tool_calls != 1
+                or reservations[0].tool_invocation != invocation
+            ):
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_reservation_missing")
+
+        if plan.plan_content_hash is None:
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_lineage_invalid")
+        try:
+            self._load_deepsearch_plan_snapshot_in_transaction(
+                connection,
+                run=run,
+                requirement=requirement,
+                plan=plan,
+                expected_plan_hash=plan.plan_content_hash,
+            )
+        except (ResearchStoreConflict, TypeError, ValueError) as error:
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_lineage_invalid") from error
+
+        step_number = next(
+            index
+            for index, item in enumerate(plan.nodes, start=1)
+            if item.id == invocation.node_id
+        )
+        checked_at = now_utc()
+        writable = (
+            run.status is AgentRunStatus.RUNNING
+            and plan.status is SkillPlanStatus.RUNNING
+            and node.status is SkillPlanNodeStatus.RUNNING
+            and (run.absolute_expires_at is None or checked_at < run.absolute_expires_at)
+        )
+        return run, plan, node, tool, step_number, writable
+
+    @staticmethod
+    def _validate_deepsearch_evidence_batch(
+        *,
+        invocation: DeepSearchToolInvocationV1,
+        run: AgentRun,
+        node: SkillPlanNode,
+        tool: ToolDefinition,
+        step_number: int,
+        sources: tuple[Source, ...],
+        artifacts: tuple[Artifact, ...],
+    ) -> tuple[tuple[Source, Artifact], ...]:
+        from agentmesh.artifacts import (
+            ArtifactAccessError,
+            DeepSearchArtifactSchemaRegistry,
+            TrustedEvidenceEnvelopeV1,
+        )
+
+        if not sources or len(sources) != len(artifacts) or len(sources) > 60:
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_batch_invalid")
+        source_by_id = {source.id: source for source in sources}
+        if len(source_by_id) != len(sources) or len({artifact.id for artifact in artifacts}) != len(artifacts):
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_batch_invalid")
+
+        artifact_by_source_id: dict[str, tuple[Artifact, TrustedEvidenceEnvelopeV1]] = {}
+        for artifact in artifacts:
+            try:
+                parsed = DeepSearchArtifactSchemaRegistry.parse(
+                    artifact.artifact_type,
+                    artifact.schema_version or "",
+                    artifact.content,
+                )
+            except ArtifactAccessError as error:
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_integrity_failed") from error
+            if not isinstance(parsed, TrustedEvidenceEnvelopeV1) or parsed.source_id is None:
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_integrity_failed")
+            if parsed.source_id in artifact_by_source_id:
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_batch_invalid")
+            artifact_by_source_id[parsed.source_id] = (artifact, parsed)
+
+        if set(source_by_id) != set(artifact_by_source_id):
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_batch_invalid")
+
+        unordered = [
+            (source_by_id[source_id], artifact, envelope)
+            for source_id, (artifact, envelope) in artifact_by_source_id.items()
+        ]
+        ordered = sorted(
+            unordered,
+            key=lambda item: (
+                item[2].normalized_reference,
+                item[2].content_hash,
+                unicodedata.normalize("NFC", item[0].title.strip()),
+            ),
+        )
+        order_keys = [
+            (
+                envelope.normalized_reference,
+                envelope.content_hash,
+                unicodedata.normalize("NFC", source.title.strip()),
+            )
+            for source, _artifact, envelope in ordered
+        ]
+        if len(order_keys) != len(set(order_keys)):
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_batch_invalid")
+
+        reference_ordinals: dict[str, int] = {}
+        validated: list[tuple[Source, Artifact]] = []
+        for source, artifact, envelope in ordered:
+            normalized_reference = envelope.normalized_reference
+            normalized_title = unicodedata.normalize("NFC", source.title.strip())
+            source_ordinal = reference_ordinals.get(normalized_reference, 0)
+            reference_ordinals[normalized_reference] = source_ordinal + 1
+            expected_source_id = "src_deepsearch_" + canonical_json_sha256(
+                {
+                    "run_id": invocation.run_id,
+                    "plan_id": invocation.plan_id,
+                    "plan_version": invocation.plan_version,
+                    "node_id": invocation.node_id,
+                    "node_attempt": invocation.node_attempt,
+                    "operation_key": invocation.operation_key,
+                    "normalized_reference": normalized_reference,
+                    "source_ordinal": source_ordinal,
+                }
+            )
+            expected_artifact_id = "artifact_deepsearch_evidence_" + canonical_json_sha256(
+                {"source_id": expected_source_id}
+            )
+            if (
+                not normalized_title
+                or not source.source_type.strip()
+                or source.id != expected_source_id
+                or source.reference != normalized_reference
+                or unicodedata.normalize("NFC", source.reference.strip()) != source.reference
+                or source.workspace_id != run.workspace_id
+                or source.project_id != run.project_id
+                or source.user_id != run.user_id
+                or source.run_id != run.id
+                or source.skill_id != node.skill_id
+                or source.created_at != envelope.retrieved_at
+                or envelope.schema_version != "deepsearch-tool-evidence-v1"
+                or envelope.origin_type != "tool"
+                or envelope.run_id != invocation.run_id
+                or envelope.requirement_version_id != invocation.requirement_version_id
+                or envelope.plan_id != invocation.plan_id
+                or envelope.plan_version != invocation.plan_version
+                or envelope.node_id != invocation.node_id
+                or envelope.attempt != invocation.node_attempt
+                or envelope.tool_name != tool.name
+                or envelope.tool_implementation_id != invocation.implementation_id
+                or envelope.tool_implementation_version != invocation.implementation_version
+                or envelope.execution_mode != "real"
+                or envelope.tool_call_id != invocation.tool_call_id
+                or envelope.operation_key != invocation.operation_key
+                or envelope.request_hash != invocation.canonical_arguments_hash
+                or envelope.source_id != expected_source_id
+                or envelope.source_ordinal != source_ordinal
+                or artifact.id != expected_artifact_id
+                or artifact.run_id != run.id
+                or artifact.workspace_id != run.workspace_id
+                or artifact.project_id != run.project_id
+                or artifact.user_id != run.user_id
+                or artifact.artifact_type != "deepsearch_tool_evidence"
+                or artifact.content_type != "application/json"
+                or artifact.truncated
+                or artifact.verification_state is not ArtifactVerificationState.SEALED
+                or artifact.schema_version != "deepsearch-tool-evidence-v1"
+                or artifact.requirement_version_id != invocation.requirement_version_id
+                or artifact.plan_version_id != f"{invocation.plan_id}:v{invocation.plan_version}"
+                or artifact.attempt_id != f"{invocation.node_id}:attempt:{invocation.node_attempt}"
+                or artifact.step_number != step_number
+                or artifact.created_at != envelope.retrieved_at
+                or artifact.updated_at != envelope.retrieved_at
+            ):
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_integrity_failed")
+            validated.append((source, artifact))
+        return tuple(validated)
+
+    def save_deepsearch_evidence_batch(
+        self,
+        *,
+        invocation: DeepSearchToolInvocationV1,
+        sources: Sequence[Source],
+        artifacts: Sequence[Artifact],
+    ) -> DeepSearchEvidenceBatchSaveResult:
+        """Atomically insert one Tool call's Sources and sealed Evidence Artifacts."""
+
+        from agentmesh.artifacts import (
+            ArtifactAccessError,
+            DeepSearchArtifactSchemaRegistry,
+            TrustedEvidenceEnvelopeV1,
+            V1VerifiedArtifactStore,
+        )
+
+        try:
+            invocation = DeepSearchToolInvocationV1.model_validate(
+                invocation.model_dump(mode="python")
+            )
+            checked_sources = tuple(
+                Source.model_validate(source.model_dump(mode="python"))
+                for source in sources
+            )
+            checked_artifacts = tuple(
+                Artifact.model_validate(artifact.model_dump(mode="python"))
+                for artifact in artifacts
+            )
+        except (AttributeError, TypeError, ValueError) as error:
+            raise DeepSearchEvidenceConflict("deepsearch_evidence_batch_invalid") from error
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run, _plan, node, tool, step_number, writable = (
+                self._load_deepsearch_evidence_context_in_transaction(
+                    connection,
+                    invocation=invocation,
+                )
+            )
+            pairs = self._validate_deepsearch_evidence_batch(
+                invocation=invocation,
+                run=run,
+                node=node,
+                tool=tool,
+                step_number=step_number,
+                sources=checked_sources,
+                artifacts=checked_artifacts,
+            )
+            budget = run.deepsearch_budget
+            assert budget is not None
+            try:
+                envelopes = tuple(
+                    DeepSearchArtifactSchemaRegistry.parse(
+                        artifact.artifact_type,
+                        artifact.schema_version or "",
+                        artifact.content,
+                    )
+                    for _source, artifact in pairs
+                )
+            except ArtifactAccessError as error:
+                raise DeepSearchEvidenceConflict(
+                    "deepsearch_evidence_integrity_failed"
+                ) from error
+            if not all(
+                isinstance(envelope, TrustedEvidenceEnvelopeV1)
+                for envelope in envelopes
+            ):
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_integrity_failed")
+            evidence_usage = DeepSearchBudgetUsageV1(
+                evidence_items=len(pairs),
+                evidence_bytes=sum(envelope.size_bytes for envelope in envelopes),
+                artifact_bytes=sum(
+                    len(artifact.content.encode("utf-8"))
+                    for _source, artifact in pairs
+                ),
+            )
+            evidence_reservation = DeepSearchBudgetReservationV1(
+                logical_operation_key=f"evidence:{invocation.operation_key}",
+                invocation_key=canonical_json_sha256(
+                    {
+                        "operation_key": invocation.operation_key,
+                        "resource": "evidence_batch",
+                    }
+                ),
+                physical_attempt=1,
+                resource_maxima=evidence_usage,
+                status="settled",
+                actual_usage=evidence_usage,
+            )
+            matching_evidence_reservations = [
+                item
+                for item in budget.reservations
+                if item.invocation_key == evidence_reservation.invocation_key
+            ]
+            if len(matching_evidence_reservations) > 1 or (
+                matching_evidence_reservations
+                and matching_evidence_reservations[0] != evidence_reservation
+            ):
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_identity_conflict")
+            existing_source_rows = [
+                connection.execute(
+                    "SELECT id, payload FROM records WHERE collection = ? AND id = ?",
+                    ("sources", source.id),
+                ).fetchone()
+                for source, _artifact in pairs
+            ]
+            existing_artifact_rows = [
+                connection.execute(
+                    "SELECT id FROM artifacts WHERE id = ?",
+                    (artifact.id,),
+                ).fetchone()
+                for _source, artifact in pairs
+            ]
+            presence = [
+                source_row is not None and artifact_row is not None
+                for source_row, artifact_row in zip(
+                    existing_source_rows,
+                    existing_artifact_rows,
+                    strict=True,
+                )
+            ]
+            if any(
+                (source_row is None) != (artifact_row is None)
+                for source_row, artifact_row in zip(
+                    existing_source_rows,
+                    existing_artifact_rows,
+                    strict=True,
+                )
+            ) or (any(presence) and not all(presence)):
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_identity_conflict")
+
+            artifact_store = V1VerifiedArtifactStore(self)
+            if all(presence):
+                if len(matching_evidence_reservations) != 1:
+                    raise DeepSearchEvidenceConflict("deepsearch_evidence_identity_conflict")
+                persisted_sources: list[Source] = []
+                persisted_artifacts: list[Artifact] = []
+                for (source, artifact), source_row in zip(
+                    pairs,
+                    existing_source_rows,
+                    strict=True,
+                ):
+                    try:
+                        existing_source = Source.model_validate_json(source_row["payload"])
+                        existing_artifact = artifact_store.insert_sealed(
+                            artifact,
+                            connection=connection,
+                        )
+                    except (ArtifactAccessError, TypeError, ValueError) as error:
+                        raise DeepSearchEvidenceConflict(
+                            "deepsearch_evidence_identity_conflict"
+                        ) from error
+                    if source_row["id"] != source.id or existing_source != source:
+                        raise DeepSearchEvidenceConflict("deepsearch_evidence_identity_conflict")
+                    persisted_sources.append(existing_source)
+                    persisted_artifacts.append(existing_artifact)
+                return DeepSearchEvidenceBatchSaveResult(
+                    sources=tuple(persisted_sources),
+                    artifacts=tuple(persisted_artifacts),
+                    replayed=True,
+                )
+
+            if not writable:
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_state_conflict")
+            if matching_evidence_reservations:
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_identity_conflict")
+            reservations = [*budget.reservations, evidence_reservation]
+            candidate_budget = budget.model_copy(
+                update={
+                    "version": budget.version + 1,
+                    "consumed": self._billed_deepsearch_budget_usage(reservations),
+                    "reservations": reservations,
+                }
+            )
+            try:
+                self._validate_deepsearch_budget_ledger(candidate_budget)
+                updated_budget = DeepSearchBudgetV1.model_validate(
+                    candidate_budget.model_dump(mode="python")
+                )
+            except (DeepSearchBudgetConflict, TypeError, ValueError) as error:
+                code = getattr(error, "code", "deepsearch_budget_integrity_failed")
+                raise DeepSearchEvidenceConflict(code) from error
+            try:
+                for source, _artifact in pairs:
+                    connection.execute(
+                        "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                        ("sources", source.id, source.model_dump_json()),
+                    )
+                persisted_artifacts = tuple(
+                    artifact_store.insert_sealed(artifact, connection=connection)
+                    for _source, artifact in pairs
+                )
+            except (ArtifactAccessError, sqlite3.IntegrityError) as error:
+                raise DeepSearchEvidenceConflict("deepsearch_evidence_identity_conflict") from error
+            self._write_deepsearch_budget_run(
+                connection,
+                run=run,
+                budget=updated_budget,
+                updated_at=now_utc(),
+            )
+
+        return DeepSearchEvidenceBatchSaveResult(
+            sources=tuple(source for source, _artifact in pairs),
+            artifacts=persisted_artifacts,
+            replayed=False,
+        )
+
+    def _load_deepsearch_finalization_context_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        plan_id: str,
+    ) -> tuple[SkillPlan, AgentRun, RequirementVersionV1, ProblemGraphV1] | None:
+        """Load and verify the immutable lineage for one DeepSearch finalization CAS."""
+
+        from agentmesh.deepsearch.contracts import (
+            ProblemGraphV1,
+            RequirementVersionV1,
+            validate_problem_graph_against_requirement,
+        )
+        from agentmesh.deepsearch.planning import plan_content_hash
+
+        plan_row = connection.execute(
+            "SELECT id, run_id, version, status, payload FROM skill_plans WHERE id = ?",
+            (plan_id,),
+        ).fetchone()
+        run_row = connection.execute(
+            "SELECT id, payload, orchestration_version FROM agent_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if plan_row is None or run_row is None:
+            return None
+        try:
+            plan = SkillPlan.model_validate_json(plan_row["payload"])
+            run = AgentRun.model_validate_json(run_row["payload"])
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch finalization state is invalid") from error
+        if (
+            run_row["id"] != run.id
+            or plan_row["id"] != plan.id
+            or plan_row["run_id"] != plan.run_id
+            or plan_row["version"] != plan.version
+            or plan_row["status"] != plan.status.value
+            or run.id != run_id
+            or plan.id != plan_id
+            or plan.run_id != run.id
+            or run.plan_id != plan.id
+            or run_row["orchestration_version"] != "v1"
+            or run.orchestration_version != "v1"
+            or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            or plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            or run.deepsearch_budget is None
+        ):
+            raise ResearchStoreConflict("DeepSearch finalization identity is invalid")
+
+        requirement_row = connection.execute(
+            """SELECT * FROM deepsearch_requirement_versions
+            WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+            (run.id,),
+        ).fetchone()
+        if requirement_row is None:
+            raise ResearchStoreConflict("DeepSearch finalization Requirement is missing")
+        requirement_data = self._decode_deepsearch_requirement_row(requirement_row)
+        try:
+            requirement = RequirementVersionV1.model_validate(requirement_data)
+            graph = ProblemGraphV1.model_validate(plan.problem_graph)
+            validate_problem_graph_against_requirement(graph=graph, requirement=requirement)
+            expected_plan_hash = plan_content_hash(plan)
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch finalization lineage is invalid") from error
+        if (
+            requirement.run_id != run.id
+            or plan.requirement_version_id != requirement.id
+            or plan.requirement_content_hash != requirement.content_hash
+            or plan.problem_graph_hash != graph.content_hash
+            or plan.plan_content_hash != expected_plan_hash
+        ):
+            raise ResearchStoreConflict("DeepSearch finalization lineage is invalid")
+        self._load_deepsearch_plan_snapshot_in_transaction(
+            connection,
+            run=run,
+            requirement=requirement,
+            plan=plan,
+            expected_plan_hash=expected_plan_hash,
+        )
+        return plan, run, requirement, graph
+
+    @staticmethod
+    def _validate_deepsearch_finalization_cas_input(
+        *,
+        expected_plan_version: int,
+        expected_finalization_version: int,
+        expected_stage: DeepSearchFinalizationStage,
+        target_stage: DeepSearchFinalizationStage,
+        input_hash: str,
+    ) -> tuple[DeepSearchFinalizationStage, DeepSearchFinalizationStage]:
+        try:
+            current = DeepSearchFinalizationStage(expected_stage)
+            target = DeepSearchFinalizationStage(target_stage)
+        except ValueError as error:
+            raise ResearchStoreConflict("DeepSearch finalization stage is invalid") from error
+        if (
+            type(expected_plan_version) is not int
+            or expected_plan_version < 1
+            or type(expected_finalization_version) is not int
+            or expected_finalization_version < 0
+            or not isinstance(input_hash, str)
+            or re.fullmatch(r"[0-9a-f]{64}", input_hash) is None
+        ):
+            raise ResearchStoreConflict("DeepSearch finalization CAS input is invalid")
+        return current, target
+
+    def compare_and_swap_deepsearch_finalization(
+        self,
+        *,
+        run_id: str,
+        plan_id: str,
+        expected_plan_version: int,
+        expected_finalization_version: int,
+        expected_stage: DeepSearchFinalizationStage,
+        target_stage: DeepSearchFinalizationStage,
+        input_hash: str,
+        evidence_manifest_artifact: Artifact | None = None,
+        synthesis: DeepSearchSynthesisV1 | None = None,
+        coverage: DeepSearchEvidenceCoverageV1 | None = None,
+        review_outcome: DeepSearchReviewOutcomeV1 | None = None,
+        budget_invocation_key: str | None = None,
+        budget_actual_usage: DeepSearchBudgetUsageV1 | None = None,
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        """Atomically persist one typed finalization result and advance its checkpoint."""
+
+        current_stage, next_stage = self._validate_deepsearch_finalization_cas_input(
+            expected_plan_version=expected_plan_version,
+            expected_finalization_version=expected_finalization_version,
+            expected_stage=expected_stage,
+            target_stage=target_stage,
+            input_hash=input_hash,
+        )
+        allowed_targets = {
+            DeepSearchFinalizationStage.NONE: DeepSearchFinalizationStage.NODES_TERMINAL,
+            DeepSearchFinalizationStage.NODES_TERMINAL: DeepSearchFinalizationStage.EVIDENCE_MANIFEST_SEALED,
+            DeepSearchFinalizationStage.EVIDENCE_MANIFEST_SEALED: DeepSearchFinalizationStage.SYNTHESIS_V0_SAVED,
+            DeepSearchFinalizationStage.SYNTHESIS_V0_SAVED: DeepSearchFinalizationStage.COVERAGE_V0_CHECKED,
+            DeepSearchFinalizationStage.COVERAGE_V0_CHECKED: DeepSearchFinalizationStage.REVIEW_V0_CHECKED,
+            DeepSearchFinalizationStage.REVIEW_V0_CHECKED: DeepSearchFinalizationStage.SYNTHESIS_V1_SAVED,
+            DeepSearchFinalizationStage.SYNTHESIS_V1_SAVED: DeepSearchFinalizationStage.COVERAGE_V1_CHECKED,
+            DeepSearchFinalizationStage.COVERAGE_V1_CHECKED: DeepSearchFinalizationStage.REVIEW_V1_CHECKED,
+        }
+        if allowed_targets.get(current_stage) is not next_stage:
+            raise ResearchStoreConflict("DeepSearch finalization stage transition is invalid")
+
+        payloads = {
+            "evidence_manifest_artifact": evidence_manifest_artifact,
+            "synthesis": synthesis,
+            "coverage": coverage,
+            "review_outcome": review_outcome,
+        }
+        expected_payload = {
+            DeepSearchFinalizationStage.EVIDENCE_MANIFEST_SEALED: "evidence_manifest_artifact",
+            DeepSearchFinalizationStage.SYNTHESIS_V0_SAVED: "synthesis",
+            DeepSearchFinalizationStage.COVERAGE_V0_CHECKED: "coverage",
+            DeepSearchFinalizationStage.REVIEW_V0_CHECKED: "review_outcome",
+            DeepSearchFinalizationStage.SYNTHESIS_V1_SAVED: "synthesis",
+            DeepSearchFinalizationStage.COVERAGE_V1_CHECKED: "coverage",
+            DeepSearchFinalizationStage.REVIEW_V1_CHECKED: "review_outcome",
+        }.get(next_stage)
+        supplied_payloads = {name for name, value in payloads.items() if value is not None}
+        required_payloads = {expected_payload} if expected_payload is not None else set()
+        if supplied_payloads != required_payloads:
+            raise ResearchStoreConflict("DeepSearch finalization payload does not match its stage")
+        if (budget_invocation_key is None) != (budget_actual_usage is None):
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+        try:
+            checked_manifest_artifact = (
+                Artifact.model_validate(evidence_manifest_artifact.model_dump(mode="python"))
+                if evidence_manifest_artifact is not None
+                else None
+            )
+            checked_synthesis = (
+                DeepSearchSynthesisV1.model_validate(synthesis.model_dump(mode="python"))
+                if synthesis is not None
+                else None
+            )
+            checked_coverage = (
+                DeepSearchEvidenceCoverageV1.model_validate(coverage.model_dump(mode="python"))
+                if coverage is not None
+                else None
+            )
+            checked_review_outcome = (
+                DeepSearchReviewOutcomeV1.model_validate(review_outcome.model_dump(mode="python"))
+                if review_outcome is not None
+                else None
+            )
+        except (AttributeError, TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch finalization payload is invalid") from error
+        requires_finalization_budget = (
+            checked_manifest_artifact is not None
+            or checked_coverage is not None
+            or (
+                checked_synthesis is not None
+                and checked_synthesis.synthesis_mode == "deterministic_evidence_digest"
+            )
+        )
+        if requires_finalization_budget and budget_invocation_key is None:
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+
+        persistence_started_at = monotonic()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            context = self._load_deepsearch_finalization_context_in_transaction(
+                connection,
+                run_id=run_id,
+                plan_id=plan_id,
+            )
+            if context is None:
+                return None
+            plan, run, requirement, graph = context
+            if (
+                plan.version == expected_plan_version
+                and plan.finalization_version == expected_finalization_version + 1
+                and plan.finalization_stage is next_stage
+                and plan.finalization_input_hashes.get(next_stage) == input_hash
+                and plan.status is SkillPlanStatus.RUNNING
+                and run.status is AgentRunStatus.RUNNING
+            ):
+                replay_matches = False
+                if checked_manifest_artifact is not None:
+                    from agentmesh.artifacts import ArtifactAccessError, V1VerifiedArtifactStore
+
+                    artifact_row = connection.execute(
+                        "SELECT 1 FROM artifacts WHERE id = ?",
+                        (checked_manifest_artifact.id,),
+                    ).fetchone()
+                    replay_matches = (
+                        artifact_row is not None
+                        and plan.evidence_manifest_artifact_id == checked_manifest_artifact.id
+                        and plan.evidence_manifest_hash == checked_manifest_artifact.content_hash
+                    )
+                    if replay_matches:
+                        try:
+                            V1VerifiedArtifactStore(self).insert_sealed(
+                                checked_manifest_artifact,
+                                connection=connection,
+                            )
+                        except ArtifactAccessError as error:
+                            raise ResearchStoreConflict(
+                                "DeepSearch finalization replay payload conflicts"
+                            ) from error
+                elif checked_synthesis is not None:
+                    revision = checked_synthesis.revision_count
+                    replay_matches = (
+                        revision < len(plan.deepsearch_syntheses)
+                        and plan.deepsearch_syntheses[revision] == checked_synthesis
+                    )
+                elif checked_coverage is not None:
+                    replay_matches = plan.evidence_coverage == checked_coverage
+                elif checked_review_outcome is not None:
+                    revision = checked_review_outcome.revision_count
+                    replay_matches = (
+                        revision < len(plan.review_outcomes)
+                        and plan.review_outcomes[revision] == checked_review_outcome
+                    )
+                else:
+                    return None
+                if not replay_matches:
+                    raise ResearchStoreConflict(
+                        "DeepSearch finalization replay payload conflicts"
+                    )
+                return plan, run
+            if (
+                plan.version != expected_plan_version
+                or plan.finalization_version != expected_finalization_version
+                or plan.finalization_stage is not current_stage
+                or plan.status is not SkillPlanStatus.RUNNING
+                or run.status is not AgentRunStatus.RUNNING
+            ):
+                return None
+            terminal_node_statuses = {
+                SkillPlanNodeStatus.COMPLETED,
+                SkillPlanNodeStatus.FAILED,
+                SkillPlanNodeStatus.SKIPPED,
+                SkillPlanNodeStatus.CANCELLED,
+            }
+            if next_stage is DeepSearchFinalizationStage.NODES_TERMINAL and any(
+                node.status not in terminal_node_statuses for node in plan.nodes
+            ):
+                raise ResearchStoreConflict("DeepSearch finalization requires all nodes to be terminal")
+            if next_stage in plan.finalization_input_hashes:
+                raise ResearchStoreConflict("DeepSearch finalization input hash already exists")
+
+            updates: dict[str, object] = {}
+            if checked_manifest_artifact is not None:
+                from agentmesh.artifacts import (
+                    ArtifactAccessError,
+                    DeepSearchArtifactSchemaRegistry,
+                    DeepSearchEvidenceManifestV1,
+                    V1VerifiedArtifactStore,
+                )
+
+                try:
+                    manifest = DeepSearchArtifactSchemaRegistry.parse(
+                        checked_manifest_artifact.artifact_type,
+                        checked_manifest_artifact.schema_version or "",
+                        checked_manifest_artifact.content,
+                    )
+                except (ArtifactAccessError, TypeError, ValueError) as error:
+                    raise ResearchStoreConflict(
+                        "DeepSearch evidence manifest is invalid"
+                    ) from error
+                if (
+                    not isinstance(manifest, DeepSearchEvidenceManifestV1)
+                    or checked_manifest_artifact.artifact_type
+                    != "deepsearch_evidence_manifest"
+                    or checked_manifest_artifact.verification_state
+                    is not ArtifactVerificationState.SEALED
+                    or manifest.run_id != run.id
+                    or manifest.requirement_version_id != requirement.id
+                    or manifest.plan_id != plan.id
+                    or manifest.plan_version != plan.version
+                    or manifest.plan_content_hash != plan.plan_content_hash
+                    or plan.evidence_manifest_artifact_id is not None
+                    or plan.evidence_manifest_hash is not None
+                ):
+                    raise ResearchStoreConflict("DeepSearch evidence manifest is invalid")
+                try:
+                    V1VerifiedArtifactStore(self).insert_sealed(
+                        checked_manifest_artifact,
+                        connection=connection,
+                    )
+                except ArtifactAccessError as error:
+                    raise ResearchStoreConflict(
+                        "DeepSearch evidence manifest is invalid"
+                    ) from error
+                updates = {
+                    "evidence_manifest_artifact_id": checked_manifest_artifact.id,
+                    "evidence_manifest_hash": checked_manifest_artifact.content_hash,
+                }
+            elif checked_synthesis is not None:
+                revision = (
+                    0
+                    if next_stage is DeepSearchFinalizationStage.SYNTHESIS_V0_SAVED
+                    else 1
+                )
+                if (
+                    checked_synthesis.revision_count != revision
+                    or len(plan.deepsearch_syntheses) != revision
+                    or len(plan.synthesis_content_hashes) != revision
+                    or plan.evidence_manifest_artifact_id is None
+                    or plan.evidence_manifest_hash is None
+                    or (
+                        revision == 1
+                        and (
+                            len(plan.review_outcomes) != 1
+                            or plan.review_outcomes[0].outcome != "revise"
+                            or plan.deepsearch_syntheses[0].synthesis_mode != "model"
+                        )
+                    )
+                ):
+                    raise ResearchStoreConflict("DeepSearch synthesis revision is invalid")
+                for ordinal, claim in enumerate(checked_synthesis.claims, start=1):
+                    expected_claim_id = "claim_" + canonical_json_sha256(
+                        {
+                            "run_id": run.id,
+                            "plan_id": plan.id,
+                            "plan_version": plan.version,
+                            "revision_count": revision,
+                            "ordinal": ordinal,
+                            "claim": claim.model_dump(mode="python", exclude={"id"}),
+                        }
+                    )
+                    if claim.id != expected_claim_id:
+                        raise ResearchStoreConflict("DeepSearch synthesis claim identity is invalid")
+                synthesis_hash = canonical_json_sha256(
+                    checked_synthesis.model_dump(mode="python")
+                )
+                updates = {
+                    "deepsearch_syntheses": [
+                        *plan.deepsearch_syntheses,
+                        checked_synthesis,
+                    ],
+                    "synthesis_content_hashes": [
+                        *plan.synthesis_content_hashes,
+                        synthesis_hash,
+                    ],
+                    "report_revision_count": revision,
+                }
+            elif checked_coverage is not None:
+                revision = (
+                    0
+                    if next_stage is DeepSearchFinalizationStage.COVERAGE_V0_CHECKED
+                    else 1
+                )
+                synthesis_hash = (
+                    plan.synthesis_content_hashes[revision]
+                    if revision < len(plan.synthesis_content_hashes)
+                    else None
+                )
+                required_question_ids = [
+                    question.id for question in graph.questions if question.required
+                ]
+                required_criterion_ids = [
+                    criterion.id for criterion in requirement.payload.success_criteria
+                ]
+                synthesis_claim_ids = (
+                    {claim.id for claim in plan.deepsearch_syntheses[revision].claims}
+                    if revision < len(plan.deepsearch_syntheses)
+                    else set()
+                )
+                checkpoint_claim_ids = set(checked_coverage.validated_claim_ids) | set(
+                    checked_coverage.invalid_claim_ids
+                )
+                if (
+                    checked_coverage.revision_count != revision
+                    or checked_coverage.synthesis_content_hash != synthesis_hash
+                    or checked_coverage.required_question_ids != required_question_ids
+                    or checked_coverage.required_success_criterion_ids
+                    != required_criterion_ids
+                    or checkpoint_claim_ids != synthesis_claim_ids
+                    or checked_coverage.passed != (not checked_coverage.gap_codes)
+                    or (
+                        revision == 0 and plan.evidence_coverage is not None
+                    )
+                    or (
+                        revision == 1
+                        and (
+                            plan.evidence_coverage is None
+                            or plan.evidence_coverage.revision_count != 0
+                        )
+                    )
+                ):
+                    raise ResearchStoreConflict("DeepSearch evidence coverage is invalid")
+                updates = {"evidence_coverage": checked_coverage}
+            elif checked_review_outcome is not None:
+                revision = (
+                    0
+                    if next_stage is DeepSearchFinalizationStage.REVIEW_V0_CHECKED
+                    else 1
+                )
+                synthesis_hash = (
+                    plan.synthesis_content_hashes[revision]
+                    if revision < len(plan.synthesis_content_hashes)
+                    else None
+                )
+                review = checked_review_outcome.review
+                known_claim_ids = (
+                    {claim.id for claim in plan.deepsearch_syntheses[revision].claims}
+                    if revision < len(plan.deepsearch_syntheses)
+                    else set()
+                )
+                if (
+                    checked_review_outcome.revision_count != revision
+                    or checked_review_outcome.synthesis_content_hash != synthesis_hash
+                    or len(plan.review_outcomes) != revision
+                    or plan.evidence_coverage is None
+                    or plan.evidence_coverage.revision_count != revision
+                    or (
+                        review is not None
+                        and (
+                            review.requirement_version_id != requirement.id
+                            or review.requirement_content_hash != requirement.content_hash
+                            or review.problem_graph_hash != graph.content_hash
+                            or review.plan_id != plan.id
+                            or review.plan_version != plan.version
+                            or review.plan_content_hash != plan.plan_content_hash
+                            or not set(review.unsupported_claim_ids).issubset(
+                                known_claim_ids
+                            )
+                            or not set(review.contradictory_claim_ids).issubset(
+                                known_claim_ids
+                            )
+                            or set(review.unsupported_claim_ids)
+                            & set(review.contradictory_claim_ids)
+                            or not set(review.missing_section_ids).issubset(
+                                {question.id for question in graph.questions}
+                            )
+                        )
+                    )
+                ):
+                    raise ResearchStoreConflict("DeepSearch review outcome is invalid")
+                updates = {
+                    "review_outcomes": [
+                        *plan.review_outcomes,
+                        checked_review_outcome,
+                    ]
+                }
+
+            now = now_utc()
+            if budget_invocation_key is not None and budget_actual_usage is not None:
+                updated_budget = self._settle_deepsearch_finalization_budget_for_transition(
+                    run=run,
+                    invocation_key=budget_invocation_key,
+                    actual_usage=budget_actual_usage,
+                    additional_active_seconds=max(
+                        monotonic() - persistence_started_at,
+                        0,
+                    ),
+                )
+                run = self._write_deepsearch_budget_run(
+                    connection,
+                    run=run,
+                    budget=updated_budget,
+                    updated_at=now,
+                )
+            input_hashes = dict(plan.finalization_input_hashes)
+            input_hashes[next_stage] = input_hash
+            updated_plan = SkillPlan.model_validate(
+                {
+                    **plan.model_dump(mode="python"),
+                    **updates,
+                    "finalization_stage": next_stage,
+                    "finalization_version": expected_finalization_version + 1,
+                    "finalization_input_hashes": input_hashes,
+                    "updated_at": now,
+                }
+            )
+            self._write_skill_plan(connection, updated_plan)
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "deepsearch_finalization_stage_changed",
+                        {
+                            "plan_id": plan.id,
+                            "from_stage": current_stage.value,
+                            "to_stage": next_stage.value,
+                            "finalization_version": updated_plan.finalization_version,
+                            "input_hash": input_hash,
+                        },
+                    )
+                ],
+            )
+        return updated_plan, run
+
+    def commit_deepsearch_terminal_without_report(
+        self,
+        *,
+        run_id: str,
+        plan_id: str,
+        expected_plan_version: int,
+        expected_finalization_version: int,
+        expected_stage: DeepSearchFinalizationStage,
+        expected_plan_status: SkillPlanStatus,
+        expected_run_status: AgentRunStatus,
+        terminal_status: AgentRunStatus,
+        error_code: str | None,
+        input_hash: str,
+        events: list[tuple[str, dict[str, object]]],
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        """Fail or cancel DeepSearch without publishing a report or accepting stale state."""
+
+        current_stage, _terminal_stage = self._validate_deepsearch_finalization_cas_input(
+            expected_plan_version=expected_plan_version,
+            expected_finalization_version=expected_finalization_version,
+            expected_stage=expected_stage,
+            target_stage=DeepSearchFinalizationStage.TERMINAL_COMMITTED,
+            input_hash=input_hash,
+        )
+        try:
+            final_run_status = AgentRunStatus(terminal_status)
+            current_plan_status = SkillPlanStatus(expected_plan_status)
+            current_run_status = AgentRunStatus(expected_run_status)
+        except ValueError as error:
+            raise ResearchStoreConflict("DeepSearch terminal status is invalid") from error
+        plan_statuses = {
+            AgentRunStatus.FAILED: SkillPlanStatus.FAILED,
+            AgentRunStatus.CANCELLED: SkillPlanStatus.CANCELLED,
+        }
+        final_plan_status = plan_statuses.get(final_run_status)
+        if final_plan_status is None:
+            raise ResearchStoreConflict("DeepSearch terminal status is invalid")
+        allowed_current_states = {
+            (SkillPlanStatus.APPROVED, AgentRunStatus.RUNNING),
+            (SkillPlanStatus.RUNNING, AgentRunStatus.RUNNING),
+            (SkillPlanStatus.RUNNING, AgentRunStatus.WAITING_APPROVAL),
+        }
+        if (current_plan_status, current_run_status) not in allowed_current_states:
+            raise ResearchStoreConflict("DeepSearch terminal expected state is invalid")
+        if (
+            (error_code is not None and (not isinstance(error_code, str) or not error_code or len(error_code) > 120))
+            or (final_run_status is AgentRunStatus.FAILED and error_code is None)
+            or not events
+            or len(events) > 16
+            or any(
+                not isinstance(event_type, str)
+                or not event_type
+                or len(event_type) > 120
+                or not isinstance(payload, dict)
+                for event_type, payload in events
+            )
+        ):
+            raise ResearchStoreConflict("DeepSearch terminal patch is invalid")
+        expected_terminal_event = {
+            AgentRunStatus.FAILED: "run_failed",
+            AgentRunStatus.CANCELLED: "run_cancelled",
+        }[final_run_status]
+        if (
+            events[-1][0] != expected_terminal_event
+            or events[-1][1].get("error_code") != error_code
+        ):
+            raise ResearchStoreConflict("DeepSearch terminal events are invalid")
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            context = self._load_deepsearch_finalization_context_in_transaction(
+                connection,
+                run_id=run_id,
+                plan_id=plan_id,
+            )
+            if context is None:
+                return None
+            plan, run, _requirement, _graph = context
+            if (
+                plan.version != expected_plan_version
+                or plan.finalization_version != expected_finalization_version
+                or plan.finalization_stage is not current_stage
+                or plan.status is not current_plan_status
+                or run.status is not current_run_status
+            ):
+                return None
+            if current_stage is DeepSearchFinalizationStage.TERMINAL_COMMITTED:
+                return None
+            if (
+                plan.report_artifact_id is not None
+                or plan.report_content_hash is not None
+                or run.output_text is not None
+                or DeepSearchFinalizationStage.TERMINAL_COMMITTED in plan.finalization_input_hashes
+            ):
+                raise ResearchStoreConflict("DeepSearch terminal-without-report state is invalid")
+            staging_report = connection.execute(
+                """SELECT 1 FROM artifacts
+                WHERE run_id = ?
+                  AND artifact_type = 'deepsearch_report'
+                  AND verification_state = ?
+                LIMIT 1""",
+                (run.id, ArtifactVerificationState.STAGING.value),
+            ).fetchone()
+            if staging_report is not None:
+                raise ResearchStoreConflict(
+                    "DeepSearch staging report requires a typed failure transition"
+                )
+
+            now = now_utc()
+            closed_budget = self._close_deepsearch_budget_for_terminal(run)
+            input_hashes = dict(plan.finalization_input_hashes)
+            input_hashes[DeepSearchFinalizationStage.TERMINAL_COMMITTED] = input_hash
+            terminal_node_statuses = {
+                SkillPlanNodeStatus.COMPLETED,
+                SkillPlanNodeStatus.FAILED,
+                SkillPlanNodeStatus.SKIPPED,
+                SkillPlanNodeStatus.CANCELLED,
+            }
+            node_events: list[tuple[str, dict[str, object]]] = []
+            updated_nodes: list[SkillPlanNode] = []
+            for node in plan.nodes:
+                if node.status in terminal_node_statuses:
+                    updated_nodes.append(node)
+                    continue
+                updated_nodes.append(
+                    node.model_copy(
+                        update={
+                            "status": SkillPlanNodeStatus.CANCELLED,
+                            "completed_at": now,
+                        }
+                    )
+                )
+                node_events.append(
+                    (
+                        "node_cancelled",
+                        {
+                            "plan_id": plan.id,
+                            "node_id": node.id,
+                            "reason": error_code or final_run_status.value,
+                        },
+                    )
+                )
+            updated_plan = SkillPlan.model_validate(
+                {
+                    **plan.model_dump(mode="python"),
+                    "status": final_plan_status,
+                    "nodes": updated_nodes,
+                    "finalization_stage": DeepSearchFinalizationStage.TERMINAL_COMMITTED,
+                    "finalization_version": expected_finalization_version + 1,
+                    "finalization_input_hashes": input_hashes,
+                    "updated_at": now,
+                }
+            )
+            updated_run = AgentRun.model_validate(
+                {
+                    **run.model_dump(mode="python"),
+                    "deepsearch_budget": closed_budget,
+                    "status": final_run_status,
+                    "paused_state": None,
+                    "interaction_expires_at": None,
+                    "output_text": None,
+                    "error_code": error_code,
+                    "updated_at": now,
+                }
+            )
+            self._write_skill_plan(connection, updated_plan)
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (updated_run.model_dump_json(), now.isoformat(), updated_run.id),
+            )
+            self._resolve_open_run_inboxes(
+                connection,
+                run.id,
+                reason=error_code or final_run_status.value,
+                resolved_at=now,
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    *node_events,
+                    (
+                        "deepsearch_finalization_stage_changed",
+                        {
+                            "plan_id": plan.id,
+                            "from_stage": current_stage.value,
+                            "to_stage": DeepSearchFinalizationStage.TERMINAL_COMMITTED.value,
+                            "finalization_version": updated_plan.finalization_version,
+                            "input_hash": input_hash,
+                        },
+                    ),
+                    *events,
+                ],
+            )
+        return updated_plan, updated_run
+
+    def commit_deepsearch_terminal_with_report(
+        self,
+        *,
+        run_id: str,
+        plan_id: str,
+        expected_plan_version: int,
+        expected_finalization_version: int,
+        expected_stage: DeepSearchFinalizationStage,
+        expected_plan_status: SkillPlanStatus,
+        expected_run_status: AgentRunStatus,
+        staging_artifact_id: str,
+        sealed_report: Artifact,
+        terminal_status: AgentRunStatus,
+        error_code: str | None,
+        input_hash: str,
+        events: list[tuple[str, dict[str, object]]],
+        budget_invocation_key: str | None = None,
+        budget_actual_usage: DeepSearchBudgetUsageV1 | None = None,
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        """Seal and publish exactly one report with its Plan/Run terminal state."""
+
+        from agentmesh.artifacts import (
+            ArtifactAccessError,
+            DeepSearchArtifactSchemaRegistry,
+            DeepSearchReportV1,
+            V1VerifiedArtifactStore,
+        )
+
+        current_stage, _terminal_stage = self._validate_deepsearch_finalization_cas_input(
+            expected_plan_version=expected_plan_version,
+            expected_finalization_version=expected_finalization_version,
+            expected_stage=expected_stage,
+            target_stage=DeepSearchFinalizationStage.TERMINAL_COMMITTED,
+            input_hash=input_hash,
+        )
+        try:
+            final_run_status = AgentRunStatus(terminal_status)
+            current_plan_status = SkillPlanStatus(expected_plan_status)
+            current_run_status = AgentRunStatus(expected_run_status)
+            report_artifact = Artifact.model_validate(
+                sealed_report.model_dump(mode="python")
+            )
+            parsed_report = DeepSearchArtifactSchemaRegistry.parse(
+                report_artifact.artifact_type,
+                report_artifact.schema_version or "",
+                report_artifact.content,
+            )
+        except (AttributeError, ArtifactAccessError, TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch terminal report is invalid") from error
+        final_plan_status = {
+            AgentRunStatus.COMPLETED: SkillPlanStatus.COMPLETED,
+            AgentRunStatus.PARTIAL: SkillPlanStatus.PARTIAL,
+        }.get(final_run_status)
+        expected_report_status = {
+            AgentRunStatus.COMPLETED: "complete",
+            AgentRunStatus.PARTIAL: "partial",
+        }.get(final_run_status)
+        expected_terminal_event = {
+            AgentRunStatus.COMPLETED: "run_completed",
+            AgentRunStatus.PARTIAL: "run_partial",
+        }.get(final_run_status)
+        if (
+            final_plan_status is None
+            or expected_report_status is None
+            or expected_terminal_event is None
+            or current_plan_status is not SkillPlanStatus.RUNNING
+            or current_run_status is not AgentRunStatus.RUNNING
+            or not isinstance(parsed_report, DeepSearchReportV1)
+            or not isinstance(staging_artifact_id, str)
+            or not staging_artifact_id
+            or staging_artifact_id != report_artifact.id
+            or report_artifact.verification_state is not ArtifactVerificationState.SEALED
+            or report_artifact.artifact_type != "deepsearch_report"
+            or report_artifact.schema_version != "deepsearch-report-v1"
+            or parsed_report.report_status != expected_report_status
+            or (final_run_status is AgentRunStatus.COMPLETED and error_code is not None)
+            or (
+                final_run_status is AgentRunStatus.PARTIAL
+                and (
+                    not isinstance(error_code, str)
+                    or not error_code
+                    or len(error_code) > 120
+                )
+            )
+            or not events
+            or len(events) > 16
+            or events[-1][0] != expected_terminal_event
+            or events[-1][1].get("error_code") != error_code
+            or any(
+                not isinstance(event_type, str)
+                or not event_type
+                or len(event_type) > 120
+                or not isinstance(payload, dict)
+                for event_type, payload in events
+            )
+        ):
+            raise ResearchStoreConflict("DeepSearch terminal report is invalid")
+        if (
+            (budget_invocation_key is None) != (budget_actual_usage is None)
+            or budget_invocation_key is None
+        ):
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+
+        persistence_started_at = monotonic()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            context = self._load_deepsearch_finalization_context_in_transaction(
+                connection,
+                run_id=run_id,
+                plan_id=plan_id,
+            )
+            if context is None:
+                return None
+            plan, run, requirement, graph = context
+            report_revision = plan.report_revision_count
+            expected_review_stage = (
+                DeepSearchFinalizationStage.REVIEW_V0_CHECKED
+                if report_revision == 0
+                else DeepSearchFinalizationStage.REVIEW_V1_CHECKED
+            )
+            is_exact_replay = (
+                plan.version == expected_plan_version
+                and plan.finalization_version == expected_finalization_version + 1
+                and plan.finalization_stage
+                is DeepSearchFinalizationStage.TERMINAL_COMMITTED
+                and plan.finalization_input_hashes.get(
+                    DeepSearchFinalizationStage.TERMINAL_COMMITTED
+                )
+                == input_hash
+                and plan.status is final_plan_status
+                and run.status is final_run_status
+            )
+            if is_exact_replay:
+                if (
+                    plan.report_artifact_id != report_artifact.id
+                    or plan.report_content_hash != report_artifact.content_hash
+                    or run.output_text != parsed_report.rendered_text
+                    or run.error_code != error_code
+                ):
+                    raise ResearchStoreConflict(
+                        "DeepSearch terminal report replay conflicts"
+                    )
+                try:
+                    V1VerifiedArtifactStore(self).seal_report(
+                        report_artifact,
+                        connection=connection,
+                    )
+                except ArtifactAccessError as error:
+                    raise ResearchStoreConflict(
+                        "DeepSearch terminal report replay conflicts"
+                    ) from error
+                return plan, run
+            if (
+                plan.version != expected_plan_version
+                or plan.finalization_version != expected_finalization_version
+                or plan.finalization_stage is not current_stage
+                or plan.status is not current_plan_status
+                or run.status is not current_run_status
+            ):
+                return None
+            if current_stage is not expected_review_stage:
+                raise ResearchStoreConflict("DeepSearch terminal report stage is invalid")
+            if (
+                plan.report_artifact_id is not None
+                or plan.report_content_hash is not None
+                or run.output_text is not None
+                or DeepSearchFinalizationStage.TERMINAL_COMMITTED
+                in plan.finalization_input_hashes
+                or len(plan.deepsearch_syntheses) != report_revision + 1
+                or len(plan.synthesis_content_hashes) != report_revision + 1
+                or len(plan.review_outcomes) != report_revision + 1
+                or plan.evidence_coverage is None
+                or plan.evidence_coverage.revision_count != report_revision
+            ):
+                raise ResearchStoreConflict("DeepSearch terminal report state is invalid")
+
+            synthesis = plan.deepsearch_syntheses[report_revision]
+            synthesis_hash = plan.synthesis_content_hashes[report_revision]
+            coverage = plan.evidence_coverage
+            review_outcome = plan.review_outcomes[report_revision]
+            review = review_outcome.review
+            excluded_claim_ids = (
+                set(review.unsupported_claim_ids)
+                | set(review.contradictory_claim_ids)
+                if review is not None
+                else set()
+            )
+            safe_claim_ids = set(coverage.validated_claim_ids) - excluded_claim_ids
+            if review is not None and review.verdict == "block" and not excluded_claim_ids:
+                safe_claim_ids.clear()
+            expected_claims = [
+                claim
+                for claim in synthesis.claims
+                if claim.id in safe_claim_ids
+                and set(claim.question_ids).issubset(
+                    {question.id for question in graph.questions}
+                )
+            ]
+            if (
+                parsed_report.run_id != run.id
+                or parsed_report.requirement_version_id != requirement.id
+                or parsed_report.plan_id != plan.id
+                or parsed_report.plan_version != plan.version
+                or parsed_report.requirement_content_hash != requirement.content_hash
+                or parsed_report.problem_graph_hash != graph.content_hash
+                or parsed_report.plan_content_hash != plan.plan_content_hash
+                or parsed_report.evidence_manifest_hash
+                != plan.evidence_manifest_hash
+                or parsed_report.synthesis_content_hash != synthesis_hash
+                or parsed_report.review_outcome != review_outcome.outcome
+                or parsed_report.review_reason_code != review_outcome.reason_code
+                or [claim.model_dump(mode="python") for claim in parsed_report.claims]
+                != [claim.model_dump(mode="python") for claim in expected_claims]
+                or (
+                    final_run_status is AgentRunStatus.COMPLETED
+                    and (
+                        not coverage.passed
+                        or review_outcome.outcome != "pass"
+                        or synthesis.synthesis_mode != "model"
+                        or any(
+                            node.status is not SkillPlanNodeStatus.COMPLETED
+                            for node in plan.nodes
+                        )
+                    )
+                )
+            ):
+                raise ResearchStoreConflict("DeepSearch terminal report lineage is invalid")
+
+            try:
+                V1VerifiedArtifactStore(self).seal_report(
+                    report_artifact,
+                    connection=connection,
+                )
+            except ArtifactAccessError as error:
+                raise ResearchStoreConflict("DeepSearch terminal report is invalid") from error
+            now = now_utc()
+            closed_budget = self._close_deepsearch_budget_for_terminal(
+                run,
+                settlement_invocation_key=budget_invocation_key,
+                settlement_actual_usage=budget_actual_usage,
+                settlement_additional_active_seconds=max(
+                    monotonic() - persistence_started_at,
+                    0,
+                ),
+            )
+            input_hashes = dict(plan.finalization_input_hashes)
+            input_hashes[DeepSearchFinalizationStage.TERMINAL_COMMITTED] = input_hash
+            updated_plan = SkillPlan.model_validate(
+                {
+                    **plan.model_dump(mode="python"),
+                    "status": final_plan_status,
+                    "report_artifact_id": report_artifact.id,
+                    "report_content_hash": report_artifact.content_hash,
+                    "finalization_stage": DeepSearchFinalizationStage.TERMINAL_COMMITTED,
+                    "finalization_version": expected_finalization_version + 1,
+                    "finalization_input_hashes": input_hashes,
+                    "updated_at": now,
+                }
+            )
+            updated_run = AgentRun.model_validate(
+                {
+                    **run.model_dump(mode="python"),
+                    "deepsearch_budget": closed_budget,
+                    "status": final_run_status,
+                    "paused_state": None,
+                    "interaction_expires_at": None,
+                    "output_text": parsed_report.rendered_text,
+                    "error_code": error_code,
+                    "updated_at": now,
+                }
+            )
+            self._write_skill_plan(connection, updated_plan)
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (updated_run.model_dump_json(), now.isoformat(), updated_run.id),
+            )
+            self._resolve_open_run_inboxes(
+                connection,
+                run.id,
+                reason=error_code or final_run_status.value,
+                resolved_at=now,
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "deepsearch_finalization_stage_changed",
+                        {
+                            "plan_id": plan.id,
+                            "from_stage": current_stage.value,
+                            "to_stage": DeepSearchFinalizationStage.TERMINAL_COMMITTED.value,
+                            "finalization_version": updated_plan.finalization_version,
+                            "input_hash": input_hash,
+                        },
+                    ),
+                    *events,
+                ],
+            )
+        return updated_plan, updated_run
+
+    def fail_deepsearch_staging_report_and_commit_terminal(
+        self,
+        *,
+        run_id: str,
+        plan_id: str,
+        expected_plan_version: int,
+        expected_finalization_version: int,
+        expected_stage: DeepSearchFinalizationStage,
+        expected_plan_status: SkillPlanStatus,
+        expected_run_status: AgentRunStatus,
+        staging_artifact_id: str,
+        failed_report: Artifact,
+        error_code: str,
+        input_hash: str,
+        events: list[tuple[str, dict[str, object]]],
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        """Fail a STAGING report and the owning Plan/Run in one transaction."""
+
+        from agentmesh.artifacts import ArtifactAccessError, V1VerifiedArtifactStore
+
+        current_stage, _terminal_stage = self._validate_deepsearch_finalization_cas_input(
+            expected_plan_version=expected_plan_version,
+            expected_finalization_version=expected_finalization_version,
+            expected_stage=expected_stage,
+            target_stage=DeepSearchFinalizationStage.TERMINAL_COMMITTED,
+            input_hash=input_hash,
+        )
+        try:
+            current_plan_status = SkillPlanStatus(expected_plan_status)
+            current_run_status = AgentRunStatus(expected_run_status)
+            report_artifact = Artifact.model_validate(
+                failed_report.model_dump(mode="python")
+            )
+        except (AttributeError, TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch failed report is invalid") from error
+        if (
+            not isinstance(staging_artifact_id, str)
+            or not staging_artifact_id
+            or current_plan_status is not SkillPlanStatus.RUNNING
+            or current_run_status is not AgentRunStatus.RUNNING
+            or staging_artifact_id != report_artifact.id
+            or report_artifact.artifact_type != "deepsearch_report"
+            or report_artifact.schema_version != "deepsearch-report-v1"
+            or report_artifact.verification_state is not ArtifactVerificationState.FAILED
+            or report_artifact.content
+            or report_artifact.content_hash is not None
+            or report_artifact.size_bytes is not None
+            or not isinstance(error_code, str)
+            or not error_code
+            or len(error_code) > 120
+            or not events
+            or len(events) > 16
+            or events[-1][0] != "run_failed"
+            or events[-1][1].get("error_code") != error_code
+            or any(
+                not isinstance(event_type, str)
+                or not event_type
+                or len(event_type) > 120
+                or not isinstance(payload, dict)
+                for event_type, payload in events
+            )
+        ):
+            raise ResearchStoreConflict("DeepSearch failed report is invalid")
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            context = self._load_deepsearch_finalization_context_in_transaction(
+                connection,
+                run_id=run_id,
+                plan_id=plan_id,
+            )
+            if context is None:
+                return None
+            plan, run, _requirement, _graph = context
+            expected_review_stage = (
+                DeepSearchFinalizationStage.REVIEW_V0_CHECKED
+                if plan.report_revision_count == 0
+                else DeepSearchFinalizationStage.REVIEW_V1_CHECKED
+            )
+            is_exact_replay = (
+                plan.version == expected_plan_version
+                and plan.finalization_version == expected_finalization_version + 1
+                and plan.finalization_stage
+                is DeepSearchFinalizationStage.TERMINAL_COMMITTED
+                and plan.finalization_input_hashes.get(
+                    DeepSearchFinalizationStage.TERMINAL_COMMITTED
+                )
+                == input_hash
+                and plan.status is SkillPlanStatus.FAILED
+                and run.status is AgentRunStatus.FAILED
+                and run.error_code == error_code
+                and run.output_text is None
+                and plan.report_artifact_id is None
+                and plan.report_content_hash is None
+            )
+            if is_exact_replay:
+                try:
+                    V1VerifiedArtifactStore(self).fail_report(
+                        report_artifact,
+                        connection=connection,
+                    )
+                except ArtifactAccessError as error:
+                    raise ResearchStoreConflict(
+                        "DeepSearch failed report replay conflicts"
+                    ) from error
+                return plan, run
+            if (
+                plan.version != expected_plan_version
+                or plan.finalization_version != expected_finalization_version
+                or plan.finalization_stage is not current_stage
+                or plan.status is not current_plan_status
+                or run.status is not current_run_status
+            ):
+                return None
+            if current_stage is not expected_review_stage:
+                raise ResearchStoreConflict("DeepSearch failed report stage is invalid")
+            if (
+                plan.report_artifact_id is not None
+                or plan.report_content_hash is not None
+                or run.output_text is not None
+                or DeepSearchFinalizationStage.TERMINAL_COMMITTED
+                in plan.finalization_input_hashes
+            ):
+                raise ResearchStoreConflict("DeepSearch failed report state is invalid")
+            try:
+                V1VerifiedArtifactStore(self).fail_report(
+                    report_artifact,
+                    connection=connection,
+                )
+            except ArtifactAccessError as error:
+                raise ResearchStoreConflict("DeepSearch failed report is invalid") from error
+
+            now = now_utc()
+            closed_budget = self._close_deepsearch_budget_for_terminal(run)
+            input_hashes = dict(plan.finalization_input_hashes)
+            input_hashes[DeepSearchFinalizationStage.TERMINAL_COMMITTED] = input_hash
+            updated_plan = SkillPlan.model_validate(
+                {
+                    **plan.model_dump(mode="python"),
+                    "status": SkillPlanStatus.FAILED,
+                    "finalization_stage": DeepSearchFinalizationStage.TERMINAL_COMMITTED,
+                    "finalization_version": expected_finalization_version + 1,
+                    "finalization_input_hashes": input_hashes,
+                    "updated_at": now,
+                }
+            )
+            updated_run = AgentRun.model_validate(
+                {
+                    **run.model_dump(mode="python"),
+                    "deepsearch_budget": closed_budget,
+                    "status": AgentRunStatus.FAILED,
+                    "paused_state": None,
+                    "interaction_expires_at": None,
+                    "output_text": None,
+                    "error_code": error_code,
+                    "updated_at": now,
+                }
+            )
+            self._write_skill_plan(connection, updated_plan)
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (updated_run.model_dump_json(), now.isoformat(), updated_run.id),
+            )
+            self._resolve_open_run_inboxes(
+                connection,
+                run.id,
+                reason=error_code,
+                resolved_at=now,
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "deepsearch_finalization_stage_changed",
+                        {
+                            "plan_id": plan.id,
+                            "from_stage": current_stage.value,
+                            "to_stage": DeepSearchFinalizationStage.TERMINAL_COMMITTED.value,
+                            "finalization_version": updated_plan.finalization_version,
+                            "input_hash": input_hash,
+                        },
+                    ),
+                    *events,
+                ],
+            )
+        return updated_plan, updated_run
+
+    @staticmethod
+    def _validate_deepsearch_execution_authorization_in_transaction(
+        connection: sqlite3.Connection,
+        *,
+        run: AgentRun,
+        plan: SkillPlan,
+    ) -> User:
+        """Recheck mutable owner, project, thread, and Skill grants before execution."""
+
+        user_row = connection.execute(
+            "SELECT id, payload FROM records WHERE collection = ? AND id = ?",
+            ("users", run.user_id),
+        ).fetchone()
+        project_row = connection.execute(
+            "SELECT id, payload FROM records WHERE collection = ? AND id = ?",
+            ("projects", run.project_id),
+        ).fetchone()
+        thread_row = connection.execute(
+            "SELECT id, payload FROM records WHERE collection = ? AND id = ?",
+            ("chat_threads", run.thread_id),
+        ).fetchone()
+        if user_row is None or project_row is None or thread_row is None:
+            raise ResearchStoreConflict("DeepSearch execution authorization is invalid")
+        try:
+            user = User.model_validate_json(user_row["payload"])
+            project = Project.model_validate_json(project_row["payload"])
+            thread = ChatThread.model_validate_json(thread_row["payload"])
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch execution authorization is invalid") from error
+        if (
+            user.id != user_row["id"]
+            or user.id != run.user_id
+            or user.status != "active"
+            or user.workspace_id != run.workspace_id
+            or project.id != project_row["id"]
+            or project.id != run.project_id
+            or project.status != "active"
+            or project.workspace_id != run.workspace_id
+            or (project.member_ids and user.id not in project.member_ids)
+            or thread.id != thread_row["id"]
+            or thread.id != run.thread_id
+            or thread.status != "active"
+            or thread.user_id != user.id
+            or thread.workspace_id != run.workspace_id
+            or thread.project_id != run.project_id
+        ):
+            raise ResearchStoreConflict("DeepSearch execution authorization is invalid")
+
+        selected_skill_ids = {node.skill_id for node in plan.nodes}
+        if not selected_skill_ids:
+            return user
+        binding_rows = connection.execute(
+            "SELECT id, payload FROM records WHERE collection = ? ORDER BY created_order",
+            ("skill_bindings",),
+        ).fetchall()
+        try:
+            bindings = [
+                SkillBinding.model_validate_json(row["payload"])
+                for row in binding_rows
+            ]
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch execution authorization is invalid") from error
+        if any(
+            binding.id != row["id"]
+            for binding, row in zip(bindings, binding_rows, strict=True)
+        ) or any(
+            binding.agent_id == user.personal_agent_id
+            and binding.skill_id in selected_skill_ids
+            and not binding.enabled
+            for binding in bindings
+        ):
+            raise ResearchStoreConflict("DeepSearch execution authorization is invalid")
+        return user
+
     def claim_skill_plan_for_execution(self, plan_id: str, run_id: str) -> SkillPlan | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -2229,12 +4942,43 @@ class SQLiteStore:
             plan = SkillPlan.model_validate_json(plan_row["payload"])
             run = AgentRun.model_validate_json(run_row["payload"])
             if (
-                self._is_read_only_v2_run(run, run_row["orchestration_version"])
+                self._is_retired_research_run(run, run_row["orchestration_version"])
                 or plan.run_id != run.id
                 or plan.status != SkillPlanStatus.APPROVED
                 or run.status != AgentRunStatus.RUNNING
             ):
                 return None
+            if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                if (
+                    run_row["orchestration_version"] != "v1"
+                    or run.orchestration_version != "v1"
+                    or plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+                    or run.plan_id != plan.id
+                ):
+                    raise ResearchStoreConflict("DeepSearch execution Plan identity is invalid")
+                requirement_row = connection.execute(
+                    """SELECT * FROM deepsearch_requirement_versions
+                    WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+                    (run.id,),
+                ).fetchone()
+                if requirement_row is None:
+                    raise ResearchStoreConflict("DeepSearch execution Requirement is missing")
+                requirement = self._decode_deepsearch_requirement_row(requirement_row)
+                plan, expected_plan_hash = self._validate_deepsearch_plan_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=plan,
+                )
+                self._load_deepsearch_plan_snapshot_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=plan,
+                    expected_plan_hash=expected_plan_hash,
+                )
+            elif plan.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                raise ResearchStoreConflict("DeepSearch execution Plan identity is invalid")
             plan.status = SkillPlanStatus.RUNNING
             plan.updated_at = now_utc()
             self._write_skill_plan(connection, plan)
@@ -2260,7 +5004,7 @@ class SQLiteStore:
             run = AgentRun.model_validate_json(run_row["payload"])
             node = SkillPlanNode.model_validate_json(node_row["payload"])
             if (
-                self._is_read_only_v2_run(run, run_row["orchestration_version"])
+                self._is_retired_research_run(run, run_row["orchestration_version"])
                 or plan.status != SkillPlanStatus.RUNNING
                 or run.status != AgentRunStatus.RUNNING
                 or node.status != SkillPlanNodeStatus.READY
@@ -2321,7 +5065,7 @@ class SQLiteStore:
             current = SkillPlanNode.model_validate_json(node_row["payload"])
             required_attempt = node.attempt if expected_attempt is None else expected_attempt
             if (
-                self._is_read_only_v2_run(run, run_row["orchestration_version"])
+                self._is_retired_research_run(run, run_row["orchestration_version"])
                 or plan.run_id != run.id
                 or run.id != run_id
                 or plan.status != SkillPlanStatus.RUNNING
@@ -2355,6 +5099,8 @@ class SQLiteStore:
             self._write_skill_plan(connection, plan)
             if clear_run_paused_state:
                 run.paused_state = None
+                if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                    run.interaction_expires_at = None
                 run.updated_at = now_utc()
                 connection.execute(
                     "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
@@ -2405,7 +5151,7 @@ class SQLiteStore:
             run = AgentRun.model_validate_json(run_row["payload"])
             node = SkillPlanNode.model_validate_json(node_row["payload"])
             if (
-                self._is_read_only_v2_run(run, run_row["orchestration_version"])
+                self._is_retired_research_run(run, run_row["orchestration_version"])
                 or plan.run_id != run.id
                 or run.id != run_id
                 or plan.status != SkillPlanStatus.RUNNING
@@ -2420,6 +5166,11 @@ class SQLiteStore:
             plan.updated_at = now
             run.status = AgentRunStatus.WAITING_APPROVAL
             run.paused_state = paused_state
+            if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                interaction_expires_at = now + timedelta(hours=24)
+                if run.absolute_expires_at is not None:
+                    interaction_expires_at = min(interaction_expires_at, run.absolute_expires_at)
+                run.interaction_expires_at = interaction_expires_at
             run.updated_at = now
             self._write_skill_plan(connection, plan)
             connection.execute(
@@ -2463,7 +5214,7 @@ class SQLiteStore:
             ).fetchone()
             if run_row is not None:
                 run = AgentRun.model_validate_json(run_row["payload"])
-                if self._is_read_only_v2_run(run, run_row["orchestration_version"]):
+                if self._is_retired_research_run(run, run_row["orchestration_version"]):
                     return None
             if not any(item.id == node.id for item in plan.nodes):
                 return None
@@ -2483,7 +5234,7 @@ class SQLiteStore:
             ).fetchone()
             if run_row is not None:
                 run = AgentRun.model_validate_json(run_row["payload"])
-                if self._is_read_only_v2_run(run, run_row["orchestration_version"]):
+                if self._is_retired_research_run(run, run_row["orchestration_version"]):
                     raise ResearchStoreConflict("research-v2 runs are historical and read-only")
             connection.execute(
                 """
@@ -2502,9 +5253,1258 @@ class SQLiteStore:
             ).fetchall()
         return [SkillNodeResult.model_validate_json(row["payload"]) for row in rows]
 
+    def get_deepsearch_requirement(
+        self,
+        run_id: str,
+        *,
+        version: int,
+    ) -> dict[str, object] | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM deepsearch_requirement_versions WHERE run_id = ? AND version = ?",
+                (run_id, version),
+            ).fetchone()
+        return self._decode_deepsearch_requirement_row(row) if row is not None else None
+
+    def get_active_deepsearch_requirement(self, run_id: str) -> dict[str, object] | None:
+        """Return the latest append-only Requirement version for a DeepSearch Run."""
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """SELECT * FROM deepsearch_requirement_versions
+                WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+        return self._decode_deepsearch_requirement_row(row) if row is not None else None
+
+    def get_latest_deepsearch_requirement(self, run_id: str) -> dict[str, object] | None:
+        return self.get_active_deepsearch_requirement(run_id)
+
+    def get_deepsearch_requirement_by_request_key(
+        self,
+        run_id: str,
+        request_key: str,
+    ) -> dict[str, object] | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM deepsearch_requirement_versions WHERE run_id = ? AND request_key = ?",
+                (run_id, request_key),
+            ).fetchone()
+        return self._decode_deepsearch_requirement_row(row) if row is not None else None
+
+    def get_deepsearch_state_snapshot(self, run_id: str) -> DeepSearchStateSnapshot | None:
+        """Read Run, active Requirement, and Plan from one SQLite snapshot."""
+        with self._read_connect() as connection:
+            connection.execute("BEGIN")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            requirement_row = connection.execute(
+                """SELECT * FROM deepsearch_requirement_versions
+                WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            plan_row = connection.execute(
+                "SELECT id, run_id, payload FROM skill_plans WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+
+        run = self._decode_agent_run_row(run_row)
+        if (
+            run_row["orchestration_version"] != "v1"
+            or run.orchestration_version != "v1"
+            or run.planning_mode != AgentPlanningMode.DEEPSEARCH
+        ):
+            raise ResearchStoreConflict("Run is not a v1 DeepSearch Run")
+        requirement = (
+            self._decode_deepsearch_requirement_row(requirement_row)
+            if requirement_row is not None
+            else None
+        )
+        try:
+            plan = SkillPlan.model_validate_json(plan_row["payload"]) if plan_row is not None else None
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch Plan failed integrity verification") from error
+        if (run.plan_id is None) != (plan is None) or (
+            plan is not None
+            and (
+                plan.id != run.plan_id
+                or plan.run_id != run.id
+                or plan_row["id"] != plan.id
+                or plan_row["run_id"] != plan.run_id
+            )
+        ):
+            raise ResearchStoreConflict("DeepSearch Plan failed integrity verification")
+        return DeepSearchStateSnapshot(run=run, requirement=requirement, plan=plan)
+
+    def prepare_deepsearch_requirement_append(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        request_key: str,
+        request_hash: str,
+        expected_requirement_version: int | None,
+        expected_run_status: AgentRunStatus,
+        checked_at: datetime | None = None,
+    ) -> DeepSearchRequirementPrepareResult | None:
+        """Freeze the input to an out-of-transaction Refiner call.
+
+        The durable request receipt is checked before the active Requirement version so
+        a client retry is distinguishable from a stale, different clarification.
+        """
+        now = checked_at or now_utc()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("checked_at must include a timezone")
+        expired_conflict: DeepSearchRequirementConflict | None = None
+        prepared: DeepSearchRequirementPrepareResult | None = None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            run = AgentRun.model_validate_json(run_row["payload"])
+            if run.user_id != user_id:
+                return None
+            if (
+                run_row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or run.planning_mode != AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("Run is not a v1 DeepSearch Run")
+            if (
+                not isinstance(request_key, str)
+                or not request_key
+                or len(request_key) > 120
+                or not isinstance(request_hash, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", request_hash)
+            ):
+                raise ResearchStoreConflict("DeepSearch Requirement request identity is invalid")
+
+            replay_row = connection.execute(
+                "SELECT * FROM deepsearch_requirement_versions WHERE run_id = ? AND request_key = ?",
+                (run_id, request_key),
+            ).fetchone()
+            if replay_row is not None:
+                replay = self._decode_deepsearch_requirement_row(replay_row)
+                if replay_row["request_hash"] != request_hash:
+                    current_version = connection.execute(
+                        "SELECT MAX(version) FROM deepsearch_requirement_versions WHERE run_id = ?",
+                        (run_id,),
+                    ).fetchone()[0]
+                    raise DeepSearchRequirementConflict(
+                        "deepsearch_requirement_idempotency_conflict",
+                        current_requirement_version=current_version,
+                    )
+                return DeepSearchRequirementPrepareResult(requirement=replay, run=run, replayed=True)
+
+            latest_row = connection.execute(
+                """SELECT * FROM deepsearch_requirement_versions
+                WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            current_version = latest_row["version"] if latest_row is not None else None
+            expiration_code = self._deepsearch_expiration_code(run, checked_at=now)
+            if expiration_code is not None:
+                if run.status is not AgentRunStatus.CANCELLED:
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        run,
+                        stored_version=run_row["orchestration_version"],
+                        reason=expiration_code,
+                        error_code=expiration_code,
+                        cancelled_at=now,
+                    )
+                expired_conflict = DeepSearchRequirementConflict(
+                    expiration_code,
+                    current_requirement_version=current_version,
+                )
+            elif current_version is None and (
+                request_key != run.client_turn_id or request_hash != run.create_request_hash
+            ):
+                raise ResearchStoreConflict(
+                    "Initial DeepSearch Requirement request identity does not match its Run claim"
+                )
+            elif current_version != expected_requirement_version:
+                raise DeepSearchRequirementConflict(
+                    "deepsearch_requirement_version_conflict",
+                    current_requirement_version=current_version,
+                )
+            elif (
+                expected_run_status
+                != (
+                    AgentRunStatus.PLANNING
+                    if current_version is None
+                    else AgentRunStatus.WAITING_CLARIFICATION
+                )
+                or run.status != expected_run_status
+            ):
+                raise DeepSearchRequirementConflict(
+                    "deepsearch_requirement_state_conflict",
+                    current_requirement_version=current_version,
+                )
+            else:
+                current = self._decode_deepsearch_requirement_row(latest_row) if latest_row is not None else None
+                prepared = DeepSearchRequirementPrepareResult(requirement=current, run=run, replayed=False)
+        if expired_conflict is not None:
+            raise expired_conflict
+        return prepared
+
+    def append_deepsearch_requirement_and_transition(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        requirement: dict[str, object],
+        expected_requirement_version: int | None,
+        expected_run_status: AgentRunStatus,
+        next_run_status: AgentRunStatus,
+        events: list[tuple[str, dict[str, object]]],
+        interaction_expires_at: datetime | None = None,
+        error_code: str | None = None,
+        checked_at: datetime | None = None,
+    ) -> DeepSearchRequirementAppendResult | None:
+        """Append one Requirement and atomically transition its owning DeepSearch Run."""
+        request_key = requirement.get("request_key")
+        request_hash = requirement.get("request_hash")
+        now = checked_at or now_utc()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("checked_at must include a timezone")
+        expired_conflict: DeepSearchRequirementConflict | None = None
+        result: DeepSearchRequirementAppendResult | None = None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            run = AgentRun.model_validate_json(run_row["payload"])
+            if run.user_id != user_id:
+                return None
+            if (
+                run_row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or run.planning_mode != AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("Run is not a v1 DeepSearch Run")
+            if (
+                not isinstance(request_key, str)
+                or not request_key
+                or len(request_key) > 120
+                or not isinstance(request_hash, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", request_hash)
+            ):
+                raise ResearchStoreConflict("DeepSearch Requirement request identity is invalid")
+
+            replay_row = connection.execute(
+                "SELECT * FROM deepsearch_requirement_versions WHERE run_id = ? AND request_key = ?",
+                (run_id, request_key),
+            ).fetchone()
+            if replay_row is not None:
+                replay = self._decode_deepsearch_requirement_row(replay_row)
+                if replay_row["request_hash"] != request_hash:
+                    current_version = connection.execute(
+                        "SELECT MAX(version) FROM deepsearch_requirement_versions WHERE run_id = ?",
+                        (run_id,),
+                    ).fetchone()[0]
+                    raise DeepSearchRequirementConflict(
+                        "deepsearch_requirement_idempotency_conflict",
+                        current_requirement_version=current_version,
+                    )
+                return DeepSearchRequirementAppendResult(requirement=replay, run=run, replayed=True)
+
+            latest_row = connection.execute(
+                """SELECT * FROM deepsearch_requirement_versions
+                WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            current_version = latest_row["version"] if latest_row is not None else None
+            expiration_code = self._deepsearch_expiration_code(run, checked_at=now)
+            if expiration_code is not None:
+                if run.status is not AgentRunStatus.CANCELLED:
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        run,
+                        stored_version=run_row["orchestration_version"],
+                        reason=expiration_code,
+                        error_code=expiration_code,
+                        cancelled_at=now,
+                    )
+                expired_conflict = DeepSearchRequirementConflict(
+                    expiration_code,
+                    current_requirement_version=current_version,
+                )
+            elif current_version is None and (
+                request_key != run.client_turn_id or request_hash != run.create_request_hash
+            ):
+                raise ResearchStoreConflict(
+                    "Initial DeepSearch Requirement request identity does not match its Run claim"
+                )
+            elif current_version != expected_requirement_version:
+                raise DeepSearchRequirementConflict(
+                    "deepsearch_requirement_version_conflict",
+                    current_requirement_version=current_version,
+                )
+            elif (
+                expected_run_status
+                != (
+                    AgentRunStatus.PLANNING
+                    if current_version is None
+                    else AgentRunStatus.WAITING_CLARIFICATION
+                )
+                or run.status != expected_run_status
+            ):
+                raise DeepSearchRequirementConflict(
+                    "deepsearch_requirement_state_conflict",
+                    current_requirement_version=current_version,
+                )
+            else:
+                from agentmesh.deepsearch.contracts import RequirementVersionV1
+
+                try:
+                    validated_requirement = RequirementVersionV1.model_validate(requirement)
+                except (TypeError, ValueError) as error:
+                    raise ResearchStoreConflict(
+                        "DeepSearch Requirement schema or content hash is invalid"
+                    ) from error
+                requirement = validated_requirement.model_dump(mode="json")
+                payload = validated_requirement.payload
+                blocking = any(ambiguity.blocking for ambiguity in payload.ambiguities)
+                if payload.clarification_questions:
+                    derived_status = AgentRunStatus.WAITING_CLARIFICATION
+                    derived_error_code = None
+                elif blocking:
+                    derived_status = AgentRunStatus.FAILED
+                    derived_error_code = "deepsearch_clarification_unresolved"
+                else:
+                    derived_status = AgentRunStatus.PLANNING
+                    derived_error_code = None
+                if next_run_status != derived_status or error_code != derived_error_code:
+                    raise ResearchStoreConflict("DeepSearch Requirement transition is invalid")
+                previous_requirement = (
+                    self._decode_deepsearch_requirement_row(latest_row)
+                    if latest_row is not None
+                    else None
+                )
+                self._validate_deepsearch_requirement_history(
+                    run_id=run_id,
+                    requirement=validated_requirement,
+                    previous_requirement=previous_requirement,
+                )
+                events = self._validate_deepsearch_requirement_events(
+                    events,
+                    requirement=requirement,
+                    previous_requirement=previous_requirement,
+                    next_run_status=derived_status,
+                    error_code=derived_error_code,
+                )
+                waiting_statuses = {
+                    AgentRunStatus.WAITING_CLARIFICATION,
+                    AgentRunStatus.WAITING_PLAN_APPROVAL,
+                    AgentRunStatus.WAITING_APPROVAL,
+                }
+                next_interaction_expires_at: datetime | None = None
+                if next_run_status in waiting_statuses:
+                    next_interaction_expires_at = interaction_expires_at or now + timedelta(hours=24)
+                next_version = 1 if current_version is None else current_version + 1
+                derived_from = self._deepsearch_requirement_parent(
+                    connection,
+                    run=run,
+                    latest_row=latest_row,
+                    requirement=requirement,
+                )
+                expected_projections = {
+                    "run_id": run_id,
+                    "version": next_version,
+                    "request_key": request_key,
+                    "request_hash": request_hash,
+                    "derived_from_requirement_version_id": derived_from,
+                }
+                if any(requirement.get(key) != value for key, value in expected_projections.items()):
+                    raise ResearchStoreConflict("DeepSearch Requirement projection is invalid")
+                for key in ("id", "schema_version", "content_hash", "created_at"):
+                    if not isinstance(requirement.get(key), str) or not requirement[key]:
+                        raise ResearchStoreConflict("DeepSearch Requirement projection is invalid")
+                if not isinstance(requirement.get("payload"), dict):
+                    raise ResearchStoreConflict("DeepSearch Requirement payload is invalid")
+
+                connection.execute(
+                    """INSERT INTO deepsearch_requirement_versions(
+                        id, run_id, version, request_key, request_hash, content_hash,
+                        derived_from_requirement_version_id, schema_version, payload, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        requirement["id"],
+                        run_id,
+                        next_version,
+                        request_key,
+                        request_hash,
+                        requirement["content_hash"],
+                        derived_from,
+                        requirement["schema_version"],
+                        json.dumps(requirement, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                        requirement["created_at"],
+                    ),
+                )
+                if derived_status is AgentRunStatus.FAILED:
+                    run.deepsearch_budget = self._close_deepsearch_budget_for_terminal(run)
+                run.status = next_run_status
+                run.error_code = error_code
+                run.updated_at = now
+                if next_run_status in waiting_statuses:
+                    run.interaction_expires_at = next_interaction_expires_at
+                    run.deadline_at = None
+                else:
+                    run.interaction_expires_at = None
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), now.isoformat(), run.id),
+                )
+                self._append_agent_run_events(connection, run.id, events)
+                result = DeepSearchRequirementAppendResult(requirement=requirement, run=run, replayed=False)
+        if expired_conflict is not None:
+            raise expired_conflict
+        return result
+
+    def _validate_deepsearch_plan_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run: AgentRun,
+        requirement: object,
+        plan: SkillPlan,
+    ) -> tuple[SkillPlan, str]:
+        from agentmesh.deepsearch.contracts import (
+            ProblemGraphV1,
+            RequirementVersionV1,
+            validate_plan_question_coverage,
+            validate_problem_graph_against_requirement,
+        )
+        from agentmesh.deepsearch.planning import plan_content_hash
+        from agentmesh.deepsearch.tool_policy import DEEPSEARCH_V1_TOOL_NAMES
+        from agentmesh.models import (
+            SkillCandidate,
+            SkillCandidateScore,
+            SkillPlanDraft,
+            SkillSideEffect,
+        )
+        from agentmesh.skill_runtime.plan_validation import validate_draft
+        from agentmesh.skill_runtime.profiles import profile_matches_skill
+        from agentmesh.skill_runtime.resources import (
+            build_skill_resource_manifest_snapshot,
+            skill_wiki_corpus_ready,
+        )
+        from agentmesh.skill_runtime.retrieval import (
+            is_supported_wiki_capability,
+            tool_name_for_capability,
+            tool_names_for_profile,
+        )
+
+        try:
+            requirement = RequirementVersionV1.model_validate(requirement)
+            plan = SkillPlan.model_validate(plan.model_dump(mode="python"))
+            graph = ProblemGraphV1.model_validate(plan.problem_graph)
+            validate_problem_graph_against_requirement(graph=graph, requirement=requirement)
+            validate_plan_question_coverage(graph=graph, nodes=plan.nodes)
+            expected_plan_hash = plan_content_hash(plan)
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch Plan integrity is invalid") from error
+        if (
+            plan.run_id != run.id
+            or plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            or plan.requirement_version_id != requirement.id
+            or plan.requirement_content_hash != requirement.content_hash
+            or plan.problem_graph_hash != graph.content_hash
+            or plan.plan_content_hash != expected_plan_hash
+            or len(plan.candidate_skill_ids) != len(set(plan.candidate_skill_ids))
+            or any(node.side_effect not in {SkillSideEffect.READ, SkillSideEffect.DRAFT} for node in plan.nodes)
+            or any(
+                node.status is not SkillPlanNodeStatus.PENDING
+                or node.attempt != 0
+                or node.error_code is not None
+                or node.started_at is not None
+                or node.completed_at is not None
+                for node in plan.nodes
+            )
+        ):
+            raise ResearchStoreConflict("DeepSearch Plan integrity is invalid")
+
+        user = self._validate_deepsearch_execution_authorization_in_transaction(
+            connection,
+            run=run,
+            plan=plan,
+        )
+
+        required_tool_references = {
+            reference for node in plan.nodes for reference in node.required_tool_names
+        }
+        tool_definitions: list[ToolDefinition] = []
+        granted_tool_ids: set[str] = set()
+        if required_tool_references:
+            tool_rows = connection.execute(
+                "SELECT id, payload FROM records WHERE collection = ?",
+                ("tool_definitions",),
+            ).fetchall()
+            grant_rows = connection.execute(
+                "SELECT payload FROM records WHERE collection = ?",
+                ("agent_tool_grants",),
+            ).fetchall()
+            try:
+                tool_definitions = [
+                    ToolDefinition.model_validate_json(row["payload"])
+                    for row in tool_rows
+                ]
+                if any(tool.id != row["id"] for tool, row in zip(tool_definitions, tool_rows, strict=True)):
+                    raise ValueError("DeepSearch Tool projection is invalid")
+                grants = [
+                    AgentToolGrant.model_validate_json(row["payload"])
+                    for row in grant_rows
+                ]
+            except (TypeError, ValueError) as error:
+                raise ResearchStoreConflict("DeepSearch Plan integrity is invalid") from error
+            granted_tool_ids = {
+                grant.tool_id
+                for grant in grants
+                if grant.agent_id == user.personal_agent_id and grant.enabled
+            }
+
+        current_candidates: list[SkillCandidate] = []
+        for node in plan.nodes:
+            skill_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("skill_definitions", node.skill_id),
+            ).fetchone()
+            profile_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("skill_capability_profiles", node.skill_id),
+            ).fetchone()
+            if skill_row is None or profile_row is None:
+                raise ResearchStoreConflict("DeepSearch Plan integrity is invalid")
+            try:
+                skill = SkillDefinition.model_validate_json(skill_row["payload"])
+                profile = SkillCapabilityProfile.model_validate_json(profile_row["payload"])
+                resource_manifest = build_skill_resource_manifest_snapshot(skill, profile)
+            except (TypeError, ValueError) as error:
+                raise ResearchStoreConflict("DeepSearch Plan integrity is invalid") from error
+            for capability in profile.required_capabilities:
+                if capability.startswith("wiki."):
+                    capability_ready = (
+                        is_supported_wiki_capability(capability)
+                        and skill_wiki_corpus_ready(skill, capability)
+                    )
+                else:
+                    capability_ready = tool_name_for_capability(capability) is not None
+                if not capability_ready:
+                    raise ResearchStoreConflict("DeepSearch Plan integrity is invalid")
+            expected_tool_names = tool_names_for_profile(profile)
+            if (
+                skill.id != node.skill_id
+                or profile.id != node.skill_id
+                or node.skill_id not in plan.candidate_skill_ids
+                or not skill.enabled
+                or node.skill_version != skill.version
+                or node.skill_content_hash != skill.content_hash
+                or not profile.planner_eligible
+                or not profile_matches_skill(profile, skill)
+                or node.resource_manifest != resource_manifest
+                or node.side_effect is not profile.side_effect
+                or len(node.required_tool_names) != len(set(node.required_tool_names))
+                or set(node.required_tool_names) != expected_tool_names
+                or not expected_tool_names.issubset(DEEPSEARCH_V1_TOOL_NAMES)
+            ):
+                raise ResearchStoreConflict("DeepSearch Plan integrity is invalid")
+            current_candidates.append(
+                SkillCandidate(
+                    skill_id=skill.id,
+                    skill_name=skill.name,
+                    title=skill.title,
+                    description=skill.description,
+                    profile=profile,
+                    score=SkillCandidateScore(),
+                    reason=node.reason,
+                )
+            )
+            for reference in node.required_tool_names:
+                matching_tools = [
+                    tool
+                    for tool in tool_definitions
+                    if reference in {tool.id, tool.name, tool.external_name}
+                ]
+                if (
+                    len(matching_tools) != 1
+                    or matching_tools[0].name not in DEEPSEARCH_V1_TOOL_NAMES
+                    or not matching_tools[0].enabled
+                    or matching_tools[0].side_effect != "read"
+                    or matching_tools[0].id not in granted_tool_ids
+                ):
+                    raise ResearchStoreConflict("DeepSearch Plan integrity is invalid")
+
+        try:
+            validate_draft(
+                SkillPlanDraft(
+                    output_contract=plan.output_contract,
+                    synthesis_output_contract=plan.synthesis_output_contract,
+                    capability_gaps=plan.capability_gaps,
+                    nodes=plan.nodes,
+                ),
+                current_candidates,
+                intent=plan.intent,
+            )
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch Plan integrity is invalid") from error
+        return plan, expected_plan_hash
+
+    @staticmethod
+    def _validate_deepsearch_plan_snapshot(
+        *,
+        run: AgentRun,
+        requirement: object,
+        plan: SkillPlan,
+        plan_snapshot: Artifact,
+        expected_plan_hash: str,
+    ) -> Artifact:
+        from agentmesh.deepsearch.contracts import RequirementVersionV1
+        from agentmesh.deepsearch.planning import build_deepsearch_plan_snapshot
+
+        try:
+            requirement = RequirementVersionV1.model_validate(requirement)
+            plan_snapshot = Artifact.model_validate(plan_snapshot.model_dump(mode="python"))
+            expected_snapshot = build_deepsearch_plan_snapshot(
+                run=run,
+                plan=plan,
+                created_at=plan_snapshot.created_at,
+            )
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch Plan snapshot is invalid") from error
+        if (
+            plan.requirement_version_id != requirement.id
+            or plan.requirement_content_hash != requirement.content_hash
+            or plan.plan_content_hash != expected_plan_hash
+            or plan_snapshot != expected_snapshot
+        ):
+            raise ResearchStoreConflict("DeepSearch Plan snapshot is invalid")
+        return plan_snapshot
+
+    def _insert_deepsearch_plan_snapshot_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run: AgentRun,
+        requirement: object,
+        plan: SkillPlan,
+        plan_snapshot: Artifact,
+        expected_plan_hash: str,
+    ) -> Artifact:
+        from agentmesh.artifacts import ArtifactAccessError, V1VerifiedArtifactStore
+
+        plan_snapshot = self._validate_deepsearch_plan_snapshot(
+            run=run,
+            requirement=requirement,
+            plan=plan,
+            plan_snapshot=plan_snapshot,
+            expected_plan_hash=expected_plan_hash,
+        )
+        try:
+            return V1VerifiedArtifactStore(self).insert_sealed(
+                plan_snapshot,
+                connection=connection,
+            )
+        except ArtifactAccessError as error:
+            raise ResearchStoreConflict("DeepSearch Plan snapshot is invalid") from error
+
+    def _charge_deepsearch_plan_snapshot_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run: AgentRun,
+        plan_snapshot: Artifact,
+        charged_at: datetime,
+    ) -> AgentRun:
+        """Account for a sealed Plan snapshot in the transaction that inserts it."""
+
+        budget = run.deepsearch_budget
+        if budget is None:
+            raise DeepSearchBudgetConflict("deepsearch_budget_run_invalid")
+        content_bytes = plan_snapshot.content.encode("utf-8")
+        if (
+            plan_snapshot.artifact_type != "deepsearch_plan_snapshot"
+            or plan_snapshot.verification_state is not ArtifactVerificationState.SEALED
+            or plan_snapshot.size_bytes != len(content_bytes)
+            or len(content_bytes) > 1_048_576
+        ):
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+
+        artifact_identity = {
+            "artifact_id": plan_snapshot.id,
+            "artifact_type": plan_snapshot.artifact_type,
+            "run_id": plan_snapshot.run_id,
+        }
+        logical_operation_key = f"artifact:{canonical_json_sha256(artifact_identity)}"
+        invocation_key = f"{logical_operation_key}:attempt:1"
+        usage = DeepSearchBudgetUsageV1(artifact_bytes=len(content_bytes))
+        reservation = DeepSearchBudgetReservationV1(
+            logical_operation_key=logical_operation_key,
+            invocation_key=invocation_key,
+            physical_attempt=1,
+            resource_maxima=usage,
+            status="settled",
+            actual_usage=usage,
+        )
+        matching = [
+            item for item in budget.reservations if item.invocation_key == invocation_key
+        ]
+        artifact_exists = connection.execute(
+            "SELECT 1 FROM artifacts WHERE id = ?",
+            (plan_snapshot.id,),
+        ).fetchone() is not None
+        if matching:
+            if len(matching) != 1 or matching[0] != reservation or not artifact_exists:
+                raise DeepSearchBudgetConflict("deepsearch_budget_invocation_conflict")
+            return run
+        if artifact_exists:
+            raise DeepSearchBudgetConflict("deepsearch_budget_invocation_conflict")
+        if run.status not in {
+            AgentRunStatus.PLANNING,
+            AgentRunStatus.WAITING_PLAN_APPROVAL,
+        }:
+            raise DeepSearchBudgetConflict("deepsearch_budget_state_conflict")
+
+        reservations = [*budget.reservations, reservation]
+        candidate_budget = budget.model_copy(
+            update={
+                "version": budget.version + 1,
+                "consumed": self._billed_deepsearch_budget_usage(reservations),
+                "reservations": reservations,
+            }
+        )
+        self._validate_deepsearch_budget_ledger(candidate_budget)
+        try:
+            updated_budget = DeepSearchBudgetV1.model_validate(
+                candidate_budget.model_dump(mode="python")
+            )
+        except (TypeError, ValueError) as error:
+            raise DeepSearchBudgetConflict("deepsearch_budget_settlement_invalid") from error
+        return self._write_deepsearch_budget_run(
+            connection,
+            run=run,
+            budget=updated_budget,
+            updated_at=charged_at,
+        )
+
+    def _load_deepsearch_plan_snapshot_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run: AgentRun,
+        requirement: object,
+        plan: SkillPlan,
+        expected_plan_hash: str,
+    ) -> Artifact:
+        from agentmesh.artifacts import ArtifactAccessError, _verified_artifact_from_row
+
+        if plan.approved_plan_artifact_id is None:
+            raise ResearchStoreConflict("DeepSearch approved Plan snapshot is missing")
+        row = connection.execute(
+            "SELECT * FROM artifacts WHERE id = ?",
+            (plan.approved_plan_artifact_id,),
+        ).fetchone()
+        if row is None:
+            raise ResearchStoreConflict("DeepSearch approved Plan snapshot is missing")
+        try:
+            plan_snapshot = _verified_artifact_from_row(row, run)
+        except (ArtifactAccessError, TypeError, ValueError) as error:
+            raise ResearchStoreConflict("DeepSearch Plan snapshot is invalid") from error
+        return self._validate_deepsearch_plan_snapshot(
+            run=run,
+            requirement=requirement,
+            plan=plan,
+            plan_snapshot=plan_snapshot,
+            expected_plan_hash=expected_plan_hash,
+        )
+
+    def save_deepsearch_plan_and_transition(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        expected_requirement_version: int,
+        plan: SkillPlan,
+        plan_snapshot: Artifact,
+        checked_at: datetime | None = None,
+    ) -> tuple[SkillPlan, AgentRun, Artifact] | None:
+        """Atomically publish the first DeepSearch Plan and its sealed snapshot."""
+
+        from agentmesh.deepsearch.contracts import RequirementVersionV1
+
+        now = checked_at or now_utc()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("checked_at must include a timezone")
+        expired_conflict: DeepSearchRequirementConflict | None = None
+        result: tuple[SkillPlan, AgentRun, Artifact] | None = None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            run = self._decode_agent_run_row(run_row)
+            if run.user_id != user_id:
+                return None
+            if (
+                run_row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("Run is not a v1 DeepSearch Run")
+
+            requirement_row = connection.execute(
+                """SELECT * FROM deepsearch_requirement_versions
+                WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+                (run.id,),
+            ).fetchone()
+            current_requirement_version = (
+                int(requirement_row["version"]) if requirement_row is not None else None
+            )
+            expiration_code = self._deepsearch_expiration_code(run, checked_at=now)
+            if expiration_code is not None:
+                if run.status is not AgentRunStatus.CANCELLED:
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        run,
+                        stored_version=run_row["orchestration_version"],
+                        reason=expiration_code,
+                        error_code=expiration_code,
+                        cancelled_at=now,
+                    )
+                expired_conflict = DeepSearchRequirementConflict(
+                    expiration_code,
+                    current_requirement_version=current_requirement_version,
+                )
+            else:
+                existing_plan = connection.execute(
+                    "SELECT 1 FROM skill_plans WHERE id = ? OR run_id = ? LIMIT 1",
+                    (plan.id, run.id),
+                ).fetchone()
+                if (
+                    run.status is not AgentRunStatus.PLANNING
+                    or run.plan_id is not None
+                    or existing_plan is not None
+                ):
+                    raise ResearchStoreConflict("DeepSearch initial Plan state is invalid")
+                if requirement_row is None or current_requirement_version != expected_requirement_version:
+                    raise DeepSearchRequirementConflict(
+                        "deepsearch_requirement_version_conflict",
+                        current_requirement_version=current_requirement_version,
+                    )
+                requirement_data = self._decode_deepsearch_requirement_row(requirement_row)
+                requirement = RequirementVersionV1.model_validate(requirement_data)
+                if requirement.payload.clarification_questions or any(
+                    ambiguity.blocking for ambiguity in requirement.payload.ambiguities
+                ):
+                    raise ResearchStoreConflict("DeepSearch Plan requires a complete Requirement")
+
+                plan, expected_plan_hash = self._validate_deepsearch_plan_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=plan,
+                )
+                if (
+                    plan.version != 1
+                    or plan.status is not SkillPlanStatus.WAITING_APPROVAL
+                    or plan.approved_plan_artifact_id is not None
+                ):
+                    raise ResearchStoreConflict("DeepSearch Plan integrity is invalid")
+                run = self._charge_deepsearch_plan_snapshot_in_transaction(
+                    connection,
+                    run=run,
+                    plan_snapshot=plan_snapshot,
+                    charged_at=now,
+                )
+                plan_snapshot = self._insert_deepsearch_plan_snapshot_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=plan,
+                    plan_snapshot=plan_snapshot,
+                    expected_plan_hash=expected_plan_hash,
+                )
+
+                plan.updated_at = now
+                self._write_skill_plan(connection, plan)
+                run.plan_id = plan.id
+                run.status = AgentRunStatus.WAITING_PLAN_APPROVAL
+                run.deadline_at = None
+                run.interaction_expires_at = now + timedelta(hours=24)
+                run.updated_at = now
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), now.isoformat(), run.id),
+                )
+                self._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [
+                        (
+                            "deepsearch_problem_graph_created",
+                            {
+                                "requirement_version_id": requirement.id,
+                                "problem_graph_hash": plan.problem_graph_hash,
+                            },
+                        ),
+                        (
+                            "deepsearch_plan_ready",
+                            {
+                                "plan_id": plan.id,
+                                "plan_version": plan.version,
+                                "plan_content_hash": expected_plan_hash,
+                                "artifact_id": plan_snapshot.id,
+                            },
+                        ),
+                    ],
+                )
+                result = plan, run, plan_snapshot
+        if expired_conflict is not None:
+            raise expired_conflict
+        return result
+
+    def update_deepsearch_plan_and_snapshot(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        expected_plan_version: int,
+        plan: SkillPlan,
+        plan_snapshot: Artifact,
+        checked_at: datetime | None = None,
+    ) -> tuple[SkillPlan, AgentRun, Artifact] | None:
+        """Atomically replace a waiting DeepSearch Plan with its next sealed version."""
+
+        from agentmesh.deepsearch.contracts import RequirementVersionV1
+
+        now = checked_at or now_utc()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("checked_at must include a timezone")
+        expired_conflict: DeepSearchRequirementConflict | None = None
+        result: tuple[SkillPlan, AgentRun, Artifact] | None = None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            run = self._decode_agent_run_row(run_row)
+            if run.user_id != user_id:
+                return None
+            if (
+                run_row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("Run is not a v1 DeepSearch Run")
+
+            requirement_row = connection.execute(
+                """SELECT * FROM deepsearch_requirement_versions
+                WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+                (run.id,),
+            ).fetchone()
+            current_requirement_version = (
+                int(requirement_row["version"]) if requirement_row is not None else None
+            )
+            expiration_code = self._deepsearch_expiration_code(run, checked_at=now)
+            if expiration_code is not None:
+                if run.status is not AgentRunStatus.CANCELLED:
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        run,
+                        stored_version=run_row["orchestration_version"],
+                        reason=expiration_code,
+                        error_code=expiration_code,
+                        cancelled_at=now,
+                    )
+                expired_conflict = DeepSearchRequirementConflict(
+                    expiration_code,
+                    current_requirement_version=current_requirement_version,
+                )
+            else:
+                current_row = connection.execute(
+                    "SELECT payload FROM skill_plans WHERE id = ? AND run_id = ?",
+                    (run.plan_id, run.id),
+                ).fetchone()
+                if requirement_row is None or current_row is None:
+                    return None
+                current = SkillPlan.model_validate_json(current_row["payload"])
+                if (
+                    run.status is not AgentRunStatus.WAITING_PLAN_APPROVAL
+                    or current.status is not SkillPlanStatus.WAITING_APPROVAL
+                    or current.version != expected_plan_version
+                ):
+                    return None
+                requirement = RequirementVersionV1.model_validate(
+                    self._decode_deepsearch_requirement_row(requirement_row)
+                )
+                current, _current_hash = self._validate_deepsearch_plan_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=current,
+                )
+                plan, expected_plan_hash = self._validate_deepsearch_plan_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=plan,
+                )
+                immutable_fields = (
+                    "id",
+                    "run_id",
+                    "intent",
+                    "routing_result",
+                    "candidate_skill_ids",
+                    "output_contract",
+                    "synthesis_output_contract",
+                    "capability_gaps",
+                    "capability_check",
+                    "planning_mode",
+                    "requirement_version_id",
+                    "requirement_content_hash",
+                    "problem_graph",
+                    "problem_graph_hash",
+                    "created_at",
+                )
+                selected_skill_ids = [node.skill_id for node in plan.nodes]
+                if (
+                    any(getattr(plan, field) != getattr(current, field) for field in immutable_fields)
+                    or plan.version != expected_plan_version + 1
+                    or plan.status is not SkillPlanStatus.WAITING_APPROVAL
+                    or plan.approved_plan_artifact_id is not None
+                    or len(plan.preferred_order) != len(set(plan.preferred_order))
+                    or set(plan.preferred_order) != set(selected_skill_ids)
+                    or current.approved_plan_artifact_id is not None
+                    or current.degradation is not None
+                    or current.completion_check is not None
+                    or current.synthesis is not None
+                    or plan.degradation is not None
+                    or plan.completion_check is not None
+                    or plan.synthesis is not None
+                ):
+                    raise ResearchStoreConflict("DeepSearch Plan edit is invalid")
+                run = self._charge_deepsearch_plan_snapshot_in_transaction(
+                    connection,
+                    run=run,
+                    plan_snapshot=plan_snapshot,
+                    charged_at=now,
+                )
+                plan_snapshot = self._insert_deepsearch_plan_snapshot_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=plan,
+                    plan_snapshot=plan_snapshot,
+                    expected_plan_hash=expected_plan_hash,
+                )
+
+                plan.updated_at = now
+                self._write_skill_plan(connection, plan)
+                run.status = AgentRunStatus.WAITING_PLAN_APPROVAL
+                run.deadline_at = None
+                run.interaction_expires_at = now + timedelta(hours=24)
+                run.updated_at = now
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), now.isoformat(), run.id),
+                )
+                self._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [
+                        (
+                            "plan_updated",
+                            {
+                                "plan_id": plan.id,
+                                "version": plan.version,
+                                "selected_skill_ids": selected_skill_ids,
+                                "plan_content_hash": expected_plan_hash,
+                                "artifact_id": plan_snapshot.id,
+                            },
+                        )
+                    ],
+                )
+                result = plan, run, plan_snapshot
+        if expired_conflict is not None:
+            raise expired_conflict
+        return result
+
+    def approve_deepsearch_plan_and_transition(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        expected_plan_version: int,
+        plan: SkillPlan,
+        plan_snapshot: Artifact,
+        checked_at: datetime | None = None,
+    ) -> tuple[SkillPlan, AgentRun, Artifact] | None:
+        """Atomically freeze the approved DeepSearch Plan version and start its Run."""
+
+        from agentmesh.deepsearch.contracts import RequirementVersionV1
+        from agentmesh.deepsearch.planning import deepsearch_frozen_plan
+
+        now = checked_at or now_utc()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("checked_at must include a timezone")
+        expired_conflict: DeepSearchRequirementConflict | None = None
+        result: tuple[SkillPlan, AgentRun, Artifact] | None = None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            run = self._decode_agent_run_row(run_row)
+            if run.user_id != user_id:
+                return None
+            if (
+                run_row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("Run is not a v1 DeepSearch Run")
+
+            requirement_row = connection.execute(
+                """SELECT * FROM deepsearch_requirement_versions
+                WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+                (run.id,),
+            ).fetchone()
+            current_requirement_version = (
+                int(requirement_row["version"]) if requirement_row is not None else None
+            )
+            expiration_code = self._deepsearch_expiration_code(run, checked_at=now)
+            if expiration_code is not None:
+                if run.status is not AgentRunStatus.CANCELLED:
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        run,
+                        stored_version=run_row["orchestration_version"],
+                        reason=expiration_code,
+                        error_code=expiration_code,
+                        cancelled_at=now,
+                    )
+                expired_conflict = DeepSearchRequirementConflict(
+                    expiration_code,
+                    current_requirement_version=current_requirement_version,
+                )
+            else:
+                current_row = connection.execute(
+                    "SELECT payload FROM skill_plans WHERE id = ? AND run_id = ?",
+                    (run.plan_id, run.id),
+                ).fetchone()
+                if requirement_row is None or current_row is None:
+                    return None
+                current = SkillPlan.model_validate_json(current_row["payload"])
+                if (
+                    run.status is not AgentRunStatus.WAITING_PLAN_APPROVAL
+                    or current.status is not SkillPlanStatus.WAITING_APPROVAL
+                    or current.version != expected_plan_version
+                ):
+                    return None
+                requirement = RequirementVersionV1.model_validate(
+                    self._decode_deepsearch_requirement_row(requirement_row)
+                )
+                current, current_hash = self._validate_deepsearch_plan_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=current,
+                )
+                plan, expected_plan_hash = self._validate_deepsearch_plan_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=plan,
+                )
+                if (
+                    run.orchestration_mode != "execute"
+                    or plan.id != current.id
+                    or plan.version != expected_plan_version + 1
+                    or plan.status is not SkillPlanStatus.APPROVED
+                    or plan.created_at != current.created_at
+                    or current.approved_plan_artifact_id is not None
+                    or plan.approved_plan_artifact_id != plan_snapshot.id
+                    or plan.capability_gaps
+                    or plan.capability_check != current.capability_check
+                    or current.degradation is not None
+                    or current.completion_check is not None
+                    or current.synthesis is not None
+                    or plan.degradation is not None
+                    or plan.completion_check is not None
+                    or plan.synthesis is not None
+                    or current_hash != expected_plan_hash
+                    or deepsearch_frozen_plan(plan) != deepsearch_frozen_plan(current)
+                ):
+                    raise ResearchStoreConflict("DeepSearch Plan approval is invalid")
+                run = self._charge_deepsearch_plan_snapshot_in_transaction(
+                    connection,
+                    run=run,
+                    plan_snapshot=plan_snapshot,
+                    charged_at=now,
+                )
+                plan_snapshot = self._insert_deepsearch_plan_snapshot_in_transaction(
+                    connection,
+                    run=run,
+                    requirement=requirement,
+                    plan=plan,
+                    plan_snapshot=plan_snapshot,
+                    expected_plan_hash=expected_plan_hash,
+                )
+
+                plan.updated_at = now
+                self._write_skill_plan(connection, plan)
+                run.status = AgentRunStatus.RUNNING
+                run.interaction_expires_at = None
+                run.updated_at = now
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), now.isoformat(), run.id),
+                )
+                self._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [
+                        (
+                            "plan_approved",
+                            {
+                                "plan_id": plan.id,
+                                "version": plan.version,
+                                "plan_content_hash": expected_plan_hash,
+                                "artifact_id": plan_snapshot.id,
+                            },
+                        )
+                    ],
+                )
+                result = plan, run, plan_snapshot
+        if expired_conflict is not None:
+            raise expired_conflict
+        return result
+
     def save_agent_run(self, run: AgentRun) -> AgentRun:
         if run.orchestration_version == "research-v2":
             raise ResearchStoreConflict("research-v2 runs are historical and read-only")
+        if run.orchestration_version == "research-v3":
+            raise ResearchStoreConflict("research-v3 is retired and read-only")
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
@@ -2513,8 +6513,13 @@ class SQLiteStore:
             ).fetchone()
             if existing is not None:
                 current = AgentRun.model_validate_json(existing["payload"])
-                if self._is_read_only_v2_run(current, existing["orchestration_version"]):
+                if self._is_retired_research_run(current, existing["orchestration_version"]):
                     raise ResearchStoreConflict("research-v2 runs are historical and read-only")
+                if current.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                    raise ResearchStoreConflict("DeepSearch Runs require dedicated persistence methods")
+                self._require_agent_run_creation_identity(current, run)
+            if existing is None:
+                self._require_new_deepsearch_run_invariants(run)
             if existing is not None and existing["orchestration_version"] != run.orchestration_version:
                 raise ResearchStoreConflict("Agent run orchestration_version is immutable")
             connection.execute(
@@ -2540,12 +6545,17 @@ class SQLiteStore:
         """Atomically persist an ordinary Run pause, event, and approval Inbox."""
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
             if row is None:
                 return None
             run = AgentRun.model_validate_json(row["payload"])
-            if run.orchestration_version == "research-v2":
+            if self._is_retired_research_run(run, row["orchestration_version"]):
                 return None
+            if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                raise ResearchStoreConflict("DeepSearch Runs require dedicated persistence methods")
             if run.status != AgentRunStatus.RUNNING:
                 return None
             now = now_utc()
@@ -2571,10 +6581,124 @@ class SQLiteStore:
             )
         return run
 
+    def fail_deepsearch_planning_run(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        error_code: str,
+        checked_at: datetime | None = None,
+    ) -> AgentRun | None:
+        """Atomically fail a pre-Plan DeepSearch Run without using generic writers."""
+
+        if not error_code or len(error_code) > 120:
+            raise ValueError("error_code must contain at most 120 characters")
+        now = checked_at or now_utc()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("checked_at must include a timezone")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            run = AgentRun.model_validate_json(row["payload"])
+            if run.user_id != user_id:
+                return None
+            if (
+                row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("Run is not a v1 DeepSearch Run")
+            if (
+                run.status not in {
+                    AgentRunStatus.PLANNING,
+                    AgentRunStatus.WAITING_CLARIFICATION,
+                }
+                or run.plan_id is not None
+                or connection.execute(
+                    "SELECT 1 FROM skill_plans WHERE run_id = ? LIMIT 1",
+                    (run.id,),
+                ).fetchone()
+                is not None
+            ):
+                return None
+            run.deepsearch_budget = self._close_deepsearch_budget_for_terminal(run)
+            run.status = AgentRunStatus.FAILED
+            run.error_code = error_code
+            run.output_text = None
+            run.paused_state = None
+            run.interaction_expires_at = None
+            run.updated_at = now
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            self._resolve_open_run_inboxes(
+                connection,
+                run.id,
+                reason=error_code,
+                resolved_at=now,
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [("run_failed", {"error_code": error_code})],
+            )
+        return run
+
+    def expire_deepsearch_run_if_needed(
+        self,
+        run_id: str,
+        *,
+        user_id: str,
+        checked_at: datetime | None = None,
+    ) -> AgentRun | None:
+        """Atomically apply DeepSearch absolute or interaction expiry, in that order."""
+        now = checked_at or now_utc()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("checked_at must include a timezone")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            run = AgentRun.model_validate_json(row["payload"])
+            if run.user_id != user_id:
+                return None
+            if (
+                row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or run.planning_mode != AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("Run is not a v1 DeepSearch Run")
+            error_code = self._deepsearch_expiration_code(run, checked_at=now)
+            if error_code is not None:
+                if run.status is AgentRunStatus.CANCELLED:
+                    return run
+                return self._cancel_agent_run_tree_in_transaction(
+                    connection,
+                    run,
+                    stored_version=row["orchestration_version"],
+                    reason=error_code,
+                    error_code=error_code,
+                    cancelled_at=now,
+                )
+            return run
+
     def cancel_agent_run_tree(self, run_id: str, *, user_id: str) -> AgentRun | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
             if row is None:
                 return None
             run = AgentRun.model_validate_json(row["payload"])
@@ -2583,12 +6707,18 @@ class SQLiteStore:
             if run.status not in {
                 AgentRunStatus.CREATED,
                 AgentRunStatus.PLANNING,
+                AgentRunStatus.WAITING_CLARIFICATION,
                 AgentRunStatus.RUNNING,
                 AgentRunStatus.WAITING_PLAN_APPROVAL,
                 AgentRunStatus.WAITING_APPROVAL,
             }:
                 return run
-            return self._cancel_agent_run_tree_in_transaction(connection, run, reason="run_cancelled")
+            return self._cancel_agent_run_tree_in_transaction(
+                connection,
+                run,
+                stored_version=row["orchestration_version"],
+                reason="run_cancelled",
+            )
 
     def expire_agent_run_approval(
         self,
@@ -2601,7 +6731,10 @@ class SQLiteStore:
         """Cancel an expired approval only if the Run and Inbox are still waiting."""
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            run_row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
             inbox_row = connection.execute(
                 "SELECT payload FROM records WHERE collection = 'inbox_items' AND id = ?",
                 (inbox_id,),
@@ -2611,7 +6744,7 @@ class SQLiteStore:
             run = AgentRun.model_validate_json(run_row["payload"])
             item = InboxItem.model_validate_json(inbox_row["payload"])
             if (
-                run.orchestration_version == "research-v2"
+                self._is_retired_research_run(run, run_row["orchestration_version"])
                 or run.user_id != user_id
                 or run.status != AgentRunStatus.WAITING_APPROVAL
                 or item.status != "open"
@@ -2628,7 +6761,12 @@ class SQLiteStore:
                 expires_at = min(expires_at, run.deadline_at)
             if now < expires_at:
                 return False
-            self._cancel_agent_run_tree_in_transaction(connection, run, reason="approval_expired")
+            self._cancel_agent_run_tree_in_transaction(
+                connection,
+                run,
+                stored_version=run_row["orchestration_version"],
+                reason="approval_expired",
+            )
         return True
 
     def save_agent_run_with_event(
@@ -2649,10 +6787,13 @@ class SQLiteStore:
             if row is None:
                 return None
             current = AgentRun.model_validate_json(row["payload"])
-            if self._is_read_only_v2_run(current, row["orchestration_version"]):
+            if self._is_retired_research_run(current, row["orchestration_version"]):
                 return None
+            if current.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                raise ResearchStoreConflict("DeepSearch Runs require dedicated persistence methods")
             if run.orchestration_version != current.orchestration_version:
                 raise ResearchStoreConflict("Agent run orchestration_version is immutable")
+            self._require_agent_run_creation_identity(current, run)
             if expected_statuses is not None and current.status not in expected_statuses:
                 return None
             run.tool_call_count = max(run.tool_call_count, current.tool_call_count)
@@ -2695,7 +6836,12 @@ class SQLiteStore:
             current_plan = SkillPlan.model_validate_json(plan_row["payload"])
             current_run = AgentRun.model_validate_json(run_row["payload"])
             if (
-                self._is_read_only_v2_run(current_run, run_row["orchestration_version"])
+                current_run.planning_mode is AgentPlanningMode.DEEPSEARCH
+                or current_plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("DeepSearch Runs require dedicated persistence methods")
+            if (
+                self._is_retired_research_run(current_run, run_row["orchestration_version"])
                 or current_plan.run_id != current_run.id
                 or current_plan.status not in expected_plan_statuses
                 or current_run.status not in expected_run_statuses
@@ -2703,6 +6849,7 @@ class SQLiteStore:
                 return None
             if run.orchestration_version != current_run.orchestration_version:
                 raise ResearchStoreConflict("Agent run orchestration_version is immutable")
+            self._require_agent_run_creation_identity(current_run, run)
             now = now_utc()
             plan.version = current_plan.version
             plan.created_at = current_plan.created_at
@@ -2762,11 +6909,14 @@ class SQLiteStore:
     def consume_agent_run_tool_call(self, run_id: str, *, limit: int = 24) -> int | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
             if row is None:
                 return None
             run = AgentRun.model_validate_json(row["payload"])
-            if run.orchestration_version == "research-v2":
+            if self._is_retired_research_run(run, row["orchestration_version"]):
                 return None
             if run.status != AgentRunStatus.RUNNING or run.tool_call_count >= limit:
                 return None
@@ -2779,146 +6929,6 @@ class SQLiteStore:
         return run.tool_call_count
 
     @staticmethod
-    def _research_writer_control_from_row(row: sqlite3.Row | None) -> ResearchWriterControlV1:
-        if row is None:
-            raise ResearchStoreConflict("research writer control row is missing")
-        try:
-            return ResearchWriterControlV1(
-                control_key=row["control_key"],
-                active_generation=row["active_generation"],
-                lifecycle_state=row["lifecycle_state"],
-                generation_epoch=row["generation_epoch"],
-                decision_receipt_hash=row["decision_receipt_hash"],
-                updated_at=datetime.fromisoformat(row["updated_at"]),
-            )
-        except (TypeError, ValueError):
-            raise ResearchStoreConflict("research writer control row failed integrity validation") from None
-
-    @classmethod
-    def _read_research_writer_control(cls, connection: sqlite3.Connection) -> ResearchWriterControlV1:
-        row = connection.execute(
-            "SELECT * FROM research_writer_control WHERE control_key = ?",
-            (RESEARCH_WRITER_CONTROL_KEY,),
-        ).fetchone()
-        return cls._research_writer_control_from_row(row)
-
-    def get_research_writer_control(self) -> ResearchWriterControlV1:
-        with self._connect() as connection:
-            return self._read_research_writer_control(connection)
-
-    def compare_and_swap_research_writer_control(
-        self,
-        *,
-        expected_generation: ResearchWriterGeneration,
-        expected_generation_epoch: int,
-        target_generation: ResearchWriterGeneration,
-        decision_receipt_hash: str,
-        changed_at: datetime | None = None,
-    ) -> ResearchWriterControlV1:
-        """Advance the global generation once; production exposes no caller for this in Gate 2."""
-
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            current = self._read_research_writer_control(connection)
-            if (
-                current.active_generation != expected_generation
-                or current.generation_epoch != expected_generation_epoch
-            ):
-                raise ResearchStoreConflict("research writer generation compare-and-swap conflict")
-            if current.active_generation == ResearchWriterGeneration.V3:
-                raise ResearchStoreConflict("research-v3 writer generation cannot roll back to research-v2")
-            if target_generation != ResearchWriterGeneration.V3:
-                raise ResearchStoreConflict("research writer generation may advance only from v2 to v3")
-            updated = ResearchWriterControlV1(
-                active_generation=target_generation,
-                lifecycle_state=ResearchWriterLifecycle.ACTIVE,
-                generation_epoch=current.generation_epoch + 1,
-                decision_receipt_hash=decision_receipt_hash,
-                updated_at=changed_at or now_utc(),
-            )
-            cursor = connection.execute(
-                """
-                UPDATE research_writer_control
-                SET active_generation = ?, lifecycle_state = ?, generation_epoch = ?,
-                    decision_receipt_hash = ?, updated_at = ?
-                WHERE control_key = ? AND active_generation = ?
-                  AND lifecycle_state = ? AND generation_epoch = ?
-                """,
-                (
-                    updated.active_generation.value,
-                    updated.lifecycle_state.value,
-                    updated.generation_epoch,
-                    updated.decision_receipt_hash,
-                    updated.updated_at.isoformat(),
-                    RESEARCH_WRITER_CONTROL_KEY,
-                    current.active_generation.value,
-                    current.lifecycle_state.value,
-                    current.generation_epoch,
-                ),
-            )
-            if cursor.rowcount != 1:
-                raise ResearchStoreConflict("research writer generation compare-and-swap conflict")
-        return updated
-
-    def compare_and_swap_research_writer_lifecycle(
-        self,
-        *,
-        expected_generation: ResearchWriterGeneration,
-        expected_generation_epoch: int,
-        expected_lifecycle_state: ResearchWriterLifecycle,
-        target_lifecycle_state: ResearchWriterLifecycle,
-        decision_receipt_hash: str,
-        changed_at: datetime | None = None,
-    ) -> ResearchWriterControlV1:
-        """Advance the current writer from active to draining to retired."""
-
-        allowed_transitions = {
-            ResearchWriterLifecycle.ACTIVE: {ResearchWriterLifecycle.DRAINING},
-            ResearchWriterLifecycle.DRAINING: {ResearchWriterLifecycle.RETIRED},
-            ResearchWriterLifecycle.RETIRED: set(),
-        }
-        if target_lifecycle_state not in allowed_transitions[expected_lifecycle_state]:
-            raise ResearchStoreConflict("research writer lifecycle transition is invalid")
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            current = self._read_research_writer_control(connection)
-            if (
-                current.active_generation != expected_generation
-                or current.generation_epoch != expected_generation_epoch
-                or current.lifecycle_state != expected_lifecycle_state
-            ):
-                raise ResearchStoreConflict("research writer lifecycle compare-and-swap conflict")
-            updated = ResearchWriterControlV1(
-                active_generation=current.active_generation,
-                lifecycle_state=target_lifecycle_state,
-                generation_epoch=current.generation_epoch + 1,
-                decision_receipt_hash=decision_receipt_hash,
-                updated_at=changed_at or now_utc(),
-            )
-            cursor = connection.execute(
-                """
-                UPDATE research_writer_control
-                SET lifecycle_state = ?, generation_epoch = ?,
-                    decision_receipt_hash = ?, updated_at = ?
-                WHERE control_key = ? AND active_generation = ?
-                  AND lifecycle_state = ? AND generation_epoch = ?
-                """,
-                (
-                    updated.lifecycle_state.value,
-                    updated.generation_epoch,
-                    updated.decision_receipt_hash,
-                    updated.updated_at.isoformat(),
-                    RESEARCH_WRITER_CONTROL_KEY,
-                    current.active_generation.value,
-                    current.lifecycle_state.value,
-                    current.generation_epoch,
-                ),
-            )
-            if cursor.rowcount != 1:
-                raise ResearchStoreConflict("research writer lifecycle compare-and-swap conflict")
-        return updated
-
-    @staticmethod
     def _replay_agent_run_claim(connection: sqlite3.Connection, run: AgentRun) -> AgentRun | None:
         if not run.client_turn_id:
             return None
@@ -2929,25 +6939,31 @@ class SQLiteStore:
         if receipt is None:
             return None
         row = connection.execute(
-            "SELECT payload FROM agent_runs WHERE id = ?",
+            "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
             (receipt["run_id"],),
         ).fetchone()
         if row is None:
             raise RuntimeError("Agent run receipt points to a missing run")
-        existing = AgentRun.model_validate_json(row["payload"])
-        mode_conflict = (
-            existing.requested_orchestration_mode is not None
-            and run.requested_orchestration_mode is not None
-            and existing.requested_orchestration_mode != run.requested_orchestration_mode
-        )
+        existing = SQLiteStore._decode_agent_run_row(row)
+        expected_hash = agent_run_create_request_hash_for_run(run)
+        if expected_hash is None:
+            raise RuntimeError("Agent run creation receipt is missing its request identity")
         if (
-            existing.input_text != run.input_text
-            or existing.thread_id != run.thread_id
-            or existing.workspace_id != run.workspace_id
+            existing.workspace_id != run.workspace_id
             or existing.project_id != run.project_id
-            or existing.skill_id != run.skill_id
-            or existing.skill_name != run.skill_name
-            or mode_conflict
+            or not agent_run_create_request_matches(
+                existing,
+                create_request_hash=expected_hash,
+                user_id=run.user_id,
+                client_turn_id=run.client_turn_id,
+                thread_id=run.thread_id,
+                content=run.input_text,
+                skill_id=run.skill_id,
+                skill_name=run.skill_name,
+                orchestration_mode=run.requested_orchestration_mode,
+                planning_mode=run.planning_mode,
+                retry_of_run_id=run.retry_of_run_id,
+            )
         ):
             raise RuntimeError("client_turn_id was already used for another Agent run")
         return existing
@@ -2959,16 +6975,17 @@ class SQLiteStore:
     ) -> None:
         active_rows = connection.execute(
             """
-            SELECT payload FROM agent_runs
+            SELECT payload, orchestration_version FROM agent_runs
             WHERE json_extract(payload, '$.user_id') = ?
               AND json_extract(payload, '$.thread_id') = ?
-              AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?)
+              AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?)
             """,
             (
                 run.user_id,
                 run.thread_id,
                 AgentRunStatus.CREATED.value,
                 AgentRunStatus.PLANNING.value,
+                AgentRunStatus.WAITING_CLARIFICATION.value,
                 AgentRunStatus.RUNNING.value,
                 AgentRunStatus.WAITING_PLAN_APPROVAL.value,
                 AgentRunStatus.WAITING_APPROVAL.value,
@@ -2977,8 +6994,25 @@ class SQLiteStore:
         checked_at = now_utc()
         for active_row in active_rows:
             active = AgentRun.model_validate_json(active_row["payload"])
-            if active.orchestration_version == "research-v2":
+            if self._is_retired_research_run(active, active_row["orchestration_version"]):
                 continue
+            if (
+                active_row["orchestration_version"] == "v1"
+                and active.orchestration_version == "v1"
+                and active.planning_mode == AgentPlanningMode.DEEPSEARCH
+            ):
+                expiration_code = self._deepsearch_expiration_code(active, checked_at=checked_at)
+                if expiration_code is not None:
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        active,
+                        stored_version=active_row["orchestration_version"],
+                        reason=expiration_code,
+                        error_code=expiration_code,
+                        cancelled_at=checked_at,
+                    )
+                    continue
+                raise RuntimeError("Another Agent run is already active for this thread")
             if (
                 active.status == AgentRunStatus.WAITING_PLAN_APPROVAL
                 and active.deadline_at is not None
@@ -2987,6 +7021,7 @@ class SQLiteStore:
                 self._cancel_agent_run_tree_in_transaction(
                     connection,
                     active,
+                    stored_version=active_row["orchestration_version"],
                     reason="plan_approval_expired",
                 )
                 continue
@@ -2994,6 +7029,7 @@ class SQLiteStore:
                 self._cancel_agent_run_tree_in_transaction(
                     connection,
                     active,
+                    stored_version=active_row["orchestration_version"],
                     reason="approval_expired",
                 )
                 continue
@@ -3003,6 +7039,8 @@ class SQLiteStore:
     def _insert_agent_run_claim(connection: sqlite3.Connection, run: AgentRun) -> None:
         if run.orchestration_version == "research-v2":
             raise ResearchStoreConflict("research-v2 writer is retired")
+        if run.orchestration_version == "research-v3":
+            raise ResearchStoreConflict("research-v3 writer is retired")
         connection.execute(
             "INSERT INTO agent_runs(id, payload, updated_at, orchestration_version) VALUES (?, ?, ?, ?)",
             (run.id, run.model_dump_json(), run.updated_at.isoformat(), run.orchestration_version),
@@ -3013,11 +7051,54 @@ class SQLiteStore:
                 (run.user_id, run.client_turn_id, run.id),
             )
 
+    @staticmethod
+    def _require_deepsearch_run_claim_invariants(run: AgentRun) -> None:
+        if run.planning_mode is not AgentPlanningMode.DEEPSEARCH:
+            return
+        if (
+            run.created_at.tzinfo is None
+            or run.created_at.utcoffset() is None
+            or run.absolute_expires_at != run.created_at + timedelta(days=7)
+            or run.deadline_at is not None
+            or run.deepsearch_budget is None
+        ):
+            raise ResearchStoreConflict("DeepSearch Run persistence invariants are invalid")
+
+    @classmethod
+    def _require_new_deepsearch_run_invariants(cls, run: AgentRun) -> None:
+        cls._require_deepsearch_run_claim_invariants(run)
+        if (
+            run.planning_mode is AgentPlanningMode.DEEPSEARCH
+            and (
+                run.status is not AgentRunStatus.PLANNING
+                or run.plan_id is not None
+                or run.interaction_expires_at is not None
+                or run.paused_state is not None
+                or run.output_text is not None
+                or run.error_code is not None
+                or run.tool_call_count != 0
+                or run.requested_orchestration_mode is not SkillOrchestrationRequestMode.AUTO
+                or run.orchestration_version != "v1"
+                or run.orchestration_mode != "execute"
+                or run.deepsearch_budget != DeepSearchBudgetV1()
+            )
+        ):
+            raise ResearchStoreConflict("DeepSearch Run persistence invariants are invalid")
+
     def claim_new_agent_run(self, run: AgentRun) -> tuple[AgentRun, bool]:
         if run.orchestration_version == "research-v2":
             raise ResearchStoreConflict("research-v2 writer is retired")
+        if run.orchestration_version == "research-v3":
+            raise ResearchStoreConflict("research-v3 writer is retired")
+        self._require_new_deepsearch_run_invariants(run)
         if not run.client_turn_id:
             return self.save_agent_run(run), True
+        expected_hash = agent_run_create_request_hash_for_run(run)
+        if expected_hash is None:
+            raise RuntimeError("Agent run creation request identity is incomplete")
+        if run.create_request_hash is not None and run.create_request_hash != expected_hash:
+            raise RuntimeError("Agent run create_request_hash does not match its request identity")
+        run = run.model_copy(update={"create_request_hash": expected_hash})
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = self._replay_agent_run_claim(connection, run)
@@ -3025,55 +7106,20 @@ class SQLiteStore:
                 return existing, False
             self._require_agent_run_thread_available(connection, run)
             self._insert_agent_run_claim(connection, run)
-        return run, True
-
-    def claim_research_agent_run(
-        self,
-        run: AgentRun,
-        *,
-        expected_generation: ResearchWriterGeneration,
-        expected_generation_epoch: int,
-        expected_lifecycle_state: ResearchWriterLifecycle,
-        initialize_version_state: ResearchVersionInitializer,
-    ) -> tuple[AgentRun, bool]:
-        """Claim a versioned research Run and its first version state in one transaction."""
-
-        if not run.client_turn_id:
-            raise ValueError("versioned research Run creation requires client_turn_id")
-        if expected_generation != ResearchWriterGeneration.V3 or run.orchestration_version != "research-v3":
-            raise ResearchStoreConflict("research-v2 writer is retired")
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            existing = self._replay_agent_run_claim(connection, run)
-            if existing is not None:
-                return existing, False
-            control = self._read_research_writer_control(connection)
-            if (
-                control.active_generation != expected_generation
-                or control.generation_epoch != expected_generation_epoch
-                or control.lifecycle_state != expected_lifecycle_state
-                or not control.lifecycle_state.accepts_new_runs
-                or run.orchestration_version != expected_generation.value
-                or run.writer_generation_epoch != expected_generation_epoch
-            ):
-                raise ResearchStoreConflict("research writer generation changed before Run creation")
-            self._require_agent_run_thread_available(connection, run)
-            self._insert_agent_run_claim(connection, run)
-            initialize_version_state(connection, run)
         return run, True
 
     def get_agent_run_by_client_turn(self, user_id: str, client_turn_id: str) -> AgentRun | None:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT ar.payload
+                SELECT ar.payload, ar.orchestration_version
                 FROM agent_run_receipts receipt
                 JOIN agent_runs ar ON ar.id = receipt.run_id
                 WHERE receipt.user_id = ? AND receipt.client_turn_id = ?
                 """,
                 (user_id, client_turn_id),
             ).fetchone()
-        return AgentRun.model_validate_json(row["payload"]) if row is not None else None
+        return self._decode_agent_run_row(row) if row is not None else None
 
     def claim_agent_run_for_resume(
         self,
@@ -3085,11 +7131,14 @@ class SQLiteStore:
     ) -> AgentRun | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
             if row is None:
                 return None
             run = AgentRun.model_validate_json(row["payload"])
-            if run.orchestration_version == "research-v2":
+            if self._is_retired_research_run(run, row["orchestration_version"]):
                 return None
             if run.user_id != user_id or run.status != AgentRunStatus.WAITING_APPROVAL or run.paused_state is None:
                 return None
@@ -3111,7 +7160,12 @@ class SQLiteStore:
                 if run.deadline_at is not None:
                     expires_at = min(expires_at, run.deadline_at)
                 if now_utc() >= expires_at:
-                    self._cancel_agent_run_tree_in_transaction(connection, run, reason="approval_expired")
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        run,
+                        stored_version=row["orchestration_version"],
+                        reason="approval_expired",
+                    )
                     return None
                 if call_ids is not None:
                     try:
@@ -3150,6 +7204,8 @@ class SQLiteStore:
                 plan.updated_at = now_utc()
                 self._write_skill_plan(connection, plan)
             run.status = AgentRunStatus.RUNNING
+            if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                run.interaction_expires_at = None
             run.updated_at = now_utc()
             connection.execute(
                 "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
@@ -3161,17 +7217,22 @@ class SQLiteStore:
         reconciled = 0
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            rows = connection.execute("SELECT id, payload FROM agent_runs").fetchall()
+            rows = connection.execute(
+                "SELECT id, payload, orchestration_version FROM agent_runs"
+            ).fetchall()
             checked_at = now_utc()
             for row in rows:
                 run = AgentRun.model_validate_json(row["payload"])
-                if run.orchestration_version == "research-v2":
+                if self._is_retired_research_run(run, row["orchestration_version"]):
+                    continue
+                if run.planning_mode == AgentPlanningMode.DEEPSEARCH:
                     continue
                 if run.status == AgentRunStatus.WAITING_PLAN_APPROVAL:
                     if run.deadline_at is not None and checked_at >= run.deadline_at:
                         self._cancel_agent_run_tree_in_transaction(
                             connection,
                             run,
+                            stored_version=row["orchestration_version"],
                             reason="plan_approval_expired",
                         )
                         reconciled += 1
@@ -3181,6 +7242,7 @@ class SQLiteStore:
                         self._cancel_agent_run_tree_in_transaction(
                             connection,
                             run,
+                            stored_version=row["orchestration_version"],
                             reason="approval_expired",
                         )
                         reconciled += 1
@@ -3235,17 +7297,489 @@ class SQLiteStore:
                 reconciled += 1
         return reconciled
 
+    def list_recoverable_deepsearch_runs(self) -> list[AgentRun]:
+        """Return persisted non-terminal v1 DeepSearch runs for the coordinator."""
+
+        terminal_statuses = {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.PARTIAL,
+            AgentRunStatus.FAILED,
+            AgentRunStatus.REJECTED,
+            AgentRunStatus.CANCELLED,
+        }
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT id, payload, orchestration_version
+                FROM agent_runs
+                WHERE orchestration_version = 'v1'
+                ORDER BY updated_at, id"""
+            ).fetchall()
+        runs: list[AgentRun] = []
+        for row in rows:
+            try:
+                run = AgentRun.model_validate_json(row["payload"])
+            except (TypeError, ValueError):
+                continue
+            if (
+                run.id == row["id"]
+                and run.orchestration_version == row["orchestration_version"]
+                and run.planning_mode is AgentPlanningMode.DEEPSEARCH
+                and run.status not in terminal_statuses
+            ):
+                runs.append(run)
+        return runs
+
+    def prepare_deepsearch_execution_recovery(
+        self,
+        *,
+        run_id: str,
+        checked_at: datetime | None = None,
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        """Normalize abandoned node claims before re-entering the one DAG executor."""
+
+        now = checked_at or now_utc()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("checked_at must include a timezone")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT id, payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            try:
+                run = AgentRun.model_validate_json(run_row["payload"])
+            except (TypeError, ValueError) as error:
+                raise ResearchStoreConflict("DeepSearch recovery Run is invalid") from error
+            if (
+                run.id != run_row["id"]
+                or run_row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("DeepSearch recovery Run identity is invalid")
+            if run.status is not AgentRunStatus.RUNNING or run.plan_id is None:
+                return None
+
+            plan_row = connection.execute(
+                "SELECT id, run_id, version, status, payload FROM skill_plans WHERE id = ?",
+                (run.plan_id,),
+            ).fetchone()
+            if plan_row is None:
+                raise ResearchStoreConflict("DeepSearch recovery Plan is missing")
+            try:
+                plan = SkillPlan.model_validate_json(plan_row["payload"])
+            except (TypeError, ValueError) as error:
+                raise ResearchStoreConflict("DeepSearch recovery Plan is invalid") from error
+            if (
+                plan.id != plan_row["id"]
+                or plan.run_id != plan_row["run_id"]
+                or plan.version != plan_row["version"]
+                or plan.status.value != plan_row["status"]
+                or plan.run_id != run.id
+                or plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+                or plan.status not in {SkillPlanStatus.APPROVED, SkillPlanStatus.RUNNING}
+            ):
+                raise ResearchStoreConflict("DeepSearch recovery Plan identity is invalid")
+
+            from agentmesh.deepsearch.contracts import (
+                ProblemGraphV1,
+                RequirementVersionV1,
+                validate_problem_graph_against_requirement,
+            )
+            from agentmesh.deepsearch.planning import plan_content_hash
+
+            requirement_row = connection.execute(
+                """SELECT * FROM deepsearch_requirement_versions
+                WHERE run_id = ? ORDER BY version DESC LIMIT 1""",
+                (run.id,),
+            ).fetchone()
+            if requirement_row is None:
+                raise ResearchStoreConflict("DeepSearch recovery Requirement is missing")
+            try:
+                requirement = RequirementVersionV1.model_validate(
+                    self._decode_deepsearch_requirement_row(requirement_row)
+                )
+                graph = ProblemGraphV1.model_validate(plan.problem_graph)
+                validate_problem_graph_against_requirement(
+                    graph=graph,
+                    requirement=requirement,
+                )
+                expected_plan_hash = plan_content_hash(plan)
+            except (TypeError, ValueError) as error:
+                raise ResearchStoreConflict(
+                    "DeepSearch recovery Plan lineage is invalid"
+                ) from error
+            if (
+                plan.requirement_version_id != requirement.id
+                or plan.requirement_content_hash != requirement.content_hash
+                or plan.problem_graph_hash != graph.content_hash
+                or plan.plan_content_hash != expected_plan_hash
+            ):
+                raise ResearchStoreConflict(
+                    "DeepSearch recovery Plan lineage is invalid"
+                )
+            self._load_deepsearch_plan_snapshot_in_transaction(
+                connection,
+                run=run,
+                requirement=requirement,
+                plan=plan,
+                expected_plan_hash=expected_plan_hash,
+            )
+
+            node_rows = connection.execute(
+                """SELECT id, status, payload FROM skill_plan_nodes
+                WHERE plan_id = ? ORDER BY id""",
+                (plan.id,),
+            ).fetchall()
+            try:
+                persisted_nodes = [
+                    SkillPlanNode.model_validate_json(row["payload"])
+                    for row in node_rows
+                ]
+            except (TypeError, ValueError) as error:
+                raise ResearchStoreConflict(
+                    "DeepSearch recovery node projection is invalid"
+                ) from error
+            expected_nodes = sorted(plan.nodes, key=lambda item: item.id)
+            if (
+                len(persisted_nodes) != len(expected_nodes)
+                or any(
+                    node.id != row["id"]
+                    or node.status.value != row["status"]
+                    or node != expected
+                    for node, row, expected in zip(
+                        persisted_nodes,
+                        node_rows,
+                        expected_nodes,
+                        strict=True,
+                    )
+                )
+            ):
+                raise ResearchStoreConflict(
+                    "DeepSearch recovery node projection is invalid"
+                )
+            if plan.status is SkillPlanStatus.APPROVED:
+                if (
+                    plan.finalization_stage is not DeepSearchFinalizationStage.NONE
+                    or any(node.status is not SkillPlanNodeStatus.PENDING for node in plan.nodes)
+                    or connection.execute(
+                        "SELECT 1 FROM skill_node_results WHERE plan_id = ? LIMIT 1",
+                        (plan.id,),
+                    ).fetchone()
+                    is not None
+                ):
+                    raise ResearchStoreConflict("DeepSearch approved Plan recovery state is invalid")
+                return plan, run
+
+            if any(
+                node.status is SkillPlanNodeStatus.WAITING_TOOL_APPROVAL
+                for node in plan.nodes
+            ):
+                raise ResearchStoreConflict("DeepSearch running Plan has an orphaned approval")
+            terminal_node_statuses = {
+                SkillPlanNodeStatus.COMPLETED,
+                SkillPlanNodeStatus.FAILED,
+                SkillPlanNodeStatus.SKIPPED,
+                SkillPlanNodeStatus.CANCELLED,
+            }
+            if (
+                run.paused_state is not None
+                or run.interaction_expires_at is not None
+                or run.output_text is not None
+                or plan.finalization_stage
+                is DeepSearchFinalizationStage.TERMINAL_COMMITTED
+                or (
+                    plan.finalization_stage is not DeepSearchFinalizationStage.NONE
+                    and any(
+                        node.status not in terminal_node_statuses
+                        for node in plan.nodes
+                    )
+                )
+            ):
+                raise ResearchStoreConflict(
+                    "DeepSearch running Plan recovery state is invalid"
+                )
+
+            events: list[tuple[str, dict[str, object]]] = []
+            updated_nodes: list[SkillPlanNode] = []
+            changed = False
+            for node in plan.nodes:
+                if node.status is SkillPlanNodeStatus.RUNNING:
+                    changed = True
+                    node = node.model_copy(
+                        update={
+                            "status": SkillPlanNodeStatus.FAILED,
+                            "error_code": "external_outcome_unknown",
+                            "completed_at": now,
+                        }
+                    )
+                    events.append(
+                        (
+                            "node_failed",
+                            {
+                                "plan_id": plan.id,
+                                "node_id": node.id,
+                                "attempt": node.attempt,
+                                "error_code": "external_outcome_unknown",
+                            },
+                        )
+                    )
+                updated_nodes.append(node)
+
+            if changed:
+                plan = SkillPlan.model_validate(
+                    {
+                        **plan.model_dump(mode="python"),
+                        "nodes": updated_nodes,
+                        "updated_at": now,
+                    }
+                )
+                self._write_skill_plan(connection, plan)
+                self._append_agent_run_events(connection, run.id, events)
+            return plan, run
+
+    def fail_deepsearch_recovery_state(
+        self,
+        *,
+        run_id: str,
+        error_code: str = "deepsearch_recovery_state_invalid",
+        checked_at: datetime | None = None,
+    ) -> AgentRun | None:
+        """Fail an invalid active recovery state without using generic Run writers."""
+
+        if not error_code or len(error_code) > 120:
+            raise ValueError("error_code must contain at most 120 characters")
+        now = checked_at or now_utc()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("checked_at must include a timezone")
+        terminal_statuses = {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.PARTIAL,
+            AgentRunStatus.FAILED,
+            AgentRunStatus.REJECTED,
+            AgentRunStatus.CANCELLED,
+        }
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT id, payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            try:
+                run = AgentRun.model_validate_json(run_row["payload"])
+            except (TypeError, ValueError) as error:
+                raise ResearchStoreConflict("DeepSearch recovery Run is invalid") from error
+            if (
+                run.id != run_row["id"]
+                or run_row["orchestration_version"] != "v1"
+                or run.orchestration_version != "v1"
+                or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            ):
+                raise ResearchStoreConflict("DeepSearch recovery Run identity is invalid")
+            if run.status in terminal_statuses:
+                return run
+
+            events: list[tuple[str, dict[str, object]]] = []
+            plan_row = connection.execute(
+                "SELECT id, run_id, payload FROM skill_plans WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()
+            if plan_row is not None:
+                try:
+                    plan = SkillPlan.model_validate_json(plan_row["payload"])
+                except (TypeError, ValueError):
+                    plan = None
+                from agentmesh.artifacts import ArtifactAccessError, V1VerifiedArtifactStore
+
+                staging_rows = connection.execute(
+                    """SELECT payload FROM artifacts
+                    WHERE run_id = ?
+                      AND artifact_type = 'deepsearch_report'
+                      AND verification_state = ?""",
+                    (
+                        run.id,
+                        ArtifactVerificationState.STAGING.value,
+                    ),
+                ).fetchall()
+                artifact_store = V1VerifiedArtifactStore(self)
+                for row in staging_rows:
+                    try:
+                        staging_report = Artifact.model_validate_json(row["payload"])
+                        artifact_store.fail_report(
+                            staging_report.model_copy(
+                                update={
+                                    "verification_state": ArtifactVerificationState.FAILED,
+                                    "updated_at": now,
+                                }
+                            ),
+                            connection=connection,
+                        )
+                    except (ArtifactAccessError, TypeError, ValueError):
+                        # The Run must still converge to failed if an already
+                        # corrupt STAGING row cannot be materialized safely.
+                        connection.execute(
+                            """UPDATE artifacts SET verification_state = ?, updated_at = ?
+                            WHERE run_id = ? AND artifact_type = 'deepsearch_report'
+                              AND verification_state = ?""",
+                            (
+                                ArtifactVerificationState.FAILED.value,
+                                now.isoformat(),
+                                run.id,
+                                ArtifactVerificationState.STAGING.value,
+                            ),
+                        )
+                plan_is_safe_to_rewrite = (
+                    plan is not None
+                    and plan.id == plan_row["id"]
+                    and plan.run_id == plan_row["run_id"]
+                    and plan.run_id == run.id
+                    and plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+                )
+                if not plan_is_safe_to_rewrite:
+                    connection.execute(
+                        "UPDATE skill_plans SET status = ?, updated_at = ? WHERE run_id = ?",
+                        (SkillPlanStatus.FAILED.value, now.isoformat(), run.id),
+                    )
+                    connection.execute(
+                        """UPDATE skill_plan_nodes SET status = ?, updated_at = ?
+                        WHERE plan_id = ? AND status NOT IN (?, ?, ?, ?)""",
+                        (
+                            SkillPlanNodeStatus.CANCELLED.value,
+                            now.isoformat(),
+                            plan_row["id"],
+                            SkillPlanNodeStatus.COMPLETED.value,
+                            SkillPlanNodeStatus.FAILED.value,
+                            SkillPlanNodeStatus.SKIPPED.value,
+                            SkillPlanNodeStatus.CANCELLED.value,
+                        ),
+                    )
+                else:
+                    assert plan is not None
+                    previous_stage = plan.finalization_stage
+                    updated_nodes: list[SkillPlanNode] = []
+                    terminal_node_statuses = {
+                        SkillPlanNodeStatus.COMPLETED,
+                        SkillPlanNodeStatus.FAILED,
+                        SkillPlanNodeStatus.SKIPPED,
+                        SkillPlanNodeStatus.CANCELLED,
+                    }
+                    for node in plan.nodes:
+                        if node.status in terminal_node_statuses:
+                            updated_nodes.append(node)
+                            continue
+                        updated_nodes.append(
+                            node.model_copy(
+                                update={
+                                    "status": SkillPlanNodeStatus.CANCELLED,
+                                    "completed_at": now,
+                                }
+                            )
+                        )
+                        events.append(
+                            (
+                                "node_cancelled",
+                                {
+                                    "plan_id": plan.id,
+                                    "node_id": node.id,
+                                    "reason": error_code,
+                                },
+                            )
+                        )
+                    terminal_hash = canonical_json_sha256(
+                        {
+                            "kind": "deepsearch-recovery-failure-v1",
+                            "run_id": run.id,
+                            "plan_id": plan.id,
+                            "plan_version": plan.version,
+                            "finalization_stage": previous_stage.value,
+                            "finalization_version": plan.finalization_version,
+                            "error_code": error_code,
+                        }
+                    )
+                    plan = SkillPlan.model_validate(
+                        {
+                            **plan.model_dump(mode="python"),
+                            "status": SkillPlanStatus.FAILED,
+                            "nodes": updated_nodes,
+                            "report_artifact_id": None,
+                            "report_content_hash": None,
+                            "finalization_stage": DeepSearchFinalizationStage.TERMINAL_COMMITTED,
+                            "finalization_version": plan.finalization_version + 1,
+                            "finalization_input_hashes": {
+                                **plan.finalization_input_hashes,
+                                DeepSearchFinalizationStage.TERMINAL_COMMITTED: terminal_hash,
+                            },
+                            "updated_at": now,
+                        }
+                    )
+                    self._write_skill_plan(connection, plan)
+                    events.append(
+                        (
+                            "deepsearch_finalization_stage_changed",
+                            {
+                                "plan_id": plan.id,
+                                "from_stage": previous_stage.value,
+                                "to_stage": DeepSearchFinalizationStage.TERMINAL_COMMITTED.value,
+                                "finalization_version": plan.finalization_version,
+                                "input_hash": terminal_hash,
+                            },
+                        )
+                    )
+
+            closed_budget = self._close_deepsearch_budget_for_terminal(run)
+            run = AgentRun.model_validate(
+                {
+                    **run.model_dump(mode="python"),
+                    "deepsearch_budget": closed_budget,
+                    "status": AgentRunStatus.FAILED,
+                    "paused_state": None,
+                    "interaction_expires_at": None,
+                    "output_text": None,
+                    "error_code": error_code,
+                    "updated_at": now,
+                }
+            )
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            self._resolve_open_run_inboxes(
+                connection,
+                run.id,
+                reason=error_code,
+                resolved_at=now,
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [*events, ("run_failed", {"error_code": error_code})],
+            )
+            return run
+
     def get_agent_run(self, run_id: str) -> AgentRun | None:
         with self._read_connect() as connection:
-            row = connection.execute("SELECT payload FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
-        return AgentRun.model_validate_json(row["payload"]) if row is not None else None
+            row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        return self._decode_agent_run_row(row) if row is not None else None
 
     def get_latest_research_run_for_thread(self, thread_id: str, user_id: str) -> AgentRun | None:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT payload FROM agent_runs
-                WHERE orchestration_version IN ('research-v2', 'research-v3')
+                SELECT payload, orchestration_version FROM agent_runs
+                WHERE (
+                    orchestration_version = 'research-v2'
+                    OR (
+                        orchestration_version = 'v1'
+                        AND json_extract(payload, '$.planning_mode') = 'deepsearch'
+                    )
+                )
                   AND json_extract(payload, '$.thread_id') = ?
                   AND json_extract(payload, '$.user_id') = ?
                 ORDER BY updated_at DESC, id DESC
@@ -3253,7 +7787,7 @@ class SQLiteStore:
                 """,
                 (thread_id, user_id),
             ).fetchone()
-        return AgentRun.model_validate_json(row["payload"]) if row is not None else None
+        return self._decode_agent_run_row(row) if row is not None else None
 
     def user_can_execute_agent_run(
         self,
@@ -3284,8 +7818,10 @@ class SQLiteStore:
 
     def list_agent_runs(self, user_id: str | None = None) -> list[AgentRun]:
         with self._connect() as connection:
-            rows = connection.execute("SELECT payload FROM agent_runs ORDER BY updated_at").fetchall()
-        runs = [AgentRun.model_validate_json(row["payload"]) for row in rows]
+            rows = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs ORDER BY updated_at"
+            ).fetchall()
+        runs = [self._decode_agent_run_row(row) for row in rows]
         return [run for run in runs if user_id is None or run.user_id == user_id]
 
     def append_agent_run_event(
@@ -3302,7 +7838,7 @@ class SQLiteStore:
             ).fetchone()
             if run_row is not None:
                 run = AgentRun.model_validate_json(run_row["payload"])
-                if self._is_read_only_v2_run(run, run_row["orchestration_version"]):
+                if self._is_retired_research_run(run, run_row["orchestration_version"]):
                     raise ResearchStoreConflict("research-v2 runs are historical and read-only")
             sequence = connection.execute(
                 "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_run_events WHERE run_id = ?",
@@ -3334,8 +7870,9 @@ class SQLiteStore:
                   AND run_id IN (
                       SELECT id FROM agent_runs
                       WHERE json_extract(payload, '$.status') IN (?, ?, ?, ?, ?)
-                        AND orchestration_version != 'research-v2'
-                        AND json_extract(payload, '$.orchestration_version') != 'research-v2'
+                        AND orchestration_version NOT IN ('research-v2', 'research-v3')
+                        AND json_extract(payload, '$.orchestration_version')
+                            NOT IN ('research-v2', 'research-v3')
                   )
                 """,
                 (
@@ -3433,14 +7970,14 @@ class SQLiteStore:
             run = AgentRun.model_validate_json(run_row["payload"])
         except (RecursionError, TypeError, ValueError):
             raise ResearchStoreConflict("research Agent run failed integrity verification") from None
-        if not self._research_run_projection_matches(run_row, run) or run.orchestration_version != "research-v2":
-            raise ResearchStoreConflict("research Agent run failed integrity verification")
         if owner is not None and (
             run.user_id != owner.user_id
             or run.workspace_id != owner.workspace_id
             or run.project_id != owner.project_id
         ):
             return None
+        if not self._research_run_projection_matches(run_row, run) or run.orchestration_version != "research-v2":
+            raise ResearchStoreConflict("research Agent run failed integrity verification")
         if run.client_turn_id is not None:
             receipt_row = connection.execute(
                 "SELECT user_id, client_turn_id, run_id FROM agent_run_receipts WHERE run_id = ?",
@@ -3829,6 +8366,176 @@ class SQLiteStore:
                 ),
             )
         return artifact
+
+    def save_deepsearch_runtime_artifact(
+        self,
+        *,
+        artifact: Artifact,
+        budget_invocation_key: str,
+        actual_usage: DeepSearchBudgetUsageV1,
+    ) -> Artifact:
+        """Insert one legacy runtime Artifact and settle its reservation atomically."""
+
+        from agentmesh.artifacts import _row_payload_matches_indexes, _strict_mapping
+
+        allowed_types = {"tool_output", "skill_node_result"}
+        try:
+            actual = DeepSearchBudgetUsageV1.model_validate(
+                actual_usage.model_dump(mode="python")
+            )
+            canonical_content = canonical_json_bytes(strict_json_loads(artifact.content))
+        except (AttributeError, TypeError, ValueError) as error:
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid") from error
+        expected_usage = DeepSearchBudgetUsageV1(artifact_bytes=len(canonical_content))
+        artifact_identity = {
+            "artifact_id": artifact.id,
+            "artifact_type": artifact.artifact_type,
+            "run_id": artifact.run_id,
+        }
+        expected_logical_key = f"artifact:{canonical_json_sha256(artifact_identity)}"
+        if (
+            not isinstance(budget_invocation_key, str)
+            or not budget_invocation_key
+            or artifact.verification_state is not None
+            or artifact.artifact_type not in allowed_types
+            or artifact.content_type != "application/json"
+            or not artifact.truncated
+            or canonical_content.decode("utf-8") != artifact.content
+            or len(canonical_content) > 1_048_576
+            or actual != expected_usage
+        ):
+            raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = self._load_deepsearch_budget_run_in_transaction(
+                connection,
+                run_id=artifact.run_id,
+            )
+            if (
+                run.user_id != artifact.user_id
+                or run.workspace_id != artifact.workspace_id
+                or run.project_id != artifact.project_id
+            ):
+                raise ResearchStoreConflict("artifact owner does not match its run")
+            budget = run.deepsearch_budget
+            assert budget is not None
+            matches = [
+                item
+                for item in budget.reservations
+                if item.invocation_key == budget_invocation_key
+            ]
+            if len(matches) != 1:
+                raise DeepSearchBudgetConflict("deepsearch_budget_reservation_not_found")
+            current = matches[0]
+            if (
+                current.scope != "standard"
+                or current.tool_invocation is not None
+                or current.logical_operation_key != expected_logical_key
+                or current.invocation_key
+                != f"{expected_logical_key}:attempt:{current.physical_attempt}"
+                or current.resource_maxima != expected_usage
+            ):
+                raise DeepSearchBudgetConflict("deepsearch_budget_request_invalid")
+
+            row = connection.execute(
+                "SELECT * FROM artifacts WHERE id = ?",
+                (artifact.id,),
+            ).fetchone()
+            replayed_artifact: Artifact | None = None
+            if row is not None:
+                try:
+                    payload = _strict_mapping(row["payload"])
+                    replayed_artifact = Artifact.model_validate(payload)
+                except (TypeError, ValueError) as error:
+                    raise ResearchStoreConflict("artifact failed integrity verification") from error
+                if (
+                    replayed_artifact != artifact
+                    or row["verification_state"] is not None
+                    or not _row_payload_matches_indexes(row, payload)
+                ):
+                    raise ResearchStoreConflict("artifact identity is immutable")
+
+            if current.status == "settled":
+                if replayed_artifact is None or current.actual_usage not in {
+                    actual,
+                    DeepSearchBudgetUsageV1(),
+                }:
+                    raise DeepSearchBudgetConflict("deepsearch_budget_settlement_conflict")
+                return replayed_artifact
+
+            now = now_utc()
+            if not self._deepsearch_budget_status_allowed(
+                run,
+                scope=current.scope,
+                checked_at=now,
+            ):
+                raise DeepSearchBudgetConflict("deepsearch_budget_state_conflict")
+
+            settled_actual = DeepSearchBudgetUsageV1() if replayed_artifact is not None else actual
+            try:
+                settled_reservation = DeepSearchBudgetReservationV1(
+                    **current.model_dump(mode="python", exclude={"status", "actual_usage"}),
+                    status="settled",
+                    actual_usage=settled_actual,
+                )
+                reservations = [
+                    settled_reservation if item.invocation_key == budget_invocation_key else item
+                    for item in budget.reservations
+                ]
+                updated_budget = DeepSearchBudgetV1.model_validate(
+                    {
+                        **budget.model_dump(mode="python"),
+                        "version": budget.version + 1,
+                        "consumed": self._billed_deepsearch_budget_usage(reservations),
+                        "reservations": reservations,
+                    }
+                )
+                self._validate_deepsearch_budget_ledger(updated_budget)
+            except (TypeError, ValueError) as error:
+                raise DeepSearchBudgetConflict("deepsearch_budget_settlement_invalid") from error
+
+            if replayed_artifact is None:
+                connection.execute(
+                    """
+                    INSERT INTO artifacts(
+                        id, run_id, payload, created_at, workspace_id, project_id, user_id,
+                        artifact_type, content_type, truncated, verification_state, schema_version,
+                        content_hash, size_bytes, requirement_version_id, plan_version_id,
+                        attempt_id, step_number, purged_at, purged_by, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        artifact.id,
+                        artifact.run_id,
+                        artifact.model_dump_json(),
+                        artifact.created_at.isoformat(),
+                        artifact.workspace_id,
+                        artifact.project_id,
+                        artifact.user_id,
+                        artifact.artifact_type,
+                        artifact.content_type,
+                        int(artifact.truncated),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                )
+            self._write_deepsearch_budget_run(
+                connection,
+                run=run,
+                budget=updated_budget,
+                updated_at=now,
+            )
+        return artifact if replayed_artifact is None else replayed_artifact
 
     def get_artifact(self, artifact_id: str) -> Artifact | None:
         with self._connect() as connection:

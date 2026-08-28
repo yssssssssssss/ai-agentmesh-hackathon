@@ -1,22 +1,28 @@
-import { ArrowUp, ChevronRight, Paperclip, RotateCcw, Sparkles } from 'lucide-react'
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { ArrowUp, ChevronRight, Paperclip, RotateCcw, SearchCheck, Sparkles } from 'lucide-react'
+import { useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 
+import { deepSearchAvailabilityMessage } from '../../features/deepsearch/presentation'
+import type { AgentPlanningMode, DeepSearchAvailability } from '../../features/deepsearch/types'
 import type { Skill } from '../../features/workspace/types'
 import { groupSkillsByDesignStage, isCallableSkill } from '../../features/workspace/skillPresentation'
 import { cn } from '../../lib/cn'
 import { WORKSPACE_RESOURCE_GRID_CLASS } from './layout'
 
 interface ComposerProps {
+  rootRef?: Ref<HTMLDivElement>
   value: string
   skills: Skill[]
   sending: boolean
   locked?: boolean
   hasResourceRail?: boolean
   scrollbarGutter?: number
+  planningMode: AgentPlanningMode
+  deepSearchAvailability: DeepSearchAvailability
   sendState: 'retryable' | 'processing' | 'approval' | 'failed' | 'unknown' | null
   statusMessage: string | null
   toolLauncher?: ReactNode
   onChange: (value: string) => void
+  onPlanningModeChange: (mode: AgentPlanningMode) => void
   onSend: () => void
   onRetry: () => void
   onUpload: (file: File) => void
@@ -34,16 +40,20 @@ export function resolveActiveSkillSelection(
 }
 
 export function Composer({
+  rootRef,
   value,
   skills,
   sending,
   locked = false,
   hasResourceRail = false,
   scrollbarGutter = 0,
+  planningMode,
+  deepSearchAvailability,
   sendState,
   statusMessage,
   toolLauncher,
   onChange,
+  onPlanningModeChange,
   onSend,
   onRetry,
   onUpload,
@@ -53,9 +63,10 @@ export function Composer({
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0)
   const fileInput = useRef<HTMLInputElement>(null)
   const interactionLocked = locked || sendState === 'processing' || sendState === 'approval'
+  const deepSearchAvailabilityHint = deepSearchAvailabilityMessage(deepSearchAvailability)
   const canRetry = sendState === 'retryable' || sendState === 'processing' || sendState === 'unknown'
   const skillQuery = value.trim().toLowerCase()
-  const acceptsSkillSelection = skillQuery.startsWith('$') && !skillQuery.includes(' ')
+  const acceptsSkillSelection = planningMode === 'standard' && skillQuery.startsWith('$') && !skillQuery.includes(' ')
   const matchingSkills = useMemo(() => {
     if (!acceptsSkillSelection) return []
     return skills.filter(isCallableSkill).filter((skill) => {
@@ -100,6 +111,8 @@ export function Composer({
 
   return (
     <div
+      ref={rootRef}
+      data-testid="workspace-composer-root"
       style={{ right: scrollbarGutter }}
       className="pointer-events-none absolute bottom-0 left-0 z-10 bg-gradient-to-t from-base via-base/95 to-transparent px-4 pb-5 pt-10 md:px-6"
     >
@@ -113,7 +126,7 @@ export function Composer({
         <div className="min-w-0">
           {toolLauncher ? <div className="mb-2">{toolLauncher}</div> : null}
           {sendState ? (
-            <div className="mb-2 flex items-center justify-between gap-3 rounded-[10px] border border-rose/25 bg-rose/10 px-3 py-2 text-xs text-rose">
+            <div className="mb-2 flex items-center justify-between gap-3 rounded-soft border border-rose/25 bg-rose/10 px-3 py-2 text-xs text-rose">
               <span>{statusMessage ?? '发送状态已变化，草稿已保留。'}</span>
               {canRetry ? (
                 <button type="button" onClick={onRetry} className="flex shrink-0 items-center gap-1 font-semibold">
@@ -125,12 +138,13 @@ export function Composer({
           ) : null}
           <div
             data-testid="workspace-composer-surface"
-            className="relative rounded-[16px] border border-white/[0.08] bg-surface-1 shadow-card focus-within:border-white/[0.16]"
+            data-planning-mode={planningMode}
+            className="relative rounded-overlay border border-white/[0.08] bg-surface-1 shadow-card transition-[border-color,background-color] duration-200 focus-within:border-white/[0.16]"
           >
             {skillMenuOpen ? (
               <div
                 data-testid="skill-hierarchy-menu"
-                className="absolute bottom-full left-0 mb-2 h-[min(18rem,55vh)] w-full overflow-hidden rounded-[12px] border border-white/[0.1] bg-surface-2 shadow-card sm:w-[620px]"
+                className="absolute bottom-full left-0 mb-2 h-[min(18rem,55vh)] w-full overflow-hidden rounded-soft border border-white/[0.1] bg-surface-2 shadow-card sm:w-[620px]"
               >
                 {activeSkillGroup ? (
                   <div className="grid h-full min-h-0 grid-cols-[104px_minmax(0,1fr)] sm:grid-cols-[150px_minmax(0,1fr)]">
@@ -149,7 +163,7 @@ export function Composer({
                             onFocus={() => activateSkillGroup(group.key)}
                             onClick={() => activateSkillGroup(group.key)}
                             className={cn(
-                              'mb-1 flex min-h-11 w-full items-center justify-between gap-2 rounded-[9px] px-2.5 text-left text-xs transition-[transform,background-color,color] duration-150 last:mb-0 active:scale-[0.97]',
+                              'mb-1 flex min-h-11 w-full items-center justify-between gap-2 rounded-soft px-2.5 text-left text-xs transition-[transform,background-color,color] duration-150 last:mb-0 active:scale-[0.97]',
                               active ? 'bg-white/[0.09] text-slate-100' : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200',
                             )}
                           >
@@ -157,7 +171,7 @@ export function Composer({
                               <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', group.dotClass)} aria-hidden="true" />
                               <span className="truncate">{group.label}</span>
                             </span>
-                            <ChevronRight className={cn('h-3.5 w-3.5 shrink-0', active ? 'text-slate-300' : 'text-slate-600')} aria-hidden="true" />
+                            <ChevronRight className={cn('h-3.5 w-3.5 shrink-0', active ? 'text-slate-300' : 'text-slate-400')} aria-hidden="true" />
                           </button>
                         )
                       })}
@@ -174,9 +188,9 @@ export function Composer({
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-xs font-semibold text-slate-200">{activeSkillGroup.label}</p>
-                            <p className="mt-0.5 text-[10px] text-slate-500">{activeSkillGroup.description}</p>
+                            <p className="mt-0.5 text-[11px] text-slate-400">{activeSkillGroup.description}</p>
                           </div>
-                          <span className="text-[10px] text-slate-500">{activeSkillGroup.items.length}</span>
+                          <span className="text-[11px] text-slate-400">{activeSkillGroup.items.length}</span>
                         </div>
                       </div>
                       <div data-testid="skill-submenu-scroll" className="mt-1 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
@@ -187,7 +201,7 @@ export function Composer({
                             onMouseEnter={() => setSelectedSkillIndex(index)}
                             onClick={() => chooseSkill(skill)}
                             className={cn(
-                              'block w-full rounded-[9px] px-2.5 py-2 text-left transition-[transform,background-color] duration-150 active:scale-[0.98]',
+                              'block w-full rounded-soft px-2.5 py-2 text-left transition-[transform,background-color] duration-150 active:scale-[0.98]',
                               index === selectedSkillIndex ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]',
                             )}
                           >
@@ -199,10 +213,51 @@ export function Composer({
                     </section>
                   </div>
                 ) : (
-                  <p className="px-3 py-3 text-xs text-slate-500">没有匹配的 Skill</p>
+                  <p className="px-3 py-3 text-xs text-slate-400">没有匹配的 Skill</p>
                 )}
               </div>
             ) : null}
+            <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] px-3 py-2">
+              <div role="group" aria-label="回答模式" className="inline-flex rounded-soft bg-base p-0.5">
+                <button
+                  type="button"
+                  aria-pressed={planningMode === 'standard'}
+                  disabled={interactionLocked}
+                  onClick={() => onPlanningModeChange('standard')}
+                  className={cn(
+                    'min-h-9 rounded-control px-3 text-xs font-medium transition-[transform,background-color,color] duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50 disabled:cursor-not-allowed disabled:opacity-50',
+                    planningMode === 'standard'
+                      ? 'bg-surface-3 text-slate-100'
+                      : 'text-slate-400 hover:text-slate-300',
+                  )}
+                >
+                  标准
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={planningMode === 'deepsearch'}
+                  aria-describedby={!deepSearchAvailability.available ? 'deepsearch-availability-hint' : undefined}
+                  disabled={interactionLocked || !deepSearchAvailability.available}
+                  onClick={() => onPlanningModeChange('deepsearch')}
+                  className={cn(
+                    'flex min-h-9 items-center gap-1.5 rounded-control px-3 text-xs font-medium transition-[transform,background-color,color] duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50 disabled:cursor-not-allowed disabled:opacity-45',
+                    planningMode === 'deepsearch'
+                      ? 'bg-mint-400/12 text-mint-300'
+                      : 'text-slate-400 hover:text-slate-300',
+                  )}
+                >
+                  <SearchCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                  DeepSearch
+                </button>
+              </div>
+              <p id="deepsearch-availability-hint" className="text-[11px] leading-4 text-slate-400">
+                {planningMode === 'deepsearch'
+                  ? '先澄清需求和确认计划，再执行检索并封存报告'
+                  : deepSearchAvailability.available
+                    ? '复杂研究可切换 DeepSearch'
+                    : deepSearchAvailabilityHint}
+              </p>
+            </div>
             <textarea
               aria-label="消息"
               value={value}
@@ -252,8 +307,10 @@ export function Composer({
               }}
               rows={2}
               disabled={sending || interactionLocked}
-              placeholder="输入问题，或选择 Skill 执行明确工作流…"
-              className="max-h-40 w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-slate-100 placeholder:text-slate-600 focus:outline-none disabled:opacity-60"
+              placeholder={planningMode === 'deepsearch'
+                ? '描述研究目标、范围、交付形式和判断标准…'
+                : '输入问题，或选择 Skill 执行明确工作流…'}
+              className="max-h-40 w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none disabled:opacity-60"
             />
             <div className="flex items-center justify-between px-3 pb-3 pt-1">
               <div className="flex items-center gap-1">
@@ -271,7 +328,7 @@ export function Composer({
                 <button
                   type="button"
                   onClick={() => fileInput.current?.click()}
-                  className="flex min-h-10 items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-xs text-slate-400 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.05] hover:text-slate-200"
+                  className="flex min-h-10 items-center gap-1.5 rounded-control px-2.5 py-1.5 text-xs text-slate-400 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.05] hover:text-slate-200"
                 >
                   <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
                   上传文档
@@ -279,13 +336,14 @@ export function Composer({
                 <button
                   type="button"
                   aria-expanded={skillMenuOpen}
+                  disabled={planningMode === 'deepsearch' || interactionLocked}
                   onClick={() => {
                     onChange('$')
                     setSkillsDismissed(false)
                     setActiveSkillGroupKey('pre_design')
                     setSelectedSkillIndex(0)
                   }}
-                  className="flex min-h-10 items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-xs text-slate-400 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.05] hover:text-slate-200"
+                  className="flex min-h-10 items-center gap-1.5 rounded-control px-2.5 py-1.5 text-xs text-slate-400 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.05] hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                   选择 Skill
@@ -296,10 +354,10 @@ export function Composer({
                 onClick={onSend}
                 disabled={!value.trim() || sending || interactionLocked}
                 className={cn(
-                  'flex h-10 min-w-10 items-center justify-center rounded-[10px] px-2 transition-[transform,background-color,color] duration-150 active:scale-95',
+                  'flex h-10 min-w-10 items-center justify-center rounded-soft px-2 transition-[transform,background-color,color] duration-150 active:scale-95',
                   value.trim() && !sending && !interactionLocked
                     ? 'bg-mint-400 text-[#06231c] hover:bg-mint-300'
-                    : 'cursor-not-allowed bg-white/[0.06] text-slate-600',
+                    : 'cursor-not-allowed bg-white/[0.06] text-slate-400',
                 )}
                 aria-label="发送"
               >
@@ -307,7 +365,7 @@ export function Composer({
               </button>
             </div>
           </div>
-          <p className="mt-2 text-center text-[11px] text-slate-600">回答与来源均来自当前账号可见的服务端数据</p>
+          <p className="mt-2 text-center text-[11px] text-slate-400">回答与来源均来自当前账号可见的服务端数据</p>
         </div>
       </div>
     </div>

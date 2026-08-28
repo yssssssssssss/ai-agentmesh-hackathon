@@ -79,6 +79,7 @@ function run(phase: Phase) {
     input_text: '评审 PRD、分析竞品并准备访谈',
     status,
     plan_id: phase === 'planning' ? null : 'plan_orchestration_e2e',
+    planning_mode: 'standard',
     orchestration_version: 'v1',
     orchestration_mode: 'execute',
     agent_definition_version: '1',
@@ -137,6 +138,7 @@ function planDetail(phase: Phase, version: number, includeInterview: boolean) {
       output_contract: ['feasibility_review'],
       preferred_order: nodes.map((item) => item.skill_id),
       nodes,
+      planning_mode: 'standard',
       degradation: partial ? '可选竞品分析失败，使用已验证的 PRD 结果综合。' : null,
       created_at: NOW,
       updated_at: `${NOW}.${version}`,
@@ -400,6 +402,14 @@ test('handles version conflict, approval, parallel progress, SSE reconnect, Part
   await expect(page.getByText('部分完成，有未满足项')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('建议先灰度验证首屏入口。')).toBeVisible()
   await expect(page.getByText('618 PRD v4')).toBeVisible()
+  await expect(page.getByRole('link', { name: '独立查看' })).toHaveAttribute(
+    'href',
+    `/api/agent/runs/${RUN_ID}/report.html`,
+  )
+  await expect(page.getByRole('link', { name: '下载 HTML' })).toHaveAttribute(
+    'href',
+    `/api/agent/runs/${RUN_ID}/report.html?download=true`,
+  )
 
   await page.reload()
   await expect(page).toHaveURL(new RegExp(`${THREAD_ID}\\?run=${RUN_ID}$`))

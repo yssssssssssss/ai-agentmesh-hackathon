@@ -56,7 +56,7 @@ export function ShareTimeline({ events, totalCount, sources, onOpenEvent }: Prop
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-collab/12 text-collab"><Share2 className="h-4 w-4" /></span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-soft bg-collab/12 text-collab"><Share2 className="h-4 w-4" /></span>
               <h2 className="text-[15px] font-semibold text-white">使用与反馈</h2>
               {sources.map((source) => <DataSourceBadge key={source} source={source} />)}
             </div>
@@ -106,9 +106,9 @@ export function ShareTimeline({ events, totalCount, sources, onOpenEvent }: Prop
         </ol>
       ) : (
         <div className="card-base flex flex-col items-center py-14 text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-slate-500"><History className="h-5 w-5" /></span>
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-slate-400"><History className="h-5 w-5" /></span>
           <h3 className="mt-3 text-sm font-semibold text-slate-100">没有相关动态</h3>
-          <p className="mt-1 max-w-sm text-xs text-slate-500">切换分类查看其他真实记录或参考时间线。</p>
+          <p className="mt-1 max-w-sm text-xs text-slate-400">切换分类查看其他真实记录或参考时间线。</p>
         </div>
       )}
     </div>
@@ -133,8 +133,8 @@ function TimelineItem({ event, onOpen }: { event: KnowledgeUsageView; onOpen: ()
             </div>
             <h3 className="mt-2 text-[14.5px] font-semibold text-slate-100">{event.knowledgeTitle.value}</h3>
             <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{event.description.value}</p>
-            {event.detail.value ? <p className="mt-2 rounded-[10px] bg-surface-1 px-3 py-2 text-[12px] leading-relaxed text-slate-400">{event.detail.value}</p> : null}
-            <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-slate-500">
+            {event.detail.value ? <p className="mt-2 rounded-soft bg-surface-1 px-3 py-2 text-[12px] leading-relaxed text-slate-400">{event.detail.value}</p> : null}
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-slate-400">
               <span className="inline-flex items-center gap-1"><Sparkles className="h-3 w-3" />{event.actor.value}</span>
               <span>· {event.project.value}</span>
               {event.purpose.value ? <span>· 用途:{event.purpose.value}</span> : null}
@@ -164,7 +164,7 @@ function MetricBlock({ label, value, tone }: { label: string; value: number; ton
   return (
     <div className="flex flex-col items-end">
       <span className={cn('text-lg font-semibold tabular-nums', color)}>{value}</span>
-      <span className="text-[10.5px] uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="text-[10.5px] uppercase tracking-wide text-slate-400">{label}</span>
     </div>
   )
 }

@@ -173,7 +173,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
 
   return (
     <>
-    <section aria-label="市场交流记录" className="rounded-[14px] border border-white/[0.06] bg-surface-1">
+    <section aria-label="市场交流记录" className="rounded-soft border border-white/[0.06] bg-surface-1">
       <div role="tablist" aria-label="市场往来分类" className="grid grid-cols-4">
         {columns.map((col) => {
           const active = col.key === filter
@@ -202,14 +202,14 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
                 }`}
               />
               <span
-                className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${
-                  active ? 'text-slate-300' : 'text-slate-500'
+                className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${
+                  active ? 'text-slate-300' : 'text-slate-400'
                 }`}
               >
                 {col.en}
               </span>
               <span className={`text-base ${active ? 'text-white' : 'text-slate-200'}`}>{col.zh}</span>
-              <span className="text-xs text-slate-500 tabular-nums">{col.sub}</span>
+              <span className="text-xs text-slate-400 tabular-nums">{col.sub}</span>
             </button>
           )
         })}
@@ -217,7 +217,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
 
       <div className="h-[clamp(480px,62vh,760px)] overflow-y-auto overscroll-contain border-t border-white/[0.06]">
         {list.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-slate-500">当前分类没有记录。</div>
+          <div className="flex h-full items-center justify-center text-sm text-slate-400">当前分类没有记录。</div>
         ) : (
           <ol className="divide-y divide-white/[0.04]">
             {list.map((item) => {
@@ -229,7 +229,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
                   key={item.id}
                   className="group grid grid-cols-[112px_1fr_auto] items-start gap-6 px-6 py-4 transition-colors hover:bg-white/[0.015]"
                 >
-                  <div className="pt-1 text-xs tabular-nums leading-tight text-slate-500">
+                  <div className="pt-1 text-xs tabular-nums leading-tight text-slate-400">
                     {day ? <div>{day}</div> : null}
                     <div className={day ? 'text-slate-400' : ''}>{time}</div>
                   </div>
@@ -240,18 +240,18 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
                     >
                       <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${tag.dot}`} />
                       <span className={`font-medium ${tag.text}`}>{tag.en}</span>
-                      <span className="text-slate-500">·</span>
+                      <span className="text-slate-400">·</span>
                       <span className="text-slate-300">{tag.zh}</span>
                     </span>
                     <p className="truncate text-sm text-slate-100">{item.title}</p>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-[11px] text-slate-400">
                       {item.meta ? item.meta : item.counterpart ? `对方 · ${item.counterpart.name}` : null}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-2 pt-0.5">
                     <span
-                      className={`rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ring-1 ${status.text} ${status.ring} ${status.bg}`}
+                      className={`rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wider ring-1 ${status.text} ${status.ring} ${status.bg}`}
                     >
                       {status.en}
                     </span>
@@ -285,7 +285,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
             <span className={`inline-flex items-center gap-1.5 rounded-full bg-white/[0.03] px-2.5 py-1 ring-1 ${CATEGORY_TAG[selected.category].ring}`}>
               <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${CATEGORY_TAG[selected.category].dot}`} />
               <span className={`font-medium ${CATEGORY_TAG[selected.category].text}`}>{CATEGORY_TAG[selected.category].en}</span>
-              <span className="text-slate-500">·</span>
+              <span className="text-slate-400">·</span>
               <span className="text-slate-300">{CATEGORY_TAG[selected.category].zh}</span>
             </span>
             <span className={`rounded-md px-2 py-1 font-semibold uppercase tracking-wider ring-1 ${STATUS_STYLE[selected.status].text} ${STATUS_STYLE[selected.status].ring} ${STATUS_STYLE[selected.status].bg}`}>
@@ -295,11 +295,11 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
 
           <dl className="grid gap-4 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-xs text-slate-500">话题</dt>
+              <dt className="text-xs text-slate-400">话题</dt>
               <dd className="mt-1 text-slate-200">{selected.topic || '—'}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-500">对方</dt>
+              <dt className="text-xs text-slate-400">对方</dt>
               <dd className="mt-1 text-slate-200">{selected.counterpart?.name ?? '我的分身'}</dd>
             </div>
           </dl>
@@ -308,24 +308,24 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
             <h3 className="mb-2 text-sm font-semibold text-slate-200">
               {selected.category === 'request' ? '我的分身发出的信号' : '分身给出的答案'}
             </h3>
-            <div className="whitespace-pre-wrap rounded-[12px] border border-white/[0.06] bg-surface-1 p-4 text-[13.5px] leading-relaxed text-slate-200">
+            <div className="whitespace-pre-wrap rounded-soft border border-white/[0.06] bg-surface-1 p-4 text-[13.5px] leading-relaxed text-slate-200">
               {selected.detail || '暂无可展示的内容。'}
             </div>
           </section>
 
-          <div className="flex items-start gap-2 border-t border-white/[0.06] pt-4 text-[11.5px] leading-relaxed text-slate-500">
+          <div className="flex items-start gap-2 border-t border-white/[0.06] pt-4 text-[11.5px] leading-relaxed text-slate-400">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             答案由对方分身依据其私有记忆生成，只回传结论，原始记忆不离境。
           </div>
 
           {actionResult ? (
-            <p role="status" className="rounded-[10px] border border-mint-400/20 bg-mint-400/[0.06] px-3 py-2 text-xs text-mint-300">
+            <p role="status" className="rounded-soft border border-mint-400/20 bg-mint-400/[0.06] px-3 py-2 text-xs text-mint-300">
               {actionResult}
             </p>
           ) : null}
 
           {selected.status === 'awaiting_confirm' && selected.action_ref ? (
-            <div className="rounded-[12px] border border-remind/25 bg-remind/[0.06] p-4">
+            <div className="rounded-soft border border-remind/25 bg-remind/[0.06] p-4">
               <p className="text-sm text-slate-200">这条代答涉及较敏感的记忆，需要你确认后才会发送给对方。</p>
               <div className="mt-3 flex gap-2">
                 <Button

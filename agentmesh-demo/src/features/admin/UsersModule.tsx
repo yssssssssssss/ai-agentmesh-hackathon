@@ -59,17 +59,17 @@ export function UsersModule({ context }: UsersModuleProps) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-white">用户管理</h2>
-          <p className="mt-1 text-sm text-slate-500">创建、禁用账号或重置密码。</p>
+          <p className="mt-1 text-sm text-slate-400">创建、禁用账号或重置密码。</p>
         </div>
         <Button icon={<UserPlus className="h-4 w-4" />} onClick={() => setCreateOpen(true)}>创建用户</Button>
       </div>
-      {resource.query.isLoading ? <p className="mt-5 text-sm text-slate-500">正在加载用户…</p> : null}
+      {resource.query.isLoading ? <p className="mt-5 text-sm text-slate-400">正在加载用户…</p> : null}
       {resource.query.isError ? <p role="alert" className="mt-5 text-sm text-rose">{message(resource.query.error)}</p> : null}
-      {resource.query.data && resource.query.data.items.length === 0 ? <p className="mt-5 text-sm text-slate-500">当前工作空间没有用户。</p> : null}
+      {resource.query.data && resource.query.data.items.length === 0 ? <p className="mt-5 text-sm text-slate-400">当前工作空间没有用户。</p> : null}
       {resource.query.data && resource.query.data.items.length > 0 ? (
         <div className="mt-5 overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="text-xs text-slate-500"><tr><th className="pb-3 font-medium">姓名</th><th className="pb-3 font-medium">角色</th><th className="pb-3 font-medium">状态</th><th className="pb-3 text-right font-medium">操作</th></tr></thead>
+            <thead className="text-xs text-slate-400"><tr><th className="pb-3 font-medium">姓名</th><th className="pb-3 font-medium">角色</th><th className="pb-3 font-medium">状态</th><th className="pb-3 text-right font-medium">操作</th></tr></thead>
             <tbody className="divide-y divide-white/[0.06]">
               {resource.query.data.items.map((item) => (
                 <tr key={item.id}>
@@ -99,9 +99,9 @@ export function UsersModule({ context }: UsersModuleProps) {
         footer={<><Button variant="ghost" onClick={() => setCreateOpen(false)}>取消</Button><Button type="submit" form="create-user-form" loading={resource.create.isPending}>确认创建</Button></>}
       >
         <form id="create-user-form" className="space-y-4" onSubmit={submitCreate}>
-          <label className="block text-sm text-slate-300">姓名<input aria-label="姓名" required value={name} onChange={(event) => setName(event.target.value)} className="mt-2 h-10 w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 text-white outline-none focus:border-mint-400/50" /></label>
-          <label className="block text-sm text-slate-300">角色<select aria-label="角色" value={role} onChange={(event) => setRole(event.target.value as typeof role)} className="mt-2 h-10 w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 text-white outline-none"><option value="user">user</option><option value="team_lead">team_lead</option><option value="admin">admin</option></select></label>
-          <label className="block text-sm text-slate-300">初始密码<input aria-label="初始密码" type="password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 h-10 w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 text-white outline-none focus:border-mint-400/50" /></label>
+          <label className="block text-sm text-slate-300">姓名<input aria-label="姓名" required value={name} onChange={(event) => setName(event.target.value)} className="mt-2 h-10 w-full rounded-soft border border-white/[0.08] bg-surface-1 px-3 text-white outline-none focus:border-mint-400/50" /></label>
+          <label className="block text-sm text-slate-300">角色<select aria-label="角色" value={role} onChange={(event) => setRole(event.target.value as typeof role)} className="mt-2 h-10 w-full rounded-soft border border-white/[0.08] bg-surface-1 px-3 text-white outline-none"><option value="user">user</option><option value="team_lead">team_lead</option><option value="admin">admin</option></select></label>
+          <label className="block text-sm text-slate-300">初始密码<input aria-label="初始密码" type="password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 h-10 w-full rounded-soft border border-white/[0.08] bg-surface-1 px-3 text-white outline-none focus:border-mint-400/50" /></label>
           {resource.create.isError ? <p role="alert" className="text-sm text-rose">{message(resource.create.error)}</p> : null}
         </form>
       </Modal>
@@ -114,7 +114,7 @@ export function UsersModule({ context }: UsersModuleProps) {
         footer={<><Button variant="ghost" onClick={() => setResetTarget(null)}>取消</Button><Button type="submit" form="reset-password-form" loading={resource.resetPassword.isPending}>确认重置</Button></>}
       >
         <form id="reset-password-form" onSubmit={submitReset}>
-          <label className="block text-sm text-slate-300">新密码<input aria-label="新密码" type="password" minLength={8} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="mt-2 h-10 w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 text-white outline-none focus:border-mint-400/50" /></label>
+          <label className="block text-sm text-slate-300">新密码<input aria-label="新密码" type="password" minLength={8} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="mt-2 h-10 w-full rounded-soft border border-white/[0.08] bg-surface-1 px-3 text-white outline-none focus:border-mint-400/50" /></label>
           {resource.resetPassword.isError ? <p role="alert" className="mt-3 text-sm text-rose">{message(resource.resetPassword.error)}</p> : null}
         </form>
       </Modal>

@@ -104,10 +104,10 @@ function InsightsContent({ userId, workspaceId, projectId }: {
       <KnowledgeFormationSection model={model} />
 
       <details className="card-base group p-5">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">
           <div>
             <h2 className="text-[14px] font-semibold text-slate-200">当前项目原始读模型</h2>
-            <p className="mt-1 text-[12px] text-slate-500">次级诊断信息，展示服务端任务、活动、记忆和审计原始字段。</p>
+            <p className="mt-1 text-[12px] text-slate-400">次级诊断信息，展示服务端任务、活动、记忆和审计原始字段。</p>
           </div>
           <Badge tone="neutral">展开详情</Badge>
         </summary>
@@ -119,7 +119,7 @@ function InsightsContent({ userId, workspaceId, projectId }: {
         </div>
       </details>
 
-      <div className="flex items-start gap-2 text-[12px] leading-5 text-slate-600">
+      <div className="flex items-start gap-2 text-[12px] leading-5 text-slate-400">
         <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <p>服务端数据与参考线索都会保留来源标记，复盘写入和知识候选生成需由后端能力确认。</p>
       </div>
@@ -166,16 +166,16 @@ function WorkOverviewSection({ model, onContinue }: { model: InsightsViewModel; 
         {(tasks || activity) ? (
           <dl className="mt-5 grid gap-3 border-t border-white/[0.06] pt-4 sm:grid-cols-2">
             {tasks ? (
-              <div className="rounded-[10px] bg-surface-2 px-4 py-3">
-                <dt className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+              <div className="rounded-soft bg-surface-2 px-4 py-3">
+                <dt className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
                   当前任务 <DataSourceBadge source={tasks.source} />
                 </dt>
                 <dd className="mt-2 text-right text-[20px] font-semibold tabular-nums text-slate-100">{tasks.value.items.length}</dd>
               </div>
             ) : null}
             {activity ? (
-              <div className="rounded-[10px] bg-surface-2 px-4 py-3">
-                <dt className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+              <div className="rounded-soft bg-surface-2 px-4 py-3">
+                <dt className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
                   今日活动 <DataSourceBadge source={activity.source} />
                 </dt>
                 <dd className="mt-2 text-right text-[20px] font-semibold tabular-nums text-slate-100">{activityCount}</dd>
@@ -187,7 +187,7 @@ function WorkOverviewSection({ model, onContinue }: { model: InsightsViewModel; 
         {overview ? (
           <ReferencePanel className="mt-5" value={overview} label="参考工作概览">
             <p className="text-[13px] leading-6 text-slate-300">{overview.value.lastWeek.summary}</p>
-            <p className="mt-2 text-[11px] leading-5 text-slate-500">{overview.value.lastWeek.meta}</p>
+            <p className="mt-2 text-[11px] leading-5 text-slate-400">{overview.value.lastWeek.meta}</p>
           </ReferencePanel>
         ) : null}
         <ModuleStatus module={model.workOverview} emptyLabel="当前没有可展示的工作概览。" />
@@ -221,19 +221,19 @@ function InsightSection({ model }: { model: InsightsViewModel }) {
             </div>
             <dl className="mt-4 grid gap-3 sm:grid-cols-2">
               {memory ? (
-                <div className="rounded-[10px] bg-surface-2 px-4 py-3">
-                  <dt className="text-[11px] text-slate-500">服务端记忆总数</dt>
+                <div className="rounded-soft bg-surface-2 px-4 py-3">
+                  <dt className="text-[11px] text-slate-400">服务端记忆总数</dt>
                   <dd className="mt-2 text-right text-[20px] font-semibold tabular-nums text-slate-100">{memoryTotal}</dd>
                 </div>
               ) : null}
               {audit ? (
-                <div className="rounded-[10px] bg-surface-2 px-4 py-3">
-                  <dt className="text-[11px] text-slate-500">可见审计事件</dt>
+                <div className="rounded-soft bg-surface-2 px-4 py-3">
+                  <dt className="text-[11px] text-slate-400">可见审计事件</dt>
                   <dd className="mt-2 text-right text-[20px] font-semibold tabular-nums text-slate-100">{audit.value.total}</dd>
                 </div>
               ) : null}
             </dl>
-            <p className="mt-3 text-[11px] leading-5 text-slate-500">数量是 T 数据事实，不自动推导为项目成效或复盘证据。</p>
+            <p className="mt-3 text-[11px] leading-5 text-slate-400">数量是 T 数据事实，不自动推导为项目成效或复盘证据。</p>
           </div>
         ) : null}
 
@@ -250,11 +250,11 @@ function InsightSection({ model }: { model: InsightsViewModel }) {
                 </li>
               ))}
             </ul>
-            <div className="mt-4 rounded-[10px] bg-remind/[0.06] px-4 py-3">
+            <div className="mt-4 rounded-soft bg-remind/[0.06] px-4 py-3">
               <p className="text-[13px] font-medium text-slate-200">{currentProject.value.problem.title}</p>
-              <p className="mt-1 text-[12px] leading-5 text-slate-500">{currentProject.value.problem.desc}</p>
+              <p className="mt-1 text-[12px] leading-5 text-slate-400">{currentProject.value.problem.desc}</p>
             </div>
-            <p className="mt-3 text-[11px] leading-5 text-slate-500">{currentProject.value.pendingValidation}</p>
+            <p className="mt-3 text-[11px] leading-5 text-slate-400">{currentProject.value.pendingValidation}</p>
           </ReferencePanel>
         ) : null}
 
@@ -265,7 +265,7 @@ function InsightSection({ model }: { model: InsightsViewModel }) {
             <ol className="mt-4 space-y-2">
               {crossProject.value.basis.map((item, index) => (
                 <li key={item} className="flex gap-3 text-[12px] leading-5 text-slate-400">
-                  <span className="font-medium tabular-nums text-slate-600">0{index + 1}</span>{item}
+                  <span className="font-medium tabular-nums text-slate-400">0{index + 1}</span>{item}
                 </li>
               ))}
             </ol>
@@ -308,13 +308,13 @@ function ReviewSection({ model, onOpenDetails }: { model: InsightsViewModel; onO
             {kpis ? (
               <div className="mt-5 border-t border-white/[0.06] pt-5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">参考项目材料与指标</h4>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">参考项目材料与指标</h4>
                   <DataSourceBadge source={kpis.source} />
                 </div>
                 <dl className="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                   {kpis.value.map((item) => (
                     <div key={item.label}>
-                      <dt className="text-[11px] text-slate-500">{item.label}</dt>
+                      <dt className="text-[11px] text-slate-400">{item.label}</dt>
                       <dd className="mt-1 text-right text-[17px] font-semibold tabular-nums text-slate-100">{item.value}</dd>
                     </div>
                   ))}
@@ -354,7 +354,7 @@ function EvidenceSection({ model }: { model: InsightsViewModel }) {
             </div>
             <ul className="mt-4 grid gap-3 sm:grid-cols-2">
               {items.value.map((item) => (
-                <li key={item.label} className="flex items-start gap-3 rounded-[10px] bg-surface-2 px-4 py-3">
+                <li key={item.label} className="flex items-start gap-3 rounded-soft bg-surface-2 px-4 py-3">
                   {item.ready ? (
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-mint-300" />
                   ) : (
@@ -362,7 +362,7 @@ function EvidenceSection({ model }: { model: InsightsViewModel }) {
                   )}
                   <div>
                     <p className="text-[13px] font-medium text-slate-200">{item.label}</p>
-                    <p className="mt-1 text-[12px] leading-5 text-slate-500">{item.note}</p>
+                    <p className="mt-1 text-[12px] leading-5 text-slate-400">{item.note}</p>
                   </div>
                 </li>
               ))}
@@ -395,12 +395,12 @@ function KnowledgeFormationSection({ model }: { model: InsightsViewModel }) {
           <ReferencePanel value={flow} label="知识形成流程参考">
             <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
               <div>
-                <p className="text-[11px] font-medium text-slate-500">材料条件</p>
+                <p className="text-[11px] font-medium text-slate-400">材料条件</p>
                 <p className="mt-1 text-[13px] leading-6 text-slate-300">{flow.value.missingHint}</p>
               </div>
-              <span aria-hidden="true" className="hidden text-slate-600 lg:block">→</span>
+              <span aria-hidden="true" className="hidden text-slate-400 lg:block">→</span>
               <div>
-                <p className="text-[11px] font-medium text-slate-500">参考候选方向</p>
+                <p className="text-[11px] font-medium text-slate-400">参考候选方向</p>
                 <p className="mt-1 text-[13px] font-medium leading-6 text-slate-200">{flow.value.candidateTitle}</p>
               </div>
             </div>
@@ -441,10 +441,10 @@ function ModuleHeading({ id, title, desc, icon, tone, hero }: {
       : 'bg-mint-400/[0.14] text-mint-300'
   return (
     <div className="mb-3 flex items-center gap-3">
-      <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px]', toneClass)}>{icon}</span>
+      <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-soft', toneClass)}>{icon}</span>
       <div className="min-w-0">
         <h2 id={id} className={cn('font-semibold text-slate-100', hero ? 'text-[17px]' : 'text-[15px]')}>{title}</h2>
-        <p className="mt-0.5 text-[12px] leading-5 text-slate-500">{desc}</p>
+        <p className="mt-0.5 text-[12px] leading-5 text-slate-400">{desc}</p>
       </div>
     </div>
   )
@@ -457,7 +457,7 @@ function ReferencePanel<T>({ value, label, className, children }: {
   children: ReactNode
 }) {
   return (
-    <section className={cn('rounded-[12px] border border-remind/20 bg-remind/[0.035] p-4', className)}>
+    <section className={cn('rounded-soft border border-remind/20 bg-remind/[0.035] p-4', className)}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <DataSourceBadge source={value.source} />
         <span className="text-[11px] font-medium text-remind">{label}</span>
@@ -473,12 +473,12 @@ function ModuleStatus<T>({ module, emptyLabel }: {
   emptyLabel: string
 }) {
   if (module.error) {
-    return <p role="alert" className="mt-4 rounded-[10px] bg-rose/10 px-4 py-3 text-[12px] text-rose">{module.error}</p>
+    return <p role="alert" className="mt-4 rounded-soft bg-rose/10 px-4 py-3 text-[12px] text-rose">{module.error}</p>
   }
   if (module.loading) {
-    return <p role="status" className="mt-4 text-[12px] text-slate-500">正在读取当前项目数据…</p>
+    return <p role="status" className="mt-4 text-[12px] text-slate-400">正在读取当前项目数据…</p>
   }
-  if (module.sources.length === 0) return <p className="mt-4 text-[12px] text-slate-500">{emptyLabel}</p>
+  if (module.sources.length === 0) return <p className="mt-4 text-[12px] text-slate-400">{emptyLabel}</p>
   return null
 }
 
@@ -490,7 +490,7 @@ function UnavailableAction({ action, icon }: {
   return (
     <div className="max-w-xs">
       <Button disabled variant="subtle" icon={icon}>{action.value.label}（暂不可用）</Button>
-      <p className="mt-1.5 text-[11px] leading-5 text-slate-500">{action.value.unavailableReason}</p>
+      <p className="mt-1.5 text-[11px] leading-5 text-slate-400">{action.value.unavailableReason}</p>
     </div>
   )
 }

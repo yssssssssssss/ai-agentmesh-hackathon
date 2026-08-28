@@ -4,12 +4,13 @@ import hashlib
 from datetime import UTC, datetime
 from datetime import date as dt_date
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.provider_status import ProviderStatus
 from agentmesh.task_routing.contracts import CompletionCheckResult, TaskRoutingResult
 
@@ -1016,6 +1017,11 @@ class SkillIntentComplexity(StrEnum):
     WORKFLOW = "workflow"
 
 
+class AgentPlanningMode(StrEnum):
+    STANDARD = "standard"
+    DEEPSEARCH = "deepsearch"
+
+
 class SkillIntentConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1099,12 +1105,350 @@ class SkillPlanNodeStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class DeepSearchFinalizationStage(StrEnum):
+    NONE = "none"
+    NODES_TERMINAL = "nodes_terminal"
+    EVIDENCE_MANIFEST_SEALED = "evidence_manifest_sealed"
+    SYNTHESIS_V0_SAVED = "synthesis_v0_saved"
+    COVERAGE_V0_CHECKED = "coverage_v0_checked"
+    REVIEW_V0_CHECKED = "review_v0_checked"
+    SYNTHESIS_V1_SAVED = "synthesis_v1_saved"
+    COVERAGE_V1_CHECKED = "coverage_v1_checked"
+    REVIEW_V1_CHECKED = "review_v1_checked"
+    TERMINAL_COMMITTED = "terminal_committed"
+
+
+class DeepSearchEvidenceBindingDraft(BaseModel):
+    """Model-produced evidence references without server-owned identity."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    question_ids: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+    success_criterion_ids: list[
+        Annotated[str, Field(min_length=1, max_length=160)]
+    ] = Field(default_factory=list, max_length=100)
+    source_id: str | None = Field(default=None, min_length=1, max_length=160)
+    evidence_artifact_id: str = Field(min_length=1, max_length=160)
+
+    @model_validator(mode="after")
+    def validate_references(self) -> DeepSearchEvidenceBindingDraft:
+        if len(self.question_ids) != len(set(self.question_ids)) or len(
+            self.success_criterion_ids
+        ) != len(set(self.success_criterion_ids)):
+            raise ValueError("evidence references must be unique")
+        return self
+
+
+class DeepSearchEvidenceItemV1(DeepSearchEvidenceBindingDraft):
+    """Server-owned semantic binding to one sealed evidence artifact."""
+
+    id: str = Field(min_length=1, max_length=160)
+    node_result_id: str = Field(min_length=1, max_length=160)
+
+
+class DeepSearchToolInvocationV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: str = Field(min_length=1, max_length=120)
+    requirement_version_id: str = Field(min_length=1, max_length=120)
+    plan_id: str = Field(min_length=1, max_length=120)
+    plan_version: int = Field(ge=1)
+    node_id: str = Field(min_length=1, max_length=120)
+    node_attempt: int = Field(ge=1, le=2)
+    tool_definition_id: str = Field(min_length=1, max_length=160)
+    implementation_id: str = Field(min_length=1, max_length=160)
+    implementation_version: str = Field(min_length=1, max_length=120)
+    tool_call_id: str = Field(min_length=1, max_length=160)
+    operation_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    canonical_arguments_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DeepSearchSynthesisClaimDraft(BaseModel):
+    """Model-produced claim fields; identity is always assigned by the server."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    text: str = Field(min_length=1, max_length=8192)
+    question_ids: list[str] = Field(default_factory=list, max_length=100)
+    success_criterion_ids: list[str] = Field(default_factory=list, max_length=100)
+    node_result_ids: list[str] = Field(default_factory=list, max_length=20)
+    evidence_item_ids: list[str] = Field(default_factory=list, max_length=60)
+    source_ids: list[str] = Field(default_factory=list, max_length=100)
+    recommendation: bool = False
+
+    @model_validator(mode="after")
+    def validate_references(self) -> DeepSearchSynthesisClaimDraft:
+        references = (
+            self.question_ids,
+            self.success_criterion_ids,
+            self.node_result_ids,
+            self.evidence_item_ids,
+            self.source_ids,
+        )
+        if any(len(values) != len(set(values)) for values in references):
+            raise ValueError("synthesis claim references must be unique")
+        return self
+
+
+class DeepSearchSynthesisDraftV1(BaseModel):
+    """Strict model response for one synthesis attempt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    claims: list[DeepSearchSynthesisClaimDraft] = Field(min_length=1, max_length=100)
+
+
+class DeepSearchSynthesisClaimV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1, max_length=160)
+    text: str = Field(min_length=1, max_length=8192)
+    question_ids: list[str] = Field(default_factory=list, max_length=100)
+    success_criterion_ids: list[str] = Field(default_factory=list, max_length=100)
+    node_result_ids: list[str] = Field(default_factory=list, max_length=20)
+    evidence_item_ids: list[str] = Field(default_factory=list, max_length=60)
+    source_ids: list[str] = Field(default_factory=list, max_length=100)
+    recommendation: bool = False
+
+    @model_validator(mode="after")
+    def validate_references(self) -> DeepSearchSynthesisClaimV1:
+        references = (
+            self.question_ids,
+            self.success_criterion_ids,
+            self.node_result_ids,
+            self.evidence_item_ids,
+            self.source_ids,
+        )
+        if any(len(values) != len(set(values)) for values in references):
+            raise ValueError("synthesis claim references must be unique")
+        return self
+
+
+class DeepSearchSynthesisV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["deepsearch-synthesis-v1"] = "deepsearch-synthesis-v1"
+    revision_count: int = Field(ge=0, le=1)
+    synthesis_mode: Literal["model", "deterministic_evidence_digest"]
+    claims: list[DeepSearchSynthesisClaimV1] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_claims(self) -> DeepSearchSynthesisV1:
+        claim_ids = [claim.id for claim in self.claims]
+        if len(claim_ids) != len(set(claim_ids)):
+            raise ValueError("synthesis claim IDs must be unique")
+        payload_hashes = [
+            canonical_json_sha256(claim.model_dump(mode="python", exclude={"id"}))
+            for claim in self.claims
+        ]
+        if len(payload_hashes) != len(set(payload_hashes)):
+            raise ValueError("canonical claim payloads must be unique")
+        return self
+
+
+class DeepSearchEvidenceCoverageV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["deepsearch-evidence-coverage-v1"] = "deepsearch-evidence-coverage-v1"
+    revision_count: int = Field(ge=0, le=1)
+    synthesis_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    required_question_ids: list[str] = Field(default_factory=list, max_length=100)
+    covered_question_ids: list[str] = Field(default_factory=list, max_length=100)
+    uncovered_question_ids: list[str] = Field(default_factory=list, max_length=100)
+    required_success_criterion_ids: list[str] = Field(default_factory=list, max_length=100)
+    covered_success_criterion_ids: list[str] = Field(default_factory=list, max_length=100)
+    uncovered_success_criterion_ids: list[str] = Field(default_factory=list, max_length=100)
+    validated_claim_ids: list[str] = Field(default_factory=list, max_length=100)
+    invalid_claim_ids: list[str] = Field(default_factory=list, max_length=100)
+    validated_source_ids: list[str] = Field(default_factory=list, max_length=100)
+    invalid_source_ids: list[str] = Field(default_factory=list, max_length=100)
+    validated_node_result_ids: list[str] = Field(default_factory=list, max_length=100)
+    invalid_node_result_ids: list[str] = Field(default_factory=list, max_length=100)
+    external_evidence_is_real: bool
+    passed: bool
+    gap_codes: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_coverage(self) -> DeepSearchEvidenceCoverageV1:
+        collections = (
+            self.required_question_ids,
+            self.covered_question_ids,
+            self.uncovered_question_ids,
+            self.required_success_criterion_ids,
+            self.covered_success_criterion_ids,
+            self.uncovered_success_criterion_ids,
+            self.validated_claim_ids,
+            self.invalid_claim_ids,
+            self.validated_source_ids,
+            self.invalid_source_ids,
+            self.validated_node_result_ids,
+            self.invalid_node_result_ids,
+            self.gap_codes,
+        )
+        if any(len(values) != len(set(values)) for values in collections):
+            raise ValueError("evidence coverage IDs and gap codes must be unique")
+        if (
+            set(self.covered_question_ids) | set(self.uncovered_question_ids)
+            != set(self.required_question_ids)
+            or set(self.covered_question_ids) & set(self.uncovered_question_ids)
+        ):
+            raise ValueError("question coverage must partition required IDs")
+        if (
+            set(self.covered_success_criterion_ids) | set(self.uncovered_success_criterion_ids)
+            != set(self.required_success_criterion_ids)
+            or set(self.covered_success_criterion_ids) & set(self.uncovered_success_criterion_ids)
+        ):
+            raise ValueError("success criterion coverage must partition required IDs")
+        reference_partitions = (
+            (self.validated_claim_ids, self.invalid_claim_ids),
+            (self.validated_source_ids, self.invalid_source_ids),
+            (self.validated_node_result_ids, self.invalid_node_result_ids),
+        )
+        if any(set(validated) & set(invalid) for validated, invalid in reference_partitions):
+            raise ValueError("validated and invalid evidence references must be disjoint")
+        return self
+
+
+class DeepSearchReportReviewV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["deepsearch-report-review-v1"] = "deepsearch-report-review-v1"
+    requirement_version_id: str = Field(min_length=1, max_length=120)
+    requirement_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    problem_graph_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    plan_id: str = Field(min_length=1, max_length=120)
+    plan_version: int = Field(ge=1)
+    plan_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    synthesis_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    verdict: Literal["pass", "revise", "block"]
+    unsupported_claim_ids: list[str] = Field(default_factory=list, max_length=100)
+    contradictory_claim_ids: list[str] = Field(default_factory=list, max_length=100)
+    missing_section_ids: list[str] = Field(default_factory=list, max_length=100)
+    limitation_codes: list[str] = Field(default_factory=list, max_length=100)
+    revision_count: int = Field(ge=0, le=1)
+    reviewer_type: str = Field(min_length=1, max_length=80)
+    reviewed_at: datetime
+
+    @model_validator(mode="after")
+    def validate_review_references(self) -> DeepSearchReportReviewV1:
+        collections = (
+            self.unsupported_claim_ids,
+            self.contradictory_claim_ids,
+            self.missing_section_ids,
+            self.limitation_codes,
+        )
+        if any(len(values) != len(set(values)) for values in collections):
+            raise ValueError("review references and limitation codes must be unique")
+        if set(self.unsupported_claim_ids).intersection(self.contradictory_claim_ids):
+            raise ValueError("a claim cannot be both unsupported and contradictory")
+        if self.verdict == "pass" and any(collections):
+            raise ValueError("passing reviews cannot report blocking issues")
+        if self.verdict != "pass" and not any(collections):
+            raise ValueError("non-passing reviews require actionable IDs or codes")
+        if self.reviewed_at.tzinfo is None or self.reviewed_at.utcoffset() is None:
+            raise ValueError("reviewed_at must include a timezone")
+        return self
+
+
+class DeepSearchReportReviewDraftV1(BaseModel):
+    """Model-produced review fields; lineage and timestamps stay server-owned."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    verdict: Literal["pass", "revise", "block"]
+    unsupported_claim_ids: list[str] = Field(default_factory=list, max_length=100)
+    contradictory_claim_ids: list[str] = Field(default_factory=list, max_length=100)
+    missing_section_ids: list[str] = Field(default_factory=list, max_length=100)
+    limitation_codes: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_references(self) -> DeepSearchReportReviewDraftV1:
+        collections = (
+            self.unsupported_claim_ids,
+            self.contradictory_claim_ids,
+            self.missing_section_ids,
+            self.limitation_codes,
+        )
+        if any(len(values) != len(set(values)) for values in collections):
+            raise ValueError("review references and limitation codes must be unique")
+        if self.verdict == "pass" and any(collections):
+            raise ValueError("passing reviews cannot report blocking issues")
+        if self.verdict != "pass" and not any(collections):
+            raise ValueError("non-passing reviews require actionable IDs or codes")
+        return self
+
+
+class DeepSearchReviewOutcomeV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["deepsearch-review-outcome-v1"] = "deepsearch-review-outcome-v1"
+    revision_count: int = Field(ge=0, le=1)
+    synthesis_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    outcome: Literal["not_run", "pass", "revise", "block", "error"]
+    review: DeepSearchReportReviewV1 | None = None
+    reason_code: str | None = Field(default=None, min_length=1, max_length=160)
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> DeepSearchReviewOutcomeV1:
+        if self.outcome in {"pass", "revise", "block"}:
+            if (
+                self.review is None
+                or self.review.verdict != self.outcome
+                or self.review.revision_count != self.revision_count
+                or self.review.synthesis_content_hash != self.synthesis_content_hash
+                or self.reason_code is not None
+            ):
+                raise ValueError("review verdict outcome must match its review checkpoint")
+            return self
+        if self.outcome == "not_run":
+            if (
+                self.review is not None
+                or self.reason_code
+                not in {"coverage_failed", "budget_unavailable", "deterministic_digest"}
+            ):
+                raise ValueError("not_run review outcomes require a stable pre-review reason code")
+            return self
+        if self.review is not None or self.reason_code is None:
+            raise ValueError("error review outcomes require a reason code and no review")
+        return self
+
+
 class SkillPlanKnowledgeBindings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     required: list[str] = Field(default_factory=list, max_length=100)
     optional: list[str] = Field(default_factory=list, max_length=100)
     excluded: list[str] = Field(default_factory=list, max_length=100)
+
+
+class SkillResourceManifestV1(BaseModel):
+    """Immutable allowlist of Skill resources approved for one Plan node."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["skill-resource-manifest-v1"] = "skill-resource-manifest-v1"
+    required_resources: list[
+        Annotated[str, Field(min_length=1, max_length=160)]
+    ] = Field(default_factory=list, max_length=20)
+    resource_hashes: dict[
+        Annotated[str, Field(min_length=1, max_length=500)],
+        Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")],
+    ] = Field(default_factory=dict, max_length=256)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_manifest(self) -> SkillResourceManifestV1:
+        if self.required_resources != sorted(set(self.required_resources)):
+            raise ValueError("required_resources must be uniquely sorted")
+        expected_hash = canonical_json_sha256(
+            self.model_dump(mode="python", exclude={"content_hash"})
+        )
+        if self.content_hash != expected_hash:
+            raise ValueError("resource manifest content_hash does not match its canonical content")
+        return self
 
 
 class SkillPlanNode(BaseModel):
@@ -1123,10 +1467,14 @@ class SkillPlanNode(BaseModel):
     depends_on: list[str] = Field(default_factory=list, max_length=6)
     parallel_group: str | None = Field(default=None, max_length=120)
     condition: str | None = Field(default=None, max_length=500)
+    question_ids: list[
+        Annotated[str, Field(pattern=r"^question_[0-9a-f]{16}$")]
+    ] = Field(default_factory=list, max_length=20)
     input_bindings: list[str] = Field(default_factory=list, max_length=20)
     output_contract: list[str] = Field(default_factory=list, max_length=20)
     knowledge_bindings: SkillPlanKnowledgeBindings = Field(default_factory=SkillPlanKnowledgeBindings)
     required_tool_names: list[str] = Field(default_factory=list, max_length=20)
+    resource_manifest: SkillResourceManifestV1 | None = None
     completion_criteria: list[str] = Field(default_factory=list, max_length=20)
     side_effect: SkillSideEffect = SkillSideEffect.READ
     status: SkillPlanNodeStatus = SkillPlanNodeStatus.PENDING
@@ -1134,6 +1482,12 @@ class SkillPlanNode(BaseModel):
     error_code: str | None = Field(default=None, max_length=120)
     started_at: datetime | None = None
     completed_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_question_ids(self) -> SkillPlanNode:
+        if len(self.question_ids) != len(set(self.question_ids)):
+            raise ValueError("question_ids must be unique")
+        return self
 
 
 class SkillPlanDraft(BaseModel):
@@ -1158,11 +1512,81 @@ class SkillPlan(BaseModel):
     capability_gaps: list[str] = Field(default_factory=list, max_length=100)
     preferred_order: list[str] = Field(default_factory=list, max_length=6)
     nodes: list[SkillPlanNode] = Field(default_factory=list, max_length=6)
+    planning_mode: AgentPlanningMode = AgentPlanningMode.STANDARD
+    requirement_version_id: str | None = Field(default=None, max_length=120)
+    requirement_content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    problem_graph: dict[str, Any] | None = None
+    problem_graph_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    plan_content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    approved_plan_artifact_id: str | None = Field(default=None, max_length=120)
+    capability_check: dict[str, Any] | None = None
+    evidence_manifest_artifact_id: str | None = Field(default=None, max_length=120)
+    evidence_manifest_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    evidence_coverage: DeepSearchEvidenceCoverageV1 | None = None
+    deepsearch_syntheses: list[DeepSearchSynthesisV1] = Field(default_factory=list, max_length=2)
+    synthesis_content_hashes: list[
+        Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    ] = Field(default_factory=list, max_length=2)
+    review_outcomes: list[DeepSearchReviewOutcomeV1] = Field(default_factory=list, max_length=2)
+    report_revision_count: int = Field(default=0, ge=0, le=1)
+    report_artifact_id: str | None = Field(default=None, max_length=120)
+    report_content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    finalization_stage: DeepSearchFinalizationStage = DeepSearchFinalizationStage.NONE
+    finalization_version: int = Field(default=0, ge=0)
+    finalization_input_hashes: dict[
+        DeepSearchFinalizationStage,
+        Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")],
+    ] = Field(default_factory=dict, max_length=10)
     degradation: str | None = Field(default=None, max_length=1000)
     completion_check: CompletionCheckResult | None = None
     synthesis: dict[str, Any] | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+
+    @model_validator(mode="after")
+    def validate_finalization_state(self) -> SkillPlan:
+        expected_revisions = list(range(len(self.deepsearch_syntheses)))
+        if [item.revision_count for item in self.deepsearch_syntheses] != expected_revisions:
+            raise ValueError("DeepSearch syntheses must contain contiguous append-only revisions")
+        expected_hashes = [
+            canonical_json_sha256(item.model_dump(mode="python"))
+            for item in self.deepsearch_syntheses
+        ]
+        if self.synthesis_content_hashes != expected_hashes:
+            raise ValueError("synthesis content hashes must match their canonical revisions")
+        if self.evidence_coverage is not None:
+            coverage_revision = self.evidence_coverage.revision_count
+            if (
+                coverage_revision >= len(self.synthesis_content_hashes)
+                or self.evidence_coverage.synthesis_content_hash
+                != self.synthesis_content_hashes[coverage_revision]
+            ):
+                raise ValueError("evidence coverage must match a synthesis revision")
+        expected_review_revisions = list(range(len(self.review_outcomes)))
+        if [item.revision_count for item in self.review_outcomes] != expected_review_revisions or any(
+            outcome.revision_count >= len(self.synthesis_content_hashes)
+            or outcome.synthesis_content_hash
+            != self.synthesis_content_hashes[outcome.revision_count]
+            for outcome in self.review_outcomes
+        ):
+            raise ValueError("review outcomes must match synthesis revisions in append-only order")
+        if (self.evidence_manifest_artifact_id is None) != (self.evidence_manifest_hash is None):
+            raise ValueError("evidence manifest artifact and hash must be set together")
+        if (self.report_artifact_id is None) != (self.report_content_hash is None):
+            raise ValueError("report artifact and hash must be set together")
+        expected_report_revision = (
+            self.deepsearch_syntheses[-1].revision_count if self.deepsearch_syntheses else 0
+        )
+        if self.report_revision_count != expected_report_revision:
+            raise ValueError("report revision must match the latest synthesis")
+        if self.finalization_stage is DeepSearchFinalizationStage.NONE:
+            if self.finalization_version != 0:
+                raise ValueError("none finalization stage requires version zero")
+            if self.finalization_input_hashes:
+                raise ValueError("none finalization stage cannot carry input hashes")
+        elif self.finalization_version == 0:
+            raise ValueError("started finalization requires a positive version")
+        return self
 
 
 class SkillPlanUpdateRequest(BaseModel):
@@ -1197,11 +1621,13 @@ class SkillNodeResult(BaseModel):
     node_id: str
     skill_id: str
     summary: str = Field(min_length=1, max_length=8000)
+    deliverable_markdown: str = Field(default="", max_length=60_000)
     findings: list[str] = Field(default_factory=list, max_length=100)
     recommendations: list[str] = Field(default_factory=list, max_length=100)
     scenario_outputs: list[str] = Field(default_factory=list, max_length=100)
     completion_criteria_met: list[str] = Field(default_factory=list, max_length=100)
     sources: list[SkillResultSource] = Field(default_factory=list, max_length=100)
+    evidence_items: list[DeepSearchEvidenceItemV1] = Field(default_factory=list, max_length=60)
     confidence: float = Field(default=0.5, ge=0, le=1)
     limitations: list[str] = Field(default_factory=list, max_length=100)
     artifact_ids: list[str] = Field(default_factory=list, max_length=100)
@@ -1211,6 +1637,15 @@ class SkillNodeResult(BaseModel):
     reused_from_result_id: str | None = Field(default=None, max_length=120)
     attempt: int = Field(default=1, ge=1, le=2)
     created_at: datetime = Field(default_factory=now_utc)
+
+    @model_validator(mode="after")
+    def validate_evidence_items(self) -> SkillNodeResult:
+        evidence_item_ids = [item.id for item in self.evidence_items]
+        if len(evidence_item_ids) != len(set(evidence_item_ids)):
+            raise ValueError("evidence item IDs must be unique")
+        if any(item.node_result_id != self.id for item in self.evidence_items):
+            raise ValueError("evidence item lineage must match its node result")
+        return self
 
 
 class SkillSynthesisClaim(BaseModel):
@@ -1243,6 +1678,97 @@ class SkillOrchestrationRequestMode(StrEnum):
     SINGLE = "single"
 
 
+class DeepSearchBudgetUsageV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    active_seconds: float = Field(default=0, ge=0)
+    llm_calls: int = Field(default=0, ge=0)
+    tokens: int = Field(default=0, ge=0)
+    tool_calls: int = Field(default=0, ge=0)
+    evidence_items: int = Field(default=0, ge=0)
+    evidence_bytes: int = Field(default=0, ge=0)
+    artifact_bytes: int = Field(default=0, ge=0)
+
+
+class DeepSearchBudgetLimitsV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    active_seconds: Literal[1800] = 1800
+    llm_calls: Literal[64] = 64
+    tokens: Literal[250000] = 250000
+    tool_calls: Literal[24] = 24
+    evidence_items: Literal[60] = 60
+    evidence_bytes: Literal[524288] = 524288
+    artifact_bytes: Literal[10485760] = 10485760
+
+
+class DeepSearchFinalizationReserveV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    active_seconds: Literal[300] = 300
+    artifact_bytes: Literal[1179648] = 1179648
+
+
+class DeepSearchBudgetReservationV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    logical_operation_key: str = Field(min_length=1, max_length=160)
+    invocation_key: str = Field(min_length=1, max_length=160)
+    physical_attempt: int = Field(ge=1, le=3)
+    scope: Literal["standard", "finalization"] = "standard"
+    resource_maxima: DeepSearchBudgetUsageV1
+    status: Literal["reserved", "settled"]
+    actual_usage: DeepSearchBudgetUsageV1 | None = None
+    tool_invocation: DeepSearchToolInvocationV1 | None = None
+
+    @model_validator(mode="after")
+    def validate_settlement(self) -> DeepSearchBudgetReservationV1:
+        if (self.status == "settled") != (self.actual_usage is not None):
+            raise ValueError("settled reservations require actual_usage")
+        if self.actual_usage is not None:
+            for field in DeepSearchBudgetUsageV1.model_fields:
+                if getattr(self.actual_usage, field) > getattr(self.resource_maxima, field):
+                    raise ValueError("actual usage cannot exceed its reservation")
+        if self.tool_invocation is not None:
+            non_tool_usage = self.resource_maxima.model_dump(
+                mode="python",
+                exclude={"active_seconds", "tool_calls"},
+            )
+            if (
+                self.scope != "standard"
+                or self.logical_operation_key != self.tool_invocation.operation_key
+                or self.invocation_key != self.tool_invocation.operation_key
+                or self.physical_attempt != 1
+                or self.resource_maxima.tool_calls != 1
+                or any(non_tool_usage.values())
+            ):
+                raise ValueError("tool invocation reservation identity is invalid")
+        return self
+
+
+class DeepSearchBudgetV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["deepsearch-budget-v1"] = "deepsearch-budget-v1"
+    version: int = Field(default=1, ge=1)
+    limits: DeepSearchBudgetLimitsV1 = Field(default_factory=DeepSearchBudgetLimitsV1)
+    consumed: DeepSearchBudgetUsageV1 = Field(default_factory=DeepSearchBudgetUsageV1)
+    reservations: list[DeepSearchBudgetReservationV1] = Field(default_factory=list, max_length=256)
+    finalization_reserve: DeepSearchFinalizationReserveV1 = Field(default_factory=DeepSearchFinalizationReserveV1)
+    stage_recovery_attempts: dict[str, int] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_budget(self) -> DeepSearchBudgetV1:
+        for field in DeepSearchBudgetUsageV1.model_fields:
+            if getattr(self.consumed, field) > getattr(self.limits, field):
+                raise ValueError("consumed DeepSearch budget exceeds its limit")
+        if len({item.invocation_key for item in self.reservations}) != len(self.reservations):
+            raise ValueError("DeepSearch reservation invocation keys must be unique")
+        if any(attempt < 0 or attempt > 3 for attempt in self.stage_recovery_attempts.values()):
+            raise ValueError("DeepSearch stage recovery attempts must be between zero and three")
+        return self
+
+
 class AgentRunCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1252,6 +1778,7 @@ class AgentRunCreateRequest(BaseModel):
     skill_name: str | None = Field(default=None, max_length=64)
     explicit_skill_name: str | None = Field(default=None, max_length=64)
     orchestration_mode: SkillOrchestrationRequestMode = SkillOrchestrationRequestMode.AUTO
+    planning_mode: AgentPlanningMode = AgentPlanningMode.STANDARD
 
 
 class AgentRunRetryRequest(BaseModel):
@@ -1532,6 +2059,24 @@ class BootstrapMetrics(BaseModel):
     inbox_open_count: int
 
 
+class DeepSearchAvailabilityReason(StrEnum):
+    DISABLED = "disabled"
+    EXECUTION_UNAVAILABLE = "execution_unavailable"
+    RUNTIME_UNAVAILABLE = "runtime_unavailable"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    PLANNER_UNAVAILABLE = "planner_unavailable"
+
+
+class DeepSearchAvailability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    available: bool
+    enabled: bool
+    runtime_mode: Literal["off", "preview", "execute"]
+    core_ready: bool
+    reason_code: DeepSearchAvailabilityReason | None = None
+
+
 class BootstrapState(BaseModel):
     workspace: Workspace
     project: Project
@@ -1544,6 +2089,7 @@ class BootstrapState(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     agent_runtime_enabled: bool = False
     skill_orchestration_mode: Literal["off", "preview", "execute"] = "off"
+    deepsearch_availability: DeepSearchAvailability
 
 
 class RetrievalMetrics(BaseModel):
@@ -1606,6 +2152,7 @@ class SDKSessionRecord(BaseModel):
 class AgentRunStatus(StrEnum):
     CREATED = "created"
     PLANNING = "planning"
+    WAITING_CLARIFICATION = "waiting_clarification"
     RUNNING = "running"
     WAITING_PLAN_APPROVAL = "waiting_plan_approval"
     WAITING_APPROVAL = "waiting_approval"
@@ -1629,6 +2176,8 @@ class AgentRun(BaseModel):
     skill_name: str | None = None
     plan_id: str | None = None
     retry_of_run_id: str | None = Field(default=None, max_length=120)
+    planning_mode: AgentPlanningMode = AgentPlanningMode.STANDARD
+    create_request_hash: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     orchestration_version: Literal["v1", "research-v2", "research-v3"] = "v1"
     orchestration_mode: Literal["off", "preview", "execute"] = "off"
     writer_generation_epoch: int | None = Field(default=None, ge=1)
@@ -1637,6 +2186,9 @@ class AgentRun(BaseModel):
     project_chat: bool = False
     tool_call_count: int = Field(default=0, ge=0, le=24)
     deadline_at: datetime | None = None
+    interaction_expires_at: datetime | None = None
+    absolute_expires_at: datetime | None = None
+    deepsearch_budget: DeepSearchBudgetV1 | None = None
     paused_state: dict[str, Any] | None = None
     output_text: str | None = None
     error_code: str | None = None

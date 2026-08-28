@@ -15,11 +15,20 @@ import { failureReason } from '../components/workspace/skillPlanPresentation'
 import { WORKSPACE_RESOURCE_GRID_CLASS } from '../components/workspace/layout'
 import { Button } from '../components/ui/Button'
 import { useAuth } from '../features/auth/AuthProvider'
-import { ResearchWorkbenchContainer } from '../features/research-workbench'
+import { DeepSearchWorkspace } from '../features/deepsearch/DeepSearchWorkspace'
+import { deepSearchErrorMessage } from '../features/deepsearch/errors'
+import { deepSearchAvailabilityMessage } from '../features/deepsearch/presentation'
+import {
+  useDeepSearchClarificationMutation,
+  useDeepSearchReportQuery,
+  useDeepSearchStateQuery,
+} from '../features/deepsearch/queries'
+import type { AgentPlanningMode, DeepSearchAvailability } from '../features/deepsearch/types'
 import { ToolLauncherBar } from '../features/tool-labs/ToolLauncherBar'
 import { WorkspaceToolDialog } from '../features/tool-labs/WorkspaceToolDialog'
 import type { WorkspaceToolId } from '../features/tool-labs/types'
 import {
+  isRetiredResearchRun,
   useDocumentJobsQuery,
   useAgentRunEventSubscription,
   useAgentRunQuery,
@@ -60,6 +69,7 @@ const JOB_STATUS_LABEL = {
 const SINGLE_RUN_STATUS_LABEL = {
   created: '正在准备',
   planning: '正在规划',
+  waiting_clarification: '等待你补充信息',
   waiting_plan_approval: '等待你确认计划',
   running: '正在执行',
   waiting_approval: '需要确认高风险操作',
@@ -69,6 +79,17 @@ const SINGLE_RUN_STATUS_LABEL = {
   rejected: '已拒绝',
   cancelled: '已取消',
 } as const
+
+const UNAVAILABLE_DEEPSEARCH: DeepSearchAvailability = {
+  available: false,
+  enabled: false,
+  runtime_mode: 'off',
+  core_ready: false,
+  reason_code: 'disabled',
+}
+
+const COMPOSER_CLEARANCE_GAP_PX = 24
+const DEFAULT_COMPOSER_CLEARANCE_PX = 352
 
 export function Workspace() {
   const scope = useWorkspaceScope()
@@ -85,7 +106,9 @@ export function Workspace() {
   const sendMessage = useSendMessageMutation(scope)
   const sendAgentRun = useSendAgentRunMutation(scope)
   const runQuery = useAgentRunQuery(scope, runId)
-  const currentRun = runQuery.data?.item
+  const coarseRun = runQuery.data?.item
+  const deepSearchQuery = useDeepSearchStateQuery(scope, coarseRun)
+  const currentRun = deepSearchQuery.data?.run ?? coarseRun
   const runFailureMessage = currentRun?.output_text || (
     currentRun?.error_code === 'PlannerUnavailable'
       ? '当前能力不足以生成可靠计划，系统没有降级为无工具回答。'
@@ -97,18 +120,29 @@ export function Workspace() {
   )
   const isResearchV2 = currentRun?.orchestration_version === 'research-v2'
   const isResearchV3 = currentRun?.orchestration_version === 'research-v3'
-  const isResearchRun = isResearchV2 || isResearchV3
+  const isCurrentRun = currentRun?.orchestration_version === 'v1'
+  const isDeepSearch = isCurrentRun && currentRun?.planning_mode === 'deepsearch'
+  const isStandardV1 = isCurrentRun && !isDeepSearch
+  const isRetiredResearch = isRetiredResearchRun(currentRun)
   const researchQuery = useResearchRunQuery(scope, isResearchV2 ? currentRun : null)
-  const planQuery = useSkillPlanQuery(scope, runId, isResearchRun ? null : currentRun?.plan_id)
-  const planMutations = useSkillPlanMutations(scope, runId)
+  const planQuery = useSkillPlanQuery(scope, runId, isStandardV1 ? currentRun?.plan_id : null)
+  const clarification = useDeepSearchClarificationMutation(scope, isDeepSearch ? runId : null)
+  const reportQuery = useDeepSearchReportQuery(
+    scope,
+    isDeepSearch ? runId : null,
+    deepSearchQuery.data?.plan?.report_artifact_id,
+  )
+  const planMutations = useSkillPlanMutations(scope, runId, Boolean(isDeepSearch))
   const cancelRun = useCancelAgentRunMutation(scope)
   const retryRun = useRetryAgentRunMutation(scope)
   useAgentRunEventSubscription(scope, currentRun)
   const runtimeV2 = bootstrap?.agent_runtime_enabled === true
   const orchestrationMode = bootstrap?.skill_orchestration_mode ?? 'off'
+  const deepSearchAvailability = bootstrap?.deepsearch_availability ?? UNAVAILABLE_DEEPSEARCH
   const upload = useUploadDocumentMutation(scope)
   const jobs = useDocumentJobsQuery(scope)
   const [draft, setDraft] = useState('')
+  const [planningMode, setPlanningMode] = useState<AgentPlanningMode>('standard')
   const [clientTurnId, setClientTurnId] = useState(() => crypto.randomUUID())
   const [pending, setPending] = useState<{
     content: string
@@ -130,43 +164,60 @@ export function Workspace() {
     setSendError(null)
   }, [pending])
   const useRecommendedSkill = useCallback((value: string) => {
+    setPlanningMode('standard')
     updateDraft(value)
     closeActiveTool()
   }, [closeActiveTool, updateDraft])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
+  const [composerClearance, setComposerClearance] = useState(DEFAULT_COMPOSER_CLEARANCE_PX)
   const [scrollbarGutter, setScrollbarGutter] = useState(0)
-  const runIsPlanning = Boolean(currentRun && ['created', 'planning'].includes(currentRun.status))
+  const runIsPlanning = Boolean(isStandardV1 && currentRun && ['created', 'planning'].includes(currentRun.status))
   const singleRunStatusLabel = currentRun?.error_code === 'PlannerUnavailable'
     ? '当前条件不足，尚未开始执行'
     : currentRun
       ? SINGLE_RUN_STATUS_LABEL[currentRun.status]
       : null
-  const runIsActive = Boolean(currentRun && [
+  const runIsActive = Boolean(isCurrentRun && currentRun && [
     'created',
     'planning',
+    'waiting_clarification',
     'waiting_plan_approval',
     'running',
     'waiting_approval',
   ].includes(currentRun.status))
+  const composerPlanningMode: AgentPlanningMode = runIsActive
+    ? isDeepSearch ? 'deepsearch' : 'standard'
+    : planningMode
 
   useEffect(() => {
     if (!prefilledSkill) return
     setDraft((current) => current.trim() ? current : `${prefilledSkill} `)
   }, [prefilledSkill])
 
+  useEffect(() => {
+    clarification.reset()
+  }, [clarification.reset, deepSearchQuery.data?.active_requirement?.version])
+
   async function send(content = draft) {
     const normalized = content.trim()
     if (!normalized || sendMessage.isPending || sendAgentRun.isPending || runIsActive) return
+    if (planningMode === 'deepsearch' && !deepSearchAvailability.available) {
+      setSendError(deepSearchAvailabilityMessage(deepSearchAvailability) ?? 'DeepSearch 当前不可用')
+      return
+    }
     setPending({ content: normalized, status: 'sending' })
     setDraft('')
     setSendError(null)
     try {
       const command = normalized.split(/\s+/, 1)[0]
-      const legacyCommand = command.startsWith('$') && command.includes('.')
-      const explicitSkillName = command.startsWith('$') && !legacyCommand ? command.slice(1) : undefined
-      const shouldUseRuntime = runtimeV2 && !legacyCommand
+      const legacyCommand = planningMode === 'standard' && command.startsWith('$') && command.includes('.')
+      const explicitSkillName = planningMode === 'standard' && command.startsWith('$') && !legacyCommand
+        ? command.slice(1)
+        : undefined
+      const shouldUseRuntime = planningMode === 'deepsearch' || (runtimeV2 && !legacyCommand)
       if (shouldUseRuntime) {
-        const runtimeContent = explicitSkillName
+        const runtimeContent = planningMode === 'standard' && explicitSkillName
           ? normalized.slice(command.length).trim() || normalized
           : normalized
         const response = await sendAgentRun.mutateAsync({
@@ -174,7 +225,10 @@ export function Workspace() {
             content: runtimeContent,
             clientTurnId,
             explicitSkillName,
-            orchestrationMode: explicitSkillName || orchestrationMode === 'off' ? 'single' : 'auto',
+            orchestrationMode: planningMode === 'deepsearch'
+              ? 'auto'
+              : explicitSkillName || orchestrationMode === 'off' ? 'single' : 'auto',
+            planningMode,
           })
         const started = response.item
         navigate(`/workspace/thread/${encodeURIComponent(started.thread_id)}?run=${encodeURIComponent(started.id)}`)
@@ -225,7 +279,12 @@ export function Workspace() {
     ?? planMutations.approve.error
     ?? planMutations.reject.error
   const planError = planMutationError ? workspaceErrorMessage(planMutationError) : null
-  const canRetryRun = Boolean(currentRun && ['partial', 'failed', 'rejected', 'cancelled'].includes(currentRun.status))
+  const canRetryRun = Boolean(
+    currentRun
+    && !isDeepSearch
+    && !isRetiredResearch
+    && ['partial', 'failed', 'rejected', 'cancelled'].includes(currentRun.status),
+  )
 
   const openSkillSource = (source: SkillResultSource) => {
     setSelection({
@@ -256,6 +315,29 @@ export function Workspace() {
       .catch((error) => setSendError(workspaceErrorMessage(error)))
   }
 
+  const reviseDeepSearchGoal = (goal: string) => {
+    updateDraft(goal)
+    if (deepSearchAvailability.available) {
+      setPlanningMode('deepsearch')
+      return
+    }
+    setPlanningMode('standard')
+    setSendError(deepSearchAvailabilityMessage(deepSearchAvailability) ?? 'DeepSearch 当前不可用')
+  }
+
+  useLayoutEffect(() => {
+    const composer = composerRef.current
+    if (!composer) return
+    const updateComposerClearance = () => {
+      const nextClearance = Math.ceil(composer.getBoundingClientRect().height) + COMPOSER_CLEARANCE_GAP_PX
+      setComposerClearance((current) => current === nextClearance ? current : nextClearance)
+    }
+    updateComposerClearance()
+    const observer = new ResizeObserver(updateComposerClearance)
+    observer.observe(composer)
+    return () => observer.disconnect()
+  }, [])
+
   useLayoutEffect(() => {
     const scrollContainer = scrollRef.current
     if (!scrollContainer) return
@@ -266,8 +348,12 @@ export function Workspace() {
     pending?.content,
     pending?.status,
     planDetail?.plan.updated_at,
+    deepSearchQuery.data?.active_requirement?.version,
+    deepSearchQuery.data?.plan?.finalization_stage,
+    deepSearchQuery.data?.plan?.report_artifact_id,
     researchQuery.data?.workflow.state_version,
     thread.isLoading,
+    composerClearance,
   ])
   const uploadFileName = upload.variables?.name
   const showResources = Boolean(upload.isPending || upload.data || upload.isError || jobs.data?.items.length)
@@ -287,16 +373,19 @@ export function Workspace() {
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden">
       <div ref={scrollRef} aria-label="对话滚动区域" className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[1040px] px-4 pb-52 pt-6 md:px-6 md:pt-8">
+        <div
+          className="mx-auto max-w-[1040px] px-4 pt-6 md:px-6 md:pt-8"
+          style={{ paddingBottom: composerClearance }}
+        >
           <div className={showResources ? WORKSPACE_RESOURCE_GRID_CLASS : ''}>
             <div className="min-w-0">
               {sendError ? (
-                <p role="alert" className="mb-4 rounded-[10px] border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">
+                <p role="alert" className="mb-4 rounded-soft border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">
                   {sendError}
                 </p>
               ) : null}
               {thread.isError ? (
-                <div className="mb-4 rounded-[12px] border border-rose/20 bg-rose/10 px-4 py-4">
+                <div className="mb-4 rounded-soft border border-rose/20 bg-rose/10 px-4 py-4">
                   <p role="alert" className="text-sm text-rose">{workspaceErrorMessage(thread.error)}</p>
                   <button type="button" onClick={() => navigate('/workspace')} className="mt-3 text-xs font-semibold text-mint-300">
                     返回新对话
@@ -313,22 +402,22 @@ export function Workspace() {
               />
 
               {runId && runQuery.isLoading ? (
-                <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
+                <section role="status" className="mt-6 rounded-soft bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
                   正在恢复 Agent Run…
                 </section>
               ) : null}
               {runQuery.isError ? (
-                <p role="alert" className="mt-6 rounded-[12px] bg-rose/10 px-4 py-3 text-sm text-rose">
+                <p role="alert" className="mt-6 rounded-soft bg-rose/10 px-4 py-3 text-sm text-rose">
                   {workspaceErrorMessage(runQuery.error)}
                 </p>
               ) : null}
               {isResearchV2 && researchQuery.isLoading ? (
-                <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
+                <section role="status" className="mt-6 rounded-soft bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
                   正在恢复研究预览…
                 </section>
               ) : null}
               {isResearchV2 && researchQuery.isError ? (
-                <p role="alert" className="mt-6 rounded-[12px] bg-rose/10 px-4 py-3 text-sm text-rose">
+                <p role="alert" className="mt-6 rounded-soft bg-rose/10 px-4 py-3 text-sm text-rose">
                   {workspaceErrorMessage(researchQuery.error)}
                 </p>
               ) : null}
@@ -338,28 +427,56 @@ export function Workspace() {
                   <ResearchExecution projection={researchQuery.data} />
                 </>
               ) : null}
-              {isResearchV3 && currentRun ? (
-                <ResearchWorkbenchContainer scope={scope} run={currentRun} />
+              {isResearchV3 ? (
+                <section aria-label="已退役 Research Run" className="mt-6 rounded-soft border border-amber-300/20 bg-amber-300/10 px-5 py-4 shadow-card">
+                  <p className="text-sm font-semibold text-amber-200">该 Research-v3 运行已退役</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-300">仅保留基础历史记录，不能继续执行、取消或重试。你可以在下方发起新的任务。</p>
+                </section>
               ) : null}
-              {!isResearchRun && currentRun?.plan_id && planQuery.isLoading ? (
-                <section role="status" className="mt-6 rounded-[14px] bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
+              {isDeepSearch ? (
+                <DeepSearchWorkspace
+                  state={deepSearchQuery.data}
+                  loading={deepSearchQuery.isLoading}
+                  error={deepSearchQuery.isError ? deepSearchErrorMessage(deepSearchQuery.error) : null}
+                  skills={skills.data?.items ?? []}
+                  planPendingAction={planPendingAction}
+                  planError={planError}
+                  clarificationPending={clarification.isPending}
+                  clarificationError={clarification.isError ? deepSearchErrorMessage(clarification.error) : null}
+                  report={reportQuery.data}
+                  reportLoading={reportQuery.isLoading}
+                  reportError={reportQuery.isError ? deepSearchErrorMessage(reportQuery.error) : null}
+                  cancelling={cancelRun.isPending}
+                  retrying={retryRun.isPending}
+                  onClarify={(request) => clarification.mutate(request)}
+                  onUpdatePlan={(request) => planMutations.update.mutate(request)}
+                  onApprovePlan={(request) => planMutations.approve.mutate(request)}
+                  onRejectPlan={(request) => planMutations.reject.mutate(request)}
+                  onCancel={cancelCurrentRun}
+                  onRetry={retryCurrentRun}
+                  onReviseGoal={reviseDeepSearchGoal}
+                  onOpenToolApproval={() => navigate('/knowledge?tab=pending')}
+                />
+              ) : null}
+              {isStandardV1 && currentRun?.plan_id && planQuery.isLoading ? (
+                <section role="status" className="mt-6 rounded-soft bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
                   正在加载 Skill Plan…
                 </section>
               ) : null}
-              {!isResearchRun && planQuery.isError ? (
-                <p role="alert" className="mt-6 rounded-[12px] bg-rose/10 px-4 py-3 text-sm text-rose">
+              {isStandardV1 && planQuery.isError ? (
+                <p role="alert" className="mt-6 rounded-soft bg-rose/10 px-4 py-3 text-sm text-rose">
                   {workspaceErrorMessage(planQuery.error)}
                 </p>
               ) : null}
-              {!isResearchRun && currentRun?.orchestration_version === 'v1' && !currentRun.plan_id && runIsPlanning ? (
+              {isStandardV1 && currentRun && !currentRun.plan_id && runIsPlanning ? (
                 <SkillPlanningState
                   run={currentRun}
                   cancelling={cancelRun.isPending}
                   onCancel={cancelCurrentRun}
                 />
               ) : null}
-              {!isResearchRun && currentRun?.orchestration_version === 'v1' && !currentRun.plan_id && !runIsPlanning ? (
-                <section aria-label="单 Skill 运行状态" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[14px] bg-surface-1 px-5 py-4 shadow-card">
+              {isStandardV1 && currentRun && !currentRun.plan_id && !runIsPlanning ? (
+                <section aria-label="单 Skill 运行状态" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-soft bg-surface-1 px-5 py-4 shadow-card">
                   <div>
                     <p className="text-xs font-semibold text-mint-300">{currentRun.skill_name ? `$${currentRun.skill_name}` : 'Agent Runtime v2'}</p>
                     <p className="mt-1 text-sm text-slate-300">{singleRunStatusLabel}</p>
@@ -371,7 +488,7 @@ export function Workspace() {
                   </div>
                 </section>
               ) : null}
-              {!isResearchRun && currentRun?.status === 'waiting_plan_approval' && planDetail ? (
+              {isStandardV1 && currentRun?.status === 'waiting_plan_approval' && planDetail ? (
                 <SkillPlanPreview
                   key={`${planDetail.plan.id}-${planDetail.plan.version}`}
                   detail={planDetail}
@@ -384,7 +501,7 @@ export function Workspace() {
                   onReject={(request) => planMutations.reject.mutate(request)}
                 />
               ) : null}
-              {!isResearchRun && currentRun?.plan_id && planDetail && currentRun.status !== 'waiting_plan_approval' ? (
+              {isStandardV1 && currentRun?.plan_id && planDetail && currentRun.status !== 'waiting_plan_approval' ? (
                 <SkillPlanProgress
                   run={currentRun}
                   detail={planDetail}
@@ -394,18 +511,19 @@ export function Workspace() {
                   onOpenToolApproval={() => navigate('/knowledge?tab=pending')}
                 />
               ) : null}
-              {!isResearchRun && currentRun && planDetail?.synthesis ? (
+              {isStandardV1 && currentRun && planDetail?.synthesis ? (
                 <SkillSynthesisView
                   synthesis={planDetail.synthesis}
                   results={planDetail.results ?? []}
                   skillsById={skillsById}
                   partial={currentRun.status === 'partial'}
                   completionCheck={planDetail.plan.completion_check}
+                  reportRunId={currentRun.id}
                   onOpenSource={openSkillSource}
                   onOpenArtifact={(artifactId) => window.open(`/api/artifacts/${encodeURIComponent(artifactId)}`, '_blank', 'noopener,noreferrer')}
                 />
               ) : null}
-              {!isResearchRun && currentRun?.plan_id && canRetryRun ? (
+              {isStandardV1 && currentRun?.plan_id && canRetryRun ? (
                 <div className="mt-4 flex justify-end">
                   <Button variant="secondary" size="sm" loading={retryRun.isPending} onClick={retryCurrentRun}>
                     以新 Run 重试
@@ -415,7 +533,7 @@ export function Workspace() {
             </div>
 
             {showResources ? <aside className="space-y-4" aria-label="Workspace resources">
-              <section className="rounded-[14px] border border-white/[0.07] bg-surface-1 p-4">
+              <section className="rounded-soft border border-white/[0.07] bg-surface-1 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
                   <Search className="h-4 w-4 text-mint-300" aria-hidden="true" />
                   搜索可见资料
@@ -431,31 +549,31 @@ export function Workspace() {
                     aria-label="搜索资料"
                     value={searchInput}
                     onChange={(event) => setSearchInput(event.target.value)}
-                    className="min-w-0 flex-1 rounded-[9px] border border-white/[0.08] bg-base px-3 py-2 text-xs text-slate-100 outline-none focus:border-mint-400/40"
+                    className="min-w-0 flex-1 rounded-soft border border-white/[0.08] bg-base px-3 py-2 text-xs text-slate-100 outline-none focus:border-mint-400/40"
                     placeholder="关键词"
                   />
                   <button
                     type="submit"
                     disabled={!searchInput.trim()}
-                    className="rounded-[9px] bg-mint-400 px-3 py-2 text-xs font-semibold text-[#06231c] disabled:opacity-40"
+                    className="rounded-soft bg-mint-400 px-3 py-2 text-xs font-semibold text-[#06231c] disabled:opacity-40"
                   >
                     搜索
                   </button>
                 </form>
-                {searchQuery.isFetching ? <p className="mt-3 text-xs text-slate-500">正在搜索…</p> : null}
+                {searchQuery.isFetching ? <p className="mt-3 text-xs text-slate-400">正在搜索…</p> : null}
                 {searchQuery.isError ? <p role="alert" className="mt-3 text-xs text-rose">{workspaceErrorMessage(searchQuery.error)}</p> : null}
-                {searchQuery.data?.items.length === 0 ? <p className="mt-3 text-xs text-slate-500">没有可见结果。</p> : null}
+                {searchQuery.data?.items.length === 0 ? <p className="mt-3 text-xs text-slate-400">没有可见结果。</p> : null}
                 <div className="mt-3 space-y-2">
                   {searchQuery.data?.items.map((result) => (
                     <article
                       key={`${result.result_type}-${result.id}`}
                       data-testid="search-result"
-                      className="rounded-[10px] border border-white/[0.06] bg-base p-3"
+                      className="rounded-soft border border-white/[0.06] bg-base p-3"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-xs font-semibold text-slate-200">{result.title}</p>
-                          <p className="mt-1 text-[11px] text-slate-500">{result.result_type} · {result.scope}</p>
+                          <p className="mt-1 text-[11px] text-slate-400">{result.result_type} · {result.scope}</p>
                         </div>
                         {result.result_type === 'document' || result.sources?.[0] ? (
                           <button
@@ -473,7 +591,7 @@ export function Workspace() {
                       </div>
                       <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-400">{result.summary}</p>
                       {result.sources?.map((source) => (
-                        <p key={source.id ?? source.reference} className="mt-1 truncate text-[11px] text-slate-500">
+                        <p key={source.id ?? source.reference} className="mt-1 truncate text-[11px] text-slate-400">
                           来源：{source.title} · {source.source_type}
                         </p>
                       ))}
@@ -483,10 +601,10 @@ export function Workspace() {
               </section>
 
               {upload.isPending || upload.data || upload.isError ? (
-                <section data-testid="upload-status" className="rounded-[14px] border border-white/[0.07] bg-surface-1 p-4 text-xs">
+                <section data-testid="upload-status" className="rounded-soft border border-white/[0.07] bg-surface-1 p-4 text-xs">
                   <div className="flex items-center gap-2 font-semibold text-slate-200"><FileSearch className="h-4 w-4 text-mint-300" aria-hidden="true" />文档上传</div>
                   <p className="mt-2 break-all text-slate-400">{uploadFileName}</p>
-                  {upload.isPending ? <p className="mt-1 text-slate-500">正在提交…</p> : null}
+                  {upload.isPending ? <p className="mt-1 text-slate-400">正在提交…</p> : null}
                   {upload.data?.item ? <p className="mt-1 text-mint-300">已导入 · {upload.data.item.completed_chunks}/{upload.data.item.expected_chunks} chunks</p> : null}
                   {upload.data?.job ? <p className="mt-1 text-amber-300">已进入任务队列</p> : null}
                   {upload.isError ? <p role="alert" className="mt-1 text-rose">{workspaceErrorMessage(upload.error)}</p> : null}
@@ -494,13 +612,13 @@ export function Workspace() {
               ) : null}
 
               {jobs.data?.items.length ? (
-                <section className="rounded-[14px] border border-white/[0.07] bg-surface-1 p-4">
+                <section className="rounded-soft border border-white/[0.07] bg-surface-1 p-4">
                   <h2 className="text-sm font-semibold text-slate-200">我的导入任务</h2>
                   <div className="mt-3 space-y-2">
                     {jobs.data.items.map((job) => (
-                      <article key={job.id} data-testid="document-job" className="rounded-[9px] bg-base p-3 text-xs">
+                      <article key={job.id} data-testid="document-job" className="rounded-soft bg-base p-3 text-xs">
                         <div className="flex items-center justify-between gap-2"><span className="truncate text-slate-300">{job.file_name}</span><span className={job.status === 'failed' ? 'text-rose' : 'text-mint-300'}>{JOB_STATUS_LABEL[job.status]}</span></div>
-                        <p className="mt-1 text-slate-500">{job.completed_chunks}/{job.expected_chunks} chunks</p>
+                        <p className="mt-1 text-slate-400">{job.completed_chunks}/{job.expected_chunks} chunks</p>
                         {job.status === 'failed' ? <p role="alert" className="mt-2 text-rose">{job.error ?? '导入失败'}</p> : null}
                       </article>
                     ))}
@@ -513,12 +631,15 @@ export function Workspace() {
       </div>
 
       <Composer
+        rootRef={composerRef}
         value={draft}
         skills={skills.data?.items ?? []}
         sending={sendMessage.isPending || sendAgentRun.isPending}
         locked={runIsActive}
         hasResourceRail={showResources}
         scrollbarGutter={scrollbarGutter}
+        planningMode={composerPlanningMode}
+        deepSearchAvailability={deepSearchAvailability}
         sendState={pending?.status === 'sending' ? null : pending?.status ?? null}
         statusMessage={pending?.status === 'sending' ? null : sendError}
         toolLauncher={(
@@ -529,6 +650,10 @@ export function Workspace() {
           />
         )}
         onChange={updateDraft}
+        onPlanningModeChange={(mode) => {
+          setPlanningMode(mode)
+          setSendError(null)
+        }}
         onSend={() => void send()}
         onRetry={() => void send(pending?.content ?? draft)}
         onUpload={(file) => upload.mutate(file)}

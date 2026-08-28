@@ -15,9 +15,14 @@ from agentmesh.models import (
     AgentRunStatus,
     AgentToolGrant,
     ChatThread,
+    DeepSearchEvidenceItemV1,
     MemoryLayer,
     Scope,
     SkillDefinition,
+    SkillIntent,
+    SkillNodeResult,
+    SkillPlan,
+    SkillPlanNode,
     SkillSourceScope,
     Source,
     ToolDefinition,
@@ -80,6 +85,48 @@ def test_late_ordinary_run_completion_cannot_overwrite_cancellation(tmp_path) ->
     persisted = repository.get_agent_run(run.id)
     assert persisted is not None and persisted.status == AgentRunStatus.CANCELLED
     assert persisted.output_text is None
+
+
+def test_resume_rejects_column_projected_v3_before_model_or_mcp_initialization(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _repository(tmp_path)
+    legacy = repository.save_agent_run(
+        AgentRun(
+            id="run_column_projected_v3_resume",
+            thread_id="thread_column_projected_v3_resume",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="legacy",
+            status=AgentRunStatus.WAITING_APPROVAL,
+            paused_state={"kind": "legacy"},
+        )
+    )
+    original_payload = legacy.model_dump_json()
+    with repository._connect() as connection:
+        connection.execute(
+            "UPDATE agent_runs SET orchestration_version = 'research-v3' WHERE id = ?",
+            (legacy.id,),
+        )
+
+    runtime = AgentRuntimeService(repository, model=ScriptedModel([]), enabled=True)
+
+    def forbidden_model_selection(_user):  # noqa: ANN001, ANN202
+        raise AssertionError("retired v3 resume must stop before selecting a model")
+
+    monkeypatch.setattr(runtime, "_select_model", forbidden_model_selection)
+    with pytest.raises(RuntimeError, match="Retired research runs cannot be resumed"):
+        runtime.resume_sync(legacy.id, user=USER, decisions={"legacy-call": True})
+
+    assert repository.get_agent_run(legacy.id).orchestration_version == "research-v3"  # type: ignore[union-attr]
+    with repository._connect() as connection:
+        stored_payload = connection.execute(
+            "SELECT payload FROM agent_runs WHERE id = ?",
+            (legacy.id,),
+        ).fetchone()["payload"]
+    assert stored_payload == original_payload
 
 
 def test_sdk_runner_calls_granted_memory_tool(tmp_path) -> None:
@@ -145,6 +192,12 @@ def test_agentmesh_session_preserves_multiturn_history(tmp_path) -> None:
 
 def test_ungranted_tool_is_hidden_and_never_executes(tmp_path) -> None:
     repository = _repository(tmp_path)
+    web_research_grant = next(
+        grant
+        for grant in repository.list_agent_tool_grants(USER.personal_agent_id)
+        if grant.tool_id == "tool_web_research"
+    )
+    repository.save_agent_tool_grant(web_research_grant.model_copy(update={"enabled": False}))
     model = ScriptedModel(
         [
             [function_call("web_research", {"query": "should stay hidden"}, call_id="hidden_web")],
@@ -169,6 +222,12 @@ def test_ungranted_tool_is_hidden_and_never_executes(tmp_path) -> None:
 
 def test_wiki_imported_skill_tools_are_fail_closed_without_mappable_declarations(tmp_path) -> None:
     repository = _repository(tmp_path)
+    web_research_grant = next(
+        grant
+        for grant in repository.list_agent_tool_grants(USER.personal_agent_id)
+        if grant.tool_id == "tool_web_research"
+    )
+    repository.save_agent_tool_grant(web_research_grant.model_copy(update={"enabled": False}))
     factory = AgentMeshToolFactory(repository)
     imported = SkillDefinition(
         id="skill_wiki_import_tools",
@@ -198,6 +257,75 @@ def test_wiki_imported_skill_tools_are_fail_closed_without_mappable_declarations
 
     ordinary = imported.model_copy(update={"id": "skill_ordinary_tools", "metadata": {}})
     assert {tool.name for tool in factory.build(USER, ordinary)} == {"data_query", "memory_search"}
+
+
+def test_standard_node_result_discards_model_owned_identity_and_evidence(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    runtime = AgentRuntimeService(repository, model=ScriptedModel([]), enabled=True)
+    skill = SkillDefinition(
+        id="skill_standard_result",
+        name="standard-result",
+        title="Standard result",
+        description="Standard result normalization",
+        instructions="Return the requested result.",
+        source_path="tests/standard-result/SKILL.md",
+        source_scope=SkillSourceScope.BUILTIN,
+        content_hash="standard-result-hash",
+    )
+    node = SkillPlanNode(
+        id="node_standard_result",
+        skill_id=skill.id,
+        skill_version=skill.version,
+        skill_content_hash=skill.content_hash,
+        reason="normalize model output",
+        output_contract=["summary"],
+        attempt=1,
+    )
+    plan = SkillPlan(
+        id="plan_standard_result",
+        run_id="run_standard_result",
+        intent=SkillIntent(goal="normalize"),
+        nodes=[node],
+    )
+    run = AgentRun(
+        id=plan.run_id,
+        thread_id="thread_standard_result",
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        input_text="normalize",
+    )
+    model_result = SkillNodeResult(
+        id="model_owned_result",
+        node_id=node.id,
+        skill_id=skill.id,
+        summary="complete",
+        evidence_items=[
+            DeepSearchEvidenceItemV1(
+                id="model_owned_evidence",
+                node_result_id="model_owned_result",
+                evidence_artifact_id="model_owned_artifact",
+            )
+        ],
+    )
+
+    normalized = runtime._normalize_skill_node_result(
+        model_result,
+        total_tokens=7,
+        plan=plan,
+        node=node,
+        skill=skill,
+        run=run,
+        user=USER,
+        allowed_source_ids=set(),
+        allowed_artifact_ids=set(),
+        allowed_resource_references=set(),
+        upstream_source_origins={},
+    )
+
+    assert normalized.id == "node_result_plan_standard_result_node_standard_result_1"
+    assert normalized.evidence_items == []
+    assert SkillNodeResult.model_validate_json(normalized.model_dump_json()) == normalized
 
 
 def test_user_granted_read_only_web_tool_does_not_require_per_call_approval(tmp_path) -> None:

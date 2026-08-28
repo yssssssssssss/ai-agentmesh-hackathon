@@ -204,19 +204,19 @@ export function Knowledge() {
       />
       <div className="flex flex-wrap items-center gap-3">
         <Tabs items={tabs} value={tab} onChange={setTab} />
-        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+        <div className="flex items-center gap-1.5 text-xs text-slate-400">
           当前计数来源 <DataSourceBadge source={viewModel.tabs.find((item) => item.key === tab)?.count.source ?? 'T'} />
         </div>
       </div>
 
       {queryError ? (
-        <div role="alert" className="flex items-center justify-between gap-3 rounded-[12px] border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-soft border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
           <span>{governanceErrorMessage(queryError)}</span>
           <Button variant="subtle" size="sm" icon={<RefreshCw className="h-4 w-4" />} onClick={() => void Promise.all(Object.values(queries).map((query) => query.refetch()))}>重试</Button>
         </div>
       ) : null}
-      {error ? <p role="alert" className="rounded-[10px] border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">{error}</p> : null}
-      {message ? <p role="status" className="rounded-[10px] border border-mint-400/20 bg-mint-400/[0.06] px-4 py-3 text-sm text-mint-300">{message}</p> : null}
+      {error ? <p role="alert" className="rounded-soft border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">{error}</p> : null}
+      {message ? <p role="status" className="rounded-soft border border-mint-400/20 bg-mint-400/[0.06] px-4 py-3 text-sm text-mint-300">{message}</p> : null}
 
       <KnowledgeArchitecturePanel assets={viewModel.assets.data.items} projectName={projectName} />
 
@@ -278,7 +278,7 @@ function ModuleState({ loading, error, empty, emptyText, children }: {
       <div className="card-base flex flex-col items-center py-14 text-center">
         <span className="flex h-12 w-12 items-center justify-center rounded-full bg-mint-400/10 text-mint-300"><CheckCircle2 className="h-6 w-6" /></span>
         <h2 className="mt-3 text-sm font-semibold text-slate-100">{emptyText}</h2>
-        <p className="mt-1 text-xs text-slate-500">新的服务端记录会在查询刷新后显示。</p>
+        <p className="mt-1 text-xs text-slate-400">新的服务端记录会在查询刷新后显示。</p>
       </div>
     )
   }
@@ -294,15 +294,15 @@ function KnowledgeArchitecturePanel({ assets, projectName }: {
   const teamCount = assets.filter((asset) => asset.visibility.value === 'team').length
 
   return (
-    <section className="rounded-[16px] border border-white/[0.06] bg-surface-1 p-5" aria-labelledby="knowledge-architecture-heading">
+    <section className="rounded-overlay border border-white/[0.06] bg-surface-1 p-5" aria-labelledby="knowledge-architecture-heading">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-mint-400/[0.12] text-mint-300">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-soft bg-mint-400/[0.12] text-mint-300">
             <Layers3 className="h-5 w-5" aria-hidden="true" />
           </span>
           <div>
             <h2 id="knowledge-architecture-heading" className="text-[15px] font-semibold text-slate-100">知识层级与流转</h2>
-            <p className="mt-1 max-w-3xl text-[12px] leading-5 text-slate-500">
+            <p className="mt-1 max-w-3xl text-[12px] leading-5 text-slate-400">
               个人知识先由自己沉淀，确认后可进入当前项目；项目结论经过团队复核后进入团队知识库。项目知识和团队知识之间保留可回收、可再发布的流转路径。
             </p>
           </div>
@@ -349,13 +349,13 @@ function KnowledgeLevelCard({ icon, title, desc, count, actions }: {
   actions: string[]
 }) {
   return (
-    <article className="flex min-h-full flex-col rounded-[13px] border border-white/[0.06] bg-base p-4">
+    <article className="flex min-h-full flex-col rounded-soft border border-white/[0.06] bg-base p-4">
       <div className="flex items-center gap-2 text-mint-300">
         {icon}
         <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
       </div>
-      <p className="mt-2 min-h-[40px] text-[12px] leading-5 text-slate-500">{desc}</p>
-      <div className="mt-4 text-[11px] text-slate-500">
+      <p className="mt-2 min-h-[40px] text-[12px] leading-5 text-slate-400">{desc}</p>
+      <div className="mt-4 text-[11px] text-slate-400">
         已归档 <span className="text-xl font-semibold tabular-nums text-slate-100">{count}</span> 条
       </div>
       <div className="mt-auto flex flex-wrap gap-2 pt-4">
@@ -364,7 +364,7 @@ function KnowledgeLevelCard({ icon, title, desc, count, actions }: {
             key={action}
             type="button"
             disabled
-            className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] text-slate-500"
+            className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] text-slate-400"
             title="待接入服务端知识流转接口"
           >
             {action}
@@ -381,8 +381,8 @@ function FlowArrow({ label, reversible = false }: {
 }) {
   const Icon = reversible ? ArrowRightLeft : ArrowRight
   return (
-    <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 lg:flex-col">
-      <Icon className="h-4 w-4 text-slate-600" aria-hidden="true" />
+    <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 lg:flex-col">
+      <Icon className="h-4 w-4 text-slate-400" aria-hidden="true" />
       <span className="whitespace-nowrap">{label}</span>
     </div>
   )

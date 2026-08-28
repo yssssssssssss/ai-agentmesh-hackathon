@@ -54,7 +54,7 @@ interface TileProps {
 
 function Tile({ tone, label, value, hint, icon }: TileProps) {
   return (
-    <div className="group relative overflow-hidden rounded-[12px] border border-white/[0.06] bg-surface-2 p-4 transition-colors hover:border-white/[0.14]">
+    <div className="group relative overflow-hidden rounded-soft border border-white/[0.06] bg-surface-2 p-4 transition-colors hover:border-white/[0.14]">
       <span
         aria-hidden
         className={`absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b ${TONE_STRIPE[tone]} to-transparent opacity-80`}
@@ -65,8 +65,8 @@ function Tile({ tone, label, value, hint, icon }: TileProps) {
           {icon}
         </span>
       </div>
-      <div className="mt-2 text-[26px] font-semibold leading-none text-white tabular-nums">{value}</div>
-      {hint ? <p className="mt-2 text-xs text-slate-500">{hint}</p> : null}
+      <div className="mt-2 text-2xl font-semibold leading-none text-white tabular-nums">{value}</div>
+      {hint ? <p className="mt-2 text-xs text-slate-400">{hint}</p> : null}
     </div>
   )
 }
@@ -79,7 +79,7 @@ export function PresenceTiles({ presence, enabled, workers }: PresenceTilesProps
       {!enabled ? (
         <div
           role="status"
-          className="flex items-center gap-2 rounded-[10px] border border-remind/25 bg-remind/10 px-3 py-2 text-xs text-remind"
+          className="flex items-center gap-2 rounded-soft border border-remind/25 bg-remind/10 px-3 py-2 text-xs text-remind"
         >
           <RadioTower className="h-4 w-4" />
           自主协作市场未启用（设置 AGENTMESH_MARKET_ENABLED=1 以启动 agent-1 / agent-2）。

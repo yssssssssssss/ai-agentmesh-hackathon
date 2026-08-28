@@ -15,7 +15,7 @@ interface SegmentedControlProps {
 /** 分段切换控件，用于时间范围（今日/本周/本月）等 */
 export function SegmentedControl({ options, value, onChange, size = 'md' }: SegmentedControlProps) {
   return (
-    <div className="inline-flex rounded-[10px] border border-white/[0.06] bg-surface-1 p-0.5">
+    <div className="inline-flex rounded-soft border border-white/[0.06] bg-surface-1 p-0.5">
       {options.map((opt) => {
         const active = opt.key === value
         return (
@@ -23,7 +23,7 @@ export function SegmentedControl({ options, value, onChange, size = 'md' }: Segm
             key={opt.key}
             onClick={() => onChange(opt.key)}
             className={cn(
-              'rounded-lg font-medium transition-all duration-150',
+              'rounded-control font-medium transition-[background-color,color] duration-150',
               size === 'sm' ? 'px-3 py-1.5 text-[13px]' : 'px-4 py-2 text-sm',
               active
                 ? 'bg-surface-3 text-white shadow-sm'

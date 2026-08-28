@@ -14,11 +14,64 @@ from agentmesh.llm import (
 )
 from agentmesh.models import AgentRunStatus, AgentToolGrant, ChatThread, SkillPlanStatus
 from agentmesh.seed import USER, ensure_base_workspace_data
-from agentmesh.skill_runtime.planner import deterministic_intent
+from agentmesh.skill_runtime.plan_validation import validate_draft
+from agentmesh.skill_runtime.planner import deterministic_intent, route_skill_draft
 from agentmesh.skill_runtime.resources import skill_resource_manifest
+from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
-from agentmesh.tools import ensure_tool_seed_data
+from agentmesh.task_routing.catalog import load_default_task_catalog
+from agentmesh.task_routing.router import TaskScenarioRouter
+from agentmesh.tools import ensure_tool_seed_data, list_agent_tools
+
+
+def test_demo_personal_agent_can_use_web_research_by_default(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "tool-seed-data.sqlite3")
+
+    tool_ids = {tool.id for tool in list_agent_tools(repository, "agent_personal_current")}
+
+    assert "tool_web_research" in tool_ids
+
+
+def test_route_plan_covers_every_explicitly_requested_deliverable(
+    tmp_path,
+    monkeypatch,
+    configure_pilot_wiki,
+) -> None:
+    monkeypatch.setenv("AGENTMESH_TASK_SCENARIO_ROUTING", "true")
+    configure_pilot_wiki(tmp_path / "multi-deliverable-wiki")
+    repository = SQLiteStore(tmp_path / "multi-deliverable.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+    ensure_tool_seed_data(repository, granted_by="test")
+    skill_catalog = SkillCatalogService(repository)
+    skill_catalog.reload()
+    task_catalog = load_default_task_catalog()
+    request = "企业 AI 助手用户研究方案：竞品、研究计划、访谈、问卷、可用性测试、体验指标。"
+    intent = deterministic_intent(request)
+    routing_result, _ = TaskScenarioRouter(task_catalog).route(request)
+
+    candidates, _ = SkillCandidateRetriever(repository, skill_catalog).recommend_for_route(
+        USER,
+        intent,
+        routing_result,
+        task_catalog,
+    )
+    draft = route_skill_draft(intent, candidates, routing_result, task_catalog)
+    validate_draft(draft, candidates, intent=intent)
+
+    names_by_id = {candidate.skill_id: candidate.skill_name for candidate in candidates}
+    planned_names = {names_by_id[node.skill_id] for node in draft.nodes}
+    planned_outputs = {output for node in draft.nodes for output in node.output_contract}
+    assert planned_names == {
+        "competitive-analysis",
+        "generate-research-plan",
+        "generate-interview-guide",
+        "generate-survey",
+        "generate-usability-test",
+        "build-experience-metrics",
+    }
+    assert set(intent.deliverables) <= planned_outputs
 
 
 def test_orchestration_timeout_defaults_are_tiered(monkeypatch) -> None:
@@ -221,6 +274,12 @@ def test_runtime_route_fails_closed_without_research_grant(
     ensure_base_workspace_data(repository)
     repository.save_user(USER)
     ensure_tool_seed_data(repository, granted_by="test")
+    web_research_grant = next(
+        grant
+        for grant in repository.list_agent_tool_grants(USER.personal_agent_id)
+        if grant.tool_id == "tool_web_research"
+    )
+    repository.save_agent_tool_grant(web_research_grant.model_copy(update={"enabled": False}))
     catalog = SkillCatalogService(repository)
     catalog.reload()
     request = "基于最新公开资料研究竞品，输出策略地图。"

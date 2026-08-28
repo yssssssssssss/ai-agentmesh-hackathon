@@ -24,7 +24,7 @@ export function Card({ children, className, hover, onClick, padding = 'md' }: Ca
         'card-base',
         PAD[padding],
         hover &&
-          'transition-all duration-200 hover:border-white/[0.12] hover:bg-surface-2 hover:-translate-y-0.5',
+          'transition-[transform,background-color,border-color] duration-200 [@media(hover:hover)]:hover:border-white/[0.12] [@media(hover:hover)]:hover:bg-surface-2 [@media(hover:hover)]:hover:-translate-y-0.5',
         onClick && 'cursor-pointer',
         className,
       )}
@@ -61,7 +61,7 @@ export function SectionCard({
           {icon && <span className="text-mint-300">{icon}</span>}
           <div>
             <h2 className="text-[15px] font-semibold text-slate-100">{title}</h2>
-            {desc && <p className="mt-0.5 text-xs text-slate-500">{desc}</p>}
+            {desc && <p className="mt-0.5 text-xs text-slate-400">{desc}</p>}
           </div>
         </div>
         {action}

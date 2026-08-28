@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from agents.testing import ScriptedModel, assistant_message
@@ -12,11 +13,16 @@ from fastapi.testclient import TestClient
 import agentmesh.routes.chat as chat_routes
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.app import app
+from agentmesh.artifacts import V1VerifiedArtifactStore
+from agentmesh.canonical_json import canonical_json_bytes
 from agentmesh.models import (
+    AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
     Artifact,
     ArtifactVerificationState,
+    ChatThread,
+    DeepSearchBudgetV1,
     SkillOrchestrationRequestMode,
 )
 from agentmesh.routes.deps import current_user
@@ -439,7 +445,7 @@ def test_agent_run_events_and_artifact_are_owner_scoped() -> None:
     assert client.get(f"/api/artifacts/{artifact.id}").status_code == 404
 
 
-@pytest.mark.parametrize("corruption", ["hash", "index", "noncanonical_json"])
+@pytest.mark.parametrize("corruption", ["hash", "index", "owner_index", "noncanonical_json"])
 def test_v2_artifact_route_returns_only_integrity_verified_sealed_content(corruption: str) -> None:
     suffix = corruption
     run = _save_historical_v2_run(
@@ -528,6 +534,11 @@ def test_v2_artifact_route_returns_only_integrity_verified_sealed_content(corrup
                 "UPDATE artifacts SET size_bytes = size_bytes + 1 WHERE id = ?",
                 (sealed.id,),
             )
+        elif corruption == "owner_index":
+            connection.execute(
+                "UPDATE artifacts SET user_id = ? WHERE id = ?",
+                (TEAM_LEAD.id, sealed.id),
+            )
         else:
             noncanonical = '{"result": "verified"}'
             content_hash = hashlib.sha256(noncanonical.encode()).hexdigest()
@@ -564,3 +575,103 @@ def test_v2_artifact_route_returns_only_integrity_verified_sealed_content(corrup
     assert after_version == before_version
     assert after_row == before_row
     assert after_row["verification_state"] == "sealed"
+
+
+def test_v1_deepsearch_artifact_route_returns_only_sealed_content() -> None:
+    created_at = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+    thread = store.add_chat_thread(
+        ChatThread(
+            id="thread_v1_deepsearch_artifact_route",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            title="DeepSearch artifact route",
+            created_at=created_at,
+            updated_at=created_at,
+        )
+    )
+    run, created = store.claim_new_agent_run(
+        AgentRun(
+            id="run_v1_deepsearch_artifact_route",
+            thread_id=thread.id,
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="route a DeepSearch report",
+            client_turn_id="turn_v1_deepsearch_artifact_route",
+            status=AgentRunStatus.PLANNING,
+            planning_mode=AgentPlanningMode.DEEPSEARCH,
+            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            orchestration_mode="execute",
+            deadline_at=None,
+            absolute_expires_at=created_at + timedelta(days=7),
+            deepsearch_budget=DeepSearchBudgetV1(),
+            created_at=created_at,
+            updated_at=created_at,
+        )
+    )
+    assert created
+    report_payload = {
+        "schema_version": "deepsearch-report-v1",
+        "run_id": run.id,
+        "requirement_version_id": "requirement_v1_deepsearch_artifact_route",
+        "plan_id": "plan_v1_deepsearch_artifact_route",
+        "plan_version": 1,
+        "requirement_content_hash": "1" * 64,
+        "problem_graph_hash": "2" * 64,
+        "plan_content_hash": "3" * 64,
+        "evidence_manifest_hash": "4" * 64,
+        "synthesis_content_hash": "5" * 64,
+        "review_outcome": "pass",
+        "review_reason_code": None,
+        "report_status": "complete",
+        "title": "Verified report",
+        "claims": [],
+        "executive_summary_claim_ids": [],
+        "sections": [],
+        "sources": [],
+        "limitations": [],
+        "rendered_text": "Verified report",
+    }
+    content = canonical_json_bytes(report_payload).decode("utf-8")
+    content_bytes = content.encode("utf-8")
+    staging = Artifact(
+        id="artifact_v1_deepsearch_route_sealed",
+        run_id=run.id,
+        workspace_id=run.workspace_id,
+        project_id=run.project_id,
+        user_id=run.user_id,
+        artifact_type="deepsearch_report",
+        content_type="application/json",
+        content="",
+        verification_state=ArtifactVerificationState.STAGING,
+        schema_version="deepsearch-report-v1",
+        requirement_version_id=report_payload["requirement_version_id"],
+        plan_version_id=f"{report_payload['plan_id']}:v1",
+    )
+    sealed = staging.model_copy(
+        update={
+            "content": content,
+            "verification_state": ArtifactVerificationState.SEALED,
+            "content_hash": hashlib.sha256(content_bytes).hexdigest(),
+            "size_bytes": len(content_bytes),
+        }
+    )
+    pending = staging.model_copy(update={"id": "artifact_v1_deepsearch_route_staging"})
+    writer = V1VerifiedArtifactStore(store)
+    writer.create_staging_report(staging)
+    writer.seal_report(sealed)
+    writer.create_staging_report(pending)
+
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    sealed_response = client.get(f"/api/artifacts/{sealed.id}")
+    pending_response = client.get(f"/api/artifacts/{pending.id}")
+
+    assert sealed_response.status_code == 200
+    assert sealed_response.json() == report_payload
+    assert sealed_response.headers["X-AgentMesh-Artifact-Hash"] == sealed.content_hash
+    assert pending_response.status_code == 409
+    assert pending_response.json()["detail"] == "artifact_not_ready"
+    assert "Verified report" not in pending_response.text

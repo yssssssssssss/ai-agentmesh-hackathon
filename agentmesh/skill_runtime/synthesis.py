@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 
-from agents import Agent, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig, Runner
 from agents.models.interface import Model
 
 from agentmesh.models import SkillNodeResult, SkillPlanNode, SkillSynthesisResult
@@ -11,7 +12,11 @@ from agentmesh.task_routing.contracts import CompletionCheckResult, TaskRoutingR
 _SYNTHESIS_INSTRUCTIONS = """Synthesize only the supplied normalized Skill node results.
 Do not add facts, sources, tool output, or hidden reasoning. Every claim must cite existing node result IDs.
 Factual claims must also cite existing source IDs. Advice without a source must set recommendation=true.
-Use presentation_requirements only to organize the report; never invent content to fill a requested section.
+Keep technical IDs only in the structured claim fields; never print them in summary, sections, limitations,
+or next_actions. Do not repeat complete node deliverables because the runtime appends them deterministically.
+Write summary as a concise executive summary. Node deliverable_markdown content is preserved verbatim by the
+runtime, so do not replace it with labels or summaries. Use sections only for substantive cross-cutting analysis
+requested by presentation_requirements; never invent content to fill a requested section.
 Set presentation_outputs to the requested presentation requirements actually rendered in sections.
 Preserve limitations and degradation. Return the required structured schema.
 """
@@ -26,12 +31,67 @@ _PRESENTATION_LABELS = {
     "comparison_table": "对比结论",
     "report": "综合报告",
 }
+_DELIVERABLE_LABELS = {
+    "competitive_analysis": "竞品分析",
+    "experience_metrics": "体验指标",
+    "interview_guide": "访谈提纲",
+    "measurement_plan": "度量计划",
+    "research_evidence": "研究证据",
+    "research_plan": "研究计划",
+    "survey": "问卷",
+    "synthesis": "综合结论",
+    "usability_test_plan": "可用性测试方案",
+}
+_INTERNAL_RESULT_ID_PATTERN = re.compile(r"\[?\bnode_result_[A-Za-z0-9_.:-]+\b\]?")
+_SYNTHESIS_MAX_TOKENS = 4_096
 
 
 class SynthesisValidationError(ValueError):
     def __init__(self, codes: list[str]):
         self.codes = list(dict.fromkeys(codes))
         super().__init__(", ".join(self.codes))
+
+
+def _strip_internal_result_ids(text: str) -> str:
+    return _INTERNAL_RESULT_ID_PATTERN.sub("", text).strip()
+
+
+def _legacy_deliverable_body(result: SkillNodeResult) -> str:
+    """Keep old persisted results readable without pretending they contain a full deliverable."""
+    parts = [result.summary.strip()]
+    if result.findings:
+        parts.append("### 主要发现\n" + "\n".join(f"- {item}" for item in result.findings))
+    if result.recommendations:
+        parts.append("### 建议\n" + "\n".join(f"- {item}" for item in result.recommendations))
+    return "\n\n".join(part for part in parts if part)
+
+
+def _node_section_title(node: SkillPlanNode | None, result: SkillNodeResult) -> str:
+    output_name = node.output_contract[0] if node is not None and node.output_contract else ""
+    return _DELIVERABLE_LABELS.get(output_name, output_name.replace("_", " ").strip() or result.skill_id)
+
+
+def compose_report_sections(
+    results: list[SkillNodeResult],
+    *,
+    plan_nodes: list[SkillPlanNode] | None = None,
+) -> list[str]:
+    """Preserve complete node deliverables in approved DAG order."""
+    results_by_node_id = {result.node_id: result for result in results}
+    ordered: list[tuple[SkillPlanNode | None, SkillNodeResult]] = []
+    seen_result_ids: set[str] = set()
+    for node in plan_nodes or []:
+        result = results_by_node_id.get(node.id)
+        if result is not None:
+            ordered.append((node, result))
+            seen_result_ids.add(result.id)
+    ordered.extend((None, result) for result in results if result.id not in seen_result_ids)
+
+    return [
+        f"## {_node_section_title(node, result)}\n\n"
+        f"{result.deliverable_markdown.strip() or _legacy_deliverable_body(result)}"
+        for node, result in ordered
+    ]
 
 
 def validate_synthesis(
@@ -76,6 +136,7 @@ def deterministic_synthesis(
     degradation: str | None,
     presentation_requirements: list[str] | None = None,
     completion_check: CompletionCheckResult | None = None,
+    plan_nodes: list[SkillPlanNode] | None = None,
 ) -> SkillSynthesisResult:
     limitations = [item for result in results for item in result.limitations]
     if completion_check is not None:
@@ -91,7 +152,7 @@ def deterministic_synthesis(
         }
         for result in results
     ]
-    result_sections = [f"{result.skill_id}: {result.summary}" for result in results]
+    result_sections = compose_report_sections(results, plan_nodes=plan_nodes)
     requested_sections = [
         f"{_PRESENTATION_LABELS[requirement]}：\n"
         + "\n".join(f"- {item}" for result in results for item in [*result.findings, *result.recommendations])
@@ -100,7 +161,7 @@ def deterministic_synthesis(
     ]
     return SkillSynthesisResult(
         summary="\n\n".join(result.summary for result in results),
-        sections=requested_sections or result_sections,
+        sections=[*requested_sections, *result_sections],
         presentation_outputs=list(dict.fromkeys(presentation_requirements or [])),
         claims=claims,
         limitations=list(dict.fromkeys(limitations)),
@@ -130,7 +191,10 @@ class SkillSynthesisService:
             "task_routing": routing_result.model_dump(mode="json") if routing_result is not None else None,
             "completion_check": completion_check.model_dump(mode="json") if completion_check is not None else None,
             "plan_nodes": [node.model_dump(mode="json") for node in plan_nodes or []],
-            "node_results": [result.model_dump(mode="json") for result in results],
+            "node_results": [
+                result.model_dump(mode="json", exclude={"deliverable_markdown"})
+                for result in results
+            ],
             "degradation": degradation,
         }
         errors: list[str] = []
@@ -139,6 +203,7 @@ class SkillSynthesisService:
                 name="AgentMesh Skill Synthesis",
                 instructions=_SYNTHESIS_INSTRUCTIONS,
                 model=model,
+                model_settings=ModelSettings(max_tokens=_SYNTHESIS_MAX_TOKENS),
                 tools=[],
                 output_type=SkillSynthesisResult,
             )
@@ -159,6 +224,8 @@ class SkillSynthesisService:
                     results,
                     required_presentation_outputs=presentation_requirements,
                 )
+                synthesis.summary = _strip_internal_result_ids(synthesis.summary)
+                synthesis.sections = compose_report_sections(results, plan_nodes=plan_nodes)
                 return synthesis, False
             except SynthesisValidationError as error:
                 errors = error.codes
@@ -169,21 +236,16 @@ class SkillSynthesisService:
             degradation=degradation,
             presentation_requirements=presentation_requirements,
             completion_check=completion_check,
+            plan_nodes=plan_nodes,
         ), True
 
 
 def render_synthesis(synthesis: SkillSynthesisResult) -> str:
-    parts = [synthesis.summary]
+    parts = [f"# 最终报告\n\n## 执行摘要\n\n{synthesis.summary}"]
     if synthesis.sections:
         parts.extend(synthesis.sections)
-    if synthesis.claims:
-        rendered_claims = []
-        for claim in synthesis.claims:
-            lineage = ", ".join([*claim.node_result_ids, *claim.source_ids])
-            rendered_claims.append(f"- {claim.text} [{lineage}]")
-        parts.append("结论与血缘：\n" + "\n".join(rendered_claims))
     if synthesis.limitations:
-        parts.append("限制：\n" + "\n".join(f"- {item}" for item in synthesis.limitations))
+        parts.append("## 限制与已知边界\n\n" + "\n".join(f"- {item}" for item in synthesis.limitations))
     if synthesis.next_actions:
-        parts.append("下一步：\n" + "\n".join(f"- {item}" for item in synthesis.next_actions))
-    return "\n\n".join(part for part in parts if part.strip())
+        parts.append("## 下一步建议\n\n" + "\n".join(f"- {item}" for item in synthesis.next_actions))
+    return _strip_internal_result_ids("\n\n".join(part for part in parts if part.strip()))

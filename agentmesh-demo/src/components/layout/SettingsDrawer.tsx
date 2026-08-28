@@ -71,11 +71,11 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                 <span className="truncate text-[15px] font-semibold text-white">{user?.name ?? '账号信息'}</span>
                 {user ? <Badge tone="neutral">{user.role}</Badge> : null}
               </div>
-              <div className="mt-0.5 truncate text-xs text-slate-500">{bootstrap?.project.name ?? '项目信息暂时不可用'}</div>
+              <div className="mt-0.5 truncate text-xs text-slate-400">{bootstrap?.project.name ?? '项目信息暂时不可用'}</div>
             </div>
             <DataSourceBadge source="T" />
           </div>
-          <div className="space-y-1.5 rounded-[12px] border border-white/[0.06] bg-surface-1 px-4 py-3">
+          <div className="space-y-1.5 rounded-soft border border-white/[0.06] bg-surface-1 px-4 py-3">
             <RowLine label="姓名" value={user?.name ?? '暂无'} />
             <RowLine label="账号 ID" value={<span className="font-mono text-[11.5px]">{user?.id ?? '暂无'}</span>} />
             <RowLine label="工作空间" value={bootstrap?.workspace.name ?? '暂无'} />
@@ -89,7 +89,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
             <h3 className="text-sm font-semibold text-slate-200">显示与偏好</h3>
             <DataSourceBadge source="M" />
           </div>
-          <div className="divide-y divide-white/[0.05] overflow-hidden rounded-[12px] border border-white/[0.06] bg-surface-1">
+          <div className="divide-y divide-white/[0.05] overflow-hidden rounded-soft border border-white/[0.06] bg-surface-1">
             <ToggleRow
               icon={<Moon className="h-4 w-4 text-slate-400" />}
               label="深色主题"
@@ -122,16 +122,16 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                     navigate(`/admin?section=${entry.section}`)
                     onClose()
                   }}
-                  className="flex w-full items-center gap-3 rounded-[10px] border border-white/[0.06] bg-surface-1 px-4 py-3 text-left transition-colors hover:border-white/[0.12] hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+                  className="flex w-full items-center gap-3 rounded-soft border border-white/[0.06] bg-surface-1 px-4 py-3 text-left transition-colors hover:border-white/[0.12] hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
                 >
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.05] text-slate-300">
                     <entry.icon className="h-4 w-4" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium text-slate-100">{entry.label}</span>
-                    <span className="block text-xs text-slate-500">{entry.desc}</span>
+                    <span className="block text-xs text-slate-400">{entry.desc}</span>
                   </span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-600" />
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                 </button>
               ))}
             </div>
@@ -156,7 +156,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
 function RowLine({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 text-[12px]">
-      <span className="text-slate-500">{label}</span>
+      <span className="text-slate-400">{label}</span>
       <span className="min-w-0 flex-1 truncate text-right text-slate-300">{value}</span>
     </div>
   )
@@ -186,7 +186,7 @@ function ToggleRow({
       {icon}
       <span className="min-w-0 flex-1">
         <span className="block text-sm text-slate-200">{label}</span>
-        {hint ? <span className="mt-0.5 block text-[11px] text-slate-500">{hint}</span> : null}
+        {hint ? <span className="mt-0.5 block text-[11px] text-slate-400">{hint}</span> : null}
       </span>
       <span
         aria-hidden="true"

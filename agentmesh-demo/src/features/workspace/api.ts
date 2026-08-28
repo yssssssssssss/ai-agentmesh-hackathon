@@ -5,13 +5,15 @@ import type {
   AgentRunResponse,
   ChatResponse,
   ChatTurnReceipt,
+  DeepSearchPlanDetailResponse,
+  DeepSearchPlanTransitionResponse,
   DocumentJobResponse,
   DocumentJobsResponse,
   DocumentResponse,
+  PlanDetailResponse,
+  PlanTransitionResponse,
   ResearchRunProjection,
   SearchResponse,
-  SkillPlanDetailResponse,
-  SkillPlanTransitionResponse,
   SkillPlanUpdateRequest,
   SkillPlanVersionRequest,
   SkillMatchResponse,
@@ -28,6 +30,18 @@ import type {
 } from './types'
 
 const pathId = (value: string) => encodeURIComponent(value)
+
+export function isDeepSearchPlanDetailResponse(
+  response: PlanDetailResponse,
+): response is DeepSearchPlanDetailResponse {
+  return !('planning_mode' in response.plan)
+}
+
+export function isDeepSearchPlanTransitionResponse(
+  response: PlanTransitionResponse,
+): response is DeepSearchPlanTransitionResponse {
+  return !('planning_mode' in response.plan)
+}
 
 const RUN_EVENT_TYPES = [
   'intent_normalized',
@@ -54,6 +68,16 @@ const RUN_EVENT_TYPES = [
   'artifact_staged',
   'artifact_invalidated',
   'artifact_purged',
+  'deepsearch_requirement_created',
+  'deepsearch_clarification_requested',
+  'deepsearch_clarification_answered',
+  'deepsearch_problem_graph_created',
+  'deepsearch_plan_ready',
+  'deepsearch_evidence_checked',
+  'deepsearch_report_reviewed',
+  'deepsearch_report_revised',
+  'deepsearch_report_sealed',
+  'deepsearch_finalization_stage_changed',
   'skill_candidates_ranked',
   'plan_created',
   'plan_waiting_approval',
@@ -73,6 +97,7 @@ const RUN_EVENT_TYPES = [
   'node_cancelled',
   'approval_requested',
   'approval_resolved',
+  'model_stream_retry_exhausted',
   'synthesis_started',
   'synthesis_completed',
   'run_completed',
@@ -135,6 +160,7 @@ export interface StartAgentRunInput {
   clientTurnId: string
   explicitSkillName?: string
   orchestrationMode: 'auto' | 'single'
+  planningMode: 'standard' | 'deepsearch'
 }
 
 export const workspaceApi = {
@@ -160,6 +186,7 @@ export const workspaceApi = {
     clientTurnId,
     explicitSkillName,
     orchestrationMode,
+    planningMode,
   }: StartAgentRunInput) =>
     apiRequest<AgentRunResponse>('/api/agent/runs', {
       method: 'POST',
@@ -169,6 +196,7 @@ export const workspaceApi = {
         client_turn_id: clientTurnId,
         explicit_skill_name: explicitSkillName,
         orchestration_mode: orchestrationMode,
+        planning_mode: planningMode,
       }),
     }),
   agentRun: (runId: string) => apiRequest<AgentRunResponse>(`/api/agent/runs/${pathId(runId)}`),
@@ -179,19 +207,19 @@ export const workspaceApi = {
       `/api/agent/runs/${pathId(runId)}/events?after_sequence=${Math.max(0, afterSequence)}`,
     ),
   skillPlan: (runId: string) =>
-    apiRequest<SkillPlanDetailResponse>(`/api/agent/runs/${pathId(runId)}/plan`),
+    apiRequest<PlanDetailResponse>(`/api/agent/runs/${pathId(runId)}/plan`),
   updateSkillPlan: (runId: string, request: SkillPlanUpdateRequest) =>
-    apiRequest<SkillPlanDetailResponse>(`/api/agent/runs/${pathId(runId)}/plan`, {
+    apiRequest<PlanDetailResponse>(`/api/agent/runs/${pathId(runId)}/plan`, {
       method: 'PATCH',
       body: JSON.stringify(request),
     }),
   approveSkillPlan: (runId: string, request: SkillPlanVersionRequest) =>
-    apiRequest<SkillPlanTransitionResponse>(`/api/agent/runs/${pathId(runId)}/plan/approve`, {
+    apiRequest<PlanTransitionResponse>(`/api/agent/runs/${pathId(runId)}/plan/approve`, {
       method: 'POST',
       body: JSON.stringify(request),
     }),
   rejectSkillPlan: (runId: string, request: SkillPlanVersionRequest) =>
-    apiRequest<SkillPlanTransitionResponse>(`/api/agent/runs/${pathId(runId)}/plan/reject`, {
+    apiRequest<PlanTransitionResponse>(`/api/agent/runs/${pathId(runId)}/plan/reject`, {
       method: 'POST',
       body: JSON.stringify(request),
     }),

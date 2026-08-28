@@ -68,6 +68,17 @@ function activeThreadId(pathname: string): string | null {
   }
 }
 
+export function conversationThreadHref(
+  threadId: string,
+  activeId: string | null,
+  locationSearch: string,
+): string {
+  const path = `/workspace/thread/${encodeURIComponent(threadId)}`
+  if (threadId !== activeId) return path
+  const runId = new URLSearchParams(locationSearch).get('run')
+  return runId ? `${path}?run=${encodeURIComponent(runId)}` : path
+}
+
 function placeMenu(trigger: DOMRect): MenuPosition {
   const left = Math.min(
     window.innerWidth - MENU_WIDTH - VIEWPORT_PADDING,
@@ -104,7 +115,7 @@ function ThreadActionsMenu({
   onDelete,
 }: ThreadActionsMenuProps) {
   if (typeof document === 'undefined') return null
-  const itemClass = 'flex h-9 w-full items-center gap-2 rounded-[8px] px-2.5 text-left text-[13px] '
+  const itemClass = 'flex h-9 w-full items-center gap-2 rounded-control px-2.5 text-left text-[13px] '
     + 'transition-[background-color,color,transform] duration-100 active:scale-[0.96] '
     + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50'
 
@@ -115,7 +126,7 @@ function ThreadActionsMenu({
       role="menu"
       aria-label={`任务操作：${thread.title}`}
       style={position}
-      className="fixed z-[70] w-[152px] rounded-[12px] border border-white/[0.10] bg-surface-3 p-1.5 shadow-pop"
+      className="fixed z-[70] w-[152px] rounded-soft border border-white/[0.10] bg-surface-3 p-1.5 shadow-pop"
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.preventDefault()
@@ -164,7 +175,7 @@ function toTarget(thread: ChatThread): ThreadTarget | null {
 
 export function ConversationNav() {
   const navigate = useNavigate()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const { showToast } = useDemo()
   const scope = useWorkspaceScope()
   const threads = useThreadsQuery(scope)
@@ -309,13 +320,13 @@ export function ConversationNav() {
       <button
         type="button"
         onClick={() => navigate('/workspace')}
-        className="flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-left text-[13px] font-medium text-mint-300 transition-[background-color,color,transform] duration-100 hover:bg-white/[0.04] hover:text-mint-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+        className="flex w-full items-center gap-2 rounded-control px-2.5 py-1.5 text-left text-[13px] font-medium text-mint-300 transition-[background-color,color,transform] duration-100 hover:bg-white/[0.04] hover:text-mint-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
       >
         <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
         开始新对话
       </button>
 
-      {threads.isLoading ? <p className="px-2.5 py-2 text-xs text-slate-500">正在加载对话…</p> : null}
+      {threads.isLoading ? <p className="px-2.5 py-2 text-xs text-slate-400">正在加载对话…</p> : null}
       {threads.isError ? (
         <p role="alert" className="px-2.5 py-2 text-xs leading-5 text-rose">
           {workspaceErrorMessage(threads.error)}
@@ -332,7 +343,7 @@ export function ConversationNav() {
             data-testid="conversation-task"
             data-thread-id={target.id}
             className={cn(
-              'group flex min-h-8 w-full items-center rounded-[8px] transition-colors duration-100',
+              'group flex min-h-8 w-full items-center rounded-control transition-colors duration-100',
               isActive
                 ? 'bg-surface-3 font-medium text-slate-100'
                 : 'text-slate-300 hover:bg-white/[0.04]',
@@ -356,13 +367,13 @@ export function ConversationNav() {
                     setRenamingId(null)
                     setActionError(null)
                   }}
-                  className="h-7 min-w-0 flex-1 rounded-[6px] border border-mint-400/45 bg-base px-2 text-[12px] text-slate-100 outline-none focus:border-mint-300 focus:ring-2 focus:ring-mint-400/20 disabled:opacity-60"
+                  className="h-7 min-w-0 flex-1 rounded-control border border-mint-400/45 bg-base px-2 text-[12px] text-slate-100 outline-none focus:border-mint-300 focus:ring-2 focus:ring-mint-400/20 disabled:opacity-60"
                 />
                 <button
                   type="submit"
                   aria-label="保存任务名称"
                   disabled={updateThread.isPending || !renameDraft.trim()}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-mint-300 transition-[background-color,color,transform] duration-100 hover:bg-mint-400/10 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50 disabled:opacity-40"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-mint-300 transition-[background-color,color,transform] duration-100 hover:bg-mint-400/10 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50 disabled:opacity-40"
                 >
                   <Check className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -374,7 +385,7 @@ export function ConversationNav() {
                     setRenamingId(null)
                     setActionError(null)
                   }}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-slate-500 transition-[background-color,color,transform] duration-100 hover:bg-white/[0.05] hover:text-slate-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50 disabled:opacity-40"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-slate-400 transition-[background-color,color,transform] duration-100 hover:bg-white/[0.05] hover:text-slate-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50 disabled:opacity-40"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -385,7 +396,7 @@ export function ConversationNav() {
                   type="button"
                   aria-label={target.title}
                   aria-current={isActive ? 'page' : undefined}
-                  onClick={() => navigate(`/workspace/thread/${encodeURIComponent(target.id)}`)}
+                  onClick={() => navigate(conversationThreadHref(target.id, activeId, search))}
                   className="min-w-0 flex-1 truncate rounded-l-[8px] px-2.5 py-1.5 text-left text-xs leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mint-400/50"
                 >
                   {target.title}
@@ -400,7 +411,7 @@ export function ConversationNav() {
                   aria-expanded={openMenuId === target.id}
                   aria-controls={openMenuId === target.id ? `thread-actions-${target.id}` : undefined}
                   onClick={(event) => openMenu(event, target)}
-                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-slate-600 opacity-70 transition-[background-color,color,opacity,transform] duration-100 hover:bg-white/[0.06] hover:text-slate-200 hover:opacity-100 active:scale-[0.96] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50 group-hover:opacity-100"
+                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-slate-400 opacity-70 transition-[background-color,color,opacity,transform] duration-100 hover:bg-white/[0.06] hover:text-slate-200 hover:opacity-100 active:scale-[0.96] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50 group-hover:opacity-100"
                 >
                   <Ellipsis className="h-4 w-4" aria-hidden="true" />
                 </button>
@@ -444,7 +455,7 @@ export function ConversationNav() {
           </>
         }
       >
-        <p className="rounded-[10px] border border-white/[0.06] bg-surface-1 px-4 py-3 text-sm text-slate-200">
+        <p className="rounded-soft border border-white/[0.06] bg-surface-1 px-4 py-3 text-sm text-slate-200">
           {deletingThread?.title}
         </p>
         {actionError ? <p role="alert" className="mt-3 text-sm text-rose">{actionError}</p> : null}

@@ -8,14 +8,17 @@ from fastapi.testclient import TestClient
 from agentmesh.app import app
 from agentmesh.auth import SESSION_COOKIE_NAME, issue_session
 from agentmesh.models import (
+    AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
     ChatMessage,
     ChatRole,
     ChatThread,
+    DeepSearchBudgetV1,
     MemoryLayer,
     Project,
     Scope,
+    SkillOrchestrationRequestMode,
     User,
     UserMemoryItem,
     Workspace,
@@ -145,11 +148,52 @@ def test_thread_detail_exposes_latest_research_run_for_history_recovery() -> Non
             updated_at=timestamp - timedelta(minutes=1),
         )
     )
-
     detail = client.get(f"/api/chat/threads/{thread.id}")
 
     assert detail.status_code == 200
     assert detail.json()["latest_research_run_id"] == "run_research_history_latest"
+
+
+def test_thread_detail_exposes_latest_deepsearch_run_for_workspace_recovery() -> None:
+    client = authenticated_client(USER.id)
+    thread = add_thread(USER.id, "DeepSearch history")
+    timestamp = now_utc()
+    base = {
+        "thread_id": thread.id,
+        "user_id": USER.id,
+        "workspace_id": WORKSPACE.id,
+        "project_id": PROJECT.id,
+        "input_text": "compare research assistants",
+    }
+    store.save_agent_run(
+        AgentRun(
+            id="run_v1_standard_newer_but_ignored",
+            **base,
+            status=AgentRunStatus.COMPLETED,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+    )
+    store.save_agent_run(
+        AgentRun(
+            id="run_deepsearch_history_latest",
+            **base,
+            status=AgentRunStatus.PLANNING,
+            planning_mode=AgentPlanningMode.DEEPSEARCH,
+            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            orchestration_version="v1",
+            orchestration_mode="execute",
+            absolute_expires_at=timestamp - timedelta(minutes=1) + timedelta(days=7),
+            deepsearch_budget=DeepSearchBudgetV1(),
+            created_at=timestamp - timedelta(minutes=1),
+            updated_at=timestamp - timedelta(minutes=1),
+        )
+    )
+
+    detail = client.get(f"/api/chat/threads/{thread.id}")
+
+    assert detail.status_code == 200
+    assert detail.json()["latest_research_run_id"] == "run_deepsearch_history_latest"
 
 
 def test_thread_detail_reads_legacy_turn_trace_without_confidence() -> None:

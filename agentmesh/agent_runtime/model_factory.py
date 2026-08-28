@@ -12,10 +12,16 @@ from agentmesh.agent_runtime.structured_output import (
     SDKStructuredOutputMode,
     sdk_structured_output_mode,
 )
-from agentmesh.llm import llm_chat_timeout_seconds, model_config_from_env
+from agentmesh.llm import (
+    llm_chat_timeout_seconds,
+    model_config_from_env,
+    research_skill_timeout_seconds,
+)
 from agentmesh.model_registry import resolve_agent_model_id
 from agentmesh.models import User
 from agentmesh.store import SQLiteStore
+
+_SDK_HTTP_TIMEOUT_FLOOR_SECONDS = 300.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +59,11 @@ class AgentMeshModelFactory:
         client = AsyncOpenAI(
             api_key=config["api_key"],
             base_url=_base_url(config["base_url"]),
-            timeout=llm_chat_timeout_seconds(),
+            timeout=max(
+                _SDK_HTTP_TIMEOUT_FLOOR_SECONDS,
+                llm_chat_timeout_seconds(),
+                research_skill_timeout_seconds(),
+            ),
         )
         buffered = os.getenv("AGENTMESH_SDK_BUFFER_STREAMED_TOOL_CALLS", "").strip().lower() in {
             "1",

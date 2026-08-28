@@ -11,14 +11,14 @@ import {
   X,
 } from 'lucide-react'
 
-import type { AgentRun, Skill, SkillPlanDetailResponse, SkillPlanNode } from '../../features/workspace/types'
+import type { AgentRun, PlanDetailResponse, PlanNodeView, Skill } from '../../features/workspace/types'
 import { Button } from '../ui/Button'
 import { SkillPlanNodeCard } from './SkillPlanNodeCard'
-import { degradationCopy, failureReason } from './skillPlanPresentation'
+import { degradationCopy, runFailurePresentation } from './skillPlanPresentation'
 
 interface SkillPlanProgressProps {
   run: AgentRun
-  detail: SkillPlanDetailResponse
+  detail: PlanDetailResponse
   skillsById: ReadonlyMap<string, Skill>
   cancelling: boolean
   onCancel: () => void
@@ -28,6 +28,7 @@ interface SkillPlanProgressProps {
 const RUN_STATUS_LABEL = {
   created: '正在准备执行计划',
   planning: '正在准备执行计划',
+  waiting_clarification: '等待你补充信息',
   waiting_plan_approval: '等待你确认计划',
   running: '执行计划进行中',
   waiting_approval: '需要确认高风险操作',
@@ -38,7 +39,7 @@ const RUN_STATUS_LABEL = {
   cancelled: '执行已取消',
 } as const
 
-function hasParallelPath(nodes: SkillPlanNode[], detail: SkillPlanDetailResponse): boolean {
+function hasParallelPath(nodes: PlanNodeView[], detail: PlanDetailResponse): boolean {
   const relation = detail.plan.routing_result?.task.execution_relation
   if (relation === 'parallel' || relation === 'parallel_then_merge') return true
   const groupCounts = new Map<string, number>()
@@ -59,7 +60,8 @@ export function SkillPlanProgress({
 }: SkillPlanProgressProps) {
   const nodes = detail.plan.nodes ?? []
   const resultsByNode = new Map((detail.results ?? []).map((result) => [result.node_id, result]))
-  const active = ['created', 'planning', 'running', 'waiting_approval'].includes(run.status)
+  const runFailure = run.error_code ? runFailurePresentation(run.error_code, nodes) : null
+  const active = ['created', 'planning', 'waiting_clarification', 'running', 'waiting_approval'].includes(run.status)
   const previewOnly = run.status === 'completed' && detail.plan.status === 'approved'
   const statusLabel = previewOnly ? '计划已确认，预览模式未执行' : RUN_STATUS_LABEL[run.status]
   const runningNodes = nodes.filter((node) => node.status === 'running')
@@ -78,7 +80,7 @@ export function SkillPlanProgress({
         : '等待当前状态更新'
 
   return (
-    <section aria-labelledby="skill-plan-progress-title" className="mt-6 rounded-[14px] bg-surface-1 p-5 shadow-card">
+    <section aria-labelledby="skill-plan-progress-title" className="mt-6 rounded-soft bg-surface-1 p-5 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-mint-300">
@@ -130,7 +132,7 @@ export function SkillPlanProgress({
       </div>
 
       {run.status === 'running' ? (
-        <div role="status" aria-live="polite" className="mt-4 rounded-[11px] border border-mint-400/15 bg-mint-400/[0.04] px-4 py-3">
+        <div role="status" aria-live="polite" className="mt-4 rounded-soft border border-mint-400/15 bg-mint-400/[0.04] px-4 py-3">
           <div className="flex items-start gap-2.5">
             <Activity className="mt-0.5 h-4 w-4 shrink-0 text-mint-300" aria-hidden="true" />
             <div>
@@ -149,7 +151,7 @@ export function SkillPlanProgress({
       ) : null}
 
       {run.status === 'waiting_approval' ? (
-        <section aria-labelledby="tool-approval-explanation" className="mt-4 rounded-[11px] border border-amber-300/20 bg-amber-300/[0.06] px-4 py-3.5">
+        <section aria-labelledby="tool-approval-explanation" className="mt-4 rounded-soft border border-amber-300/20 bg-amber-300/[0.06] px-4 py-3.5">
           <div className="flex items-start gap-2.5">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" aria-hidden="true" />
             <div className="min-w-0 flex-1">
@@ -172,7 +174,7 @@ export function SkillPlanProgress({
       ) : null}
 
       {parallel && run.status !== 'running' && !previewOnly ? (
-        <p className="mt-4 rounded-[10px] border border-white/[0.06] bg-base/55 px-3.5 py-3 text-xs leading-5 text-slate-400">
+        <p className="mt-4 rounded-soft border border-white/[0.06] bg-base/55 px-3.5 py-3 text-xs leading-5 text-slate-400">
           这是同一计划中的 {nodes.length} 个分析步骤，不是 {nodes.length} 套方案。无前后依赖的步骤可以同时执行，所有可用结果会在最后统一汇总。
         </p>
       ) : null}
@@ -191,28 +193,28 @@ export function SkillPlanProgress({
       </ol>
 
       {run.error_code ? (
-        <section role="alert" className="mt-4 rounded-[10px] border border-rose/20 bg-rose/10 px-3.5 py-3">
+        <section role="alert" className="mt-4 rounded-soft border border-rose/20 bg-rose/10 px-3.5 py-3">
           <div className="flex items-start gap-2.5">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose" aria-hidden="true" />
             <div>
               <p className="text-xs font-semibold text-rose">为什么执行未完成？</p>
-              <p className="mt-1 text-xs leading-5 text-slate-300">{failureReason(run.error_code)}</p>
-              <p className="mt-1 text-[11px] leading-5 text-slate-500">
+              <p className="mt-1 text-xs leading-5 text-slate-300">{runFailure?.description}</p>
+              <p className="mt-1 text-[11px] leading-5 text-slate-400">
                 “失败”只用于工具、Provider、权限、超时或输出校验未完成。需求信息不足应显示为“需要补充”或“部分完成”，不应归因于用户需求本身。
               </p>
-              <details className="mt-1.5 text-[10px] text-slate-500">
+              <details className="mt-1.5 text-[11px] text-slate-400">
                 <summary className="cursor-pointer select-none hover:text-slate-300">查看技术原因</summary>
-                <code className="mt-1 block break-all">{run.error_code}</code>
+                <code className="mt-1 block break-all">{runFailure?.technicalCodes.join(' → ')}</code>
               </details>
             </div>
           </div>
         </section>
       ) : null}
       {planNotice && detail.plan.degradation ? (
-        <section className="mt-4 rounded-[10px] border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3">
+        <section className="mt-4 rounded-soft border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3">
           <p className="text-xs font-semibold text-amber-100">{planNotice.title}</p>
           <p className="mt-1 text-xs leading-5 text-slate-300">{planNotice.description}</p>
-          <details className="mt-1.5 text-[10px] text-slate-500">
+          <details className="mt-1.5 text-[11px] text-slate-400">
             <summary className="cursor-pointer select-none hover:text-slate-300">查看技术诊断</summary>
             <code className="mt-1 block break-all">{detail.plan.degradation}</code>
           </details>

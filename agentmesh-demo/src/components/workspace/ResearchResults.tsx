@@ -33,7 +33,7 @@ function withoutDuplicateLeadingTitle(markdown: string, title: string): string {
 }
 
 function EvidenceLinks({ evidenceIds }: { evidenceIds: string[] }) {
-  if (evidenceIds.length === 0) return <span className="text-slate-500">无直接 Evidence</span>
+  if (evidenceIds.length === 0) return <span className="text-slate-400">无直接 Evidence</span>
   return (
     <span className="flex flex-wrap gap-1.5">
       {evidenceIds.map((evidenceId) => (
@@ -57,10 +57,10 @@ function ClaimList({ claims }: { claims: ClaimProjection[] }) {
   return (
     <ul className="mt-3 space-y-3">
       {claims.map((claim) => (
-        <li key={claim.claim_id} id={`research-claim-${claim.claim_id}`} className="rounded-[10px] bg-base/60 p-4">
+        <li key={claim.claim_id} id={`research-claim-${claim.claim_id}`} className="rounded-soft bg-base/60 p-4">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="font-semibold text-mint-300">{CLAIM_TYPE_LABEL[claim.claim_type]}</span>
-            <span className="text-slate-500">{claim.confidence} confidence</span>
+            <span className="text-slate-400">{claim.confidence} confidence</span>
             {claim.conflict_status !== 'none' ? (
               <span className="rounded-full bg-amber-300/10 px-2 py-0.5 text-amber-100">
                 {claim.conflict_status}
@@ -108,10 +108,10 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
   return (
     <>
       {integrityErrors.length > 0 ? (
-        <section role="alert" aria-labelledby="research-integrity-title" className="rounded-[14px] border border-rose/25 bg-rose/[0.08] p-5">
+        <section role="alert" aria-labelledby="research-integrity-title" className="rounded-soft border border-rose/25 bg-rose/[0.08] p-5">
           <h3 id="research-integrity-title" className="text-sm font-semibold text-rose">结果完整性校验未通过</h3>
           <p className="mt-2 text-sm leading-6 text-slate-300">最终 Report 已隐藏；未通过校验的内容不会进入结果视图。</p>
-          <details className="mt-3 text-xs text-slate-500">
+          <details className="mt-3 text-xs text-slate-400">
             <summary className="cursor-pointer font-semibold">查看技术错误</summary>
             <ul className="mt-2 space-y-1 font-mono">
               {integrityErrors.map((item) => <li key={item}>{item}</li>)}
@@ -121,14 +121,14 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
       ) : null}
 
       {showResults ? (
-        <section aria-labelledby="research-results-title" className="rounded-[14px] border border-white/[0.07] bg-surface-1 p-5 shadow-card">
+        <section aria-labelledby="research-results-title" className="rounded-soft border border-white/[0.07] bg-surface-1 p-5 shadow-card">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-mint-300" aria-hidden="true" />
             <h3 id="research-results-title" className="text-sm font-semibold text-slate-100">研究结果</h3>
           </div>
 
           {review?.status === 'block' ? (
-            <section role="alert" className="mt-4 rounded-[10px] border border-amber-300/20 bg-amber-300/[0.07] p-4">
+            <section role="alert" className="mt-4 rounded-soft border border-amber-300/20 bg-amber-300/[0.07] p-4">
               <h4 className="text-sm font-semibold text-amber-100">未通过审核的研究草稿</h4>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 当前内容仅供补证与修订，不能作为已审核通过的最终报告。
@@ -142,7 +142,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
           ) : null}
 
           {report ? (
-            <article aria-labelledby="research-report-title" className="mt-4 rounded-[12px] border border-mint-400/15 bg-base/55 p-5">
+            <article aria-labelledby="research-report-title" className="mt-4 rounded-soft border border-mint-400/15 bg-base/55 p-5">
               <h4 id="research-report-title" className="text-base font-semibold text-slate-100">{report.title}</h4>
               <MarkdownContent className="mt-4" content={withoutDuplicateLeadingTitle(report.markdown, report.title)} />
             </article>
@@ -151,7 +151,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
           ) : null}
 
           {deliverable ? (
-            <details open className="mt-4 rounded-[10px] border border-white/[0.06] bg-base/45 p-4">
+            <details open className="mt-4 rounded-soft border border-white/[0.06] bg-base/45 p-4">
               <summary className="cursor-pointer text-sm font-semibold text-slate-100">结构化 Deliverable</summary>
               <p className="mt-3 text-sm leading-6 text-slate-300">{deliverable.summary}</p>
               {comparison.length > 0 ? (
@@ -167,7 +167,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
                 </div>
               ) : null}
               {limitations.length > 0 ? (
-                <div className="mt-4 rounded-[9px] bg-amber-300/[0.05] p-3">
+                <div className="mt-4 rounded-soft bg-amber-300/[0.05] p-3">
                   <p className="text-xs font-semibold text-amber-100">局限</p>
                   <ul className="mt-2 space-y-1 text-sm text-slate-300">
                     {limitations.map((item) => <li key={item}>• {item}</li>)}
@@ -178,18 +178,18 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
           ) : null}
 
           {claims.length > 0 ? (
-            <details className="mt-4 rounded-[10px] border border-white/[0.06] bg-base/45 p-4">
+            <details className="mt-4 rounded-soft border border-white/[0.06] bg-base/45 p-4">
               <summary className="cursor-pointer text-sm font-semibold text-slate-100">Claim 证据账本（{claims.length}）</summary>
               <ClaimList claims={claims} />
             </details>
           ) : null}
 
           {evidence.length > 0 ? (
-            <section aria-labelledby="research-evidence-title" className="mt-4 rounded-[10px] border border-white/[0.06] bg-base/45 p-4">
+            <section aria-labelledby="research-evidence-title" className="mt-4 rounded-soft border border-white/[0.06] bg-base/45 p-4">
               <h4 id="research-evidence-title" className="text-sm font-semibold text-slate-100">Evidence 来源片段</h4>
               <ul className="mt-3 space-y-3">
                 {evidence.map((item) => (
-                  <li key={item.evidence_id} id={evidenceAnchor(item.evidence_id)} className="scroll-mt-6 rounded-[10px] bg-surface-2 p-4">
+                  <li key={item.evidence_id} id={evidenceAnchor(item.evidence_id)} className="scroll-mt-6 rounded-soft bg-surface-2 p-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs text-mint-300">{item.evidence_id}</span>
                       {item.conflict_status !== 'none' ? (
@@ -222,7 +222,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
           ) : null}
 
           {(projection.gaps?.length ?? 0) > 0 ? (
-            <div className="mt-4 rounded-[10px] border border-amber-300/15 bg-amber-300/[0.05] p-4">
+            <div className="mt-4 rounded-soft border border-amber-300/15 bg-amber-300/[0.05] p-4">
               <p className="text-xs font-semibold text-amber-100">仍需补证的缺口</p>
               <ul className="mt-2 space-y-1 text-sm text-slate-300">
                 {projection.gaps?.map((gap) => <li key={gap.code}>• {gap.message}</li>)}
@@ -231,7 +231,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
           ) : null}
 
           {review ? (
-            <details className="mt-4 rounded-[10px] border border-white/[0.06] bg-base/45 p-4">
+            <details className="mt-4 rounded-soft border border-white/[0.06] bg-base/45 p-4">
               <summary className="cursor-pointer text-sm font-semibold text-slate-100">
                 确定性 Review · {review.status === 'pass' ? '通过' : '阻断'}
               </summary>
@@ -249,7 +249,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
           ) : null}
 
           {artifactEntries.length > 0 ? (
-            <details className="mt-4 rounded-[10px] border border-white/[0.06] bg-base/60 p-4">
+            <details className="mt-4 rounded-soft border border-white/[0.06] bg-base/60 p-4">
               <summary className="cursor-pointer text-sm font-semibold text-slate-200">原始 Artifact 与审计标识</summary>
               <ul className="mt-3 grid gap-2 sm:grid-cols-2">
                 {artifactEntries.map((artifact) => (
@@ -258,7 +258,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
                       href={artifactUrl(artifact.id)}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center justify-between gap-2 rounded-[9px] bg-surface-2 px-3 py-2 text-xs text-mint-300 hover:bg-surface-3"
+                      className="flex items-center justify-between gap-2 rounded-soft bg-surface-2 px-3 py-2 text-xs text-mint-300 hover:bg-surface-3"
                     >
                       {artifact.label}
                       <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
@@ -269,7 +269,7 @@ export function ResearchResults({ projection }: { projection: ResearchRunProject
             </details>
           ) : null}
 
-          <details className="mt-3 text-xs text-slate-500">
+          <details className="mt-3 text-xs text-slate-400">
             <summary className="flex cursor-pointer items-center gap-1.5 font-semibold">
               <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> 技术详情与 Provider provenance
             </summary>

@@ -71,7 +71,7 @@ export function SkillMatchResults({
   const visible = visibleSkillMatches(matches)
   if (visible.length === 0) {
     return (
-      <p className="rounded-[10px] bg-base/70 px-4 py-5 text-sm text-slate-400">
+      <p className="rounded-soft bg-base/70 px-4 py-5 text-sm text-slate-400">
         没有找到当前可调用的 Skill。可以补充任务目标、输入材料或期望产出后重试。
       </p>
     )
@@ -87,7 +87,7 @@ export function SkillMatchResults({
           <li
             key={match.skill_id}
             data-testid="skill-match-result"
-            className="flex flex-col gap-3 rounded-[12px] border border-white/[0.07] bg-base/70 p-4 sm:flex-row sm:items-start"
+            className="flex flex-col gap-3 rounded-soft border border-white/[0.07] bg-base/70 p-4 sm:flex-row sm:items-start"
           >
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -101,7 +101,7 @@ export function SkillMatchResults({
               </div>
               <p className="mt-1 break-all font-mono text-xs text-mint-300">{command}</p>
               <p className="mt-2 break-words text-xs leading-5 text-slate-300">{match.reason}</p>
-              <p className="mt-1 break-words text-xs leading-5 text-slate-500">{match.description}</p>
+              <p className="mt-1 break-words text-xs leading-5 text-slate-400">{match.description}</p>
               {toolLimited ? (
                 <p className="mt-2 break-words text-xs leading-5 text-amber-200/80" title={match.missing_tools?.join('、')}>
                   待接通工具：{missingTools}
@@ -138,7 +138,7 @@ export function SkillMatchOutcome({
   const clarification = response.clarification?.trim()
   if (clarification) {
     return (
-      <div className="rounded-[10px] border border-amber-300/20 bg-amber-300/[0.08] px-4 py-4">
+      <div className="rounded-soft border border-amber-300/20 bg-amber-300/[0.08] px-4 py-4">
         <h2 className="text-sm font-semibold text-amber-200">还需要补充任务信息</h2>
         <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">{clarification}</p>
       </div>
@@ -151,13 +151,13 @@ export function SkillMatchOutcome({
     <div>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-slate-100">推荐结果</h2>
-        <span className="text-xs tabular-nums text-slate-500">
+        <span className="text-xs tabular-nums text-slate-400">
           {visibleSkillMatches(response.items).length} 个
         </span>
       </div>
       <p
         role={mode.degraded ? 'status' : undefined}
-        className={mode.degraded ? 'mb-3 text-xs text-amber-300' : 'mb-3 text-xs text-slate-500'}
+        className={mode.degraded ? 'mb-3 text-xs text-amber-300' : 'mb-3 text-xs text-slate-400'}
       >
         匹配方式：{mode.label}
       </p>
@@ -199,10 +199,10 @@ export function SkillRecommendationPanel({ onUseSkill }: { onUseSkill: (draft: s
             setTask(nextTask)
             if (shouldResetSkillMatchState(submittedTask, nextTask, matches.isIdle)) matches.reset()
           }}
-          className="mt-2 min-h-28 w-full resize-y rounded-[10px] border border-white/[0.08] bg-base px-3.5 py-3 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus-visible:border-mint-400/40 focus-visible:ring-2 focus-visible:ring-mint-400/30"
+          className="mt-2 min-h-28 w-full resize-y rounded-soft border border-white/[0.08] bg-base px-3.5 py-3 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-500 focus-visible:border-mint-400/40 focus-visible:ring-2 focus-visible:ring-mint-400/30"
         />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs leading-5 text-slate-500">
+          <p className="text-xs leading-5 text-slate-400">
             根据任务语义匹配当前已接入且启用的 Skill，执行时仍会检查工具权限与资源。
           </p>
           <Button
@@ -219,12 +219,12 @@ export function SkillRecommendationPanel({ onUseSkill }: { onUseSkill: (draft: s
 
       <section aria-live="polite" aria-busy={matches.isPending}>
         {matches.isPending ? (
-          <p role="status" className="rounded-[10px] bg-base/70 px-4 py-5 text-sm text-slate-400">
+          <p role="status" className="rounded-soft bg-base/70 px-4 py-5 text-sm text-slate-400">
             正在匹配 Skill…
           </p>
         ) : null}
         {matches.isError && responseMatchesTask ? (
-          <p role="alert" className="rounded-[10px] border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">
+          <p role="alert" className="rounded-soft border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">
             {workspaceErrorMessage(matches.error)}
           </p>
         ) : null}
@@ -232,8 +232,8 @@ export function SkillRecommendationPanel({ onUseSkill }: { onUseSkill: (draft: s
           <SkillMatchOutcome response={matches.data} submittedTask={submittedTask} onUseSkill={onUseSkill} />
         ) : null}
         {!matches.isPending && (!matches.isError || !responseMatchesTask) && (!matches.isSuccess || !responseMatchesTask) ? (
-          <div className="rounded-[12px] border border-dashed border-white/[0.08] px-4 py-8 text-center">
-            <Search className="mx-auto h-5 w-5 text-slate-600" aria-hidden="true" />
+          <div className="rounded-soft border border-dashed border-white/[0.08] px-4 py-8 text-center">
+            <Search className="mx-auto h-5 w-5 text-slate-400" aria-hidden="true" />
             <p className="mt-2 text-sm text-slate-400">
               {submittedTask ? '任务已更新，请重新获取推荐。' : '描述任务后，系统会推荐最匹配的 Skill。'}
             </p>

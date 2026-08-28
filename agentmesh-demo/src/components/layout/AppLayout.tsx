@@ -47,6 +47,12 @@ export function AppLayout() {
   return (
     <LayoutUIContext.Provider value={ui}>
       <div data-testid="app-shell" className="flex h-screen overflow-hidden bg-canvas">
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[80] focus:rounded-control focus:bg-mint-400 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-[#04241c]"
+        >
+          跳过导航
+        </a>
         {navigationOpen ? (
           <button
             type="button"
@@ -89,7 +95,7 @@ export function AppLayout() {
               <Outlet />
             </main>
           ) : (
-            <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+            <main id="main-content" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
               <div className="mx-auto min-h-full w-full max-w-[1240px] px-4 py-4 md:px-8 md:py-8">
                 <Outlet />
               </div>

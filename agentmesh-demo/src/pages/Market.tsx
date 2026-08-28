@@ -76,7 +76,7 @@ export function Market() {
       />
 
       {participationError ? (
-        <div role="alert" className="rounded-[10px] border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">
+        <div role="alert" className="rounded-soft border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">
           {participationError}
         </div>
       ) : null}

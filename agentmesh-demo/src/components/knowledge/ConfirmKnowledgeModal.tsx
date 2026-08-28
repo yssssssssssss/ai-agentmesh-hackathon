@@ -96,7 +96,7 @@ export function ConfirmKnowledgeModal({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               rows={14}
-              className="w-full resize-y rounded-[12px] border border-white/[0.08] bg-surface-1 px-4 py-3 text-sm leading-6 text-slate-200 outline-none focus:border-mint-400/50"
+              className="w-full resize-y rounded-soft border border-white/[0.08] bg-surface-1 px-4 py-3 text-sm leading-6 text-slate-200 outline-none focus:border-mint-400/50"
             />
           </div>
         </div>

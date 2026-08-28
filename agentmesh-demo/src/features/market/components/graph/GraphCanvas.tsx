@@ -153,7 +153,7 @@ export function GraphCanvas({ graph, meId }: GraphCanvasProps) {
   return (
     <section
       aria-label="协作关系图"
-      className="relative overflow-hidden rounded-[14px] border border-white/[0.06] bg-canvas"
+      className="relative overflow-hidden rounded-soft border border-white/[0.06] bg-canvas"
     >
       <div
         ref={containerRef}
@@ -258,7 +258,7 @@ export function GraphCanvas({ graph, meId }: GraphCanvasProps) {
         {hoveredNode ? (
           <div
             role="tooltip"
-            className="pointer-events-none absolute left-4 top-4 max-w-[260px] rounded-[10px] border border-white/[0.14] bg-surface-2/90 p-3 text-xs backdrop-blur"
+            className="pointer-events-none absolute left-4 top-4 max-w-[260px] rounded-soft border border-white/[0.14] bg-surface-2/90 p-3 text-xs backdrop-blur"
           >
             <div className="flex items-center gap-2">
               <span
@@ -267,26 +267,26 @@ export function GraphCanvas({ graph, meId }: GraphCanvasProps) {
                 style={{ background: ROLE_COLOR[hoveredNode.tie_role] }}
               />
               <span className="text-sm font-semibold text-white">{hoveredNode.name}</span>
-              <span className="text-[10px] text-slate-500">{hoveredNode.group || '—'}</span>
+              <span className="text-[11px] text-slate-400">{hoveredNode.group || '—'}</span>
             </div>
             {hoveredNode.offer ? (
               <p className="mt-2 text-slate-300">
-                <span className="text-slate-500">可提供：</span>
+                <span className="text-slate-400">可提供：</span>
                 {hoveredNode.offer}
               </p>
             ) : null}
             {hoveredNode.need ? (
               <p className="mt-1 text-slate-300">
-                <span className="text-slate-500">需要：</span>
+                <span className="text-slate-400">需要：</span>
                 {hoveredNode.need}
               </p>
             ) : null}
-            <p className="mt-2 text-slate-500">协作连结 {hoveredNode.ties}</p>
+            <p className="mt-2 text-slate-400">协作连结 {hoveredNode.ties}</p>
           </div>
         ) : null}
 
         {/* Legend */}
-        <div className="pointer-events-none absolute bottom-3 left-4 flex items-center gap-3 rounded-[10px] border border-white/[0.06] bg-surface-1/80 px-3 py-2 text-[11px] text-slate-400 backdrop-blur">
+        <div className="pointer-events-none absolute bottom-3 left-4 flex items-center gap-3 rounded-soft border border-white/[0.06] bg-surface-1/80 px-3 py-2 text-[11px] text-slate-400 backdrop-blur">
           <LegendDot color={ROLE_COLOR.me} label="我" />
           <LegendDot color={ROLE_COLOR.incoming} label="帮过我" />
           <LegendDot color={ROLE_COLOR.outgoing} label="我帮过" />
@@ -294,7 +294,7 @@ export function GraphCanvas({ graph, meId }: GraphCanvasProps) {
         </div>
 
         {/* Toolbar */}
-        <div className="absolute right-3 top-3 flex items-center gap-1 rounded-[10px] border border-white/[0.06] bg-surface-1/85 p-1 text-slate-300 backdrop-blur">
+        <div className="absolute right-3 top-3 flex items-center gap-1 rounded-soft border border-white/[0.06] bg-surface-1/85 p-1 text-slate-300 backdrop-blur">
           <button
             type="button"
             title="缩小"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from agents.lifecycle import RunHooksBase
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
+from agentmesh.models import AgentPlanningMode
 from agentmesh.store import SQLiteStore
 
 
@@ -48,10 +49,12 @@ class AgentMeshRunHooks(RunHooksBase[AgentMeshRunContext, object]):
         del agent
         run_context = getattr(context, "context", None)
         if isinstance(run_context, AgentMeshRunContext):
-            count = self.repository.consume_agent_run_tool_call(run_context.run_id)
-            if count is None:
-                raise RuntimeError("Agent run exceeded the 24 tool-call limit")
-            run_context.tool_call_count = count
+            run = self.repository.get_agent_run(run_context.run_id)
+            if run is None or run.planning_mode is not AgentPlanningMode.DEEPSEARCH:
+                count = self.repository.consume_agent_run_tool_call(run_context.run_id)
+                if count is None:
+                    raise RuntimeError("Agent run exceeded the 24 tool-call limit")
+                run_context.tool_call_count = count
         self._event(context, "sdk_tool_hook_started", {"tool_name": str(getattr(tool, "name", ""))})
 
     async def on_tool_end(self, context, agent, tool, result) -> None:  # noqa: ANN001
