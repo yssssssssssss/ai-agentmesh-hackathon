@@ -73,6 +73,15 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
   capture. ❌ absent from this repo — belongs to **designOS**, which is not checked in here
   (referenced only in `o2.py:21-28`). MVP replaces this entry point with pasted notes text.
 
+## Universal Skill orchestration
+
+- **Searchable Skill** — a visible built-in Runtime Skill whose capability Profile is current, approved, and trusted. Searchability means it may be considered for relevance; it does not grant execution permission.
+- **Ready / Selectable / Executable** — successive request-scoped states. Ready means current Tool, resource, authorization, and side-effect policy checks pass; Selectable means the Skill is in the frozen Planner shortlist; Executable means the same conditions pass again when its node starts.
+- **Candidate Snapshot** — the immutable, server-owned record of the safe capability cards and identities actually shown to a Planner. Later repair, editing, approval, and recovery interpret a candidate only through this snapshot.
+- **Planning contract** — the immutable generation marker chosen when a plan-producing Run is first created. It determines the compatible Task Catalog and frozen Plan representation; deployment phase never reinterprets an existing Run.
+- **Blocked match / capability gap** — a blocked match is a relevant but currently non-executable Skill disclosed through safe diagnostics. It becomes a capability gap only when a required output has no ready alternative; gaps prevent a completed outcome.
+- **Task/Scenario** — the source of intent, canonical output requirements, evidence requirements, and completion criteria. It can influence ranking but is not a Runtime Skill permission boundary or candidate whitelist.
+
 ## Research orchestration retirement
 
 - **Research-v2** — historical, owner-scoped, read-only compatibility only. Its executable writer,

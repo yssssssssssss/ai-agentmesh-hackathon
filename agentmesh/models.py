@@ -1022,6 +1022,22 @@ class AgentPlanningMode(StrEnum):
     DEEPSEARCH = "deepsearch"
 
 
+class AgentPlanningContractVersion(StrEnum):
+    STANDARD_LEGACY_V1 = "standard_legacy_v1"
+    STANDARD_UNIVERSAL_V1 = "standard_universal_v1"
+    DEEPSEARCH_FROZEN_V1 = "deepsearch_frozen_v1"
+    DEEPSEARCH_FROZEN_V2 = "deepsearch_frozen_v2"
+
+    @property
+    def planning_mode(self) -> AgentPlanningMode:
+        if self in {
+            AgentPlanningContractVersion.STANDARD_LEGACY_V1,
+            AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+        }:
+            return AgentPlanningMode.STANDARD
+        return AgentPlanningMode.DEEPSEARCH
+
+
 class SkillIntentConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2177,6 +2193,7 @@ class AgentRun(BaseModel):
     plan_id: str | None = None
     retry_of_run_id: str | None = Field(default=None, max_length=120)
     planning_mode: AgentPlanningMode = AgentPlanningMode.STANDARD
+    planning_contract_version: AgentPlanningContractVersion | None = None
     create_request_hash: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     orchestration_version: Literal["v1", "research-v2", "research-v3"] = "v1"
     orchestration_mode: Literal["off", "preview", "execute"] = "off"
@@ -2194,6 +2211,15 @@ class AgentRun(BaseModel):
     error_code: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+
+    @model_validator(mode="after")
+    def validate_planning_contract(self) -> AgentRun:
+        if (
+            self.planning_contract_version is not None
+            and self.planning_contract_version.planning_mode is not self.planning_mode
+        ):
+            raise ValueError("planning_contract_version is incompatible with planning_mode")
+        return self
 
 
 class SkillPlanTransitionResponse(BaseModel):

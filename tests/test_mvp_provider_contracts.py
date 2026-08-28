@@ -115,14 +115,7 @@ def test_health_returns_canonical_secret_safe_provider_contracts(monkeypatch: py
     for function_name, status in statuses.items():
         monkeypatch.setattr(health, function_name, lambda *_, value=status: value)
 
-    payload = health.provider_health_check(User(
-        id="usr_provider_test",
-        workspace_id="ws_default",
-        default_project_id="proj_default",
-        name="Provider Test",
-        role=UserRole.USER,
-        personal_agent_id="agent_provider_test",
-    ))
+    payload = health._provider_health_snapshot()
     providers = payload.providers
     serialized = payload.model_dump_json()
 

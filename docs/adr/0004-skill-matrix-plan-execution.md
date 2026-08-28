@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for the first ten Wiki domain Skills. Default rollout state is `off`.
+Accepted for the retained bounded-execution rules. The ten-Skill candidate limit and mixed pre-ranking exclusion rule are superseded by [ADR 0009](0009-universal-runtime-skill-retrieval.md). Default rollout state remains `off`.
 
 ## Context
 

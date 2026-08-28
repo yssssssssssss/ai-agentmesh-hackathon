@@ -7,7 +7,7 @@ import shutil
 from math import ceil
 
 import agents as openai_agents
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from agentmesh.agent_runtime.settings import (
     agent_runtime_enabled,
@@ -335,7 +335,7 @@ def _deepsearch_metrics(runs) -> dict[str, object]:  # noqa: ANN001
     }
 
 
-def _agent_runtime_status() -> dict[str, object]:
+def _agent_runtime_status(*, deepsearch_recovery_running: bool = False) -> dict[str, object]:
     runtime_enabled = agent_runtime_enabled()
     runs = store.list_agent_runs()
     status_counts: dict[str, int] = {}
@@ -370,6 +370,7 @@ def _agent_runtime_status() -> dict[str, object]:
         "sdk_version": getattr(openai_agents, "__version__", "unknown"),
         "runtime_enabled": runtime_enabled,
         "skill_orchestration_mode": orchestration_mode.value,
+        "deepsearch_recovery_running": deepsearch_recovery_running,
         "skills": len(catalog.list_enabled()),
         "planner_profiles": len(planner_profiles),
         "profile_health": "ready" if profile_ready else "degraded",
@@ -425,23 +426,37 @@ def _document_parser_status() -> dict[str, object]:
     return payload
 
 
-@router.get("/providers", response_model=ProviderHealthCheckResponse)
-def provider_health_check(
-    _: User = Depends(require_permission(ACTION_VIEW_PROVIDER_HEALTH)),
+def _provider_health_snapshot(
+    *,
+    deepsearch_recovery_running: bool = False,
 ) -> ProviderHealthCheckResponse:
-    """Return secret-safe provider readiness for authenticated users."""
-
     providers = [
         _embedding_status(),
         _o2_status(),
         _web_provider_status(),
         _data_connectors_status(),
         _llm_status(),
-        _agent_runtime_status(),
+        _agent_runtime_status(
+            deepsearch_recovery_running=deepsearch_recovery_running
+        ),
         _document_parser_status(),
     ]
     all_ready = all(bool(item["ready"]) for item in providers)
     return ProviderHealthCheckResponse(
         overall="healthy" if all_ready else "degraded",
         providers=providers,
+    )
+
+
+@router.get("/providers", response_model=ProviderHealthCheckResponse)
+def provider_health_check(
+    request: Request,
+    _: User = Depends(require_permission(ACTION_VIEW_PROVIDER_HEALTH)),
+) -> ProviderHealthCheckResponse:
+    """Return secret-safe provider readiness for authenticated users."""
+
+    coordinator = getattr(request.app.state, "deepsearch_recovery_coordinator", None)
+    recovery_running = bool(coordinator is not None and coordinator.running)
+    return _provider_health_snapshot(
+        deepsearch_recovery_running=recovery_running,
     )
