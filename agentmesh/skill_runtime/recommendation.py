@@ -14,16 +14,33 @@ from openai import APITimeoutError
 from pydantic import BaseModel, Field
 
 from agentmesh.llm import skill_match_llm_timeout_seconds
-from agentmesh.models import SkillCapabilityProfile, SkillDefinition, SkillLifecycleStage
+from agentmesh.models import (
+    SkillCandidate,
+    SkillCandidateScore,
+    SkillDefinition,
+    SkillIntent,
+    SkillSideEffect,
+    SkillSourceScope,
+    User,
+)
 from agentmesh.skill_runtime.matching import (
     SkillDirectoryCandidate,
     SkillDirectoryMatch,
     explicitly_negated_skill_ids,
     normalize_skill_query,
-    positive_skill_description,
     rank_skill_directory,
     skill_query_has_negation,
 )
+from agentmesh.skill_runtime.profiles import (
+    LoadedCapabilityProfile,
+    ProfileError,
+    load_capability_profile_record,
+    profile_matches_skill,
+    skill_capability_card,
+    tool_names_for_profile,
+)
+from agentmesh.skill_runtime.resources import skill_wiki_corpus_ready
+from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
 from agentmesh.tool_runtime.guardrails import redact_sensitive_text
 
@@ -33,7 +50,6 @@ _MAX_RERANK_CANDIDATES = 16
 _MAX_SEMANTIC_RECALL_CANDIDATES = 100
 _MAX_RECOMMENDATIONS = 5
 _SINGLE_INTENT_RECOMMENDATIONS = 2
-_MAX_CAPABILITY_DESCRIPTION_CHARS = 140
 _RETRIEVAL_TIMEOUT_SECONDS = 0.45
 _RRF_K = 60
 _MIN_MULTI_INTENT_QUERY_COVERAGE = 0.08
@@ -84,6 +100,10 @@ RerankCallable = Callable[
     [str, list[dict[str, object]], int, Model],
     Awaitable[SkillRerankDecision],
 ]
+ProfileRanker = Callable[
+    [str, set[str]],
+    tuple[list[str], list[str], list[str]],
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,41 +112,6 @@ class SkillDirectoryRecommendation:
     mode: SkillMatchMode
     clarification: str | None
     diagnostics: list[str]
-
-
-def _primary_stage(
-    skill: SkillDefinition,
-    profile: SkillCapabilityProfile | None,
-) -> str | None:
-    if profile is not None:
-        return profile.primary_stage.value
-    try:
-        return SkillLifecycleStage(skill.metadata.get("agentmesh-stage", "").strip()).value
-    except ValueError:
-        return None
-
-
-def skill_capability_card(
-    skill: SkillDefinition,
-    profile: SkillCapabilityProfile | None = None,
-) -> dict[str, object]:
-    """Build the only Skill representation allowed to cross the model boundary."""
-    description = (
-        (profile.display_description if profile is not None else None)
-        or skill.metadata.get("short-description")
-        or positive_skill_description(skill.description)
-    )
-    description = " ".join(description.split())
-    if len(description) > _MAX_CAPABILITY_DESCRIPTION_CHARS:
-        description = description[: _MAX_CAPABILITY_DESCRIPTION_CHARS - 1].rstrip("，。；：、 ") + "…"
-    return {
-        "skill_id": skill.id,
-        "name": skill.name,
-        "title": skill.title,
-        "description": description,
-        "aliases": skill.aliases[:10],
-        "primary_stage": _primary_stage(skill, profile),
-    }
 
 
 async def _rerank_with_model(
@@ -364,13 +349,15 @@ async def recommend_skill_directory(
         return SkillDirectoryRecommendation([], "llm_reranked", None, diagnostics)
 
     rerank_call = rerank or _rerank_with_model
-    cards = [
-        skill_capability_card(
-            match.skill,
-            repository.get_skill_capability_profile(match.skill.id),
+    cards = []
+    for match in llm_pool:
+        profile = repository.get_skill_capability_profile(match.skill.id)
+        cards.append(
+            skill_capability_card(
+                match.skill,
+                profile if profile is not None and profile.planner_eligible else None,
+            )
         )
-        for match in llm_pool
-    ]
     try:
         decision = await asyncio.wait_for(
             rerank_call(safe_task, cards, recommendation_limit, model),
@@ -411,3 +398,383 @@ async def recommend_skill_directory(
         None,
         list(dict.fromkeys([*diagnostics, "llm_invalid_selection"])),
     )
+
+
+# Universal orchestration retrieval is deliberately separate from the legacy
+# ten-Skill planner path until Phase 2A switches Agent Run creation.
+UNIVERSAL_RETRIEVAL_POLICY_VERSION = "universal-profile-rrf-v1"
+_MAX_UNIVERSAL_MATCHES = 12
+_MAX_BLOCKED_MATCHES = 5
+_MIN_UNIVERSAL_RELEVANCE_SCORE = 0.6
+_MIN_UNIVERSAL_QUERY_COVERAGE = 0.05
+_UNIVERSAL_FTS_RRF_WEIGHT = 40
+_UNIVERSAL_VECTOR_RRF_WEIGHT = 40
+_UNIVERSAL_LEXICAL_WEIGHT = 8
+_UNIVERSAL_EXAMPLE_WEIGHT = 4
+_UNIVERSAL_NEGATIVE_WEIGHT = 10
+_GENERIC_ACTION_PHRASES = (
+    "generate a",
+    "generate",
+    "create a",
+    "create",
+    "analyze",
+    "report",
+    "帮我生成一份",
+    "帮我",
+    "给我",
+    "生成一份",
+    "生成",
+    "创建",
+    "输出",
+    "分析",
+    "查询",
+    "推荐",
+    "预测",
+)
+_GENERIC_QUERY_KINDS = frozenset(
+    {
+        "design_requirement",
+        "design_analysis",
+        "executive_summary",
+        "request",
+        "report",
+        "summary",
+        "synthesis",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class UniversalSkillSearchResult:
+    retrieval_policy_version: str
+    query_atoms: tuple[str, ...]
+    ranked_matches: tuple[SkillCandidate, ...]
+    corpus_count: int
+    searchable_count: int
+    security_filtered_count: int
+    diagnostics: tuple[str, ...]
+
+    @property
+    def selectable_candidates(self) -> tuple[SkillCandidate, ...]:
+        return tuple(candidate for candidate in self.ranked_matches if candidate.ready)
+
+    @property
+    def blocked_matches(self) -> tuple[SkillCandidate, ...]:
+        return tuple(candidate for candidate in self.ranked_matches if not candidate.ready)[
+            :_MAX_BLOCKED_MATCHES
+        ]
+
+
+def _profile_terms(text: str) -> set[str]:
+    terms: set[str] = set()
+    for token in re.findall(r"[a-z0-9][a-z0-9_-]*|[\u3400-\u9fff]+", text.lower()):
+        terms.add(token)
+        if re.fullmatch(r"[\u3400-\u9fff]+", token):
+            terms.update(token[index : index + 2] for index in range(max(0, len(token) - 1)))
+            terms.update(token[index : index + 3] for index in range(max(0, len(token) - 2)))
+    return {term for term in terms if term}
+
+
+def profile_query_terms(text: str) -> set[str]:
+    normalized = text.casefold()
+    for phrase in _GENERIC_ACTION_PHRASES:
+        normalized = normalized.replace(phrase, " ")
+    return _profile_terms(normalized)
+
+
+def _profile_overlap(query: set[str], text: str) -> float:
+    target = _profile_terms(text)
+    if not query or not target:
+        return 0.0
+    matched = query & target
+    weighted = sum(min(len(term), 4) for term in matched)
+    return weighted / max(1, sum(min(len(term), 4) for term in query))
+
+
+def _universal_query_atoms(intent: SkillIntent) -> tuple[str, ...]:
+    raw_atoms = [intent.goal]
+    context = " ".join(
+        [
+            *(value for value in intent.input_kinds if value not in _GENERIC_QUERY_KINDS),
+            *intent.analysis_requirements,
+            *intent.presentation_requirements,
+        ]
+    ).strip()
+    if context:
+        raw_atoms.append(context)
+    atoms: list[str] = []
+    for value in raw_atoms:
+        normalized = redact_sensitive_text(value.strip())[:2000]
+        if normalized and normalized not in atoms:
+            atoms.append(normalized)
+    return tuple(atoms[:25])
+
+
+def _tool_granted(repository: SQLiteStore, user: User, reference: str) -> bool:
+    tool = next(
+        (
+            item
+            for item in repository.tool_definitions
+            if item.enabled and reference in {item.id, item.name, item.external_name}
+        ),
+        None,
+    )
+    if tool is None:
+        return False
+    return any(
+        grant.agent_id == user.personal_agent_id
+        and grant.tool_id == tool.id
+        and grant.enabled
+        for grant in repository.agent_tool_grants
+    )
+
+
+def _universal_readiness_diagnostics(
+    repository: SQLiteStore,
+    user: User,
+    skill: SkillDefinition,
+    loaded: LoadedCapabilityProfile,
+    intent: SkillIntent,
+    *,
+    runtime_enabled: bool,
+    profile_trusted: bool,
+) -> list[str]:
+    profile = loaded.profile
+    diagnostics: list[str] = []
+    if loaded.review_state is None:
+        diagnostics.append("profile_review_missing")
+    elif loaded.review_state != "approved":
+        diagnostics.append("profile_unapproved")
+    elif not profile_trusted:
+        diagnostics.append("skill_profile_trust_unavailable")
+    if not loaded.declared_planner_eligible:
+        diagnostics.append("planner_ineligible")
+    if not profile_matches_skill(profile, skill):
+        diagnostics.append("profile_stale")
+    if profile.side_effect is SkillSideEffect.EXTERNAL_WRITE and not intent.constraints.external_write:
+        diagnostics.append("external_write_not_requested")
+    if not runtime_enabled:
+        diagnostics.append("public_resource_unavailable")
+    if any(
+        capability.startswith("wiki.") and not skill_wiki_corpus_ready(skill, capability)
+        for capability in profile.required_capabilities
+    ):
+        diagnostics.append("public_resource_unavailable")
+    required_tools = sorted({*tool_names_for_profile(profile), *skill.requested_tools})
+    supported_names = {
+        identifier
+        for tool in repository.tool_definitions
+        if tool.enabled
+        for identifier in (tool.id, tool.name, tool.external_name)
+        if identifier
+    }
+    for tool_name in required_tools:
+        if tool_name not in supported_names:
+            diagnostics.append("required_tool_unavailable")
+        elif not _tool_granted(repository, user, tool_name):
+            diagnostics.append("tool_grant_missing")
+    return list(dict.fromkeys(diagnostics))
+
+
+class UniversalSkillSearchService:
+    """Deterministically rank governed built-in Profiles behind one read-only interface."""
+
+    def __init__(
+        self,
+        repository: SQLiteStore,
+        catalog: SkillCatalogService,
+        *,
+        profile_trust: Callable[[SkillDefinition, LoadedCapabilityProfile], bool] | None = None,
+        profile_ranker: ProfileRanker | None = None,
+    ) -> None:
+        self._repository = repository
+        self._catalog = catalog
+        self._profile_trust = profile_trust or (lambda _skill, _loaded: False)
+        self._profile_ranker = profile_ranker or repository.rank_skill_profiles
+
+    def search(
+        self,
+        user: User,
+        intent: SkillIntent,
+    ) -> UniversalSkillSearchResult:
+        return self._search(user, intent, include_unreviewed=False)
+
+    def search_for_evaluation(
+        self,
+        user: User,
+        intent: SkillIntent,
+    ) -> UniversalSkillSearchResult:
+        """Include untrusted drafts as blocked matches for offline calibration only."""
+
+        return self._search(user, intent, include_unreviewed=True)
+
+    def _search(
+        self,
+        user: User,
+        intent: SkillIntent,
+        *,
+        include_unreviewed: bool,
+    ) -> UniversalSkillSearchResult:
+        query_atoms = _universal_query_atoms(intent)
+        corpus: list[tuple[SkillDefinition, LoadedCapabilityProfile, bool, bool]] = []
+        searchable_count = 0
+        security_filtered_count = 0
+        bindings = {
+            binding.skill_id: binding
+            for binding in self._repository.list_agent_skill_bindings(user.personal_agent_id)
+        }
+        for skill, runtime_enabled in self._catalog.list_for_agent(user.personal_agent_id):
+            binding = bindings.get(skill.id)
+            if (
+                skill.source_scope is not SkillSourceScope.BUILTIN
+                or not skill.enabled
+                or (binding is not None and not binding.enabled)
+            ):
+                security_filtered_count += 1
+                continue
+            try:
+                loaded = load_capability_profile_record(skill)
+                skill_capability_card(skill, loaded.profile)
+            except (ProfileError, ValueError):
+                security_filtered_count += 1
+                continue
+            trusted = (
+                loaded.review_state == "approved"
+                and loaded.declared_planner_eligible
+                and self._profile_trust(skill, loaded)
+            )
+            if trusted:
+                searchable_count += 1
+            elif not include_unreviewed:
+                security_filtered_count += 1
+                continue
+            corpus.append((skill, loaded, runtime_enabled, trusted))
+
+        if not corpus or not query_atoms:
+            return UniversalSkillSearchResult(
+                retrieval_policy_version=UNIVERSAL_RETRIEVAL_POLICY_VERSION,
+                query_atoms=query_atoms,
+                ranked_matches=(),
+                corpus_count=len(corpus),
+                searchable_count=searchable_count,
+                security_filtered_count=security_filtered_count,
+                diagnostics=(),
+            )
+
+        allowed_ids = {
+            skill.id for skill, _loaded, _runtime_enabled, _trusted in corpus
+        }
+        fts_scores: dict[str, float] = {}
+        vector_scores: dict[str, float] = {}
+        matched_atoms: dict[str, set[int]] = {}
+        diagnostics: list[str] = []
+        for atom_index, atom in enumerate(query_atoms):
+            fts_ids, vector_ids, search_diagnostics = self._profile_ranker(
+                atom,
+                allowed_ids,
+            )
+            diagnostics.extend(search_diagnostics)
+            for rank, skill_id in enumerate(fts_ids[:12], start=1):
+                fts_scores[skill_id] = fts_scores.get(skill_id, 0.0) + 1 / (_RRF_K + rank)
+                matched_atoms.setdefault(skill_id, set()).add(atom_index)
+            for rank, skill_id in enumerate(vector_ids[:12], start=1):
+                vector_scores[skill_id] = vector_scores.get(skill_id, 0.0) + 1 / (_RRF_K + rank)
+                matched_atoms.setdefault(skill_id, set()).add(atom_index)
+
+        query_terms = profile_query_terms(" ".join(query_atoms))
+        ranked: list[SkillCandidate] = []
+        for skill, loaded, runtime_enabled, profile_trusted in corpus:
+            profile = loaded.profile
+            searchable_text = profile.search_text()
+            lexical = _profile_overlap(query_terms, searchable_text)
+            lexical_atom_ids = {
+                atom_index
+                for atom_index, atom in enumerate(query_atoms)
+                if _profile_overlap(profile_query_terms(atom), searchable_text) > 0
+            }
+            if lexical_atom_ids:
+                matched_atoms.setdefault(skill.id, set()).update(lexical_atom_ids)
+            example_match = max(
+                (_profile_overlap(query_terms, value) for value in profile.examples),
+                default=0.0,
+            )
+            negative_match = max(
+                (_profile_overlap(query_terms, value) for value in profile.negative_examples),
+                default=0.0,
+            )
+            has_rule_signal = (
+                lexical >= _MIN_UNIVERSAL_QUERY_COVERAGE
+                or example_match >= _MIN_UNIVERSAL_QUERY_COVERAGE
+            )
+            if not (has_rule_signal or skill.id in vector_scores):
+                continue
+            score = SkillCandidateScore(
+                fts=round(
+                    fts_scores.get(skill.id, 0.0) * _UNIVERSAL_FTS_RRF_WEIGHT
+                    + lexical * _UNIVERSAL_LEXICAL_WEIGHT,
+                    6,
+                ),
+                embedding=round(
+                    vector_scores.get(skill.id, 0.0) * _UNIVERSAL_VECTOR_RRF_WEIGHT,
+                    6,
+                ),
+                examples=example_match * _UNIVERSAL_EXAMPLE_WEIGHT,
+                negative=negative_match * _UNIVERSAL_NEGATIVE_WEIGHT,
+            )
+            score.total = round(
+                score.fts
+                + score.embedding
+                + score.stage
+                + score.inputs
+                + score.outputs
+                + score.examples
+                - score.negative,
+                6,
+            )
+            if score.total < _MIN_UNIVERSAL_RELEVANCE_SCORE:
+                continue
+            readiness = _universal_readiness_diagnostics(
+                self._repository,
+                user,
+                skill,
+                loaded,
+                intent,
+                runtime_enabled=runtime_enabled,
+                profile_trusted=profile_trusted,
+            )
+            reason_codes = []
+            if skill.id in fts_scores:
+                reason_codes.append("profile_fts")
+            if skill.id in vector_scores:
+                reason_codes.append("profile_vector")
+            if example_match > 0:
+                reason_codes.append("positive_example_match")
+            ranked.append(
+                SkillCandidate(
+                    skill_id=skill.id,
+                    skill_name=skill.name,
+                    title=skill.title,
+                    description=skill.description,
+                    profile=profile,
+                    score=score,
+                    reason=";".join(reason_codes) or "profile_lexical_match",
+                    ready=not readiness,
+                    diagnostics=readiness,
+                )
+            )
+        ranked.sort(
+            key=lambda candidate: (
+                -candidate.score.total,
+                -len(matched_atoms.get(candidate.skill_id, set())),
+                candidate.skill_id,
+            )
+        )
+        return UniversalSkillSearchResult(
+            retrieval_policy_version=UNIVERSAL_RETRIEVAL_POLICY_VERSION,
+            query_atoms=query_atoms,
+            ranked_matches=tuple(ranked[:_MAX_UNIVERSAL_MATCHES]),
+            corpus_count=len(corpus),
+            searchable_count=searchable_count,
+            security_filtered_count=security_filtered_count,
+            diagnostics=tuple(dict.fromkeys(diagnostics)),
+        )

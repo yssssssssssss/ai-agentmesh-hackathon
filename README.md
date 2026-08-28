@@ -116,11 +116,13 @@ export AGENTMESH_TASK_SCENARIO_ROUTING=true
 
 The server is the only configuration authority; the React app reads the effective mode from `/api/bootstrap` and does not use a Vite feature flag.
 
-The builtin catalog contains 84 unique 2C-DesignWiki Skills, grouped into 17 pre-design, 26 during-design, and 41 post-design capabilities. Ten governed pilot Skills remain eligible for automatic planning; the other 74 are explicit-only. Of the 84 catalog entries, 57 are complete with the current runtime adapters and 27 are marked `tool_limited` because their declared Bash/file/Zero/JoySpace-style tools are not connected. Catalog and explicit-command integration does not imply that those external tools have been granted or implemented. The UI keeps the 27 Skills discoverable and explicitly startable, but labels them “已接入 · 工具待接通”; runtime Tool Grant and approval checks remain authoritative. With Agent Runtime v2 enabled, `/api/chat/skills` exposes those 84 Skills plus the 11 Legacy commands (95 entries total). Refresh or verify the vendored snapshot with:
+The builtin catalog contains 84 unique 2C-DesignWiki Skills, grouped into 17 pre-design, 26 during-design, and 41 post-design capabilities. Ten governed pilot Skills remain eligible for automatic planning. Phase 1A additionally carries twelve complete but unapproved draft Profiles for offline Universal retrieval calibration; they remain explicit-only, cannot enter public recommendations or Agent Runs, and grant no production trust. The remaining 62 Skills do not yet have complete Profiles. Of the 84 catalog entries, 57 are complete with the current runtime adapters and 27 are marked `tool_limited` because their declared Bash/file/Zero/JoySpace-style tools are not connected. Catalog and explicit-command integration does not imply that those external tools have been granted or implemented. The UI keeps the 27 Skills discoverable and explicitly startable, but labels them “已接入 · 工具待接通”; runtime Tool Grant and approval checks remain authoritative. With Agent Runtime v2 enabled, `/api/chat/skills` exposes those 84 Skills plus the 11 Legacy commands (95 entries total). Refresh or verify the vendored snapshot with:
 
 ```bash
 .venv/bin/python scripts/sync_wiki_skills.py
 .venv/bin/python scripts/sync_wiki_skills.py --check
+# Optional authoring scaffold; creates missing draft sidecars and never overwrites existing ones.
+.venv/bin/python scripts/sync_wiki_skills.py --generate-profile-stubs
 ```
 
 | Mode | Natural-language request | Explicit `$skill` | Existing Legacy `$group.command` |
@@ -156,6 +158,7 @@ Run the deterministic release gates before moving beyond `preview`:
 
 ```bash
 .venv/bin/python eval/run_skill_retrieval_eval.py
+.venv/bin/python eval/run_universal_skill_retrieval_eval.py
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
 .venv/bin/python -m pytest
 .venv/bin/ruff check agentmesh tests scripts eval

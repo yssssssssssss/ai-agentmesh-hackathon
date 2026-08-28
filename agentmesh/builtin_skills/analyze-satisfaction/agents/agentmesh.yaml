@@ -1,0 +1,33 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: b1602ba37980637e2787f51f60a401dc3018441b75090bc285ee5009eb4f0e5e
+profile_version: "1"
+display_description: 分析满意度、NPS 或属性评分，识别关键驱动因素、IPA 改进优先级和异常掉分原因。
+primary_stage: post_design
+lifecycle_tags: [post_design]
+capability_type: analysis
+input_kinds: [satisfaction_scores, attribute_scores, metric_timeseries]
+output_kinds: [satisfaction_analysis, driver_analysis, improvement_priorities]
+examples:
+  - 分析这批满意度数据，找出影响 NSS 的关键驱动因素
+  - 根据属性满意度与重要性做 IPA 四分图
+  - 解释本月 NPS 为什么明显下降
+  - 比较两个版本的满意度变化并定位掉分人群
+  - 计算各体验维度的重要性并给出先改项
+negative_examples:
+  - 为新产品从零设计 HEART 指标体系
+  - 生成一份满意度调查问卷
+  - 分析注册流程每一步的转化流失
+required_capabilities: [wiki.corpus]
+task_types: [satisfaction-diagnosis, metric-root-cause]
+archetypes: [driver-analysis, prioritization]
+required_tools: []
+required_resources: [wiki.corpus]
+produces_factual_claims: true
+report_policy: default
+cost_level: medium
+risk_level: low
+owner: research-platform
+side_effect: draft
+review_state: draft
+planner_eligible: false

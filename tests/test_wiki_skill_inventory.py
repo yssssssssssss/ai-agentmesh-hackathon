@@ -13,7 +13,14 @@ from agentmesh.skill_runtime.discovery import SkillRoot, discover_skills
 from agentmesh.skill_runtime.parser import parse_skill_file
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
-from scripts.sync_wiki_skills import build_sync_plan, check_sync
+from scripts.sync_wiki_skills import (
+    CanonicalSkill,
+    SourceSkill,
+    SyncPlan,
+    build_sync_plan,
+    check_sync,
+    generate_profile_stubs,
+)
 
 ROOT = Path(__file__).parents[1]
 BUILTIN_ROOT = ROOT / "agentmesh" / "builtin_skills"
@@ -73,6 +80,55 @@ def test_builtin_wiki_inventory_has_84_unique_valid_skills() -> None:
     assert len(set(result.skills)) == 84
     assert not [diagnostic for diagnostic in result.diagnostics if diagnostic.level == "error"]
     assert not [diagnostic for diagnostic in result.diagnostics if diagnostic.code == "skill_name_collision"]
+
+
+def test_generate_profile_stubs_is_create_only_and_does_not_guess_safety_fields(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "source" / "SKILL.md"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("source", encoding="utf-8")
+    source = SourceSkill(
+        path=source_path,
+        relative_path="source/SKILL.md",
+        source_sha256=hashlib.sha256(b"source").hexdigest(),
+        frontmatter={"name": "journey-map"},
+        body="# Source\n",
+    )
+    plan = SyncPlan(
+        source_file_count=1,
+        skills=(CanonicalSkill(name="journey-map", source=source, adapter=None),),
+        duplicate_groups={},
+    )
+    builtin_root = tmp_path / "builtin"
+    skill_path = builtin_root / "journey-map" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text(
+        """---
+name: journey-map
+description: Journey map draft
+metadata:
+  version: "1"
+  short-description: Journey map draft
+  agentmesh-stage: pre_design
+---
+# Journey map
+""",
+        encoding="utf-8",
+    )
+
+    created = generate_profile_stubs(plan, builtin_root)
+    sidecar = builtin_root / "journey-map" / "agents" / "agentmesh.yaml"
+    payload = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+
+    assert created == [sidecar]
+    assert payload["review_state"] == "draft"
+    assert payload["planner_eligible"] is False
+    assert payload["skill_content_hash"] == hashlib.sha256(skill_path.read_bytes()).hexdigest()
+    assert "capability_type" not in payload
+    original = sidecar.read_bytes()
+    assert generate_profile_stubs(plan, builtin_root) == []
+    assert sidecar.read_bytes() == original
 
 
 @requires_wiki_source

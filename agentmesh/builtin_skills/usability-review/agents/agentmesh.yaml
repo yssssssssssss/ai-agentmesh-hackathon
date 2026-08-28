@@ -1,0 +1,34 @@
+skill_id: auto
+skill_version: 0.1.0
+skill_content_hash: 2862408f05229acdae6dfdf18927abb56e94d1f295ba3521e2832574c6572735
+profile_version: "1"
+display_description: 基于方法论卡片审阅设计稿的方向、结构、转化、链路和场景覆盖，输出带位置与证据的可用性建议。
+primary_stage: post_design
+lifecycle_tags: [during_design, post_design]
+capability_type: review
+input_kinds: [design_screenshot, prototype, product_flow]
+output_kinds: [usability_review, design_findings, optimization_recommendations]
+examples:
+  - 帮我审一下这个商详页设计稿有什么可用性问题
+  - 从结构、转化、链路和覆盖四个维度评审方案
+  - 看看这个首屏是否友好并给出有证据的修改建议
+  - 对营销页设计做 quick 档可用性审稿
+  - 标出问题位置、影响和方法论卡片依据
+  - Produce traceable usability findings with observable evidence and impact severity
+negative_examples:
+  - 招募用户执行真实可用性测试并记录 SEQ
+  - 只做无障碍 WCAG 合规检查
+  - 对两个实验组的线上指标做 AB 结论分析
+required_capabilities: []
+task_types: [usability-review, design-review]
+archetypes: [expert-review, heuristic-analysis]
+required_tools: []
+required_resources: []
+produces_factual_claims: false
+report_policy: default
+cost_level: medium
+risk_level: low
+owner: design-quality
+side_effect: draft
+review_state: draft
+planner_eligible: false

@@ -16,7 +16,7 @@ from agentmesh.skill_runtime.discovery import SkillDiagnostic, SkillRoot, discov
 from agentmesh.skill_runtime.profiles import (
     ProfileError,
     legacy_capability_profiles,
-    load_capability_profile,
+    load_capability_profile_record,
     profile_matches_skill,
     profile_path,
 )
@@ -100,7 +100,8 @@ class SkillCatalogService:
                 self.repository.delete_skill_capability_profile(skill.id)
                 continue
             try:
-                profile = load_capability_profile(skill)
+                loaded_profile = load_capability_profile_record(skill)
+                profile = loaded_profile.profile
             except ProfileError as error:
                 self.repository.delete_skill_capability_profile(skill.id)
                 self._diagnostics.append(
@@ -112,7 +113,11 @@ class SkillCatalogService:
                     )
                 )
                 continue
-            self.repository.save_skill_capability_profile(profile, defer_vector=True)
+            self.repository.save_skill_capability_profile(
+                profile,
+                defer_vector=True,
+                index_vector=loaded_profile.review_state != "draft",
+            )
             active_profile_ids.add(profile.id)
         for profile in legacy_capability_profiles():
             self.repository.save_skill_capability_profile(profile, defer_vector=True)
@@ -236,7 +241,12 @@ class SkillCatalogService:
     ) -> dict[str, object]:
         aliases = [alias if alias.startswith("$") else f"${alias}" for alias in skill.aliases]
         usage_suffix = f" {skill.argument_hint}" if skill.argument_hint else " <input>"
-        profile = self.get_profile(skill.id)
+        stored_profile = self.get_profile(skill.id)
+        profile = (
+            stored_profile
+            if stored_profile is not None and stored_profile.planner_eligible
+            else None
+        )
         profile_current = profile_matches_skill(profile, skill) if profile is not None else False
         runtime_ready = self.is_runtime_enabled(skill)
         primary_stage = profile.primary_stage if profile is not None else _metadata_primary_stage(skill)

@@ -1,6 +1,6 @@
 # 全量内置 Runtime Skill 候选池与 LLM 动态编排开发方案
 
-- 状态：已批准；Phase 0 本地工程验证完成，单人 Hackathon 可继续离线 Phase 1A；生产 Preview/执行仍受发布拓扑、独立审查人与预发布演练门禁阻断
+- 状态：已批准；Phase 0 本地工程验证完成，Phase 1A 首个离线 Profile/检索纵切已通过；生产 Preview/执行仍受发布拓扑、独立审查人与预发布演练门禁阻断
 - 日期：2026-08-28
 - 适用范围：Agent Runtime v2、Standard、DeepSearch 运行时 v1（FrozenPlan v1/v2）
 - 预计工期：核心工程 27~42 个工作日，另需 8~15 个 Profile 审查人日；27 个缺失工具适配另计 3~6 周
@@ -1195,6 +1195,7 @@ Spike 不接生产流量、不写生产新语义记录。产出是接受或修�
 .venv/bin/python scripts/sync_wiki_skills.py --check
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
 .venv/bin/python eval/run_skill_retrieval_eval.py
+.venv/bin/python eval/run_universal_skill_retrieval_eval.py
 .venv/bin/python -m pytest
 .venv/bin/ruff check agentmesh tests scripts eval
 npm --prefix agentmesh-demo test -- --run

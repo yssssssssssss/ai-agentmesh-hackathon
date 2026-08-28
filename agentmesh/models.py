@@ -345,6 +345,8 @@ class SkillCapabilityProfile(BaseModel):
     id: str
     skill_id: str
     skill_name: str = Field(min_length=1, max_length=64)
+    skill_title: str = Field(default="", max_length=160)
+    skill_aliases: list[str] = Field(default_factory=list, max_length=10)
     skill_version: str = Field(min_length=1, max_length=40)
     skill_content_hash: str = Field(min_length=1, max_length=128)
     profile_version: str = Field(min_length=1, max_length=40)
@@ -374,11 +376,14 @@ class SkillCapabilityProfile(BaseModel):
     updated_at: datetime = Field(default_factory=now_utc)
 
     def search_text(self, title: str = "", description: str = "") -> str:
+        title = title or self.skill_title
+        description = description or self.display_description or ""
         return " ".join(
             [
                 self.skill_name,
                 title,
                 description,
+                *self.skill_aliases,
                 self.primary_stage.value,
                 self.capability_type.value,
                 *self.input_kinds,

@@ -1,0 +1,33 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 81deaee33fdb5425abbdd30d27daad92b8a6a4ad292146f061d5988ac94945b8
+profile_version: "1"
+display_description: 基于研究材料还原用户达成目标的阶段、行为、触点、情绪、痛点和机会，生成可视化旅程图。
+primary_stage: pre_design
+lifecycle_tags: [pre_design, during_design]
+capability_type: synthesis
+input_kinds: [research_material, persona, customer_feedback]
+output_kinds: [journey_map, experience_opportunities]
+examples:
+  - 根据访谈材料画从发现到购买的用户旅程图
+  - 梳理新用户首次下单的阶段、触点和情绪曲线
+  - 为不同场景用户分别生成端到端体验地图
+  - 把客服反馈映射到旅程阶段并标出痛点机会
+  - 输出可分享的 HTML 用户体验旅程图
+negative_examples:
+  - 只把多场访谈归纳为主题和结论
+  - 把用户聚类成三类人物角色
+  - 生成一次用户访谈的提纲
+required_capabilities: [wiki.corpus]
+task_types: [journey-mapping, experience-diagnosis]
+archetypes: [journey-map, opportunity-synthesis]
+required_tools: []
+required_resources: [wiki.corpus]
+produces_factual_claims: false
+report_policy: default
+cost_level: medium
+risk_level: low
+owner: research-platform
+side_effect: draft
+review_state: draft
+planner_eligible: false
