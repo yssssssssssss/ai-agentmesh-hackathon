@@ -227,7 +227,7 @@ SYSTEM_TOOLS = [
 ]
 
 DEFAULT_TOOL_GRANTS = {
-    "agent_personal_current": ["tool_memory_search", "tool_data_query"],
+    "agent_personal_current": ["tool_memory_search", "tool_data_query", "tool_web_research"],
 
     "agent_personal_lead": ["tool_memory_search", "tool_risk_review", "tool_data_query"],
     "agent_personal_admin": ["tool_memory_search", "tool_risk_review", "tool_data_query"],

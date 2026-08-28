@@ -1,4 +1,4 @@
-import type { SkillPlanNode } from '../../features/workspace/types'
+import type { PlanNodeView, SkillPlanNode } from '../../features/workspace/types'
 
 const SKILL_STATUS_LABELS: Record<NonNullable<SkillPlanNode['skill_status']>, string> = {
   draft: '试运行 Skill',
@@ -14,6 +14,7 @@ const FAILURE_MESSAGES: Record<string, string> = {
   parent_run_deadline_exceeded: '整个任务已达到最长执行时间，系统停止了本步骤。',
   output_contract_unsatisfied: '已有结果没有覆盖计划要求的交付内容。',
   model_not_configured: '当前没有可用的模型配置。',
+  ModelStreamIncompleteError: '外部模型服务提前结束响应，没有返回完整内容。这是传输故障，不是你的需求有问题。',
   RemoteProtocolError: '外部模型服务在返回完整内容前断开了连接。这是传输故障，不是你的需求有问题。',
   ReadError: '读取外部服务响应时连接中断。这是传输故障，不是你的需求有问题。',
   ConnectError: '系统未能连接到外部服务。这是服务连接问题，不是需求内容错误。',
@@ -29,7 +30,7 @@ export function skillStatusLabel(status: SkillPlanNode['skill_status']): string 
   return status ? SKILL_STATUS_LABELS[status] : null
 }
 
-export function nodeStatusDescription(node: SkillPlanNode): string {
+export function nodeStatusDescription(node: PlanNodeView): string {
   if (node.status === 'pending') {
     return (node.depends_on ?? []).length > 0
       ? '等待前置步骤完成后自动开始。'
@@ -72,11 +73,29 @@ export function failureReason(errorCode: string | null | undefined): string {
   return '本步骤发生技术异常，没有产出可验证结果。'
 }
 
+export function runFailurePresentation(
+  errorCode: string,
+  nodes: PlanNodeView[],
+): { description: string; technicalCodes: string[] } {
+  if (errorCode !== 'output_contract_unsatisfied') {
+    return { description: failureReason(errorCode), technicalCodes: [errorCode] }
+  }
+  const failedNodes = nodes.filter((node) => node.status === 'failed' && node.error_code)
+  const cause = failedNodes.find((node) => node.required) ?? failedNodes[0]
+  if (!cause?.error_code) {
+    return { description: failureReason(errorCode), technicalCodes: [errorCode] }
+  }
+  return {
+    description: `${failureReason(cause.error_code)} 因此没有覆盖计划要求的交付内容。`,
+    technicalCodes: [cause.error_code, errorCode],
+  }
+}
+
 export function failurePolicy(errorCode: string | null | undefined, attempt: number): string {
   const attemptCopy = attempt > 1 ? `系统已执行 ${attempt} 次。` : ''
   const normalized = (errorCode ?? '').toLowerCase()
-  if (normalized.includes('remoteprotocol') || normalized.includes('connection') || normalized.includes('network') || normalized.includes('readerror')) {
-    return `${attemptCopy}这类临时传输故障会自动重试一次；如果再次发生，可稍后重试原计划，无需改写需求。`
+  if (normalized.includes('remoteprotocol') || normalized.includes('connection') || normalized.includes('network') || normalized.includes('readerror') || normalized.includes('streamincomplete')) {
+    return '这类临时传输故障会在当前步骤内自动重试，应用层最多进行 3 次模型请求；如果仍然失败，可稍后以新 Run 重试，无需改写需求。'
   }
   if (normalized.includes('timeout') || normalized.includes('deadline')) {
     return `${attemptCopy}可以缩小单次任务范围后重试；系统不会在超时后继续占用外部服务。`

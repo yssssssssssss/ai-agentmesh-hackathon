@@ -18,9 +18,16 @@ const HEATMAP_SPOTS = [
 export function CaseStudyFigure({ alt, regions, showHeatmap = false, className }: CaseStudyFigureProps) {
   const annotated = regions.length > 0 || showHeatmap
   return (
-    <figure data-testid="case-study-figure" className={cn('rounded-[18px] border border-white/[0.08] bg-base p-3 shadow-card', className)}>
-      <div className="relative mx-auto w-full max-w-[360px] overflow-hidden rounded-[16px] bg-white outline outline-1 -outline-offset-1 outline-white/10">
-        <img src={jdNewArrivalsCaseImage} alt={alt} className="block w-full" />
+    <figure data-testid="case-study-figure" className={cn('rounded-overlay border border-white/[0.08] bg-base p-3 shadow-card', className)}>
+      <div className="relative mx-auto w-full max-w-[360px] overflow-hidden rounded-overlay bg-white outline outline-1 -outline-offset-1 outline-white/10">
+        <img
+          src={jdNewArrivalsCaseImage}
+          alt={alt}
+          width={360}
+          height={480}
+          loading="lazy"
+          className="block w-full"
+        />
         {showHeatmap
           ? HEATMAP_SPOTS.map((spot) => (
             <span
@@ -33,7 +40,7 @@ export function CaseStudyFigure({ alt, regions, showHeatmap = false, className }
         {regions.map((region) => (
           <div
             key={region.id}
-            className="absolute rounded-[10px] border border-mint-300/80 bg-mint-400/[0.08] shadow-[0_0_0_1px_rgba(15,18,22,0.35)]"
+            className="absolute rounded-soft border border-mint-300/80 bg-mint-400/[0.08] shadow-[0_0_0_1px_rgba(15,18,22,0.35)]"
             style={{
               left: region.x + '%',
               top: region.y + '%',
@@ -41,13 +48,13 @@ export function CaseStudyFigure({ alt, regions, showHeatmap = false, className }
               height: region.height + '%',
             }}
           >
-            <span className="absolute left-1 top-1 rounded-full bg-base/85 px-2 py-0.5 text-[10px] font-semibold leading-none text-mint-200 shadow-card">
+            <span className="absolute left-1 top-1 rounded-full bg-base/85 px-2 py-0.5 text-[11px] font-semibold leading-none text-mint-200 shadow-card">
               {region.label}
             </span>
           </div>
         ))}
       </div>
-      <figcaption className="mt-3 text-xs leading-5 text-slate-500">
+      <figcaption className="mt-3 text-xs leading-5 text-slate-400">
         {annotated ? '案例截图内置于前端资产，ROI 与热点均为固定示例标注。' : '案例原图预览。生成报告后展示 ROI 与热点示例标注。'}
       </figcaption>
     </figure>

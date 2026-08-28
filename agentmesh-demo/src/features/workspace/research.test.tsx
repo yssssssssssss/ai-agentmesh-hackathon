@@ -20,6 +20,7 @@ const researchRun = {
   project_id: scope.projectId,
   input_text: '比较 Figma 和 Miro',
   status: 'waiting_plan_approval',
+  planning_mode: 'standard',
   orchestration_version: 'research-v2',
   orchestration_mode: 'preview',
   agent_definition_version: '1',
@@ -111,5 +112,29 @@ describe('research-v2 Workspace data flow', () => {
 
     expect(queryClient.getQueryState(runKey)?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(planKey)?.isInvalidated).toBe(true)
+  })
+
+  it('invalidates the DeepSearch aggregate for every v1 DeepSearch event', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const deepSearchRun = {
+      ...researchRun,
+      id: 'run-deepsearch',
+      orchestration_version: 'v1',
+      orchestration_mode: 'execute',
+      planning_mode: 'deepsearch',
+      status: 'running',
+    } satisfies AgentRun
+    const aggregateKey = workspaceKeys.deepSearch(scope, deepSearchRun.id)
+    queryClient.setQueryData(aggregateKey, { run: deepSearchRun })
+
+    await invalidateAgentRunEvent(
+      queryClient,
+      scope,
+      deepSearchRun,
+      'deepsearch_evidence_checked',
+      vi.fn(async () => undefined),
+    )
+
+    expect(queryClient.getQueryState(aggregateKey)?.isInvalidated).toBe(true)
   })
 })

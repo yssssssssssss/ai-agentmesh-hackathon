@@ -5,6 +5,14 @@ import type { Skill } from '../../features/workspace/types'
 import { groupSkillsByDesignStage } from '../../features/workspace/skillPresentation'
 import { Composer, resolveActiveSkillSelection } from './Composer'
 
+const DEEPSEARCH_AVAILABLE = {
+  available: true,
+  enabled: true,
+  runtime_mode: 'execute',
+  core_ready: true,
+  reason_code: null,
+} as const
+
 function skill(
   command: string,
   primaryStage: Skill['primary_stage'],
@@ -44,9 +52,12 @@ describe('Composer send recovery', () => {
         value="保留的草稿"
         skills={[]}
         sending={false}
+        planningMode="standard"
+        deepSearchAvailability={DEEPSEARCH_AVAILABLE}
         sendState={sendState}
         statusMessage="发送未完成"
         onChange={vi.fn()}
+        onPlanningModeChange={vi.fn()}
         onSend={vi.fn()}
         onRetry={vi.fn()}
         onUpload={vi.fn()}
@@ -71,9 +82,12 @@ describe('Composer send recovery', () => {
           skill('$unavailable', 'pre_design', 'unavailable'),
         ]}
         sending={false}
+        planningMode="standard"
+        deepSearchAvailability={DEEPSEARCH_AVAILABLE}
         sendState={null}
         statusMessage={null}
         onChange={vi.fn()}
+        onPlanningModeChange={vi.fn()}
         onSend={vi.fn()}
         onRetry={vi.fn()}
         onUpload={vi.fn()}
@@ -102,9 +116,12 @@ describe('Composer send recovery', () => {
           skill('$profileless', undefined, 'ready', false),
         ]}
         sending={false}
+        planningMode="standard"
+        deepSearchAvailability={DEEPSEARCH_AVAILABLE}
         sendState={null}
         statusMessage={null}
         onChange={vi.fn()}
+        onPlanningModeChange={vi.fn()}
         onSend={vi.fn()}
         onRetry={vi.fn()}
         onUpload={vi.fn()}
@@ -134,9 +151,12 @@ describe('Composer send recovery', () => {
         value=""
         skills={[]}
         sending={false}
+        planningMode="standard"
+        deepSearchAvailability={DEEPSEARCH_AVAILABLE}
         sendState={null}
         statusMessage={null}
         onChange={vi.fn()}
+        onPlanningModeChange={vi.fn()}
         onSend={vi.fn()}
         onRetry={vi.fn()}
         onUpload={vi.fn()}
@@ -145,5 +165,58 @@ describe('Composer send recovery', () => {
 
     expect(html).toContain('data-testid="workspace-composer"')
     expect(html).toContain('max-w-[992px]')
+  })
+
+  it('shows an explicit DeepSearch mode and disables Skill selection in that mode', () => {
+    const html = renderToStaticMarkup(
+      <Composer
+        value="$"
+        skills={[skill('$research', 'pre_design')]}
+        sending={false}
+        planningMode="deepsearch"
+        deepSearchAvailability={DEEPSEARCH_AVAILABLE}
+        sendState={null}
+        statusMessage={null}
+        onChange={vi.fn()}
+        onPlanningModeChange={vi.fn()}
+        onSend={vi.fn()}
+        onRetry={vi.fn()}
+        onUpload={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('data-planning-mode="deepsearch"')
+    expect(html).toContain('aria-label="回答模式"')
+    expect(html).toContain('DeepSearch')
+    expect(html).toContain('先澄清需求和确认计划')
+    expect(html).not.toContain('data-testid="skill-hierarchy-menu"')
+  })
+
+  it('explains the stable reason when DeepSearch is unavailable', () => {
+    const html = renderToStaticMarkup(
+      <Composer
+        value=""
+        skills={[]}
+        sending={false}
+        planningMode="standard"
+        deepSearchAvailability={{
+          available: false,
+          enabled: true,
+          runtime_mode: 'execute',
+          core_ready: false,
+          reason_code: 'model_unavailable',
+        }}
+        sendState={null}
+        statusMessage={null}
+        onChange={vi.fn()}
+        onPlanningModeChange={vi.fn()}
+        onSend={vi.fn()}
+        onRetry={vi.fn()}
+        onUpload={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('当前账号没有可用的规划模型')
+    expect(html).toMatch(/aria-describedby="deepsearch-availability-hint"[^>]*disabled/)
   })
 })

@@ -54,11 +54,11 @@ export function ActivityFeed({ items, live = true }: ActivityFeedProps) {
   return (
     <section
       aria-label="市场实时动态"
-      className="flex h-[clamp(440px,66vh,720px)] flex-col rounded-[14px] border border-white/[0.06] bg-surface-1"
+      className="flex h-[clamp(440px,66vh,720px)] flex-col rounded-soft border border-white/[0.06] bg-surface-1"
     >
       <header className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
         <div className="flex flex-col">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
             LIVE ACTIVITY
           </span>
           <h2 className="text-base text-white">市场实时动态</h2>
@@ -75,7 +75,7 @@ export function ActivityFeed({ items, live = true }: ActivityFeedProps) {
       </header>
 
       {items.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-sm text-slate-500">市场还没有动态，等分身们开始协作。</div>
+        <div className="flex flex-1 items-center justify-center px-5 text-center text-sm text-slate-400">市场还没有动态，等分身们开始协作。</div>
       ) : (
         <ol className="relative flex-1 overflow-y-auto overscroll-contain px-5 py-4">
           <span
@@ -98,11 +98,11 @@ export function ActivityFeed({ items, live = true }: ActivityFeedProps) {
                       {accent.label}
                     </span>
                     {item.involves_me ? (
-                      <span className="rounded-full bg-mint-400/[0.08] px-1.5 py-0.5 text-[10px] text-mint-300 ring-1 ring-mint-400/25">
+                      <span className="rounded-full bg-mint-400/[0.08] px-1.5 py-0.5 text-[11px] text-mint-300 ring-1 ring-mint-400/25">
                         与我相关
                       </span>
                     ) : null}
-                    <span className="ml-auto text-[11px] tabular-nums text-slate-500">
+                    <span className="ml-auto text-[11px] tabular-nums text-slate-400">
                       {relativeTime(item.at)}
                     </span>
                   </div>

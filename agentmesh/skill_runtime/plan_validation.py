@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 from agentmesh.models import (
+    AgentPlanningMode,
     SkillCandidate,
     SkillIntent,
     SkillPlan,
@@ -223,6 +224,11 @@ def adjust_plan(
                 output_contract=[
                     output for output in plan.intent.deliverables if output in profile.output_kinds
                 ][:1] or profile.output_kinds[:1],
+                required_tool_names=(
+                    sorted(tool_names_for_profile(profile))
+                    if plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+                    else []
+                ),
                 side_effect=profile.side_effect,
             )
         )

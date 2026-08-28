@@ -25,17 +25,17 @@ export function PeerCard({ signal, source, match }: PeerCardProps) {
             <Badge tone={signal.participating ? 'mint' : 'neutral'}>{signal.participating ? '已参与' : '未参与'}</Badge>
             <DataSourceBadge source={source} />
           </div>
-          <p className="mt-1 text-xs text-slate-500">擅长 · {signal.capability || '服务端未声明能力'}</p>
+          <p className="mt-1 text-xs text-slate-400">擅长 · {signal.capability || '服务端未声明能力'}</p>
         </div>
         <RadioTower className="h-4 w-4 shrink-0 text-collab" />
       </div>
 
       {match ? (
-        <div className="mt-4 flex items-start gap-2 rounded-[10px] bg-surface-2 px-3.5 py-2.5">
+        <div className="mt-4 flex items-start gap-2 rounded-soft bg-surface-2 px-3.5 py-2.5">
           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-mint-300" />
           <div className="text-xs leading-relaxed text-slate-300">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-slate-500">匹配原因</span>
+              <span className="text-slate-400">匹配原因</span>
               <DataSourceBadge source={match.reason.source} />
             </div>
             <p className="mt-1">{match.reason.value}</p>
@@ -45,11 +45,11 @@ export function PeerCard({ signal, source, match }: PeerCardProps) {
 
       <dl className="mt-4 space-y-3 text-sm">
         <div>
-          <dt className="text-xs text-slate-500">可提供</dt>
+          <dt className="text-xs text-slate-400">可提供</dt>
           <dd className="mt-1 leading-relaxed text-slate-300">{signal.offer || '服务端暂无供给描述'}</dd>
         </div>
         <div>
-          <dt className="text-xs text-slate-500">正在寻找</dt>
+          <dt className="text-xs text-slate-400">正在寻找</dt>
           <dd className="mt-1 leading-relaxed text-slate-300">{signal.need || '服务端暂无需求描述'}</dd>
         </div>
       </dl>
@@ -58,8 +58,8 @@ export function PeerCard({ signal, source, match }: PeerCardProps) {
         <Button block variant="secondary" disabled icon={<UserPlus className="h-4 w-4" />} title="当前后端没有邀请协作命令">
           邀请协作暂不可用
         </Button>
-        <details className="mt-3 rounded-[10px] border border-white/[0.06] bg-surface-2/70 px-3 py-2 text-xs">
-          <summary className="min-h-8 cursor-pointer py-1.5 text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">技术详情</summary>
+        <details className="mt-3 rounded-soft border border-white/[0.06] bg-surface-2/70 px-3 py-2 text-xs">
+          <summary className="min-h-8 cursor-pointer py-1.5 text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">技术详情</summary>
           <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all border-t border-white/[0.06] pt-3 font-mono text-[11px] leading-5 text-slate-400">{JSON.stringify({ signal, match }, null, 2)}</pre>
         </details>
       </div>

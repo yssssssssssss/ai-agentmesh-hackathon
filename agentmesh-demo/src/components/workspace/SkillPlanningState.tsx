@@ -27,11 +27,11 @@ export function SkillPlanningState({ run, cancelling, onCancel }: SkillPlanningS
   return (
     <section
       aria-labelledby="skill-planning-title"
-      className="mt-6 overflow-hidden rounded-[14px] border border-mint-400/15 bg-surface-1 shadow-card"
+      className="mt-6 overflow-hidden rounded-soft border border-mint-400/15 bg-surface-1 shadow-card"
     >
       <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
         <div className="flex min-w-0 items-start gap-3.5">
-          <span className="relative mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-mint-400/10 text-mint-300">
+          <span className="relative mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-soft bg-mint-400/10 text-mint-300">
             <span className="planning-orbit absolute inset-1 rounded-full border border-transparent border-t-mint-300/80" aria-hidden="true" />
             <BrainCircuit className="h-4 w-4" aria-hidden="true" />
           </span>
@@ -60,7 +60,7 @@ export function SkillPlanningState({ run, cancelling, onCancel }: SkillPlanningS
         <ol className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="规划阶段">
           {PLANNING_STAGES.map(({ label, icon: StageIcon }) => (
             <li key={label} className="planning-stage flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="planning-stage-dot flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-surface-2 text-slate-500">
+              <span className="planning-stage-dot flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-surface-2 text-slate-400">
                 <StageIcon className="h-3 w-3" aria-hidden="true" />
               </span>
               {label}
@@ -70,7 +70,7 @@ export function SkillPlanningState({ run, cancelling, onCancel }: SkillPlanningS
         <div className="mt-4 h-1 overflow-hidden rounded-full bg-white/[0.05]" aria-hidden="true">
           <span className="planning-scan block h-full w-1/3 rounded-full bg-mint-400" />
         </div>
-        <p className="mt-3 text-[11px] leading-5 text-slate-500">
+        <p className="mt-3 text-[11px] leading-5 text-slate-400">
           规划完成后会先展示可确认的步骤。此阶段不会调用外部工具，也不会把处理中内容当作最终结论。
         </p>
       </div>

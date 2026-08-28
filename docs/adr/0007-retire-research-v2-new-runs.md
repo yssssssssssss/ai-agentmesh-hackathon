@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted and completed on 2026-08-25. This decision removes the executable research-v2 writer; it does not delete historical data or authorize research-v3 execution.
+Accepted and completed on 2026-08-25. This decision removes the executable research-v2 writer; it does not delete historical data or authorize research-v3 execution. ADR 0008 later retires research-v3 and narrows item 6 by removing the shared writer-control mechanism while preserving v2 history compatibility.
 
 ## Context
 

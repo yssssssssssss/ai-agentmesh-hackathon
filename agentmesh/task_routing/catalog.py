@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from agentmesh.research_orchestration.v3.canonical import strict_json_v3_loads
+from agentmesh.canonical_json import strict_json_loads
 from agentmesh.task_routing.compiler import canonical_sha256
 from agentmesh.task_routing.contracts import (
     CatalogManifest,
@@ -133,7 +133,7 @@ def _read_bytes(root: Path, relative_path: str, inventory: Mapping[str, int]) ->
 
 def _parse_json(content: bytes, name: str) -> Any:
     try:
-        return strict_json_v3_loads(content)
+        return strict_json_loads(content)
     except (UnicodeError, ValueError) as error:
         raise TaskCatalogLoadError(f"catalog_file_invalid:{name}") from error
 

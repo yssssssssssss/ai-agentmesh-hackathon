@@ -93,7 +93,7 @@ export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, rea
         {event ? (
           <SectionBlock icon={<History className="h-4 w-4" />} label="本次动态">
             <p className="text-sm leading-relaxed text-slate-300">{event.description.value}</p>
-            {event.detail.value ? <p className="mt-2 text-[12.5px] leading-relaxed text-slate-500">{event.detail.value}</p> : null}
+            {event.detail.value ? <p className="mt-2 text-[12.5px] leading-relaxed text-slate-400">{event.detail.value}</p> : null}
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
               <MetaRow label="使用者" value={event.actor.value} source={event.actor.source} />
               <MetaRow label="项目" value={event.project.value} source={event.project.source} />
@@ -139,13 +139,13 @@ export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, rea
             <SectionBlock icon={<History className="h-4 w-4" />} label="共享和引用记录">
               <div className="mb-2"><DataSourceBadge source={asset.citations.source} /></div>
               {asset.citations.value.length === 0 ? (
-                <p className="text-sm text-slate-500">尚无可展示的引用记录。</p>
+                <p className="text-sm text-slate-400">尚无可展示的引用记录。</p>
               ) : (
                 <ol className="space-y-2.5">
                   {asset.citations.value.map((citation, index) => (
-                    <li key={`${citation.who}-${citation.project}-${index}`} className="rounded-[10px] bg-surface-1 p-3 text-sm text-slate-300">
+                    <li key={`${citation.who}-${citation.project}-${index}`} className="rounded-soft bg-surface-1 p-3 text-sm text-slate-300">
                       <span className="font-medium text-slate-100">{citation.who}</span> · {citation.project}
-                      {citation.purpose ? <p className="mt-1 text-xs text-slate-500">用途:{citation.purpose}</p> : null}
+                      {citation.purpose ? <p className="mt-1 text-xs text-slate-400">用途:{citation.purpose}</p> : null}
                     </li>
                   ))}
                 </ol>
@@ -155,7 +155,7 @@ export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, rea
         ) : null}
 
         {event && !asset ? (
-          <p className="rounded-[10px] bg-surface-1 px-3 py-2 text-xs leading-relaxed text-slate-500">当前仅有时间线展示数据，没有对应的真实知识资产详情。</p>
+          <p className="rounded-soft bg-surface-1 px-3 py-2 text-xs leading-relaxed text-slate-400">当前仅有时间线展示数据，没有对应的真实知识资产详情。</p>
         ) : null}
       </div>
     </Drawer>
@@ -164,7 +164,7 @@ export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, rea
 
 function PendingFooter({ item, busy, readOnly, onAction }: { item: PendingKnowledgeView; busy: boolean; readOnly: boolean; onAction?: Props['onPendingAction'] }) {
   const actions = item.allowedActions.value
-  if (!onAction || actions.length === 0) return <p className="text-xs text-slate-500">当前没有服务端可用操作。</p>
+  if (!onAction || actions.length === 0) return <p className="text-xs text-slate-400">当前没有服务端可用操作。</p>
   return (
     <div className="flex flex-wrap justify-end gap-2">
       {actions.includes('confirm_brief') ? <Button size="sm" loading={busy} disabled={readOnly} onClick={() => onAction(item, 'confirm')}>确认 Brief</Button> : null}
@@ -189,7 +189,7 @@ function PresentedParagraph({ value, source }: { value: string; source: 'M' | 'T
 function SectionBlock({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
   return (
     <section>
-      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500"><span>{icon}</span>{label}</div>
+      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400"><span>{icon}</span>{label}</div>
       {children}
     </section>
   )
@@ -198,7 +198,7 @@ function SectionBlock({ icon, label, children }: { icon: ReactNode; label: strin
 function MetaRow({ label, value, source }: { label: string; value: string; source: 'M' | 'T' }) {
   return (
     <div>
-      <dt className="text-[11px] uppercase tracking-wide text-slate-500">{label}</dt>
+      <dt className="text-[11px] uppercase tracking-wide text-slate-400">{label}</dt>
       <dd className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-200"><span>{value}</span><DataSourceBadge source={source} /></dd>
     </div>
   )

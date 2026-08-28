@@ -46,7 +46,7 @@ export function AgentSecondaryNav({ section, onSelect }: Props) {
               aria-label={s.label}
               onClick={() => onSelect(s.key)}
               className={cn(
-                'group relative flex min-h-10 shrink-0 items-center gap-2 rounded-[10px] px-3 py-2 text-left text-sm font-medium transition-[transform,background-color,color] duration-150 active:scale-[0.98] md:w-full md:gap-3 md:py-2.5',
+                'group relative flex min-h-10 shrink-0 items-center gap-2 rounded-soft px-3 py-2 text-left text-sm font-medium transition-[transform,background-color,color] duration-150 active:scale-[0.98] md:w-full md:gap-3 md:py-2.5',
                 active
                   ? 'bg-surface-3 text-white'
                   : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200',

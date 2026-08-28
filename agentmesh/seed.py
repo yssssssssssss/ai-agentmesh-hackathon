@@ -495,8 +495,14 @@ def list_users(repository: SQLiteStore) -> list[User]:
     return merged + list(saved_by_id.values())
 
 
-def bootstrap_state(repository: SQLiteStore, user: User = USER) -> BootstrapState:
+def bootstrap_state(
+    repository: SQLiteStore,
+    user: User = USER,
+    *,
+    agent_runtime: object | None = None,
+) -> BootstrapState:
     from agentmesh.agent_runtime.settings import agent_runtime_enabled, skill_orchestration_mode
+    from agentmesh.deepsearch.admission import evaluate_deepsearch_availability
 
     ensure_seed_data(repository)
     agents = list_agents(repository)
@@ -511,6 +517,7 @@ def bootstrap_state(repository: SQLiteStore, user: User = USER) -> BootstrapStat
         agents=agents,
         agent_runtime_enabled=agent_runtime_enabled(),
         skill_orchestration_mode=skill_orchestration_mode().value,
+        deepsearch_availability=evaluate_deepsearch_availability(runtime=agent_runtime, user=user),
         capabilities=capabilities_for_user(user, repository.permission_policy_rules),
         metrics=BootstrapMetrics(
             personal_activity_count=len(

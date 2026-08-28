@@ -19,7 +19,6 @@ from agentmesh.research_orchestration.contracts import ResearchGate, ResearchPha
 from agentmesh.seed import USER
 from agentmesh.store import store
 
-_REQUEST_HASH = "0" * 64
 _V2_READ_ONLY = "Research-v2 runs are historical and read-only"
 
 
@@ -175,52 +174,26 @@ def test_research_get_uses_dedicated_history_reader(
 
 
 @pytest.mark.parametrize(
-    ("http_method", "suffix", "payload"),
+    ("http_method", "suffix"),
     [
-        (
-            "post",
-            "research/clarify",
-            {
-                "expected_state_version": 1,
-                "request_hash": _REQUEST_HASH,
-                "answers": [{"question_key": "competitor_scope", "answer": "Figma 与 Miro"}],
-            },
-        ),
-        (
-            "post",
-            "research/execute",
-            {"expected_state_version": 1, "request_hash": _REQUEST_HASH, "plan_version_id": "plan_v3"},
-        ),
-        (
-            "delete",
-            "research-data",
-            {"expected_state_version": 1, "request_hash": _REQUEST_HASH, "confirmation": "PURGE"},
-        ),
+        ("post", "research/clarify"),
+        ("post", "research/execute"),
+        ("delete", "research-data"),
     ],
 )
-def test_shared_research_mutations_reject_historical_v2_before_runtime_dispatch(
+def test_retired_research_mutation_routes_are_removed(
     client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
     http_method: str,
     suffix: str,
-    payload: dict[str, object],
 ) -> None:
-    run = _save_v2_run(f"run_read_only_{http_method}_{suffix.replace('/', '_').replace('-', '_')}")
-
-    class ForbiddenV3Service:
-        def apply(self, *_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
-            raise AssertionError("historical v2 mutation must not reach a Runtime")
-
-    monkeypatch.setattr(app.state, "research_v3_preview", ForbiddenV3Service(), raising=False)
     response = client.request(
         http_method,
-        f"/api/agent/runs/{run.id}/{suffix}",
-        json=payload,
-        headers={"Idempotency-Key": f"reject-{http_method}-{run.id}"},
+        f"/api/agent/runs/run_removed_research_mutation/{suffix}",
+        json={},
+        headers={"Idempotency-Key": f"removed-{http_method}"},
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Command is not available for the stored research version"
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -241,25 +214,16 @@ def test_v2_only_research_mutation_routes_are_removed(client: TestClient, suffix
     assert response.status_code == 404
 
 
-def test_openapi_exposes_no_v2_mutation_contracts() -> None:
+def test_openapi_exposes_only_the_v2_history_research_route() -> None:
     schema = app.openapi()
     paths = schema["paths"]
+    assert paths["/api/agent/runs/{run_id}/research"].keys() == {"get"}
     assert "/api/agent/runs/{run_id}/research/plans/{plan_version_id}/confirm" not in paths
     assert "/api/agent/runs/{run_id}/research/plans/{plan_version_id}/revise" not in paths
     assert "/api/agent/runs/{run_id}/research/recover" not in paths
-
-    expected_bodies = {
-        "/api/agent/runs/{run_id}/research/clarify": "ResearchV3ClarifyRequest",
-        "/api/agent/runs/{run_id}/research/execute": "ResearchV3ExecuteRequest",
-        "/api/agent/runs/{run_id}/research-data": "ResearchV3PurgeRequest",
-    }
-    for path, schema_name in expected_bodies.items():
-        method = "delete" if path.endswith("research-data") else "post"
-        operation = paths[path][method]
-        header = next(parameter for parameter in operation["parameters"] if parameter["name"] == "Idempotency-Key")
-        assert header["required"] is True
-        body_schema = operation["requestBody"]["content"]["application/json"]["schema"]
-        assert body_schema == {"$ref": f"#/components/schemas/{schema_name}"}
+    assert "/api/agent/runs/{run_id}/research/clarify" not in paths
+    assert "/api/agent/runs/{run_id}/research/execute" not in paths
+    assert "/api/agent/runs/{run_id}/research-data" not in paths
 
 
 def test_research_tool_approval_is_visible_but_has_no_actions(
@@ -318,3 +282,47 @@ def test_legacy_retry_and_cancel_leave_research_v2_unchanged(
     assert retry.json()["detail"] == cancel.json()["detail"] == _V2_READ_ONLY
     assert store.get_agent_run(retry_run.id).status == AgentRunStatus.FAILED
     assert store.get_agent_run(cancel_run.id).status == AgentRunStatus.RUNNING
+
+
+def test_retry_rejects_column_projected_v3_before_runtime_dispatch(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy = AgentRun(
+        id="run_column_projected_v3_retry",
+        thread_id="thread_column_projected_v3_retry",
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        input_text="legacy",
+        status=AgentRunStatus.FAILED,
+        orchestration_version="v1",
+    )
+    store.save_agent_run(legacy)
+    original_payload = legacy.model_dump_json()
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE agent_runs SET orchestration_version = 'research-v3' WHERE id = ?",
+            (legacy.id,),
+        )
+
+    class ForbiddenRuntime:
+        @property
+        def enabled(self) -> bool:
+            raise AssertionError("retired v3 retry must not inspect or invoke the Runtime")
+
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", ForbiddenRuntime())
+    response = client.post(
+        f"/api/agent/runs/{legacy.id}/retry",
+        json={"client_turn_id": "turn_column_projected_v3_retry"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Research-v3 is retired and its runs cannot be changed"
+    with store._connect() as connection:
+        stored = connection.execute(
+            "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+            (legacy.id,),
+        ).fetchone()
+    assert stored["payload"] == original_payload
+    assert stored["orchestration_version"] == "research-v3"

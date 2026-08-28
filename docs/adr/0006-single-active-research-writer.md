@@ -2,6 +2,8 @@
 
 ## Status
 
+Superseded by ADR 0008 on 2026-08-26. The text below is retained as a historical record and no longer describes an available writer-selection mechanism.
+
 Accepted on 2026-08-21 by interim owner `@heyunshen` for **Gate 0, isolated Slice 1, and dormant Gate 2 preview composition only**. Gate 2 may install additive generation fencing, stored-version dispatch, and provider-free preview code while production remains `off` with research-v2 as the control-row generation. This acceptance does not authorize production v3 traffic, a control-row change, allowlist population, Provider calls, research-v2 retirement, merge, push, or deployment. Production cutover remains blocked on a separate decision by distinct `AM-ARCH` and `AM-RELEASE-QA` individuals.
 
 Amended on 2026-08-25 for completed v2 retirement: the durable Writer lifecycle is `retired`. The executable research-v2 writer and every continuation path have been removed; existing v2 Runs are available only through the frozen read adapter. This amendment does not activate research-v3 or delete historical data.

@@ -17,6 +17,10 @@ export const workspaceKeys = {
   run: (scope: WorkspaceScope, runId: string) => [...scopedRoot(scope), 'agent-runs', runId] as const,
   research: (scope: WorkspaceScope, runId: string) =>
     [...scopedRoot(scope), 'agent-runs', runId, 'research'] as const,
+  deepSearch: (scope: WorkspaceScope, runId: string) =>
+    [...scopedRoot(scope), 'agent-runs', runId, 'deepsearch'] as const,
+  deepSearchReport: (scope: WorkspaceScope, runId: string, artifactId: string) =>
+    [...scopedRoot(scope), 'agent-runs', runId, 'deepsearch', 'reports', artifactId] as const,
   plan: (scope: WorkspaceScope, runId: string) =>
     [...scopedRoot(scope), 'agent-runs', runId, 'plan'] as const,
   documents: (scope: WorkspaceScope) => [...scopedRoot(scope), 'documents'] as const,

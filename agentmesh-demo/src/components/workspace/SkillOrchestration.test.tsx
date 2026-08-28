@@ -88,6 +88,10 @@ function detail(status: SkillPlanNode['status'] = 'pending'): SkillPlanDetailRes
       output_contract: ['feasibility_review'],
       preferred_order: [skill.id],
       nodes: [node(status)],
+      planning_mode: 'standard',
+      report_revision_count: 0,
+      finalization_stage: 'none',
+      finalization_version: 0,
     },
     results: [],
     synthesis: null,
@@ -224,6 +228,7 @@ describe('Skill orchestration views', () => {
       project_id: 'project-1',
       input_text: '评估 PRD',
       status: 'waiting_approval',
+      planning_mode: 'standard',
       orchestration_version: 'v1',
       orchestration_mode: 'execute',
       agent_definition_version: '1',
@@ -255,6 +260,7 @@ describe('Skill orchestration views', () => {
       project_id: 'project-1',
       input_text: '分析竞品并形成策略',
       status: 'planning',
+      planning_mode: 'standard',
       orchestration_version: 'v1',
       orchestration_mode: 'execute',
       agent_definition_version: '1',
@@ -302,7 +308,7 @@ describe('Skill orchestration views', () => {
     ]
     const run = {
       id: 'run-1', thread_id: 'thread-1', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1',
-      input_text: '并行分析', status: 'running', orchestration_version: 'v1', orchestration_mode: 'execute',
+      input_text: '并行分析', status: 'running', planning_mode: 'standard', orchestration_version: 'v1', orchestration_mode: 'execute',
       agent_definition_version: '1', project_chat: true, tool_call_count: 0,
     } satisfies AgentRun
 
@@ -335,8 +341,49 @@ describe('Skill orchestration views', () => {
 
     expect(html).toContain('外部模型服务在返回完整内容前断开')
     expect(html).toContain('不是你的需求有问题')
-    expect(html).toContain('自动重试一次')
+    expect(html).toContain('应用层最多进行 3 次模型请求')
     expect(html).toContain('查看技术原因')
+  })
+
+  it('explains a stream that ended without a completion event', () => {
+    const failedNode = node('failed')
+    failedNode.error_code = 'ModelStreamIncompleteError'
+    const html = renderToStaticMarkup(
+      <SkillPlanNodeCard node={failedNode} skill={skill} mode="progress" />,
+    )
+
+    expect(html).toContain('提前结束响应')
+    expect(html).toContain('应用层最多进行 3 次模型请求')
+  })
+
+  it('shows the failed required node as the cause of an unsatisfied run contract', () => {
+    const failedDetail = detail('failed')
+    const failedNode = failedDetail.plan.nodes?.[0]
+    if (!failedNode) throw new Error('expected a plan node')
+    failedNode.error_code = 'RemoteProtocolError'
+    failedNode.attempt = 1
+    const run = {
+      id: 'run-1', thread_id: 'thread-1', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1',
+      input_text: '分析竞品', status: 'failed', error_code: 'output_contract_unsatisfied', planning_mode: 'standard',
+      orchestration_version: 'v1', orchestration_mode: 'execute', agent_definition_version: '1', project_chat: true,
+      tool_call_count: 1,
+    } satisfies AgentRun
+
+    const html = renderToStaticMarkup(
+      <SkillPlanProgress
+        run={run}
+        detail={failedDetail}
+        skillsById={new Map([[skill.id, skill]])}
+        cancelling={false}
+        onCancel={vi.fn()}
+        onOpenToolApproval={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('外部模型服务在返回完整内容前断开')
+    expect(html).toContain('因此没有覆盖计划要求的交付内容')
+    expect(html).toContain('RemoteProtocolError')
+    expect(html).toContain('output_contract_unsatisfied')
   })
 
   it('translates machine degradation diagnostics into a scope explanation', () => {
@@ -344,7 +391,7 @@ describe('Skill orchestration views', () => {
     progress.plan.degradation = 'capability_gaps:required_knowledge_metadata_only:scenario-a:knowledge-a'
     const run = {
       id: 'run-1', thread_id: 'thread-1', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1',
-      input_text: '分析', status: 'running', orchestration_version: 'v1', orchestration_mode: 'execute',
+      input_text: '分析', status: 'running', planning_mode: 'standard', orchestration_version: 'v1', orchestration_mode: 'execute',
       agent_definition_version: '1', project_chat: true, tool_call_count: 0,
     } satisfies AgentRun
 
@@ -375,6 +422,7 @@ describe('Skill orchestration views', () => {
       project_id: 'project-1',
       input_text: '评估 PRD',
       status: 'completed',
+      planning_mode: 'standard',
       plan_id: preview.plan.id,
       orchestration_version: 'v1',
       orchestration_mode: 'preview',
@@ -446,5 +494,38 @@ describe('Skill orchestration views', () => {
     expect(html).toContain('PRD v4')
     expect(html).toContain('未完成可用性测试')
     expect(html).toContain('artifact-1')
+  })
+
+  it('renders synthesis summary and sections as Markdown', () => {
+    const synthesis = {
+      summary: '**核心结论**：优先验证任务入口。',
+      sections: ['## 竞品分析\n\n### 关键发现\n\n- **第一项**\n- 第二项'],
+      claims: [],
+      limitations: [],
+      next_actions: [],
+      artifact_ids: [],
+    } satisfies SkillSynthesisResult
+
+    const html = renderToStaticMarkup(
+      <SkillSynthesisView
+        synthesis={synthesis}
+        results={[]}
+        skillsById={new Map()}
+        reportRunId="run/report 1"
+        onOpenSource={vi.fn()}
+        onOpenArtifact={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('<strong>核心结论</strong>')
+    expect(html).toContain('>竞品分析</h2>')
+    expect(html).toContain('>关键发现</h3>')
+    expect(html).toContain('<ul>')
+    expect(html).toContain('<strong>第一项</strong>')
+    expect(html).not.toContain('## 竞品分析')
+    expect(html).not.toContain('**第一项**')
+    expect(html).toContain('/api/agent/runs/run%2Freport%201/report.html')
+    expect(html).toContain('独立查看')
+    expect(html).toContain('下载 HTML')
   })
 })

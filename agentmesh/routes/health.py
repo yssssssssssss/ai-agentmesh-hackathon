@@ -11,18 +11,17 @@ from fastapi import APIRouter, Depends
 
 from agentmesh.agent_runtime.settings import (
     agent_runtime_enabled,
-    research_preview_allowlist,
     skill_orchestration_mode,
 )
 from agentmesh.datasources import data_api_provider_status, default_data_source_registry
+from agentmesh.deepsearch.admission import deepsearch_admission_rejections
 from agentmesh.documents import CompositeDocumentParser
 from agentmesh.embedding import embedding_provider_status
 from agentmesh.llm import llm_provider_status, llm_timeout_config, model_config_from_env
-from agentmesh.models import ProviderHealthCheckResponse, User
+from agentmesh.models import AgentPlanningMode, AgentRunStatus, ProviderHealthCheckResponse, User
 from agentmesh.o2 import O2CommandRunner, maybe_register_o2_data_connector, o2_research_provider_status
 from agentmesh.permissions import ACTION_VIEW_PROVIDER_HEALTH
 from agentmesh.provider_status import ProviderStatus, build_provider_status
-from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
 from agentmesh.routes.deps import require_permission
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
@@ -226,6 +225,116 @@ def _orchestration_metrics(runs) -> dict[str, object]:  # noqa: ANN001
     }
 
 
+def _stable_metric_code(value: object) -> str:
+    candidate = str(value).split(":", 1)[0]
+    if candidate and len(candidate) <= 80 and all(
+        character.islower() or character.isdigit() or character == "_"
+        for character in candidate
+    ):
+        return candidate
+    return "other"
+
+
+def _deepsearch_metrics(runs) -> dict[str, object]:  # noqa: ANN001
+    deepsearch_runs = [
+        run
+        for run in runs
+        if getattr(run, "planning_mode", AgentPlanningMode.STANDARD)
+        is AgentPlanningMode.DEEPSEARCH
+    ]
+    terminal_status_counts: dict[str, int] = {}
+    clarification_round_counts: dict[str, int] = {}
+    capability_gap_counts: dict[str, int] = {}
+    review_verdict_counts: dict[str, int] = {}
+    stage_durations: list[float] = []
+    end_to_end_durations: list[float] = []
+    evidence_checked = 0
+    evidence_passed = 0
+    review_checked_runs = 0
+    revised_runs = 0
+    clarification_exhausted = 0
+    planning_failed = 0
+
+    terminal_statuses = {
+        AgentRunStatus.COMPLETED,
+        AgentRunStatus.PARTIAL,
+        AgentRunStatus.FAILED,
+        AgentRunStatus.REJECTED,
+        AgentRunStatus.CANCELLED,
+    }
+    for run in deepsearch_runs:
+        if run.status in terminal_statuses:
+            terminal_status_counts[run.status.value] = (
+                terminal_status_counts.get(run.status.value, 0) + 1
+            )
+            end_to_end_durations.append(
+                max(0.0, (run.updated_at - run.created_at).total_seconds() * 1000)
+            )
+        if run.error_code == "deepsearch_clarification_unresolved":
+            clarification_exhausted += 1
+        if run.error_code in {
+            "deepsearch_planning_failed",
+            "deepsearch_planning_transient",
+        }:
+            planning_failed += 1
+
+        plan = store.get_skill_plan_for_run(run.id)
+        if plan is not None:
+            for gap in plan.capability_gaps:
+                code = _stable_metric_code(gap)
+                capability_gap_counts[code] = capability_gap_counts.get(code, 0) + 1
+            if plan.evidence_coverage is not None:
+                evidence_checked += 1
+                evidence_passed += int(plan.evidence_coverage.passed)
+            if plan.review_outcomes:
+                review_checked_runs += 1
+                revised_runs += int(len(plan.review_outcomes) > 1)
+                for outcome in plan.review_outcomes:
+                    review_verdict_counts[outcome.outcome] = (
+                        review_verdict_counts.get(outcome.outcome, 0) + 1
+                    )
+
+        previous_stage_at = None
+        for event in store.list_agent_run_events(run.id):
+            if event.event_type == "deepsearch_clarification_requested":
+                round_number = event.payload.get("clarification_round")
+                if type(round_number) is int and 1 <= round_number <= 3:
+                    key = str(round_number)
+                    clarification_round_counts[key] = (
+                        clarification_round_counts.get(key, 0) + 1
+                    )
+            if event.event_type == "deepsearch_finalization_stage_changed":
+                if previous_stage_at is not None:
+                    stage_durations.append(
+                        max(0.0, (event.created_at - previous_stage_at).total_seconds() * 1000)
+                    )
+                previous_stage_at = event.created_at
+
+    terminal_count = sum(terminal_status_counts.values())
+    partial_or_failed = terminal_status_counts.get("partial", 0) + terminal_status_counts.get(
+        "failed", 0
+    )
+    return {
+        "runs_started": len(deepsearch_runs),
+        "terminal_status_counts": terminal_status_counts,
+        "clarification_round_counts": clarification_round_counts,
+        "clarification_exhaustion_rate": _ratio(
+            clarification_exhausted,
+            len(deepsearch_runs),
+        ),
+        "planning_failure_rate": _ratio(planning_failed, len(deepsearch_runs)),
+        "capability_gap_counts": capability_gap_counts,
+        "evidence_pass_rate": _ratio(evidence_passed, evidence_checked),
+        "review_verdict_counts": review_verdict_counts,
+        "review_revision_rate": _ratio(revised_runs, review_checked_runs),
+        "partial_failed_rate": _ratio(partial_or_failed, terminal_count),
+        "stage_duration_p95_ms": _p95(stage_durations),
+        "end_to_end_p95_ms": _p95(end_to_end_durations),
+        "admission_rejected_by_code": deepsearch_admission_rejections(),
+        "admission_window": "process_lifetime",
+    }
+
+
 def _agent_runtime_status() -> dict[str, object]:
     runtime_enabled = agent_runtime_enabled()
     runs = store.list_agent_runs()
@@ -243,8 +352,6 @@ def _agent_runtime_status() -> dict[str, object]:
     index_counts = store.skill_search_index_counts()
     index_ready = index_counts["records"] == index_counts["indexed"] and index_counts["missing"] == 0
     orchestration_mode = skill_orchestration_mode()
-    preview_allowlist = research_preview_allowlist()
-    writer_control = store.get_research_writer_control()
     runtime_status = (
         "ready"
         if ready
@@ -263,12 +370,6 @@ def _agent_runtime_status() -> dict[str, object]:
         "sdk_version": getattr(openai_agents, "__version__", "unknown"),
         "runtime_enabled": runtime_enabled,
         "skill_orchestration_mode": orchestration_mode.value,
-        "research_writer_generation": writer_control.active_generation.value,
-        "research_writer_generation_epoch": writer_control.generation_epoch,
-        "research_writer_lifecycle": writer_control.lifecycle_state.value,
-        "research_writer_accepts_new_runs": writer_control.lifecycle_state.accepts_new_runs,
-        "research_preview_allowlist_count": len(preview_allowlist),
-        "research_preview_allowlist_digest": canonical_json_v3_sha256(sorted(preview_allowlist)),
         "skills": len(catalog.list_enabled()),
         "planner_profiles": len(planner_profiles),
         "profile_health": "ready" if profile_ready else "degraded",
@@ -285,6 +386,7 @@ def _agent_runtime_status() -> dict[str, object]:
         "runs": len(runs),
         "run_status_counts": status_counts,
         "orchestration_metrics": _orchestration_metrics(runs),
+        "deepsearch_metrics": _deepsearch_metrics(runs),
         "skill_activations": sum(event.action == "sdk_skill_activated" for event in store.audit_events),
         "open_tool_approvals": sum(
             item.item_type == "sdk_tool_approval" and item.status == "open" for item in store.inbox_items

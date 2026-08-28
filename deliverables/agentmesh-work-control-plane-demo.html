@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>AgentMesh 工作推进控制面 Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --canvas: #0b0d10;
+      --base: #0f1216;
+      --surface-1: #15191e;
+      --surface-2: #1a1f25;
+      --surface-3: #222830;
+      --surface-4: #2a313a;
+      --line: rgba(255, 255, 255, 0.075);
+      --line-strong: rgba(255, 255, 255, 0.145);
+      --text: #eef3f1;
+      --text-2: #b8c2bf;
+      --text-3: #77827f;
+      --mint: #54e6bb;
+      --mint-strong: #8af0d1;
+      --mint-bg: rgba(84, 230, 187, 0.10);
+      --red: #ff8797;
+      --red-bg: rgba(255, 135, 151, 0.10);
+      --amber: #f4b86a;
+      --amber-bg: rgba(244, 184, 106, 0.10);
+      --blue: #7eb3f0;
+      --blue-bg: rgba(126, 179, 240, 0.10);
+      --sidebar: 228px;
+      --inspector: 372px;
+      --radius: 12px;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--canvas); -webkit-font-smoothing: antialiased; }
+    body { margin: 0; min-height: 100vh; background: var(--canvas); color: var(--text); font: 14px/1.55 var(--font); }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+    button:active { transform: scale(0.98); }
+    [hidden] { display: none !important; }
+    ::selection { background: rgba(84, 230, 187, 0.24); }
+    ::-webkit-scrollbar { width: 9px; height: 9px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(255,255,255,.12); background-clip: padding-box; }
+
+    .skip-link { position: fixed; z-index: 100; top: 8px; left: 8px; transform: translateY(-160%); border-radius: 8px; background: var(--mint); color: #08231b; padding: 8px 12px; font-weight: 750; }
+    .skip-link:focus { transform: none; }
+    .icon { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+    .app { min-height: 100vh; display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr) var(--inspector); }
+
+    /* Sidebar */
+    .sidebar { position: sticky; top: 0; height: 100vh; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--base); animation: enter-left .42s cubic-bezier(.22,1,.36,1) both; }
+    .brand { min-height: 74px; display: flex; align-items: center; gap: 10px; padding: 0 18px; border-bottom: 1px solid var(--line); }
+    .brand-mark { position: relative; width: 34px; height: 34px; flex: 0 0 auto; border-radius: 10px; background: var(--mint); color: #08231b; display: grid; place-items: center; font: 850 12px/1 var(--mono); }
+    .brand-mark::after { content: ""; position: absolute; inset: 7px; border: 1px solid rgba(8,35,27,.35); border-radius: 50%; }
+    .brand-copy strong { display: block; font-size: 15px; letter-spacing: .01em; }
+    .brand-copy span { display: block; margin-top: 1px; color: var(--text-3); font-size: 10px; letter-spacing: .08em; }
+    .nav-scroll { flex: 1; overflow-y: auto; padding: 16px 10px; }
+    .nav-label { padding: 0 10px 7px; color: #5f6a67; font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .nav-group + .nav-group { margin-top: 22px; }
+    .nav-item { position: relative; width: 100%; min-height: 42px; display: grid; grid-template-columns: 22px minmax(0,1fr) auto; align-items: center; gap: 9px; border: 0; border-radius: 9px; background: transparent; padding: 8px 10px; color: #899491; text-align: left; cursor: pointer; transition: color 130ms, background-color 130ms; }
+    .nav-item:hover { color: var(--text-2); background: rgba(255,255,255,.035); }
+    .nav-item.active { color: var(--text); background: var(--surface-3); }
+    .nav-item.active::before { content: ""; position: absolute; left: 0; top: 11px; bottom: 11px; width: 3px; border-radius: 0 3px 3px 0; background: var(--mint); }
+    .nav-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 630; }
+    .nav-count { min-width: 22px; border-radius: 999px; background: rgba(255,255,255,.055); padding: 1px 6px; color: var(--text-3); text-align: center; font: 700 9px var(--mono); }
+    .nav-item.active .nav-count { background: var(--mint-bg); color: var(--mint); }
+    .project-link { width: 100%; border: 0; border-radius: 9px; background: transparent; padding: 9px 10px; text-align: left; cursor: pointer; }
+    .project-link:hover { background: rgba(255,255,255,.035); }
+    .project-link strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 11px; }
+    .project-link span { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--text-3); font-size: 9px; }
+    .mini-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+    .sidebar-foot { border-top: 1px solid var(--line); padding: 13px 14px; }
+    .user { display: flex; align-items: center; gap: 10px; }
+    .avatar { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--mint-bg); color: var(--mint); font-size: 10px; font-weight: 800; }
+    .user strong, .user span { display: block; }
+    .user strong { font-size: 11px; }
+    .user span { margin-top: 2px; color: var(--text-3); font-size: 9px; }
+
+    /* Main workspace */
+    .workspace { min-width: 0; }
+    .topbar { position: sticky; z-index: 20; top: 0; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); background: rgba(11,13,16,.90); padding: 0 clamp(22px, 3vw, 42px); backdrop-filter: blur(18px); }
+    .crumb { min-width: 0; }
+    .crumb span { display: block; color: var(--text-3); font-size: 9px; letter-spacing: .08em; }
+    .crumb strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; font-size: 12px; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .prototype-badge { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-1); padding: 4px 9px; color: var(--text-3); font-size: 9px; white-space: nowrap; }
+    .prototype-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+    .icon-button { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-1); color: var(--text-3); cursor: pointer; }
+    .icon-button:hover { border-color: var(--line-strong); color: var(--text-2); }
+    .main { max-width: 980px; margin: 0 auto; padding: 34px clamp(22px, 3vw, 42px) 100px; animation: enter-up .46s .06s cubic-bezier(.22,1,.36,1) both; }
+    .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+    .eyebrow { color: var(--mint); font-size: 9px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { margin: 7px 0 0; font-size: clamp(28px, 3.2vw, 40px); line-height: 1.1; letter-spacing: -.045em; }
+    .page-copy { max-width: 620px; margin: 9px 0 0; color: var(--text-3); font-size: 12px; }
+    .scope-switch { display: flex; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-1); padding: 3px; }
+    .scope-switch button { min-height: 34px; border: 0; border-radius: 7px; background: transparent; padding: 6px 11px; color: var(--text-3); font-size: 10px; cursor: pointer; }
+    .scope-switch button.active { background: var(--surface-3); color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,.04) inset; }
+
+    .signal-strip { display: flex; align-items: stretch; gap: 0; margin-top: 30px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .signal { min-width: 0; flex: 1; padding: 17px 18px 17px 0; }
+    .signal + .signal { border-left: 1px solid var(--line); padding-left: 18px; }
+    .signal:first-child { flex: 1.45; }
+    .signal span { display: block; color: var(--text-3); font-size: 9px; letter-spacing: .06em; }
+    .signal strong { display: block; margin-top: 4px; font-size: 18px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+    .signal:first-child strong { color: var(--text); font-size: 22px; }
+    .signal em { color: var(--red); font-style: normal; }
+
+    .focus-item { position: relative; margin-top: 26px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface-1); padding: 20px 22px 20px 25px; }
+    .focus-item::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--red); }
+    .focus-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .kicker { color: var(--text-3); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .focus-time { color: var(--red); font: 700 10px var(--mono); }
+    .focus-item h2 { margin: 10px 0 0; font-size: clamp(18px, 2.2vw, 23px); line-height: 1.25; letter-spacing: -.025em; }
+    .focus-item p { max-width: 700px; margin: 8px 0 0; color: var(--text-3); font-size: 12px; }
+    .focus-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 14px; color: var(--text-3); font-size: 10px; }
+    .focus-meta span { display: inline-flex; align-items: center; gap: 6px; }
+    .focus-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .button { min-height: 38px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); padding: 8px 13px; color: var(--text-2); font-size: 11px; font-weight: 700; cursor: pointer; transition: background-color 130ms, border-color 130ms, color 130ms; }
+    .button:hover { border-color: var(--line-strong); background: var(--surface-3); color: var(--text); }
+    .button.primary { border-color: var(--mint); background: var(--mint); color: #08231b; }
+    .button.primary:hover { background: var(--mint-strong); }
+
+    .toolbar { position: sticky; z-index: 15; top: 64px; display: grid; grid-template-columns: minmax(230px,1fr) auto; gap: 12px; margin: 28px -4px 0; border-bottom: 1px solid var(--line); background: rgba(11,13,16,.94); padding: 10px 4px 12px; backdrop-filter: blur(16px); }
+    .filters { display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+    .filters::-webkit-scrollbar { display: none; }
+    .filter { min-height: 34px; flex: 0 0 auto; border: 0; border-radius: 8px; background: transparent; padding: 6px 10px; color: var(--text-3); font-size: 10px; font-weight: 650; cursor: pointer; }
+    .filter:hover { color: var(--text-2); background: rgba(255,255,255,.035); }
+    .filter.active { background: var(--surface-3); color: var(--text); }
+    .filter b { display: inline-flex; min-width: 18px; justify-content: center; margin-left: 5px; border-radius: 999px; background: rgba(255,255,255,.055); padding: 1px 5px; color: inherit; font: 700 9px var(--mono); }
+    .search { position: relative; width: min(260px, 31vw); }
+    .search .icon { position: absolute; left: 11px; top: 9px; width: 15px; color: var(--text-3); pointer-events: none; }
+    .search input { width: 100%; height: 34px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-1); padding: 0 58px 0 34px; color: var(--text); font-size: 10px; }
+    .search input::placeholder { color: #596360; }
+    .search kbd { position: absolute; right: 7px; top: 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); padding: 2px 5px; color: var(--text-3); font: 8px var(--mono); }
+
+    .queue { margin-top: 4px; }
+    .queue-group { padding-top: 23px; }
+    .group-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 3px 9px; }
+    .group-heading h2 { margin: 0; color: var(--text-2); font-size: 11px; font-weight: 750; }
+    .group-heading span { color: var(--text-3); font: 9px var(--mono); }
+    .rows { border-top: 1px solid var(--line); }
+    .work-row { position: relative; width: 100%; min-width: 0; display: grid; grid-template-columns: 12px minmax(0,1fr) minmax(140px,.48fr) auto; align-items: center; gap: 13px; border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: 14px 7px 14px 4px; text-align: left; cursor: pointer; transition: background-color 130ms, padding-left 130ms; animation: row-in .28s cubic-bezier(.22,1,.36,1) both; }
+    .work-row:hover { background: rgba(255,255,255,.025); padding-left: 8px; }
+    .work-row.selected { background: rgba(84,230,187,.045); }
+    .work-row.selected::before { content: ""; position: absolute; left: -4px; top: 11px; bottom: 11px; width: 2px; border-radius: 2px; background: var(--mint); }
+    .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); box-shadow: 0 0 0 4px rgba(255,255,255,.025); }
+    .state-dot.failed, .state-dot.blocked { background: var(--red); box-shadow: 0 0 0 4px var(--red-bg); }
+    .state-dot.approval, .state-dot.partial, .state-dot.waiting { background: var(--amber); box-shadow: 0 0 0 4px var(--amber-bg); }
+    .state-dot.running, .state-dot.planning { background: var(--mint); box-shadow: 0 0 0 4px var(--mint-bg); }
+    .state-dot.done { background: #63706c; }
+    .row-main { min-width: 0; }
+    .row-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .row-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 680; }
+    .type-label { flex: 0 0 auto; border-radius: 999px; background: rgba(255,255,255,.05); padding: 2px 6px; color: var(--text-3); font: 700 8px var(--mono); }
+    .row-main p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 5px 0 0; color: var(--text-3); font-size: 10px; }
+    .row-context { min-width: 0; }
+    .row-context strong, .row-context span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row-context strong { color: var(--text-2); font-size: 10px; font-weight: 620; }
+    .row-context span { margin-top: 4px; color: var(--text-3); font-size: 9px; }
+    .row-status { display: flex; align-items: center; justify-content: flex-end; gap: 9px; white-space: nowrap; }
+    .status-label { border-radius: 999px; background: rgba(255,255,255,.05); padding: 3px 7px; color: var(--text-3); font-size: 9px; font-weight: 700; }
+    .status-label.failed, .status-label.blocked { background: var(--red-bg); color: var(--red); }
+    .status-label.approval, .status-label.partial, .status-label.waiting { background: var(--amber-bg); color: var(--amber); }
+    .status-label.running, .status-label.planning { background: var(--mint-bg); color: var(--mint); }
+    .row-status time { min-width: 48px; color: var(--text-3); text-align: right; font: 9px var(--mono); }
+    .progress-track { width: 100%; height: 2px; overflow: hidden; margin-top: 8px; border-radius: 99px; background: rgba(255,255,255,.06); }
+    .progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--mint); transform-origin: left; animation: grow-x .6s cubic-bezier(.22,1,.36,1) both; }
+    .empty { margin-top: 28px; border: 1px dashed var(--line); border-radius: var(--radius); padding: 42px 18px; color: var(--text-3); text-align: center; font-size: 11px; }
+
+    /* Inspector */
+    .inspector { position: sticky; top: 0; height: 100vh; overflow-y: auto; border-left: 1px solid var(--line); background: var(--base); animation: enter-right .42s .08s cubic-bezier(.22,1,.36,1) both; }
+    .inspector-inner { min-height: 100%; display: flex; flex-direction: column; }
+    .inspector-head { position: sticky; z-index: 5; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 64px; border-bottom: 1px solid var(--line); background: rgba(15,18,22,.92); padding: 0 18px; backdrop-filter: blur(16px); }
+    .inspector-head > div { display: flex; align-items: baseline; gap: 6px; }
+    .inspector-head strong { font-size: 11px; }
+    .inspector-head span { color: var(--text-3); font: 9px var(--mono); }
+    .close-inspector { display: none; }
+    .inspector-body { padding: 22px 20px 40px; animation: detail-in .26s cubic-bezier(.22,1,.36,1) both; }
+    .detail-kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+    .detail-pill { border-radius: 999px; background: rgba(255,255,255,.055); padding: 3px 7px; color: var(--text-3); font-size: 9px; font-weight: 700; }
+    .detail-pill.attention { background: var(--red-bg); color: var(--red); }
+    .detail-pill.wait { background: var(--amber-bg); color: var(--amber); }
+    .detail-pill.run { background: var(--mint-bg); color: var(--mint); }
+    .inspector h2 { margin: 14px 0 0; font-size: 21px; line-height: 1.3; letter-spacing: -.025em; }
+    .detail-summary { margin: 9px 0 0; color: var(--text-3); font-size: 11px; line-height: 1.65; }
+    .detail-section { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 17px; }
+    .detail-section h3 { margin: 0 0 12px; color: var(--text-2); font-size: 10px; letter-spacing: .03em; }
+    .next-action { border-radius: 11px; background: var(--surface-1); padding: 14px; }
+    .next-action span { color: var(--mint); font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+    .next-action strong { display: block; margin-top: 7px; font-size: 12px; }
+    .next-action p { margin: 6px 0 0; color: var(--text-3); font-size: 10px; line-height: 1.55; }
+    .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+    .detail-actions .button { flex: 1; }
+    .facts { margin: 0; }
+    .fact { display: grid; grid-template-columns: 82px minmax(0,1fr); gap: 14px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.045); }
+    .fact:last-child { border-bottom: 0; }
+    .fact dt { color: var(--text-3); font-size: 9px; }
+    .fact dd { margin: 0; color: var(--text-2); text-align: right; font-size: 10px; overflow-wrap: anywhere; }
+    .reason { display: flex; gap: 10px; border-left: 2px solid var(--red); padding: 2px 0 2px 12px; }
+    .reason svg { color: var(--red); }
+    .reason strong { display: block; color: var(--text-2); font-size: 10px; }
+    .reason p { margin: 4px 0 0; color: var(--text-3); font-size: 9px; line-height: 1.6; }
+    .sources { display: grid; gap: 7px; }
+    .source { width: 100%; display: grid; grid-template-columns: 28px minmax(0,1fr) auto; align-items: center; gap: 9px; border: 0; border-radius: 9px; background: transparent; padding: 7px 5px; text-align: left; cursor: pointer; }
+    .source:hover { background: rgba(255,255,255,.035); }
+    .source-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: var(--surface-2); color: var(--blue); font: 750 8px var(--mono); }
+    .source strong, .source span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .source strong { color: var(--text-2); font-size: 10px; }
+    .source span { margin-top: 2px; color: var(--text-3); font-size: 8px; }
+    .source > span { color: var(--text-3); font-size: 14px; }
+    .timeline { position: relative; display: grid; gap: 13px; margin: 0; padding: 0; list-style: none; }
+    .timeline::before { content: ""; position: absolute; left: 4px; top: 7px; bottom: 7px; width: 1px; background: var(--line); }
+    .timeline li { position: relative; padding-left: 18px; }
+    .timeline li::before { content: ""; position: absolute; z-index: 1; left: 1px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--surface-4); box-shadow: 0 0 0 3px var(--base); }
+    .timeline li:first-child::before { background: var(--mint); }
+    .timeline strong { display: block; color: var(--text-2); font-size: 9px; }
+    .timeline span { display: block; margin-top: 2px; color: var(--text-3); font-size: 8px; }
+    .original-link { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 9px; background: transparent; padding: 10px 11px; color: var(--text-2); font-size: 10px; cursor: pointer; }
+    .original-link:hover { border-color: var(--line-strong); background: rgba(255,255,255,.025); }
+
+    .mobile-top { display: none; }
+    .mobile-nav { display: none; }
+    .scrim { display: none; }
+    .toast { position: fixed; z-index: 80; left: 50%; bottom: 24px; max-width: min(520px, calc(100vw - 28px)); transform: translate(-50%, 16px); opacity: 0; pointer-events: none; border: 1px solid rgba(84,230,187,.32); border-radius: 10px; background: #153129; padding: 10px 14px; color: var(--mint-strong); box-shadow: 0 20px 55px rgba(0,0,0,.45); font-size: 10px; transition: opacity 180ms, transform 180ms; }
+    .toast.show { transform: translate(-50%, 0); opacity: 1; }
+
+    @keyframes enter-left { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+    @keyframes enter-right { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+    @keyframes enter-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes row-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+    @keyframes detail-in { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
+    @keyframes grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+    @media (max-width: 1230px) {
+      .app { grid-template-columns: var(--sidebar) minmax(0,1fr); }
+      .inspector { position: fixed; z-index: 51; right: 0; top: 0; width: min(var(--inspector), 94vw); transform: translateX(105%); opacity: 0; box-shadow: -26px 0 70px rgba(0,0,0,.45); transition: transform 220ms cubic-bezier(.22,1,.36,1), opacity 180ms; animation: none; }
+      body.inspector-open .inspector { transform: none; opacity: 1; }
+      .close-inspector { display: grid; }
+      .scrim { position: fixed; z-index: 50; inset: 0; border: 0; background: rgba(0,0,0,.56); opacity: 0; pointer-events: none; transition: opacity 180ms; }
+      body.inspector-open .scrim { display: block; opacity: 1; pointer-events: auto; }
+    }
+
+    @media (max-width: 820px) {
+      .app { display: block; padding-bottom: 66px; }
+      .sidebar, .topbar { display: none; }
+      .mobile-top { position: sticky; z-index: 20; top: 0; min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); background: rgba(11,13,16,.92); padding: 0 14px; backdrop-filter: blur(18px); }
+      .mobile-brand { display: flex; align-items: center; gap: 9px; }
+      .mobile-brand .brand-mark { width: 30px; height: 30px; border-radius: 9px; }
+      .mobile-brand strong { font-size: 12px; }
+      .main { padding: 24px 16px 70px; }
+      .page-heading { display: block; }
+      .scope-switch { width: fit-content; margin-top: 17px; }
+      .signal-strip { overflow-x: auto; }
+      .signal { min-width: 132px; }
+      .focus-item { padding: 18px 17px 18px 20px; }
+      .toolbar { top: 58px; grid-template-columns: 1fr; gap: 8px; margin-top: 22px; }
+      .search { width: 100%; grid-row: 1; }
+      .work-row { grid-template-columns: 12px minmax(0,1fr) auto; gap: 11px; }
+      .row-context { display: none; }
+      .row-status time { display: none; }
+      .mobile-nav { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; height: 62px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); background: rgba(15,18,22,.96); backdrop-filter: blur(20px); }
+      .mobile-nav button { display: grid; place-items: center; align-content: center; gap: 3px; border: 0; background: transparent; color: var(--text-3); font-size: 8px; cursor: pointer; }
+      .mobile-nav button.active { color: var(--mint); }
+      .mobile-nav .icon { width: 17px; height: 17px; }
+      .toast { bottom: 78px; }
+    }
+
+    @media (max-width: 480px) {
+      h1 { font-size: 30px; }
+      .page-copy { max-width: 31ch; }
+      .signal:first-child { min-width: 170px; }
+      .signal { padding-top: 14px; padding-bottom: 14px; }
+      .focus-actions .button { flex: 1; }
+      .work-row { padding-top: 13px; padding-bottom: 13px; }
+      .row-title { align-items: flex-start; flex-direction: column; gap: 5px; }
+      .row-title strong { white-space: normal; line-height: 1.45; }
+      .row-main p { white-space: normal; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+      .status-label { padding: 3px 6px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <!-- PROTOTYPE: 只读工作推进控制面。正式产品的状态与动作必须回到 AgentRun、Inbox、协作 Task 等原始事实源。 -->
+  <a class="skip-link" href="#mainContent">跳到工作队列</a>
+
+  <div class="mobile-top">
+    <div class="mobile-brand"><span class="brand-mark">AM</span><strong>工作推进</strong></div>
+    <button class="icon-button" data-demo-action="打开全局搜索" aria-label="打开全局搜索">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+    </button>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <span class="brand-mark">AM</span>
+        <span class="brand-copy"><strong>AgentMesh</strong><span>数字员工协作空间</span></span>
+      </div>
+      <div class="nav-scroll">
+        <div class="nav-group">
+          <div class="nav-label">工作空间</div>
+          <button class="nav-item" data-demo-action="打开我的数字员工">
+            <svg class="icon" viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="11" rx="3"/><path d="M9 7V5m6 2V5M9 12h.01M15 12h.01M9 16h6"/></svg>
+            <span>我的数字员工</span>
+          </button>
+          <button class="nav-item" data-demo-action="打开 AI 工作台">
+            <svg class="icon" viewBox="0 0 24 24"><path d="m12 3 1.8 4.6L18 9.5l-4.2 1.9L12 16l-1.8-4.6L6 9.5l4.2-1.9L12 3Z"/><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z"/></svg>
+            <span>AI 工作台</span>
+          </button>
+          <button class="nav-item active" aria-current="page">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M5 5h14M5 12h14M5 19h14"/><circle cx="8" cy="5" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="19" r="2"/></svg>
+            <span>工作推进</span>
+            <b class="nav-count">4</b>
+          </button>
+          <button class="nav-item" data-demo-action="打开工作洞察">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M5 19V9m7 10V5m7 14v-7"/></svg>
+            <span>工作洞察</span>
+          </button>
+          <button class="nav-item" data-demo-action="打开我的知识">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 16h11"/></svg>
+            <span>我的知识</span>
+            <b class="nav-count">6</b>
+          </button>
+          <button class="nav-item" data-demo-action="打开协作网络">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.3 10.9 7.4-3.8m-7.4 6 7.4 3.8"/></svg>
+            <span>协作网络</span>
+          </button>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-label">当前项目</div>
+          <button class="project-link" data-scope-shortcut="project">
+            <strong>2026 年 618 会场体验升级</strong>
+            <span><i class="mini-dot"></i>有 3 项需要介入</span>
+          </button>
+          <button class="project-link" data-demo-action="切换到商家增长工作台">
+            <strong>商家增长工作台</strong>
+            <span><i class="mini-dot" style="background:#63706c"></i>正常推进</span>
+          </button>
+        </div>
+      </div>
+      <div class="sidebar-foot">
+        <div class="user"><span class="avatar">何</span><span><strong>何云深</strong><span>体验设计团队</span></span></div>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div class="crumb"><span>2026 年 618 会场体验升级</span><strong>工作推进 / 全部事项</strong></div>
+        <div class="top-actions">
+          <span class="prototype-badge">交互原型 · 演示数据</span>
+          <button class="icon-button" data-demo-action="打开命令菜单" aria-label="打开命令菜单">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M6 8h12M6 16h12"/><path d="M9 5 6 8l3 3m6 2 3 3-3 3"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main" id="mainContent">
+        <div class="page-heading">
+          <div>
+            <div class="eyebrow">Project work control</div>
+            <h1>工作推进</h1>
+            <p class="page-copy">把异常、审批、协作和 Agent 运行收束到一条队列；状态仍由原始业务对象负责。</p>
+          </div>
+          <div class="scope-switch" aria-label="工作范围">
+            <button class="active" data-scope="mine">我的工作</button>
+            <button data-scope="project">当前项目</button>
+          </div>
+        </div>
+
+        <section class="signal-strip" aria-label="工作概况">
+          <div class="signal"><span>现在需要你介入</span><strong><em id="actionCount">4</em> 项</strong></div>
+          <div class="signal"><span>Agent 正在推进</span><strong id="runningCount">2</strong></div>
+          <div class="signal"><span>等待外部</span><strong id="waitingCount">1</strong></div>
+          <div class="signal"><span>最近同步</span><strong style="font-size:13px">刚刚</strong></div>
+        </section>
+
+        <section class="focus-item" aria-labelledby="focusTitle">
+          <div class="focus-top"><span class="kicker">现在 · 最高优先级</span><time class="focus-time">已失败 18 分钟</time></div>
+          <h2 id="focusTitle">恢复竞品研究报告生成</h2>
+          <p>Research Agent 已完成资料采集，但报告合成在证据校验阶段失败。已有结果不会丢失，可以从失败节点恢复。</p>
+          <div class="focus-meta">
+            <span><svg class="icon" viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4V7Z"/></svg>2026 年 618 会场体验升级</span>
+            <span><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M6 20c.8-4 3-6 6-6s5.2 2 6 6"/></svg>Research Agent</span>
+            <span class="mono">RUN-326</span>
+          </div>
+          <div class="focus-actions">
+            <button class="button primary" data-task="run-326">查看并恢复</button>
+            <button class="button" data-demo-action="打开失败节点和错误详情">查看失败原因</button>
+          </div>
+        </section>
+
+        <div class="toolbar">
+          <div class="filters" role="tablist" aria-label="工作事项筛选">
+            <button class="filter active" role="tab" aria-selected="true" data-filter="all">全部<b data-count="all">0</b></button>
+            <button class="filter" role="tab" aria-selected="false" data-filter="action">需要我<b data-count="action">0</b></button>
+            <button class="filter" role="tab" aria-selected="false" data-filter="ai">Agent 处理中<b data-count="ai">0</b></button>
+            <button class="filter" role="tab" aria-selected="false" data-filter="waiting">等待中<b data-count="waiting">0</b></button>
+            <button class="filter" role="tab" aria-selected="false" data-filter="done">已完成<b data-count="done">0</b></button>
+          </div>
+          <label class="search">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+            <input id="searchInput" placeholder="搜索事项、项目或来源" aria-label="搜索工作事项" />
+            <kbd>/</kbd>
+          </label>
+        </div>
+
+        <div class="queue" id="queue" aria-live="polite"></div>
+      </main>
+    </section>
+
+    <aside class="inspector" aria-label="事项详情">
+      <div class="inspector-inner">
+        <header class="inspector-head">
+          <div><strong>事项详情</strong><span id="inspectorId">RUN-326</span></div>
+          <button class="icon-button close-inspector" data-close-inspector aria-label="关闭事项详情">
+            <svg class="icon" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="inspector-body" id="inspectorBody"></div>
+      </div>
+    </aside>
+  </div>
+
+  <button class="scrim" data-close-inspector aria-label="关闭事项详情"></button>
+
+  <nav class="mobile-nav" aria-label="移动端导航">
+    <button data-demo-action="打开我的数字员工"><svg class="icon" viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="11" rx="3"/><path d="M9 7V5m6 2V5"/></svg><span>数字员工</span></button>
+    <button data-demo-action="打开 AI 工作台"><svg class="icon" viewBox="0 0 24 24"><path d="m12 3 1.8 4.6L18 9.5l-4.2 1.9L12 16l-1.8-4.6L6 9.5l4.2-1.9L12 3Z"/></svg><span>工作台</span></button>
+    <button class="active" aria-current="page"><svg class="icon" viewBox="0 0 24 24"><path d="M5 5h14M5 12h14M5 19h14"/><circle cx="8" cy="5" r="2"/></svg><span>推进</span></button>
+    <button data-demo-action="打开我的知识"><svg class="icon" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/></svg><span>知识</span></button>
+  </nav>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const items = [
+      {
+        id: 'run-326', key: 'RUN-326', kind: 'Agent Run', state: 'failed', group: 'action', mine: true,
+        title: '恢复竞品研究报告生成', project: '2026 年 618 会场体验升级', owner: 'Research Agent', when: '18 分钟前',
+        status: '执行失败', summary: '资料采集已完成，报告合成在证据校验阶段失败。', next: '确认失败原因后，从报告合成节点恢复运行。',
+        nextWhy: '已完成的 4 个节点和来源都会复用，不会重新采集。', primary: '恢复运行', secondary: '取消任务',
+        reasonTitle: 'Evidence pointer 校验未通过', reason: '1 条内部来源缺少可解析的 Artifact pointer，系统已阻止生成最终报告。',
+        sources: [['WEB','三家竞品搜索体验研究','外部检索 · 12 个引用'],['DOC','搜索体验策略简报 v4','项目资料 · 已确认'],['RUN','竞争分析 Skill 输出','节点 4 · 已封存']],
+        trace: [['证据校验失败','18 分钟前 · Reviewer'],['竞争分析完成','23 分钟前 · Skill'],['外部资料采集完成','31 分钟前 · Tool']], progress: 74
+      },
+      {
+        id: 'inbox-brief', key: 'INBOX-091', kind: '人工确认', state: 'approval', group: 'action', mine: true,
+        title: '确认首页设计 Brief 并沉淀', project: '2026 年 618 会场体验升级', owner: '何云深', when: '32 分钟前',
+        status: '等待你确认', summary: '数字员工已根据会议与历史项目生成 Brief 草稿。', next: '核对目标、范围与验收条件，然后确认进入项目知识候选。',
+        nextWhy: '确认后才会写入项目候选；Agent 不会自动把草稿当成事实。', primary: '审核 Brief', secondary: '稍后处理',
+        reasonTitle: '需要人工确认', reason: '该动作会把草稿正式提交到项目知识候选，因此必须由当前负责人确认。',
+        sources: [['MTG','8 月 18 日项目启动会','会议纪要 · 已确认'],['DOC','2025 年 618 项目复盘','项目资料 · 9 个引用']],
+        trace: [['Brief 草稿生成','32 分钟前 · Personal Agent'],['资料检索完成','36 分钟前 · Retrieval'],['用户发起任务','42 分钟前 · 何云深']], progress: null
+      },
+      {
+        id: 'collab-data', key: 'TASK-118', kind: '协作任务', state: 'blocked', group: 'action', mine: true,
+        title: '补齐空结果推荐的数据口径', project: '2026 年 618 会场体验升级', owner: '数据 Agent → 何云深', when: '2 小时前',
+        status: '协作阻塞', summary: '推荐位 CTR 口径与项目复盘使用的定义不一致。', next: '选择沿用旧口径，或向数据负责人发起口径确认。',
+        nextWhy: '该差异会影响后续方案优先级，不能由 Agent 自行推断。', primary: '处理阻塞', secondary: '发起交接',
+        reasonTitle: '指标定义存在冲突', reason: '历史项目按曝光 UV 计算，当前数据源按页面 PV 计算，两者不可直接比较。',
+        sources: [['DATA','618 首页核心指标','数据接口 · 今日同步'],['DOC','2025 年复盘口径说明','项目资料 · 已确认']],
+        trace: [['标记为阻塞','2 小时前 · Data Agent'],['发现口径冲突','2 小时前 · Data Tool'],['协作任务创建','3 小时前 · Personal Agent']], progress: null
+      },
+      {
+        id: 'run-interview', key: 'RUN-329', kind: 'Agent Run', state: 'partial', group: 'action', mine: true,
+        title: '复核用户访谈洞察的证据缺口', project: '商家增长工作台', owner: 'Research Agent', when: '今天 10:14',
+        status: '部分完成', summary: '4 条洞察中有 1 条缺少逐字稿引用。', next: '补充来源或接受带缺口的交付结果。',
+        nextWhy: '系统保留已有成果，但不会把证据不足标记为完整成功。', primary: '查看缺口', secondary: '接受部分结果',
+        reasonTitle: '一条结论缺少直接证据', reason: '“商家更关注批量配置效率”目前只有会议总结，没有访谈原文引用。',
+        sources: [['DOC','商家访谈逐字稿（6 份）','内部文档 · 已授权'],['RUN','访谈洞察 FindingGraph','节点 6 · 部分完成']],
+        trace: [['任务部分完成','今天 10:14 · Reviewer'],['缺口已记录','今天 10:13 · Evidence'],['访谈分析完成','今天 10:09 · Skill']], progress: 88
+      },
+      {
+        id: 'run-usability', key: 'RUN-331', kind: 'Agent Run', state: 'running', group: 'ai', mine: true,
+        title: '生成首页可用性测试方案', project: '2026 年 618 会场体验升级', owner: 'Research Agent', when: '预计 12 分钟',
+        status: '执行中 · 68%', summary: '正在生成任务脚本与成功指标。', next: '无需介入；完成后将进入报告复核。',
+        nextWhy: '当前节点不涉及外部写入，也没有触发人工审批。', primary: '查看运行', secondary: '取消任务',
+        reasonTitle: 'Agent 正在执行', reason: '已完成目标拆解和样本计划，当前正在生成测试任务脚本。',
+        sources: [['DOC','首页交互原型 v12','项目资料 · 当前版本'],['SKILL','可用性测试方案 Skill','内置能力 · v1.3']],
+        trace: [['生成任务脚本','正在执行 · Skill'],['样本计划完成','4 分钟前 · Skill'],['执行计划已确认','9 分钟前 · 何云深']], progress: 68
+      },
+      {
+        id: 'run-ia', key: 'RUN-332', kind: 'Agent Run', state: 'planning', group: 'ai', mine: false,
+        title: '整理竞品信息架构差异', project: '2026 年 618 会场体验升级', owner: '林澜的数字员工', when: '预计 6 分钟',
+        status: '规划中', summary: '正在选择竞争分析与 JTBD 能力。', next: '等待计划生成；涉及多 Skill 时由任务所有者确认。',
+        nextWhy: '你在项目视图中可见，但该任务的确认动作属于林澜。', primary: '查看计划', secondary: '联系负责人',
+        reasonTitle: '正在生成执行计划', reason: '系统正在基于项目上下文筛选可用 Skill，尚未开始执行。',
+        sources: [['DOC','竞品清单与研究范围','项目资料 · 林澜上传']],
+        trace: [['能力筛选开始','刚刚 · Planner'],['任务创建','1 分钟前 · 林澜']], progress: 16
+      },
+      {
+        id: 'collab-wait', key: 'TASK-121', kind: '协作任务', state: 'waiting', group: 'waiting', mine: true,
+        title: '等待商家运营补充约束条件', project: '商家增长工作台', owner: '刘晨', when: '昨天 17:40',
+        status: '等待外部', summary: '预算范围和首批覆盖商家数量尚未确认。', next: '当前无需操作；超过 24 小时后提醒负责人。',
+        nextWhy: '等待状态独立于业务阶段，不伪装成“进行中”。', primary: '查看协作', secondary: '立即提醒',
+        reasonTitle: '依赖外部输入', reason: '项目范围在约束条件确认前不能进入方案评估。',
+        sources: [['POST','协作讨论串','3 位参与人 · 7 条回复'],['MTG','商家运营对齐会','行动项 · 待完成']],
+        trace: [['等待刘晨回复','昨天 17:40 · Personal Agent'],['行动项确认','昨天 16:52 · 会议负责人']], progress: null
+      },
+      {
+        id: 'done-risk', key: 'INBOX-086', kind: '人工确认', state: 'done', group: 'done', mine: true,
+        title: '确认外部资料风险检查结果', project: '2026 年 618 会场体验升级', owner: '何云深', when: '昨天 15:22',
+        status: '已完成', summary: '疑似提示词注入内容已丢弃，未进入报告。', next: '事项已完成，无需操作。',
+        nextWhy: '完整审计记录和原始对象仍然保留。', primary: '查看记录', secondary: null,
+        reasonTitle: '风险处置已完成', reason: '隔离内容已丢弃，后续运行未引用该来源。',
+        sources: [['AUDIT','风险处置审计记录','昨天 15:22 · 已确认']],
+        trace: [['风险事项已解决','昨天 15:22 · 何云深'],['外部内容已隔离','昨天 15:08 · Risk Agent']], progress: 100
+      },
+      {
+        id: 'done-plan', key: 'RUN-318', kind: 'Agent Run', state: 'done', group: 'done', mine: false,
+        title: '输出会场首页体验指标框架', project: '2026 年 618 会场体验升级', owner: '林澜的数字员工', when: '周一 11:06',
+        status: '已完成', summary: '指标框架已生成并通过人工复核。', next: '事项已完成，可查看交付物和证据。',
+        nextWhy: '项目视图保留结果，但默认不会让已完成事项挤占注意力。', primary: '查看交付物', secondary: null,
+        reasonTitle: '执行成功', reason: '全部必需节点完成，证据覆盖和人工复核均已通过。',
+        sources: [['REPORT','首页体验指标框架','最终报告 · 已确认'],['AUDIT','执行与复核记录','完整链路 · 11 个事件']],
+        trace: [['报告确认','周一 11:06 · 林澜'],['报告生成','周一 10:48 · Composer'],['证据复核通过','周一 10:41 · Reviewer']], progress: 100
+      }
+    ];
+
+    const groupMeta = {
+      action: ['需要你处理', '异常、审批和缺口优先'],
+      ai: ['Agent 正在推进', '无需持续盯守，异常时再介入'],
+      waiting: ['等待中', '外部依赖与协作等待'],
+      done: ['最近完成', '默认折叠在日常视线之外']
+    };
+
+    const state = { scope: 'mine', filter: 'all', query: '', selected: 'run-326' };
+    let toastTimer;
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+    }
+
+    function visibleItems() {
+      const query = state.query.trim().toLowerCase();
+      return items.filter(item => {
+        if (state.scope === 'mine' && !item.mine) return false;
+        if (state.filter !== 'all' && item.group !== state.filter) return false;
+        if (!query) return true;
+        return [item.key, item.title, item.kind, item.project, item.owner, item.status, item.summary]
+          .some(value => value.toLowerCase().includes(query));
+      });
+    }
+
+    function countsForScope() {
+      const scoped = items.filter(item => state.scope === 'project' || item.mine);
+      return {
+        all: scoped.length,
+        action: scoped.filter(item => item.group === 'action').length,
+        ai: scoped.filter(item => item.group === 'ai').length,
+        waiting: scoped.filter(item => item.group === 'waiting').length,
+        done: scoped.filter(item => item.group === 'done').length
+      };
+    }
+
+    function rowTemplate(item, index) {
+      const progress = item.progress !== null && item.group !== 'done'
+        ? `<div class="progress-track"><i style="width:${item.progress}%"></i></div>` : '';
+      return `<button class="work-row ${state.selected === item.id ? 'selected' : ''}" data-task="${item.id}" style="animation-delay:${Math.min(index * 24, 160)}ms" aria-pressed="${state.selected === item.id}">
+        <i class="state-dot ${item.state}" aria-hidden="true"></i>
+        <span class="row-main">
+          <span class="row-title"><strong>${escapeHtml(item.title)}</strong><small class="type-label">${escapeHtml(item.kind)}</small></span>
+          <p>${escapeHtml(item.summary)}</p>${progress}
+        </span>
+        <span class="row-context"><strong>${escapeHtml(item.project)}</strong><span>${escapeHtml(item.owner)}</span></span>
+        <span class="row-status"><small class="status-label ${item.state}">${escapeHtml(item.status)}</small><time>${escapeHtml(item.when)}</time></span>
+      </button>`;
+    }
+
+    function renderQueue() {
+      const list = visibleItems();
+      const queue = document.getElementById('queue');
+      const groups = ['action', 'ai', 'waiting', 'done'];
+      queue.innerHTML = groups.map(group => {
+        const grouped = list.filter(item => item.group === group);
+        if (!grouped.length) return '';
+        const [title, copy] = groupMeta[group];
+        return `<section class="queue-group" aria-labelledby="group-${group}">
+          <header class="group-heading"><h2 id="group-${group}">${title}</h2><span>${grouped.length} 项 · ${copy}</span></header>
+          <div class="rows">${grouped.map(rowTemplate).join('')}</div>
+        </section>`;
+      }).join('') || '<div class="empty">没有匹配的工作事项。试试清除搜索或切换筛选范围。</div>';
+
+      const counts = countsForScope();
+      Object.entries(counts).forEach(([key, value]) => {
+        const target = document.querySelector(`[data-count="${key}"]`);
+        if (target) target.textContent = value;
+      });
+      document.getElementById('actionCount').textContent = counts.action;
+      document.getElementById('runningCount').textContent = counts.ai;
+      document.getElementById('waitingCount').textContent = counts.waiting;
+    }
+
+    function detailPillClass(item) {
+      if (['failed','blocked'].includes(item.state)) return 'attention';
+      if (['approval','partial','waiting'].includes(item.state)) return 'wait';
+      if (['running','planning'].includes(item.state)) return 'run';
+      return '';
+    }
+
+    function renderInspector() {
+      const item = items.find(candidate => candidate.id === state.selected) || items[0];
+      document.getElementById('inspectorId').textContent = item.key;
+      const sources = item.sources.map(source => `<button class="source" data-demo-action="打开来源：${escapeHtml(source[1])}">
+        <i class="source-icon">${escapeHtml(source[0])}</i><span><strong>${escapeHtml(source[1])}</strong><span>${escapeHtml(source[2])}</span></span><span>↗</span>
+      </button>`).join('');
+      const trace = item.trace.map(step => `<li><strong>${escapeHtml(step[0])}</strong><span>${escapeHtml(step[1])}</span></li>`).join('');
+      const secondary = item.secondary ? `<button class="button" data-demo-action="${escapeHtml(item.secondary)}：${escapeHtml(item.title)}">${escapeHtml(item.secondary)}</button>` : '';
+      document.getElementById('inspectorBody').innerHTML = `
+        <div class="detail-kinds"><span class="detail-pill">${escapeHtml(item.kind)}</span><span class="detail-pill ${detailPillClass(item)}">${escapeHtml(item.status)}</span></div>
+        <h2>${escapeHtml(item.title)}</h2>
+        <p class="detail-summary">${escapeHtml(item.summary)}</p>
+
+        <section class="detail-section">
+          <div class="next-action"><span>NEXT ACTION</span><strong>${escapeHtml(item.next)}</strong><p>${escapeHtml(item.nextWhy)}</p></div>
+          <div class="detail-actions"><button class="button primary" data-demo-action="${escapeHtml(item.primary)}：${escapeHtml(item.title)}">${escapeHtml(item.primary)}</button>${secondary}</div>
+        </section>
+
+        <section class="detail-section"><h3>事项事实</h3><dl class="facts">
+          <div class="fact"><dt>所属项目</dt><dd>${escapeHtml(item.project)}</dd></div>
+          <div class="fact"><dt>原始对象</dt><dd class="mono">${escapeHtml(item.key)} · ${escapeHtml(item.kind)}</dd></div>
+          <div class="fact"><dt>当前责任</dt><dd>${escapeHtml(item.owner)}</dd></div>
+          <div class="fact"><dt>最近更新</dt><dd>${escapeHtml(item.when)}</dd></div>
+        </dl></section>
+
+        <section class="detail-section"><h3>为什么需要关注</h3><div class="reason">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg>
+          <span><strong>${escapeHtml(item.reasonTitle)}</strong><p>${escapeHtml(item.reason)}</p></span>
+        </div></section>
+
+        <section class="detail-section"><h3>来源与证据 · ${item.sources.length}</h3><div class="sources">${sources}</div></section>
+        <section class="detail-section"><h3>运行与审计轨迹</h3><ol class="timeline">${trace}</ol></section>
+        <section class="detail-section"><button class="original-link" data-demo-action="跳转原始对象 ${escapeHtml(item.key)}"><span>在原始模块中打开</span><span class="mono">${escapeHtml(item.key)} ↗</span></button></section>`;
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = `原型动作：${message}。正式产品将调用原始对象的受权操作。`;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+    }
+
+    function selectTask(id, openDrawer = true) {
+      state.selected = id;
+      renderQueue();
+      renderInspector();
+      if (openDrawer && matchMedia('(max-width: 1230px)').matches) document.body.classList.add('inspector-open');
+    }
+
+    document.addEventListener('click', event => {
+      const task = event.target.closest('[data-task]');
+      if (task) { selectTask(task.dataset.task); return; }
+
+      const filter = event.target.closest('[data-filter]');
+      if (filter) {
+        state.filter = filter.dataset.filter;
+        document.querySelectorAll('[data-filter]').forEach(button => {
+          const active = button === filter;
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-selected', String(active));
+        });
+        renderQueue();
+        return;
+      }
+
+      const scope = event.target.closest('[data-scope]');
+      if (scope) {
+        state.scope = scope.dataset.scope;
+        document.querySelectorAll('[data-scope]').forEach(button => button.classList.toggle('active', button === scope));
+        renderQueue();
+        return;
+      }
+
+      const shortcut = event.target.closest('[data-scope-shortcut]');
+      if (shortcut) {
+        state.scope = shortcut.dataset.scopeShortcut;
+        document.querySelectorAll('[data-scope]').forEach(button => button.classList.toggle('active', button.dataset.scope === state.scope));
+        renderQueue();
+        document.getElementById('mainContent').scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+
+      if (event.target.closest('[data-close-inspector]')) {
+        document.body.classList.remove('inspector-open');
+        return;
+      }
+
+      const action = event.target.closest('[data-demo-action]');
+      if (action) showToast(action.dataset.demoAction);
+    });
+
+    document.getElementById('searchInput').addEventListener('input', event => {
+      state.query = event.target.value;
+      renderQueue();
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { document.body.classList.remove('inspector-open'); return; }
+      const typing = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName);
+      if (event.key === '/' && !typing) { event.preventDefault(); document.getElementById('searchInput').focus(); return; }
+      if (typing || !['j','k','ArrowDown','ArrowUp'].includes(event.key)) return;
+      event.preventDefault();
+      const list = visibleItems();
+      if (!list.length) return;
+      const current = Math.max(0, list.findIndex(item => item.id === state.selected));
+      const delta = ['j','ArrowDown'].includes(event.key) ? 1 : -1;
+      const next = list[(current + delta + list.length) % list.length];
+      selectTask(next.id, false);
+      document.querySelector(`[data-task="${next.id}"]`)?.focus();
+    });
+
+    renderQueue();
+    renderInspector();
+  </script>
+</body>
+</html>

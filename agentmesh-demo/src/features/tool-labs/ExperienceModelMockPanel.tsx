@@ -8,7 +8,7 @@ import { ExperienceModelResultPage } from './ExperienceModelResultPage'
 import { EXPERIENCE_MOCK_RESULT, EXPERIENCE_MODELS } from './fixtures'
 import type { ExperienceRecommendation } from './types'
 
-const inputClass = 'mt-1.5 w-full rounded-[9px] border border-white/[0.08] bg-base px-3 py-2 text-sm text-slate-100 outline-none focus:border-mint-400/40'
+const inputClass = 'mt-1.5 w-full rounded-soft border border-white/[0.08] bg-base px-3 py-2 text-sm text-slate-100 outline-none focus:border-mint-400/40'
 
 function recommendations(preferred: string[], manual: string): ExperienceRecommendation[] {
   const preferredInCatalogOrder = EXPERIENCE_MODELS.filter((model) => preferred.includes(model.id)).map((model) => model.id)
@@ -59,7 +59,7 @@ export function ExperienceModelMockPanel() {
   return (
     <div data-testid="experience-model-panel" className="grid gap-5 xl:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]">
       <div className="space-y-4">
-        <div className="rounded-[12px] border border-amber-300/20 bg-amber-300/[0.07] px-4 py-3 text-xs leading-5 text-amber-100">
+        <div className="rounded-soft border border-amber-300/20 bg-amber-300/[0.07] px-4 py-3 text-xs leading-5 text-amber-100">
           <strong>示例演示：</strong>固定推荐样例，不代表实际研究结论。不会读取资料或发起网络请求。
         </div>
         <SectionCard title="研究问题" desc="描述要评估的体验目标或场景。" icon={<BrainCircuit className="h-4 w-4" />}>
@@ -79,7 +79,7 @@ export function ExperienceModelMockPanel() {
         <SectionCard title="偏好模型" desc="可选择多个方向，结果仍为确定性演示。">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {EXPERIENCE_MODELS.map((model) => (
-              <label key={model.id} className="flex items-center gap-2 rounded-[9px] border border-white/[0.06] bg-base px-3 py-2 text-xs text-slate-300">
+              <label key={model.id} className="flex items-center gap-2 rounded-soft border border-white/[0.06] bg-base px-3 py-2 text-xs text-slate-300">
                 <input type="checkbox" aria-label={model.label} checked={preferred.includes(model.id)} onChange={() => togglePreferred(model.id)} />
                 {model.label}
               </label>
@@ -97,9 +97,9 @@ export function ExperienceModelMockPanel() {
         <SectionCard title="模型目录" desc="仅展示内置方法名称和适用场景。" icon={<BookOpen className="h-4 w-4" />}>
           <div className="space-y-2">
             {EXPERIENCE_MODELS.map((model) => (
-              <div key={model.id} className="rounded-[9px] border border-white/[0.06] bg-base p-3">
-                <div className="flex items-center justify-between gap-3"><strong className="text-xs text-slate-200">{model.label}</strong><span className="text-[10px] text-slate-600">{model.bestFor}</span></div>
-                <p className="mt-1 text-[11px] leading-5 text-slate-500">{model.description}</p>
+              <div key={model.id} className="rounded-soft border border-white/[0.06] bg-base p-3">
+                <div className="flex items-center justify-between gap-3"><strong className="text-xs text-slate-200">{model.label}</strong><span className="text-[11px] text-slate-400">{model.bestFor}</span></div>
+                <p className="mt-1 text-[11px] leading-5 text-slate-400">{model.description}</p>
               </div>
             ))}
           </div>

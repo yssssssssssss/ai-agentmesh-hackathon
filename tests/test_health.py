@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from agentmesh.app import app
 from agentmesh.models import (
+    AgentPlanningMode,
+    AgentRunStatus,
     SkillCapabilityProfile,
     SkillCapabilityType,
     SkillDefinition,
@@ -61,40 +63,12 @@ class TestProviderHealthCheck:
         assert runtime["profile_health"] in {"ready", "degraded"}
         assert runtime["index_health"] in {"ready", "degraded"}
         assert runtime["planner_health"] in {"disabled", "ready", "degraded"}
-        assert runtime["research_writer_generation"] == "research-v2"
-        assert runtime["research_writer_generation_epoch"] == 1
-        assert runtime["research_writer_lifecycle"] == "retired"
-        assert runtime["research_writer_accepts_new_runs"] is False
-        assert runtime["research_preview_allowlist_count"] == 0
-        assert len(runtime["research_preview_allowlist_digest"]) == 64
+        assert not any(key.startswith("research_writer_") for key in runtime)
+        assert not any(key.startswith("research_preview_") for key in runtime)
         metrics = runtime["orchestration_metrics"]
         assert metrics["cost"] is None
         assert "candidate_retrieval_p95_ms" in metrics
         assert "source_coverage_rate" in metrics
-
-    def test_health_reports_only_preview_allowlist_count_and_digest(
-        self,
-        auth_client: TestClient,
-    ) -> None:
-        with patch.dict(
-            "os.environ",
-            {
-                "AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST": (
-                    "user_gate2_preview_1,user_gate2_preview_2"
-                )
-            },
-        ):
-            response = auth_client.get("/api/health/providers")
-
-        runtime = next(
-            item for item in response.json()["providers"]
-            if item["name"] == "openai_agents_sdk"
-        )
-        serialized = str(runtime)
-        assert runtime["research_preview_allowlist_count"] == 2
-        assert len(runtime["research_preview_allowlist_digest"]) == 64
-        assert "user_gate2_preview_1" not in serialized
-        assert "user_gate2_preview_2" not in serialized
 
     @pytest.mark.parametrize(
         ("configured", "effective"),
@@ -253,6 +227,82 @@ class TestProviderHealthCheck:
         metrics = health_routes._orchestration_metrics([run])
 
         assert metrics["three_node_run_p95_ms"] == 10_000.0
+
+    def test_deepsearch_metrics_are_isolated_and_use_only_stable_labels(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        created_at = datetime(2026, 8, 26, tzinfo=UTC)
+        deepsearch_run = SimpleNamespace(
+            id="run_deepsearch_metrics",
+            planning_mode=AgentPlanningMode.DEEPSEARCH,
+            status=AgentRunStatus.PARTIAL,
+            error_code="deepsearch_review_not_passed",
+            created_at=created_at,
+            updated_at=created_at + timedelta(seconds=10),
+        )
+        standard_run = SimpleNamespace(
+            id="run_standard_metrics",
+            planning_mode=AgentPlanningMode.STANDARD,
+            status=AgentRunStatus.FAILED,
+            error_code="deepsearch_planning_failed",
+            created_at=created_at,
+            updated_at=created_at + timedelta(days=1),
+        )
+        plan = SimpleNamespace(
+            capability_gaps=["required_tool_unavailable:secret-tool-name"],
+            evidence_coverage=SimpleNamespace(passed=True),
+            review_outcomes=[
+                SimpleNamespace(outcome="revise"),
+                SimpleNamespace(outcome="pass"),
+            ],
+        )
+        events = [
+            SimpleNamespace(
+                event_type="deepsearch_clarification_requested",
+                payload={"clarification_round": 2},
+                created_at=created_at + timedelta(seconds=1),
+            ),
+            SimpleNamespace(
+                event_type="deepsearch_finalization_stage_changed",
+                payload={"to_stage": "nodes_terminal"},
+                created_at=created_at + timedelta(seconds=4),
+            ),
+            SimpleNamespace(
+                event_type="deepsearch_finalization_stage_changed",
+                payload={"to_stage": "evidence_manifest_sealed"},
+                created_at=created_at + timedelta(seconds=7),
+            ),
+        ]
+        repository = SimpleNamespace(
+            get_skill_plan_for_run=lambda run_id: plan if run_id == deepsearch_run.id else None,
+            list_agent_run_events=lambda run_id: events if run_id == deepsearch_run.id else [],
+        )
+        monkeypatch.setattr(health_routes, "store", repository)
+        monkeypatch.setattr(
+            health_routes,
+            "deepsearch_admission_rejections",
+            lambda: {"disabled": 2},
+        )
+
+        metrics = health_routes._deepsearch_metrics([deepsearch_run, standard_run])
+
+        assert metrics == {
+            "runs_started": 1,
+            "terminal_status_counts": {"partial": 1},
+            "clarification_round_counts": {"2": 1},
+            "clarification_exhaustion_rate": 0.0,
+            "planning_failure_rate": 0.0,
+            "capability_gap_counts": {"required_tool_unavailable": 1},
+            "evidence_pass_rate": 1.0,
+            "review_verdict_counts": {"revise": 1, "pass": 1},
+            "review_revision_rate": 1.0,
+            "partial_failed_rate": 1.0,
+            "stage_duration_p95_ms": 3000.0,
+            "end_to_end_p95_ms": 10000.0,
+            "admission_rejected_by_code": {"disabled": 2},
+            "admission_window": "process_lifetime",
+        }
 
     def test_llm_not_configured(self, auth_client: TestClient):
         """LLM 未配置时返回 not_configured 状态。"""

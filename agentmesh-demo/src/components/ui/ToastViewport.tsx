@@ -9,7 +9,7 @@ export function ToastViewport() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className="pointer-events-auto flex items-start gap-3 rounded-[12px] border border-white/[0.08] bg-surface-3 px-4 py-3.5 shadow-pop animate-slide-in"
+          className="pointer-events-auto flex items-start gap-3 rounded-soft border border-white/[0.08] bg-surface-3 px-4 py-3.5 shadow-pop animate-slide-in"
         >
           <span className={t.tone === 'success' ? 'text-mint-300' : 'text-knowledge'}>
             {t.tone === 'success' ? (
@@ -21,7 +21,7 @@ export function ToastViewport() {
           <p className="flex-1 text-sm leading-relaxed text-slate-100">{t.message}</p>
           <button
             onClick={() => dismissToast(t.id)}
-            className="rounded p-0.5 text-slate-500 transition-colors hover:text-slate-200"
+            className="rounded p-0.5 text-slate-400 transition-colors hover:text-slate-200"
             aria-label="关闭提示"
           >
             <X className="h-4 w-4" />

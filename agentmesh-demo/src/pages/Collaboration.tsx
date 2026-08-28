@@ -161,7 +161,7 @@ export function Collaboration() {
       />
 
       {view.overview.error ? (
-        <div role="alert" className="flex items-center justify-between gap-3 rounded-[12px] border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-soft border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
           <span>{view.overview.error}</span>
           <Button size="sm" variant="subtle" icon={<RefreshCw className="h-4 w-4" />} onClick={() => void Promise.all([cardsQuery.refetch(), market.board.refetch()])}>重试</Button>
         </div>
@@ -187,13 +187,13 @@ export function Collaboration() {
                 ['进行中', view.overview.data.periodAggregates.value.ongoing],
                 ['已完成', view.overview.data.periodAggregates.value.completed],
               ] as const).map(([label, value]) => (
-                <div key={label} className="rounded-[10px] bg-surface-2 px-3 py-2.5 text-center">
+                <div key={label} className="rounded-soft bg-surface-2 px-3 py-2.5 text-center">
                   <div className="text-lg font-semibold tabular-nums text-white">{value}</div>
-                  <div className="mt-1 text-[10.5px] text-slate-500">{label}</div>
+                  <div className="mt-1 text-[10.5px] text-slate-400">{label}</div>
                 </div>
               ))}
             </div>
-            <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+            <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
               <DataSourceBadge source={view.overview.data.periodAggregates.source} />
               {view.overview.data.periodAggregates.reason}
             </div>
@@ -216,7 +216,7 @@ export function Collaboration() {
                 />
               ))}
             </div>
-            <p className="mt-5 text-xs leading-relaxed text-slate-500">{view.overview.data.capabilityPercentages.reason}</p>
+            <p className="mt-5 text-xs leading-relaxed text-slate-400">{view.overview.data.capabilityPercentages.reason}</p>
           </section>
         </div>
       )}
@@ -225,7 +225,7 @@ export function Collaboration() {
         <div className="mb-3 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 id="market-participants-title" className="text-[16px] font-semibold text-slate-100">组织协作参与者</h2>
-            <p className="mt-0.5 text-[12px] text-slate-500">展示市场供给、需求和匹配；匹配原因缺失时才使用 M 数据。</p>
+            <p className="mt-0.5 text-[12px] text-slate-400">展示市场供给、需求和匹配；匹配原因缺失时才使用 M 数据。</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <SourceLegend sources={view.market.sources} />
@@ -242,10 +242,10 @@ export function Collaboration() {
           </div>
         </div>
 
-        {participationError ? <p role="alert" className="mb-3 rounded-[10px] border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">{participationError}</p> : null}
-        {participationMessage ? <p role="status" className="mb-3 rounded-[10px] border border-mint-400/20 bg-mint-400/[0.06] px-4 py-3 text-sm text-mint-300">{participationMessage}</p> : null}
+        {participationError ? <p role="alert" className="mb-3 rounded-soft border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">{participationError}</p> : null}
+        {participationMessage ? <p role="status" className="mb-3 rounded-soft border border-mint-400/20 bg-mint-400/[0.06] px-4 py-3 text-sm text-mint-300">{participationMessage}</p> : null}
         {marketError ? (
-          <div role="alert" className="flex items-center justify-between gap-3 rounded-[12px] border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
+          <div role="alert" className="flex items-center justify-between gap-3 rounded-soft border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
             <span>{marketError}</span>
             <Button size="sm" variant="subtle" icon={<RefreshCw className="h-4 w-4" />} onClick={() => void Promise.all([market.status.refetch(), market.board.refetch(), market.participation.refetch()])}>重试</Button>
           </div>
@@ -274,8 +274,8 @@ export function Collaboration() {
                 <div className="card-base col-span-full py-12 text-center text-sm text-slate-400">当前没有可见市场参与者。</div>
               ) : null}
             </div>
-            <details className="mt-4 rounded-[12px] border border-white/[0.06] bg-surface-1 px-4 py-3 text-xs">
-              <summary className="min-h-8 cursor-pointer py-1.5 text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">市场运行技术状态</summary>
+            <details className="mt-4 rounded-soft border border-white/[0.06] bg-surface-1 px-4 py-3 text-xs">
+              <summary className="min-h-8 cursor-pointer py-1.5 text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">市场运行技术状态</summary>
               <div className="mt-3 grid gap-3 border-t border-white/[0.06] pt-4 md:grid-cols-2">
                 <WorkerStatus label="发布 Worker" worker={view.market.data.publishWorker.value} />
                 <WorkerStatus label="发现 Worker" worker={view.market.data.scoutWorker.value} />
@@ -297,7 +297,7 @@ export function Collaboration() {
         <div className="mt-4" role="tabpanel">
           {tab === 'authorization' ? (
             view.authorizations.error ? (
-              <div role="alert" className="rounded-[12px] border border-rose/25 bg-rose/10 p-4 text-sm text-rose">{view.authorizations.error}</div>
+              <div role="alert" className="rounded-soft border border-rose/25 bg-rose/10 p-4 text-sm text-rose">{view.authorizations.error}</div>
             ) : view.authorizations.loading ? (
               <div className="card-base p-6 text-sm text-slate-400">正在读取授权记录…</div>
             ) : (
@@ -315,7 +315,7 @@ export function Collaboration() {
               </div>
             )
           ) : view.records.error ? (
-            <div role="alert" className="flex items-center justify-between gap-3 rounded-[12px] border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-soft border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
               <span>{view.records.error}</span>
               <Button size="sm" variant="subtle" icon={<RefreshCw className="h-4 w-4" />} onClick={() => void cardsQuery.refetch()}>重试</Button>
             </div>
@@ -352,7 +352,7 @@ function SectionHeading({ title, desc, action, id }: { title: string; desc: stri
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 id={id} className="text-[16px] font-semibold text-slate-100">{title}</h2>
-        <p className="mt-0.5 text-[12px] text-slate-500">{desc}</p>
+        <p className="mt-0.5 text-[12px] text-slate-400">{desc}</p>
       </div>
       {action}
     </div>
@@ -379,7 +379,7 @@ function NetworkMetric({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[12px] text-slate-400">{label}</div>
-          <p className="mt-0.5 text-[10.5px] leading-relaxed text-slate-600">{desc}</p>
+          <p className="mt-0.5 text-[10.5px] leading-relaxed text-slate-400">{desc}</p>
         </div>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] text-slate-400">{icon}</span>
       </div>
@@ -393,9 +393,9 @@ function NetworkMetric({
 
 function MarketCount({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-[10px] border border-white/[0.06] bg-surface-1 px-4 py-3">
+    <div className="rounded-soft border border-white/[0.06] bg-surface-1 px-4 py-3">
       <div className="text-xl font-semibold tabular-nums text-white">{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{label}</div>
+      <div className="mt-1 text-xs text-slate-400">{label}</div>
     </div>
   )
 }
@@ -408,13 +408,13 @@ function WorkerStatus({
   worker: MarketWorkerState
 }) {
   return (
-    <div className="rounded-[10px] bg-surface-2 p-3">
+    <div className="rounded-soft bg-surface-2 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm text-slate-200">{label}</span>
         <Badge tone={worker.running ? 'mint' : 'neutral'}>{worker.running ? 'running' : worker.enabled ? 'enabled' : 'disabled'}</Badge>
       </div>
-      <p className={`mt-2 text-xs ${worker.last_error ? 'text-rose' : 'text-slate-500'}`}>{worker.last_error ?? '无错误'}</p>
-      <p className="mt-1 text-[11px] text-slate-600">最近运行：{worker.last_run_at ? new Date(worker.last_run_at).toLocaleString('zh-CN') : '暂无'}</p>
+      <p className={`mt-2 text-xs ${worker.last_error ? 'text-rose' : 'text-slate-400'}`}>{worker.last_error ?? '无错误'}</p>
+      <p className="mt-1 text-[11px] text-slate-400">最近运行：{worker.last_run_at ? new Date(worker.last_run_at).toLocaleString('zh-CN') : '暂无'}</p>
     </div>
   )
 }

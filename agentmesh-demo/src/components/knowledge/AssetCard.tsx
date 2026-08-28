@@ -14,7 +14,7 @@ export function AssetCard({ data, onClick }: AssetCardProps) {
     <button
       type="button"
       onClick={onClick}
-      className="group flex h-full w-full flex-col rounded-[12px] border border-white/[0.06] bg-surface-2 p-5 text-left transition-[transform,background-color,border-color] duration-150 active:scale-[0.98] hover:-translate-y-0.5 hover:border-white/[0.16] hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+      className="group flex h-full w-full flex-col rounded-soft border border-white/[0.06] bg-surface-2 p-5 text-left transition-[transform,background-color,border-color] duration-150 active:scale-[0.98] [@media(hover:hover)]:hover:-translate-y-0.5 [@media(hover:hover)]:hover:border-white/[0.16] [@media(hover:hover)]:hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
     >
       <div className="flex w-full items-start justify-between gap-3">
         <div className="min-w-0">
@@ -36,13 +36,13 @@ export function AssetCard({ data, onClick }: AssetCardProps) {
         {data.conclusion.source !== data.title.source ? <DataSourceBadge source={data.conclusion.source} /> : null}
       </div>
 
-      <dl className="mt-4 w-full space-y-2 text-[12px] text-slate-500">
+      <dl className="mt-4 w-full space-y-2 text-[12px] text-slate-400">
         <MetaLine icon={<Target className="h-3 w-3" />} label="适用范围" value={data.scope.value} source={data.scope.source} />
         <MetaLine icon={<FolderClock className="h-3 w-3" />} label="来源" value={data.sourceProject.value} source={data.sourceProject.source} />
         <MetaLine icon={<BadgeCheck className="h-3 w-3" />} label="验证" value={data.verified.value} source={data.verified.source} />
       </dl>
 
-      <div className="mt-auto flex w-full flex-wrap items-center justify-between gap-3 border-t border-white/[0.05] pt-3 text-[11.5px] text-slate-500">
+      <div className="mt-auto flex w-full flex-wrap items-center justify-between gap-3 border-t border-white/[0.05] pt-3 text-[11.5px] text-slate-400">
         <span className="inline-flex items-center gap-1.5">
           <Quote className="h-3 w-3" />
           被引用 <span className="font-medium tabular-nums text-slate-200">{data.citedBy.value}</span> 次
@@ -66,7 +66,7 @@ function MetaLine({ icon, label, value, source }: {
 }) {
   return (
     <div className="flex items-start gap-1.5">
-      <span className="mt-0.5 shrink-0 text-slate-500">{icon}</span>
+      <span className="mt-0.5 shrink-0 text-slate-400">{icon}</span>
       <dt className="shrink-0">{label}:</dt>
       <dd className="min-w-0 flex-1 truncate text-slate-400">{value}</dd>
       <DataSourceBadge source={source} />

@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 
 import type {
   Skill,
-  SkillPlanDetailResponse,
+  PlanDetailResponse,
   SkillPlanUpdateRequest,
   SkillPlanVersionRequest,
 } from '../../features/workspace/types'
@@ -12,9 +12,10 @@ import { SkillPlanNodeCard } from './SkillPlanNodeCard'
 import { capabilityGapLabel, degradationCopy } from './skillPlanPresentation'
 
 interface SkillPlanPreviewProps {
-  detail: SkillPlanDetailResponse
+  detail: PlanDetailResponse
   candidates: Skill[]
   orchestrationMode: 'preview' | 'execute'
+  blockApprovalForCapabilityGaps?: boolean
   pendingAction: 'update' | 'approve' | 'reject' | null
   error: string | null
   onUpdate: (request: SkillPlanUpdateRequest) => void
@@ -26,6 +27,7 @@ export function SkillPlanPreview({
   detail,
   candidates,
   orchestrationMode,
+  blockApprovalForCapabilityGaps = false,
   pendingAction,
   error,
   onUpdate,
@@ -59,6 +61,7 @@ export function SkillPlanPreview({
   const selectedOrder = order.filter((skillId) => selected.has(skillId))
   const dirty = selectedOrder.join('|') !== originalSelected.join('|') || selected.size !== originalSelected.length
   const busy = pendingAction !== null
+  const approvalBlocked = blockApprovalForCapabilityGaps && (detail.plan.capability_gaps ?? []).length > 0
   const planNotice = detail.plan.degradation ? degradationCopy(detail.plan.degradation) : null
 
   const toggle = (skillId: string) => {
@@ -88,7 +91,7 @@ export function SkillPlanPreview({
   }
 
   return (
-    <section aria-labelledby="skill-plan-preview-title" className="mt-6 rounded-[14px] bg-surface-1 p-5 shadow-card">
+    <section aria-labelledby="skill-plan-preview-title" className="mt-6 rounded-soft bg-surface-1 p-5 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-mint-300">
@@ -102,12 +105,12 @@ export function SkillPlanPreview({
       </div>
 
       {route ? (
-        <section aria-label="任务路由" className="mt-5 rounded-[10px] border border-mint-400/15 bg-mint-400/[0.04] px-3.5 py-3">
+        <section aria-label="任务路由" className="mt-5 rounded-soft border border-mint-400/15 bg-mint-400/[0.04] px-3.5 py-3">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="font-semibold text-mint-300">{route.task.task_id}</span>
-            <span className="text-slate-600">/</span>
+            <span className="text-slate-400">/</span>
             <span className="text-slate-200">{route.scenario.scenario_id}</span>
-            <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] text-slate-400">
+            <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-slate-400">
               {route.task.execution_relation}
             </span>
           </div>
@@ -116,7 +119,7 @@ export function SkillPlanPreview({
               前置场景：{(route.scenario.supporting_scenarios ?? []).join('、')}
             </p>
           ) : null}
-          <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
             {route.evidence_requirement?.external_evidence_required ? (
               <span className="rounded-full bg-knowledge/10 px-2 py-1 text-knowledge">需要外部证据</span>
             ) : null}
@@ -135,22 +138,22 @@ export function SkillPlanPreview({
       ) : null}
 
       <dl className="mt-5 grid gap-3 text-xs sm:grid-cols-2">
-        <div className="rounded-[10px] bg-base px-3.5 py-3">
-          <dt className="text-slate-500">已有输入</dt>
+        <div className="rounded-soft bg-base px-3.5 py-3">
+          <dt className="text-slate-400">已有输入</dt>
           <dd className="mt-1 text-slate-200">{detail.plan.intent.input_kinds?.join('、') || '当前对话内容'}</dd>
         </div>
-        <div className="rounded-[10px] bg-base px-3.5 py-3">
-          <dt className="text-slate-500">预计交付</dt>
+        <div className="rounded-soft bg-base px-3.5 py-3">
+          <dt className="text-slate-400">预计交付</dt>
           <dd className="mt-1 text-slate-200">{detail.plan.output_contract?.join('、') || '综合结论'}</dd>
         </div>
       </dl>
 
       <div className="mt-5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
-          <SlidersHorizontal className="h-4 w-4 text-slate-500" aria-hidden="true" />
+          <SlidersHorizontal className="h-4 w-4 text-slate-400" aria-hidden="true" />
           有限调整
         </div>
-        <p className="text-[11px] text-slate-500">必需节点不可移除，服务端会重新计算依赖</p>
+        <p className="text-[11px] text-slate-400">必需节点不可移除，服务端会重新计算依赖</p>
       </div>
       <ol className="mt-3 space-y-2.5">
         {orderedNodes.map((node, index) => (
@@ -180,17 +183,17 @@ export function SkillPlanPreview({
       </ol>
 
       {addableCandidates.length > 0 ? (
-        <section aria-labelledby="skill-plan-candidates-title" className="mt-4 rounded-[10px] border border-white/[0.06] bg-base/60 p-3.5">
+        <section aria-labelledby="skill-plan-candidates-title" className="mt-4 rounded-soft border border-white/[0.06] bg-base/60 p-3.5">
           <h3 id="skill-plan-candidates-title" className="text-xs font-semibold text-slate-300">可添加候选</h3>
-          <p className="mt-1 text-[11px] leading-5 text-slate-500">只能从服务端已校验的候选集中添加；保存后由服务端重新计算先后依赖和可并行步骤。</p>
+          <p className="mt-1 text-[11px] leading-5 text-slate-400">只能从服务端已校验的候选集中添加；保存后由服务端重新计算先后依赖和可并行步骤。</p>
           <ul className="mt-3 space-y-2">
             {addableCandidates.map((skill) => {
               const added = selected.has(skill.id)
               return (
-                <li key={skill.id} className="flex flex-col gap-2 rounded-[9px] bg-surface-1 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <li key={skill.id} className="flex flex-col gap-2 rounded-soft bg-surface-1 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-200">{skill.title}</p>
-                    <p className="mt-0.5 text-[11px] leading-5 text-slate-500">{skill.description}</p>
+                    <p className="mt-0.5 text-[11px] leading-5 text-slate-400">{skill.description}</p>
                   </div>
                   <Button
                     variant={added ? 'subtle' : 'secondary'}
@@ -209,19 +212,24 @@ export function SkillPlanPreview({
       ) : null}
 
       {planNotice && detail.plan.degradation ? (
-        <section className="mt-4 rounded-[10px] border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3">
+        <section className="mt-4 rounded-soft border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3">
           <p className="text-xs font-semibold text-amber-100">{planNotice.title}</p>
           <p className="mt-1 text-xs leading-5 text-slate-300">{planNotice.description}</p>
-          <details className="mt-1.5 text-[10px] text-slate-500">
+          <details className="mt-1.5 text-[11px] text-slate-400">
             <summary className="cursor-pointer select-none hover:text-slate-300">查看技术诊断</summary>
             <code className="mt-1 block break-all">{detail.plan.degradation}</code>
           </details>
         </section>
       ) : null}
       {error ? <p role="alert" className="mt-4 text-sm text-rose">{error}</p> : null}
+      {approvalBlocked ? (
+        <p className="mt-4 text-xs leading-5 text-rose">
+          必需能力尚未满足，当前计划不能批准。请先处理上方能力缺口。
+        </p>
+      ) : null}
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
-        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+        <div className="flex items-center gap-2 text-[11px] text-slate-400">
           <ShieldCheck className="h-4 w-4 text-mint-300" aria-hidden="true" />
           确认计划不会批准任何写入工具
         </div>
@@ -249,7 +257,7 @@ export function SkillPlanPreview({
           </Button>
           <Button
             size="sm"
-            disabled={dirty || busy}
+            disabled={dirty || busy || approvalBlocked}
             loading={pendingAction === 'approve'}
             onClick={() => onApprove({ expected_version: detail.plan.version })}
           >

@@ -52,7 +52,6 @@ export function Drawer({
         aria-labelledby={title ? titleId : undefined}
         aria-label={title ? undefined : '对话框'}
         tabIndex={-1}
-        autoFocus
         className={cn(
           'absolute right-0 top-0 flex h-full flex-col border-l border-white/[0.08] bg-surface-2 shadow-pop animate-slide-in',
         )}
@@ -61,7 +60,7 @@ export function Drawer({
         <header className="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-5">
           <div className="flex min-w-0 items-start gap-3">
             {icon && (
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-mint-400/12 text-mint-300">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-soft bg-mint-400/12 text-mint-300">
                 {icon}
               </span>
             )}
@@ -83,7 +82,7 @@ export function Drawer({
             </button>
           </div>
         </header>
-        <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-5">{children}</div>
+        <div className="min-w-0 flex-1 overscroll-contain overflow-x-hidden overflow-y-auto px-6 py-5">{children}</div>
         {footer && (
           <footer className="border-t border-white/[0.06] bg-surface-1/60 px-6 py-4">{footer}</footer>
         )}

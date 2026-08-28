@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 from mcp.types import CallToolResult, GetPromptResult, ListPromptsResult, TextContent
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.models import (
+    AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
     AgentToolGrant,
@@ -18,7 +20,13 @@ from agentmesh.models import (
 )
 from agentmesh.seed import USER, ensure_base_workspace_data
 from agentmesh.store import SQLiteStore, store
-from agentmesh.tool_runtime.mcp import AgentMeshMCPFactory, GovernedMCPServer, load_mcp_config
+from agentmesh.tool_runtime.mcp import (
+    AgentMeshMCPFactory,
+    GovernedMCPServer,
+    MCPConfigFile,
+    MCPServerConfig,
+    load_mcp_config,
+)
 
 
 def _context() -> AgentMeshRunContext:
@@ -92,6 +100,63 @@ def test_mcp_config_builds_only_granted_governed_servers(tmp_path, monkeypatch) 
     assert isinstance(servers[0], GovernedMCPServer)
     assert servers[0].name == "local"
     assert servers[0].allowed_tool_names == {"lookup"}
+
+
+def test_deepsearch_never_exposes_or_calls_an_mcp_server() -> None:
+    run = AgentRun(
+        id="run_deepsearch_mcp",
+        thread_id="thread_deepsearch_mcp",
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        input_text="Research",
+        status=AgentRunStatus.RUNNING,
+        planning_mode=AgentPlanningMode.DEEPSEARCH,
+    )
+    context = _context().model_copy(
+        update={
+            "thread_id": run.thread_id,
+            "run_id": run.id,
+            "requirement_version_id": "requirement_deepsearch_mcp",
+        }
+    )
+    repository = SimpleNamespace(get_agent_run=lambda _run_id: run)
+    config = MCPConfigFile(
+        servers=[
+            MCPServerConfig(
+                name="forbidden-deepsearch-mcp",
+                tool_id="tool_web_research",
+                allowed_tool_names=["web_research"],
+                transport="stdio",
+                command="never-started",
+            )
+        ]
+    )
+
+    assert AgentMeshMCPFactory(repository, config).build(  # type: ignore[arg-type]
+        user=USER,
+        context=context,
+        allowed_tool_names={"web_research"},
+    ) == []
+
+    inner = _UnsafeInner()
+    server = GovernedMCPServer(
+        inner,
+        repository=repository,  # type: ignore[arg-type]
+        context=context,
+        definition=ToolDefinition(
+            id="tool_web_research",
+            name="web_research",
+            description="Must use the native DeepSearch gateway",
+            category="research",
+        ),
+        allowed_tool_names={"web_research"},
+    )
+    result = asyncio.run(server.call_tool("web_research", {"query": "market"}))
+
+    assert result.is_error is True
+    assert "unavailable for DeepSearch" in result.content[0].text
+    assert inner.calls == 0
 
 
 def test_wiki_imported_skill_mcp_servers_are_fail_closed(tmp_path) -> None:

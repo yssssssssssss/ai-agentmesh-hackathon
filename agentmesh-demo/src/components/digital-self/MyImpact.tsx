@@ -15,12 +15,12 @@ export function MyImpact({ model }: MyImpactProps) {
     <section className="card-base grid min-h-[320px] min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[56px_1fr_40px] p-5" aria-labelledby="impact-heading">
       <header className="flex h-[56px] items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[12px] bg-collab/10 text-collab">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-soft bg-collab/10 text-collab">
             <Share2 className="h-[22px] w-[22px]" aria-hidden="true" />
           </span>
           <div className="min-w-0 pt-0.5 text-left">
             <h2 id="impact-heading" className="text-[15px] font-semibold text-slate-100">我的经验正在被复用</h2>
-            <p className="mt-1 text-[12px] leading-snug text-slate-500">授权共享经验的参考影响摘要</p>
+            <p className="mt-1 text-[12px] leading-snug text-slate-400">授权共享经验的参考影响摘要</p>
           </div>
         </div>
         <ModuleSourceBadges sources={model.sources} />
@@ -32,11 +32,11 @@ export function MyImpact({ model }: MyImpactProps) {
             <div className="flex items-center justify-between gap-2">
               <span className="min-w-0 truncate text-[13px] font-medium text-slate-300">{item.label.value}</span>
               <span className="flex shrink-0 items-center gap-1.5">
-                {item.meta.value ? <span className="text-[10.5px] text-slate-600">{item.meta.value}</span> : null}
+                {item.meta.value ? <span className="text-[10.5px] text-slate-400">{item.meta.value}</span> : null}
                 <ValueSourceBadge value={item.label} />
               </span>
             </div>
-            <p className="mt-1 truncate text-[12px] text-slate-500" title={item.value.value}>{item.value.value}</p>
+            <p className="mt-1 truncate text-[12px] text-slate-400" title={item.value.value}>{item.value.value}</p>
           </div>
         ))}
       </div>

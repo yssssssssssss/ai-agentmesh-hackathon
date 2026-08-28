@@ -7,17 +7,34 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any, Literal
 
 from agentmesh.acquisition import AcquisitionQuery, AcquisitionRequest
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.data_authorization import authorize_data_query
 from agentmesh.datasources import default_data_source_registry
-from agentmesh.models import Intent, Scope, Source, User, new_id
+from agentmesh.deepsearch.budget import DeepSearchBudgetMeter, DeepSearchBudgetMutationResult
+from agentmesh.deepsearch.tool_policy import DEEPSEARCH_V1_TOOL_NAMES
+from agentmesh.models import (
+    DeepSearchBudgetUsageV1,
+    DeepSearchToolInvocationV1,
+    Intent,
+    Scope,
+    Source,
+    ToolDefinition,
+    User,
+    new_id,
+)
 from agentmesh.o2 import build_acquisition_agent, maybe_register_o2_data_connector
 from agentmesh.retrieval import RetrievalProfile, RetrievalService
 from agentmesh.risk import assess_risk_review_with_rules
-from agentmesh.store import SQLiteStore
+from agentmesh.store import DeepSearchBudgetConflict, DeepSearchEvidenceConflict, SQLiteStore
+from agentmesh.tool_runtime.deepsearch import (
+    DeepSearchToolRuntimeError,
+    build_deepsearch_tool_invocation,
+    normalize_deepsearch_tool_evidence,
+)
 
 BUILTIN_TOOL_NAMES = frozenset({"memory_search", "document_search", "data_query", "web_research", "risk_review"})
 
@@ -80,6 +97,197 @@ class ToolGateway:
 
     def handlers(self) -> dict[str, Callable[[AgentMeshRunContext, dict[str, Any]], Any]]:
         return {name: getattr(self, name) for name in BUILTIN_TOOL_NAMES}
+
+    def invoke(
+        self,
+        *,
+        context: AgentMeshRunContext,
+        definition: ToolDefinition,
+        arguments: dict[str, Any],
+        invocation: DeepSearchToolInvocationV1 | None = None,
+    ) -> Any:
+        handler = self.handlers().get(definition.name)
+        if handler is None:
+            raise ValueError("Tool handler is unavailable")
+        if invocation is not None:
+            return self._invoke_deepsearch(
+                context=context,
+                definition=definition,
+                arguments=arguments,
+                invocation=invocation,
+            )
+        return handler(context, arguments)
+
+    def _reserve_deepsearch_tool_invocation(
+        self,
+        *,
+        invocation: DeepSearchToolInvocationV1,
+        timeout_seconds: float,
+    ) -> DeepSearchBudgetMutationResult:
+        meter = DeepSearchBudgetMeter(self.repository)
+        for _attempt in range(3):
+            run = self.repository.get_agent_run(invocation.run_id)
+            if run is None or run.deepsearch_budget is None:
+                raise DeepSearchToolRuntimeError("deepsearch_tool_persistence_unavailable")
+            try:
+                return meter.reserve(
+                    run_id=invocation.run_id,
+                    expected_budget_version=run.deepsearch_budget.version,
+                    logical_operation_key=invocation.operation_key,
+                    invocation_key=invocation.operation_key,
+                    physical_attempt=1,
+                    resource_maxima=DeepSearchBudgetUsageV1(
+                        active_seconds=timeout_seconds,
+                        tool_calls=1,
+                    ),
+                    tool_invocation=invocation,
+                )
+            except DeepSearchBudgetConflict as error:
+                if error.code == "deepsearch_budget_version_conflict":
+                    continue
+                raise DeepSearchToolRuntimeError(error.code) from error
+        raise DeepSearchToolRuntimeError("deepsearch_budget_version_conflict")
+
+    def _settle_deepsearch_tool_invocation(
+        self,
+        *,
+        invocation: DeepSearchToolInvocationV1,
+        active_seconds: float,
+    ) -> None:
+        meter = DeepSearchBudgetMeter(self.repository)
+        actual_usage = DeepSearchBudgetUsageV1(
+            active_seconds=active_seconds,
+            tool_calls=1,
+        )
+        for _attempt in range(3):
+            run = self.repository.get_agent_run(invocation.run_id)
+            if run is None or run.deepsearch_budget is None:
+                raise DeepSearchToolRuntimeError("deepsearch_tool_persistence_unavailable")
+            try:
+                meter.settle(
+                    run_id=invocation.run_id,
+                    expected_budget_version=run.deepsearch_budget.version,
+                    invocation_key=invocation.operation_key,
+                    actual_usage=actual_usage,
+                )
+                return
+            except DeepSearchBudgetConflict as error:
+                if error.code == "deepsearch_budget_version_conflict":
+                    continue
+                raise DeepSearchToolRuntimeError(error.code) from error
+        raise DeepSearchToolRuntimeError("deepsearch_budget_version_conflict")
+
+    def _invoke_deepsearch(
+        self,
+        *,
+        context: AgentMeshRunContext,
+        definition: ToolDefinition,
+        arguments: dict[str, Any],
+        invocation: DeepSearchToolInvocationV1,
+    ) -> dict[str, Any]:
+        expected_invocation = build_deepsearch_tool_invocation(
+            context=context,
+            definition=definition,
+            arguments=arguments,
+            tool_call_id=invocation.tool_call_id,
+        )
+        if invocation != expected_invocation:
+            raise DeepSearchToolRuntimeError("deepsearch_tool_lineage_mismatch")
+        descriptor = self.describe(definition.name)
+        if (
+            definition.name not in DEEPSEARCH_V1_TOOL_NAMES
+            or definition.side_effect != "read"
+            or descriptor is None
+            or descriptor.implementation_id != invocation.implementation_id
+            or descriptor.implementation_version != invocation.implementation_version
+            or descriptor.execution_mode != "real"
+            or descriptor.health_state != "healthy"
+        ):
+            raise DeepSearchToolRuntimeError("deepsearch_tool_policy_violation")
+        plan = self.repository.get_skill_plan(invocation.plan_id)
+        matching_steps = (
+            [
+                index
+                for index, node in enumerate(plan.nodes, start=1)
+                if node.id == invocation.node_id
+            ]
+            if plan is not None
+            else []
+        )
+        if len(matching_steps) != 1 or context.node_step_number != matching_steps[0]:
+            raise DeepSearchToolRuntimeError("deepsearch_tool_lineage_mismatch")
+
+        reserved = self._reserve_deepsearch_tool_invocation(
+            invocation=invocation,
+            timeout_seconds=definition.timeout_seconds,
+        )
+        if reserved.replayed:
+            # The provider outcome may have crossed the process boundary. Never
+            # replay a call merely because the SDK invokes the same call ID again.
+            raise DeepSearchToolRuntimeError("external_outcome_unknown")
+
+        started = monotonic()
+        try:
+            value = self.web_research(
+                context,
+                arguments,
+                operation_key=invocation.operation_key,
+                persist_sources=False,
+            )
+        except Exception as error:
+            raise DeepSearchToolRuntimeError("external_outcome_unknown") from error
+        metadata = value.get("metadata")
+        if not isinstance(metadata, dict) or metadata.get("mode") != "real":
+            raise DeepSearchToolRuntimeError("deepsearch_tool_execution_not_real")
+
+        batch = normalize_deepsearch_tool_evidence(
+            context=context,
+            definition=definition,
+            invocation=invocation,
+            value=value,
+            execution_mode="real",
+        )
+        if batch.sources:
+            try:
+                persisted = self.repository.save_deepsearch_evidence_batch(
+                    invocation=invocation,
+                    sources=batch.sources,
+                    artifacts=batch.artifacts,
+                )
+            except DeepSearchEvidenceConflict as error:
+                raise DeepSearchToolRuntimeError(error.code) from error
+            context.artifact_ids = list(
+                dict.fromkeys(
+                    [*context.artifact_ids, *(artifact.id for artifact in persisted.artifacts)]
+                )
+            )
+        elapsed = min(max(monotonic() - started, 0.0), definition.timeout_seconds)
+        self._settle_deepsearch_tool_invocation(
+            invocation=invocation,
+            active_seconds=elapsed,
+        )
+
+        normalized_value = dict(value)
+        normalized_value["sources"] = [
+            source.model_dump(mode="json") for source in batch.sources
+        ]
+        normalized_value["source_evidence"] = [
+            item.model_dump(mode="json") for item in batch.source_evidence
+        ]
+        normalized_value["evidence_bindings"] = [
+            {
+                "question_ids": list(item.question_ids),
+                "success_criterion_ids": [],
+                "source_id": item.source_id,
+                "evidence_artifact_id": artifact.id,
+            }
+            for item, artifact in zip(
+                batch.source_evidence,
+                batch.artifacts,
+                strict=True,
+            )
+        ]
+        return normalized_value
 
     def describe(self, tool_name: str) -> ToolRuntimeDescriptor | None:
         if tool_name not in self.handlers() or tool_name != "web_research":
@@ -244,6 +452,7 @@ class ToolGateway:
         arguments: dict[str, Any],
         *,
         operation_key: str | None = None,
+        persist_sources: bool = True,
     ) -> dict[str, Any]:
         query = str(arguments.get("query") or "").strip()
         if not query:
@@ -283,8 +492,9 @@ class ToolGateway:
             )
             for source in result.sources
         ]
-        for source in sources:
-            self.repository.add_source(source)
+        if persist_sources:
+            for source in sources:
+                self.repository.add_source(source)
         return {
             "title": result.title,
             "content": result.content,

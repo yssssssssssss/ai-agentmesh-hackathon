@@ -10,12 +10,27 @@ from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, Field
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
-from agentmesh.models import AgentRunStatus, Artifact, AuditEvent, SkillDefinition, ToolDefinition, User
+from agentmesh.models import (
+    AgentPlanningMode,
+    AgentRunStatus,
+    Artifact,
+    AuditEvent,
+    SkillDefinition,
+    ToolDefinition,
+    User,
+)
 from agentmesh.store import SQLiteStore
 from agentmesh.tool_runtime.guardrails import contains_credential, unsafe_tool_output_reason
 from agentmesh.tools import list_agent_tools
 
 _MAX_MCP_OUTPUT_BYTES = 50 * 1024
+
+
+def _is_deepsearch_context(repository: SQLiteStore, context: AgentMeshRunContext) -> bool:
+    run = repository.get_agent_run(context.run_id)
+    return context.requirement_version_id is not None or (
+        run is not None and run.planning_mode is AgentPlanningMode.DEEPSEARCH
+    )
 
 
 def _is_wiki_import(skill: SkillDefinition | None) -> bool:
@@ -94,6 +109,8 @@ class GovernedMCPServer(MCPServer):
         await self.inner.cleanup()
 
     async def list_tools(self, run_context=None, agent=None):  # noqa: ANN001, ANN201
+        if _is_deepsearch_context(self.repository, self.context):
+            return []
         tools = await self.inner.list_tools(run_context, agent)
         return [tool for tool in tools if tool.name in self.allowed_tool_names]
 
@@ -103,6 +120,11 @@ class GovernedMCPServer(MCPServer):
         arguments: dict[str, Any] | None,
         meta: dict[str, Any] | None = None,
     ) -> CallToolResult:
+        if _is_deepsearch_context(self.repository, self.context):
+            return CallToolResult(
+                content=[TextContent(text="MCP tools are unavailable for DeepSearch.")],
+                isError=True,
+            )
         if not self.repository.user_can_execute_agent_run(
             self.context.user_id,
             self.context.run_id,
@@ -219,6 +241,8 @@ class AgentMeshMCPFactory:
         skill: SkillDefinition | None = None,
         allowed_tool_names: set[str] | None = None,
     ) -> list[MCPServer]:
+        if _is_deepsearch_context(self.repository, context):
+            return []
         granted = {tool.id: tool for tool in list_agent_tools(self.repository, user.personal_agent_id)}
         requested = allowed_tool_names
         if requested is None:

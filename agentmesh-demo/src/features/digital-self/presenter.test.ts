@@ -44,6 +44,13 @@ const bootstrap: BootstrapState = {
   capabilities: ['workspace:read'],
   agent_runtime_enabled: false,
   skill_orchestration_mode: 'off',
+  deepsearch_availability: {
+    available: false,
+    enabled: false,
+    runtime_mode: 'off',
+    core_ready: false,
+    reason_code: 'disabled',
+  },
 }
 
 const agent: Agent = {

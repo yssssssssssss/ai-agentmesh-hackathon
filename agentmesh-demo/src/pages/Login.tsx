@@ -79,7 +79,7 @@ export function Login() {
             </div>
           </div>
 
-          <div className="rounded-[16px] border border-white/[0.08] bg-surface-1/80 p-6 shadow-pop backdrop-blur">
+          <div className="rounded-overlay border border-white/[0.08] bg-surface-1/80 p-6 shadow-pop backdrop-blur">
             {/* ERP 账号 */}
             <label className="block">
               <span className="text-[12.5px] font-medium text-slate-300">ERP 账号</span>
@@ -89,9 +89,9 @@ export function Login() {
                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                 placeholder="linzhixia"
                 autoFocus
-                className="mt-1.5 h-11 w-full rounded-[10px] border border-white/[0.08] bg-surface-2 px-3.5 text-[14px] text-slate-100 placeholder:text-slate-600 focus:border-mint-400/45 focus:outline-none focus:ring-2 focus:ring-mint-400/25"
+                className="mt-1.5 h-11 w-full rounded-soft border border-white/[0.08] bg-surface-2 px-3.5 text-[14px] text-slate-100 placeholder:text-slate-500 focus:border-mint-400/45 focus:outline-none focus:ring-2 focus:ring-mint-400/25"
               />
-              <span className="mt-1.5 block text-[11.5px] leading-relaxed text-slate-500">
+              <span className="mt-1.5 block text-[11.5px] leading-relaxed text-slate-400">
                 示例账号 linzhixia,真实环境将直接沿用你在京东 SSO 的登录态
               </span>
             </label>
@@ -110,20 +110,20 @@ export function Login() {
             </Button>
 
             {error && (
-              <p className="mt-3 rounded-[8px] border border-red-400/20 bg-red-400/[0.08] px-3 py-2 text-[12px] text-red-300">
+              <p className="mt-3 rounded-control border border-red-400/20 bg-red-400/[0.08] px-3 py-2 text-[12px] text-red-300">
                 {error}
               </p>
             )}
 
             {/* 协议 / 说明 */}
-            <p className="mt-4 text-[11.5px] leading-relaxed text-slate-500">
+            <p className="mt-4 text-[11.5px] leading-relaxed text-slate-400">
               点击"使用 ERP 统一登录",即表示同意《京东员工内部工具使用协议》与《数字人隐私说明》。
               首次登录时,数字人会请求同步你的 HR 组织关系与授权范围。
             </p>
           </div>
 
           {/* 底部安全说明 */}
-          <div className="mt-6 flex items-center justify-center gap-2 text-[11.5px] text-slate-500">
+          <div className="mt-6 flex items-center justify-center gap-2 text-[11.5px] text-slate-400">
             <ShieldCheck className="h-3.5 w-3.5 text-mint-400/70" />
             由京东统一身份认证提供安全登录
           </div>

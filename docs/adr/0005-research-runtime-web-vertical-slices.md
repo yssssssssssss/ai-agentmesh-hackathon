@@ -2,6 +2,8 @@
 
 ## Status
 
+Superseded for executable Research workflows by ADRs 0007 and 0008. Retained as a historical implementation record.
+
 Accepted for implementation on 2026-08-19. Default rollout state remains `off`.
 
 ## Context

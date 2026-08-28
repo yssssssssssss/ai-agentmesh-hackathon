@@ -6,18 +6,38 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from datetime import timedelta
 
+import httpx
 import pytest
-from agents.testing import ScriptedModel, assistant_message, function_call
+from agents import (
+    Agent,
+    ModelRetryBackoffSettings,
+    ModelRetrySettings,
+    ModelSettings,
+    function_tool,
+    retry_policies,
+)
+from agents.testing import ModelStep, ScriptedModel, assistant_message, function_call
+from openai.types.responses import ResponseTextDeltaEvent
 
+from agentmesh.agent_runtime.model_retry import (
+    AtomicStreamModel,
+    ModelStreamRetryExhausted,
+    retry_transient_atomic_stream,
+)
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.models import (
+    AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
     AgentToolGrant,
     ChatThread,
     InboxItem,
     Scope,
+    SkillCapabilityProfile,
+    SkillCapabilityType,
+    SkillDefinition,
     SkillIntent,
+    SkillLifecycleStage,
     SkillNodeResult,
     SkillPlan,
     SkillPlanNode,
@@ -36,7 +56,10 @@ from agentmesh.skill_runtime.executor import (
     NodeExecutionOutcome,
     NodePause,
     PlanExecutionConflict,
+    PlanExecutionOutcome,
+    StandardPlanFinalizer,
 )
+from agentmesh.skill_runtime.resources import build_skill_resource_manifest_snapshot
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
 from agentmesh.tool_runtime.factory import AgentMeshToolFactory
@@ -110,6 +133,97 @@ def _result(node: SkillPlanNode) -> SkillNodeResult:
     )
 
 
+def test_deepsearch_node_security_uses_frozen_resources_and_rejects_drift(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "deepsearch-resource-drift.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+    thread = repository.add_chat_thread(
+        ChatThread(
+            id="thread_deepsearch_resource_drift",
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            user_id=USER.id,
+            title="DeepSearch resource drift",
+        )
+    )
+    skill_root = tmp_path / "competitive-analysis"
+    skill_root.mkdir()
+    skill_path = skill_root / "SKILL.md"
+    skill_path.write_text("skill", encoding="utf-8")
+    resource_path = skill_root / "guide.md"
+    resource_path.write_text("approved", encoding="utf-8")
+    skill = repository.save_skill_definition(
+        SkillDefinition(
+            id="skill_deepsearch_resource_drift",
+            name="competitive-analysis",
+            title="Competitive analysis",
+            description="Analyze competitors",
+            instructions="Read `guide.md`.",
+            source_path=str(skill_path),
+            source_scope=SkillSourceScope.BUILTIN,
+            content_hash="a" * 64,
+        ),
+        defer_vector=True,
+    )
+    profile = repository.save_skill_capability_profile(
+        SkillCapabilityProfile(
+            id=skill.id,
+            skill_id=skill.id,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skill_content_hash=skill.content_hash,
+            profile_version="1",
+            profile_content_hash="b" * 64,
+            primary_stage=SkillLifecycleStage.PRE_DESIGN,
+            capability_type=SkillCapabilityType.RESEARCH,
+        ),
+        defer_vector=True,
+    )
+    plan_id = "plan_deepsearch_resource_drift"
+    persisted_run = repository.save_agent_run(
+        AgentRun(
+            id="run_deepsearch_resource_drift",
+            thread_id=thread.id,
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="analyze competitors",
+            status=AgentRunStatus.RUNNING,
+            plan_id=plan_id,
+        )
+    )
+    run = persisted_run.model_copy(update={"planning_mode": AgentPlanningMode.DEEPSEARCH})
+    resource_manifest = build_skill_resource_manifest_snapshot(skill, profile)
+    node = SkillPlanNode(
+        id="node_deepsearch_resource_drift",
+        skill_id=skill.id,
+        skill_version=skill.version,
+        skill_content_hash=skill.content_hash,
+        reason="Use the approved resource",
+        resource_manifest=resource_manifest,
+    )
+    plan = SkillPlan(
+        id=plan_id,
+        run_id=run.id,
+        status=SkillPlanStatus.RUNNING,
+        intent=SkillIntent(goal=run.input_text),
+        candidate_skill_ids=[skill.id],
+        nodes=[node],
+        planning_mode=AgentPlanningMode.DEEPSEARCH,
+    )
+    catalog = SkillCatalogService(repository)
+    catalog._skills = {skill.name: skill}
+    runtime = AgentRuntimeService(repository, model=ScriptedModel([]), enabled=True, skill_catalog=catalog)
+
+    resolved = runtime._resolve_plan_node_security(plan=plan, node=node, run=run, user=USER)
+
+    assert resolved[3] == resource_manifest.resource_hashes
+    assert resolved[4] is True
+    resource_path.write_text("changed", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="planned_resource_changed"):
+        runtime._resolve_plan_node_security(plan=plan, node=node, run=run, user=USER)
+
+
 def _synthesis_runner(
     calls: list[list[str]],
 ) -> Callable[[SkillPlan, list[SkillNodeResult]], Awaitable[tuple[SkillSynthesisResult, bool]]]:
@@ -121,6 +235,230 @@ def _synthesis_runner(
         return SkillSynthesisResult(summary="synthesized"), False
 
     return synthesize
+
+
+def test_executor_delegates_terminal_plan_to_injected_finalization_strategy(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "finalization-strategy.sqlite3")
+    plan, run = _persist_plan(
+        repository,
+        [_node("finalize")],
+        output_contract=["synthesis"],
+        suffix="finalization_strategy",
+    )
+    calls: list[tuple[str, str, int]] = []
+
+    async def node_runner(
+        _plan: SkillPlan,
+        node: SkillPlanNode,
+        _upstream: list[SkillNodeResult],
+    ) -> NodeExecutionOutcome:
+        return NodeExecutionOutcome(result=_result(node))
+
+    class RecordingFinalizer:
+        async def finalize(
+            self,
+            *,
+            run_id: str,
+            plan_id: str,
+            expected_plan_version: int,
+        ) -> PlanExecutionOutcome:
+            calls.append((run_id, plan_id, expected_plan_version))
+            persisted_plan = repository.get_skill_plan(plan_id)
+            persisted_run = repository.get_agent_run(run_id)
+            assert persisted_plan is not None
+            assert persisted_run is not None
+            assert all(
+                node.status
+                in {
+                    SkillPlanNodeStatus.COMPLETED,
+                    SkillPlanNodeStatus.FAILED,
+                    SkillPlanNodeStatus.SKIPPED,
+                    SkillPlanNodeStatus.CANCELLED,
+                }
+                for node in persisted_plan.nodes
+            )
+            return PlanExecutionOutcome(plan=persisted_plan, run=persisted_run)
+
+    outcome = asyncio.run(
+        BoundedDAGExecutor(
+            repository,
+            node_runner=node_runner,
+            finalization_strategy=RecordingFinalizer(),
+        ).run(plan, run)
+    )
+
+    assert outcome.run.id == run.id
+    assert calls == [(run.id, plan.id, plan.version)]
+
+
+def test_executor_rejects_ambiguous_finalization_configuration(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "ambiguous-finalization.sqlite3")
+
+    class UnusedFinalizer:
+        async def finalize(
+            self,
+            *,
+            run_id: str,
+            plan_id: str,
+            expected_plan_version: int,
+        ) -> PlanExecutionOutcome:
+            raise AssertionError((run_id, plan_id, expected_plan_version))
+
+    async def unused_node_runner(
+        _plan: SkillPlan,
+        _node: SkillPlanNode,
+        _upstream: list[SkillNodeResult],
+    ) -> NodeExecutionOutcome:
+        raise AssertionError("node runner must not be called")
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        BoundedDAGExecutor(
+            repository,
+            node_runner=unused_node_runner,
+            synthesis_runner=_synthesis_runner([]),
+            finalization_strategy=UnusedFinalizer(),
+        )
+
+
+def test_standard_finalizer_rejects_deepsearch_before_synthesis(tmp_path, monkeypatch) -> None:
+    repository = SQLiteStore(tmp_path / "standard-finalizer-deepsearch.sqlite3")
+    plan, run = _persist_plan(
+        repository,
+        [_node("deepsearch")],
+        output_contract=["synthesis"],
+        suffix="standard_finalizer_deepsearch",
+    )
+    deepsearch_plan = plan.model_copy(
+        update={
+            "planning_mode": AgentPlanningMode.DEEPSEARCH,
+            "status": SkillPlanStatus.RUNNING,
+        }
+    )
+    deepsearch_run = run.model_copy(
+        update={
+            "planning_mode": AgentPlanningMode.DEEPSEARCH,
+            "status": AgentRunStatus.RUNNING,
+        }
+    )
+    monkeypatch.setattr(repository, "get_skill_plan", lambda _plan_id: deepsearch_plan)
+    monkeypatch.setattr(repository, "get_agent_run", lambda _run_id: deepsearch_run)
+    synthesis_calls: list[list[str]] = []
+    finalizer = StandardPlanFinalizer(
+        repository,
+        synthesis_runner=_synthesis_runner(synthesis_calls),
+    )
+
+    with pytest.raises(RuntimeError, match="deepsearch_finalization_strategy_required"):
+        asyncio.run(
+            finalizer.finalize(
+                run_id=run.id,
+                plan_id=plan.id,
+                expected_plan_version=plan.version,
+            )
+        )
+
+    assert synthesis_calls == []
+
+
+def test_executor_resume_claims_persisted_ready_node(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "resume-ready.sqlite3")
+    plan, run = _persist_plan(
+        repository,
+        [_node("ready")],
+        output_contract=["synthesis"],
+        suffix="resume_ready",
+    )
+    running_plan = repository.claim_skill_plan_for_execution(plan.id, run.id)
+    assert running_plan is not None
+    node = running_plan.nodes[0]
+    persisted_ready = repository.transition_skill_plan_node(
+        plan_id=plan.id,
+        run_id=run.id,
+        node=node.model_copy(update={"status": SkillPlanNodeStatus.READY}),
+        expected_statuses={SkillPlanNodeStatus.PENDING},
+        event_type="node_ready",
+        event_payload={"plan_id": plan.id, "node_id": node.id},
+    )
+    assert persisted_ready is not None
+    executed: list[str] = []
+
+    async def node_runner(
+        _plan: SkillPlan,
+        ready_node: SkillPlanNode,
+        _upstream: list[SkillNodeResult],
+    ) -> NodeExecutionOutcome:
+        executed.append(ready_node.id)
+        return NodeExecutionOutcome(result=_result(ready_node))
+
+    outcome = asyncio.run(
+        BoundedDAGExecutor(
+            repository,
+            node_runner=node_runner,
+            synthesis_runner=_synthesis_runner([]),
+        ).run(running_plan, run, resume=True)
+    )
+
+    assert executed == [node.id]
+    assert outcome.run.status is AgentRunStatus.COMPLETED
+    event_types = [event.event_type for event in repository.list_agent_run_events(run.id)]
+    assert event_types.count("node_ready") == 1
+
+
+@pytest.mark.parametrize(
+    "persisted_status",
+    [SkillPlanNodeStatus.RUNNING, SkillPlanNodeStatus.WAITING_TOOL_APPROVAL],
+)
+def test_executor_does_not_finalize_with_persisted_nonterminal_node(tmp_path, persisted_status) -> None:  # noqa: ANN001
+    repository = SQLiteStore(tmp_path / f"resume-{persisted_status.value}.sqlite3")
+    plan, run = _persist_plan(
+        repository,
+        [_node("in_flight")],
+        output_contract=["synthesis"],
+        suffix=f"resume_{persisted_status.value}",
+    )
+    running_plan = repository.claim_skill_plan_for_execution(plan.id, run.id)
+    assert running_plan is not None
+    node = running_plan.nodes[0]
+    transitioned = repository.transition_skill_plan_node(
+        plan_id=plan.id,
+        run_id=run.id,
+        node=node.model_copy(update={"status": persisted_status}),
+        expected_statuses={SkillPlanNodeStatus.PENDING},
+        event_type="seed_nonterminal_node",
+        event_payload={"plan_id": plan.id, "node_id": node.id},
+    )
+    assert transitioned is not None
+    finalizer_called = False
+
+    class RecordingFinalizer:
+        async def finalize(
+            self,
+            *,
+            run_id: str,
+            plan_id: str,
+            expected_plan_version: int,
+        ) -> PlanExecutionOutcome:
+            nonlocal finalizer_called
+            finalizer_called = True
+            raise AssertionError((run_id, plan_id, expected_plan_version))
+
+    async def unused_node_runner(
+        _plan: SkillPlan,
+        _node: SkillPlanNode,
+        _upstream: list[SkillNodeResult],
+    ) -> NodeExecutionOutcome:
+        raise AssertionError("persisted in-flight nodes must not be executed")
+
+    with pytest.raises(RuntimeError, match="dag_has_nonterminal_node"):
+        asyncio.run(
+            BoundedDAGExecutor(
+                repository,
+                node_runner=unused_node_runner,
+                finalization_strategy=RecordingFinalizer(),
+            ).run(running_plan, run, resume=True)
+        )
+
+    assert finalizer_called is False
 
 
 def test_executor_bounds_concurrency_and_preserves_shared_tool_budget(tmp_path) -> None:
@@ -238,6 +576,133 @@ def test_executor_retries_remote_protocol_disconnect_once(tmp_path) -> None:
     assert persisted is not None
     assert persisted.nodes[0].attempt == 2
     assert persisted.nodes[0].status == SkillPlanNodeStatus.COMPLETED
+
+
+def test_executor_does_not_replay_node_after_model_stream_retries_are_exhausted(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "model-stream-retry-exhausted.sqlite3")
+    plan, run = _persist_plan(
+        repository,
+        [_node("model_stream_retry", output_contract=["analysis"], side_effect=SkillSideEffect.DRAFT)],
+        output_contract=["analysis"],
+        suffix="model_stream_retry_exhausted",
+    )
+    calls = 0
+
+    class RemoteProtocolError(Exception):
+        pass
+
+    async def node_runner(
+        _plan: SkillPlan,
+        _node: SkillPlanNode,
+        _upstream: list[SkillNodeResult],
+    ) -> NodeExecutionOutcome:
+        nonlocal calls
+        calls += 1
+        raise ModelStreamRetryExhausted(
+            RemoteProtocolError("peer closed connection without sending complete message body"),
+            attempts=3,
+        )
+
+    asyncio.run(
+        BoundedDAGExecutor(
+            repository,
+            node_runner=node_runner,
+            synthesis_runner=_synthesis_runner([]),
+        ).run(plan, run)
+    )
+
+    persisted = repository.get_skill_plan(plan.id)
+    assert calls == 1
+    assert persisted is not None
+    assert persisted.nodes[0].attempt == 1
+    assert persisted.nodes[0].status == SkillPlanNodeStatus.FAILED
+    assert persisted.nodes[0].error_code == "RemoteProtocolError"
+    node_failed = next(
+        event for event in repository.list_agent_run_events(run.id) if event.event_type == "node_failed"
+    )
+    assert node_failed.payload["error_detail"].startswith("model stream failed after 3 attempts:")
+
+
+def test_model_stream_retries_do_not_replay_completed_tool_or_dag_node(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "model-stream-retry-tool-reuse.sqlite3")
+    plan, run = _persist_plan(
+        repository,
+        [_node("model_stream_tool_reuse", output_contract=["analysis"], side_effect=SkillSideEffect.READ)],
+        output_contract=["analysis"],
+        suffix="model_stream_tool_reuse",
+    )
+    tool_calls: list[str] = []
+    node_calls = 0
+
+    @function_tool
+    def web_research(query: str) -> str:
+        tool_calls.append(query)
+        return "cached evidence"
+
+    async def interrupted_report(_call):  # noqa: ANN001, ANN202
+        yield ResponseTextDeltaEvent(
+            type="response.output_text.delta",
+            content_index=0,
+            delta="PARTIAL",
+            item_id="msg_partial",
+            logprobs=[],
+            output_index=0,
+            sequence_number=0,
+        )
+        raise httpx.RemoteProtocolError("peer closed incomplete body")
+
+    scripted = ScriptedModel(
+        [
+            [function_call("web_research", {"query": "market"}, call_id="lookup_once")],
+            *[ModelStep.stream(interrupted_report) for _ in range(3)],
+        ]
+    )
+    agent = Agent(
+        name="retry integration",
+        model=AtomicStreamModel(scripted),
+        tools=[web_research],
+        model_settings=ModelSettings(
+            retry=ModelRetrySettings(
+                max_retries=2,
+                backoff=ModelRetryBackoffSettings(initial_delay=0, max_delay=0, jitter=False),
+                policy=retry_policies.any(
+                    retry_policies.provider_suggested(),
+                    retry_policies.network_error(),
+                    retry_transient_atomic_stream,
+                ),
+            )
+        ),
+    )
+    runtime = AgentRuntimeService(repository=repository, model=scripted, enabled=True)
+
+    async def node_runner(
+        _plan: SkillPlan,
+        _node: SkillPlanNode,
+        _upstream: list[SkillNodeResult],
+    ) -> NodeExecutionOutcome:
+        nonlocal node_calls
+        node_calls += 1
+        await runtime._run_streamed(agent, "research", run=run)
+        raise AssertionError("stream exhaustion must not produce a node result")
+
+    asyncio.run(
+        BoundedDAGExecutor(
+            repository,
+            node_runner=node_runner,
+            synthesis_runner=_synthesis_runner([]),
+        ).run(plan, run)
+    )
+
+    persisted_plan = repository.get_skill_plan(plan.id)
+    persisted_run = repository.get_agent_run(run.id)
+    assert node_calls == 1
+    assert tool_calls == ["market"]
+    assert len(scripted.calls) == 4
+    assert persisted_plan is not None
+    assert persisted_plan.nodes[0].attempt == 1
+    assert persisted_plan.nodes[0].error_code == "RemoteProtocolError"
+    assert persisted_run is not None
+    assert persisted_run.error_code == "output_contract_unsatisfied"
 
 
 def test_optional_failure_yields_partial_when_contract_remains_satisfied(tmp_path) -> None:
@@ -405,6 +870,13 @@ def test_required_failure_skips_dependants_and_fails_unsatisfied_plan(tmp_path) 
     assert {node.id: node.status for node in persisted_plan.nodes} == {
         "root": SkillPlanNodeStatus.FAILED,
         "dependent": SkillPlanNodeStatus.SKIPPED,
+    }
+    terminal_event = repository.list_agent_run_events(run.id)[-1]
+    assert terminal_event.event_type == "run_failed"
+    assert terminal_event.payload == {
+        "error_code": "output_contract_unsatisfied",
+        "causes": [{"node_id": "root", "error_code": "ValueError", "attempt": 1}],
+        "missing_outputs": ["report"],
     }
     assert synthesis_calls == []
 
@@ -1260,6 +1732,7 @@ def test_plan_node_high_risk_tool_confirmation_resumes_node_then_remaining_dag(
     assert tool_projects == [USER.default_project_id, USER.default_project_id]
     assert len(repository.list_thread_messages(thread.id)) == 1
     model.assert_complete()
+    assert [call.model_settings.max_tokens for call in model.calls if call.streamed] == [8_192, 8_192]
 
 
 def test_plan_node_approval_is_cancelled_when_orchestration_rolls_back(tmp_path, monkeypatch) -> None:
@@ -1337,13 +1810,10 @@ def test_revoked_grant_fails_waiting_plan_and_resolves_inbox(
         profile.model_copy(update={"required_capabilities": ["research.request"]})
     )
     ensure_tool_seed_data(repository, granted_by="system")
-    grant = repository.save_agent_tool_grant(
-        AgentToolGrant(
-            id="grant_revoked_plan_web",
-            agent_id=USER.personal_agent_id,
-            tool_id="tool_web_research",
-            granted_by="test",
-        )
+    grant = next(
+        item
+        for item in repository.list_agent_tool_grants(USER.personal_agent_id)
+        if item.tool_id == "tool_web_research"
     )
     node = SkillPlanNode(
         id="node_revoked_grant",
@@ -1404,6 +1874,10 @@ def test_revoked_grant_fails_waiting_plan_and_resolves_inbox(
         )
     )
     repository.save_agent_tool_grant(grant.model_copy(update={"enabled": False}))
+    assert not any(
+        item.enabled and item.tool_id == "tool_web_research"
+        for item in repository.list_agent_tool_grants(USER.personal_agent_id)
+    )
     runtime = AgentRuntimeService(repository, model=ScriptedModel([]), enabled=True, skill_catalog=catalog)
 
     with pytest.raises(RuntimeError, match="planned_tool_grant_revoked"):
@@ -1416,6 +1890,16 @@ def test_revoked_grant_fails_waiting_plan_and_resolves_inbox(
     assert failed_plan.nodes[0].status == SkillPlanNodeStatus.FAILED
     assert repository.get_inbox_item(inbox.id).status == "resolved"  # type: ignore[union-attr]
     assert repository.list_skill_node_results(plan.id) == []
+    run_failed = repository.list_agent_run_events(run.id)[-1]
+    assert run_failed.event_type == "run_failed"
+    assert run_failed.payload["causes"] == [
+        {
+            "node_id": node.id,
+            "error_code": "planned_tool_grant_revoked",
+            "attempt": node.attempt,
+        }
+    ]
+    assert run_failed.payload["missing_outputs"] == ["feasibility_review"]
 
 
 def test_revoked_grant_fails_optional_waiting_node_and_continues_partial_plan(
@@ -1438,13 +1922,10 @@ def test_revoked_grant_fails_optional_waiting_node_and_continues_partial_plan(
         profile.model_copy(update={"required_capabilities": ["research.request"]})
     )
     ensure_tool_seed_data(repository, granted_by="system")
-    grant = repository.save_agent_tool_grant(
-        AgentToolGrant(
-            id="grant_revoked_optional_web",
-            agent_id=USER.personal_agent_id,
-            tool_id="tool_web_research",
-            granted_by="test",
-        )
+    grant = next(
+        item
+        for item in repository.list_agent_tool_grants(USER.personal_agent_id)
+        if item.tool_id == "tool_web_research"
     )
     required_node = SkillPlanNode(
         id="node_required_complete",
@@ -1543,6 +2024,10 @@ def test_revoked_grant_fails_optional_waiting_node_and_continues_partial_plan(
         )
     )
     repository.save_agent_tool_grant(grant.model_copy(update={"enabled": False}))
+    assert not any(
+        item.enabled and item.tool_id == "tool_web_research"
+        for item in repository.list_agent_tool_grants(USER.personal_agent_id)
+    )
     model = ScriptedModel(
         [
             [

@@ -60,8 +60,8 @@ export function PendingCandidatePanel({
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex min-w-0 items-start gap-3.5">
                   <span className={toolApproval
-                    ? 'flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-remind/12 text-remind'
-                    : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-mint-400/12 text-mint-300'}>
+                    ? 'flex h-10 w-10 shrink-0 items-center justify-center rounded-soft bg-remind/12 text-remind'
+                    : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-soft bg-mint-400/12 text-mint-300'}>
                     {toolApproval ? <Wrench className="h-5 w-5" /> : injectionReview ? <ShieldAlert className="h-5 w-5" /> : item.kind === 'team_candidate' ? <Lightbulb className="h-5 w-5" /> : <FileCheck2 className="h-5 w-5" />}
                   </span>
                   <div className="min-w-0">
@@ -82,7 +82,7 @@ export function PendingCandidatePanel({
                   <button
                     type="button"
                     onClick={() => onOpenDetail(item)}
-                    className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-lg px-2 text-xs text-slate-500 transition-colors active:scale-[0.98] hover:bg-white/[0.04] hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+                    className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-lg px-2 text-xs text-slate-400 transition-colors active:scale-[0.98] hover:bg-white/[0.04] hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
                   >
                     查看详情 <ArrowUpRight className="h-3 w-3" />
                   </button>
@@ -128,7 +128,7 @@ export function PendingCandidatePanel({
                 {actions.includes('resolve') ? (
                   <Button variant="ghost" disabled={busy || readOnly} onClick={() => onResolve(item)}>标记已解决</Button>
                 ) : null}
-                {actions.length === 0 ? <span className="text-xs text-slate-500">服务端未开放可执行操作。</span> : null}
+                {actions.length === 0 ? <span className="text-xs text-slate-400">服务端未开放可执行操作。</span> : null}
                 </div>
               )}
             </section>
@@ -136,7 +136,7 @@ export function PendingCandidatePanel({
         )
       })}
 
-      <div className="flex items-start gap-2 text-[12px] leading-relaxed text-slate-500">
+      <div className="flex items-start gap-2 text-[12px] leading-relaxed text-slate-400">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         高风险工具操作只有在服务端返回对应 allowed_actions 后才可处理，并按 call_id 生效；确认 Brief 会携带当前文档版本，避免覆盖并发更新。
       </div>
@@ -164,7 +164,7 @@ function ToolApprovalActions({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-2.5 rounded-[10px] border border-remind/20 bg-remind/[0.06] p-3 text-xs leading-5 text-slate-300">
+      <div className="flex items-start gap-2.5 rounded-soft border border-remind/20 bg-remind/[0.06] p-3 text-xs leading-5 text-slate-300">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-remind" aria-hidden="true" />
         <p>
           Skill 内已获用户授权的常规只读工具不会重复询问。这里仅列出独立工具调用，或涉及写入、不可逆影响和高风险参数的操作；允许只对当前这一次操作生效。
@@ -177,12 +177,12 @@ function ToolApprovalActions({
             <li
               key={call.callId}
               data-tool-call-id={call.callId}
-              className="flex flex-col gap-3 rounded-[10px] bg-base p-3.5 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-3 rounded-soft bg-base p-3.5 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-slate-100">{call.name}</p>
-                <p className="mt-1 break-all font-mono text-[11px] text-slate-500">call_id: {call.callId}</p>
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className="mt-1 break-all font-mono text-[11px] text-slate-400">call_id: {call.callId}</p>
+                <p className="mt-1 text-[11px] text-slate-400">
                   参数字段：{call.argumentKeys.length > 0 ? call.argumentKeys.join('、') : '无'}
                 </p>
               </div>
@@ -219,7 +219,7 @@ function ToolApprovalActions({
       )}
 
       {!canApprove && !canReject ? (
-        <span className="text-xs text-slate-500">服务端未开放可执行操作。</span>
+        <span className="text-xs text-slate-400">服务端未开放可执行操作。</span>
       ) : null}
     </div>
   )
@@ -228,8 +228,8 @@ function ToolApprovalActions({
 function Meta({ icon, label, value, source }: { icon: ReactNode; label: string; value: string; source: 'M' | 'T' }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <span className="shrink-0 text-slate-500">{icon}</span>
-      <span className="shrink-0 text-slate-500">{label}:</span>
+      <span className="shrink-0 text-slate-400">{icon}</span>
+      <span className="shrink-0 text-slate-400">{label}:</span>
       <span className="truncate text-slate-300">{value}</span>
       <DataSourceBadge source={source} />
     </div>

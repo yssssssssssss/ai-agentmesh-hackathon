@@ -72,17 +72,23 @@ export function ProfileSection() {
         icon={<Sparkles className="h-4 w-4" />}
         desc="管理数字人的头像与界面动效,不改变其能力与权限。"
       >
-        <div className="mb-3 flex items-center gap-4 rounded-[12px] border border-white/[0.06] bg-surface-2 p-4">
-          <div className="flex h-[76px] w-[76px] shrink-0 items-center justify-center overflow-hidden rounded-[18px] border border-white/[0.08] bg-surface-1">
+        <div className="mb-3 flex items-center gap-4 rounded-soft border border-white/[0.06] bg-surface-2 p-4">
+          <div className="flex h-[76px] w-[76px] shrink-0 items-center justify-center overflow-hidden rounded-overlay border border-white/[0.08] bg-surface-1">
             {avatarUrl ? (
-              <img src={avatarUrl} alt="数字人头像预览" className="h-full w-full object-cover" />
+              <img
+                src={avatarUrl}
+                alt="数字人头像预览"
+                width={76}
+                height={76}
+                className="h-full w-full object-cover"
+              />
             ) : (
               <DigitalHumanMark size={60} />
             )}
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-[13px] font-medium text-slate-200">数字人头像</div>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-slate-500">
+            <p className="mt-1 text-[11.5px] leading-relaxed text-slate-400">
               支持 JPG、PNG 图片,建议使用 1:1 比例的清晰图片。
             </p>
             <Button
@@ -126,8 +132,8 @@ function InfoRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
-      <span className="flex shrink-0 items-center gap-2 text-[13px] text-slate-500">
-        <span className="text-slate-500">{icon}</span>
+      <span className="flex shrink-0 items-center gap-2 text-[13px] text-slate-400">
+        <span className="text-slate-400">{icon}</span>
         {label}
       </span>
       <div className="min-w-0 text-right text-[13px]">{children}</div>
@@ -149,11 +155,11 @@ function ToggleRow({
     <button
       type="button"
       onClick={() => setOn((v) => !v)}
-      className="flex w-full items-center justify-between gap-4 rounded-[10px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.03]"
+      className="flex w-full items-center justify-between gap-4 rounded-soft px-2 py-2.5 text-left transition-colors hover:bg-white/[0.03]"
     >
       <span className="min-w-0">
         <span className="block text-[13px] font-medium text-slate-200">{label}</span>
-        {hint && <span className="mt-0.5 block text-[11.5px] text-slate-500">{hint}</span>}
+        {hint && <span className="mt-0.5 block text-[11.5px] text-slate-400">{hint}</span>}
       </span>
       <span
         className={cn(
@@ -163,7 +169,7 @@ function ToggleRow({
       >
         <span
           className={cn(
-            'h-4 w-4 rounded-full bg-white shadow transition-all',
+            'h-4 w-4 rounded-full bg-white shadow transition-[margin] duration-150',
             on ? 'ml-auto mr-0.5' : 'ml-0.5',
           )}
         />
