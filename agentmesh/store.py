@@ -51,10 +51,12 @@ from agentmesh.models import (
     BlackboardPostType,
     ChatMessage,
     ChatResponse,
+    ChatRole,
     ChatThread,
     ChatTurnReceipt,
     ChatTurnReceiptStatus,
     ChatTurnTrace,
+    ChatWorkflowTrace,
     ConsentGrant,
     ContributionPoint,
     DeepSearchBudgetReservationV1,
@@ -79,6 +81,9 @@ from agentmesh.models import (
     Project,
     RetrievalMetrics,
     RiskPolicyRule,
+    RunDispatchReceiptV1,
+    RunDispatchState,
+    RunOutputProjectionReceiptV1,
     RuntimeToolCallClaimV1,
     RuntimeToolCallOutcomeV1,
     ScheduledAgentTaskDefinition,
@@ -678,6 +683,43 @@ class SQLiteStore:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS run_dispatch_receipts (
+                operation_key TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                operation_kind TEXT NOT NULL,
+                generation INTEGER NOT NULL,
+                state TEXT NOT NULL,
+                process_epoch TEXT,
+                attempt_count INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(run_id, operation_kind, generation),
+                FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_run_dispatch_one_active
+            ON run_dispatch_receipts(run_id)
+            WHERE state IN ('pending', 'started')
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_run_dispatch_state_cursor
+            ON run_dispatch_receipts(state, created_at, operation_key)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_run_dispatch_run_state
+            ON run_dispatch_receipts(run_id, state)
+            """
+        )
         for trigger_name in (
             "agent_runs_research_writer_guard",
             "research_writer_generation_fence",
@@ -1032,6 +1074,7 @@ class SQLiteStore:
             connection.execute("DELETE FROM records_vec")
             connection.execute("DELETE FROM vector_states")
             connection.execute("DELETE FROM agent_run_events")
+            connection.execute("DELETE FROM run_dispatch_receipts")
             connection.execute("DELETE FROM agent_run_receipts")
             connection.execute("DELETE FROM deepsearch_requirement_versions")
             connection.execute("DELETE FROM research_model_call_receipts")
@@ -2063,6 +2106,243 @@ class SQLiteStore:
                 ("sdk_sessions", session_id, record.model_dump_json()),
             )
         return record
+
+    def project_terminal_run_status(
+        self,
+        *,
+        run_id: str,
+        skipped_reason: str,
+    ) -> RunOutputProjectionReceiptV1:
+        receipt_id = "run_output_projection_" + hashlib.sha256(run_id.encode()).hexdigest()[:24]
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                raise ResearchStoreConflict("run_output_projection_run_missing")
+            run = self._decode_agent_run_row(run_row)
+            if run.status not in {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED,
+                AgentRunStatus.CANCELLED,
+            }:
+                raise ResearchStoreConflict("run_output_projection_status_invalid")
+            output_hash = hashlib.sha256(
+                f"{run.status.value}:{skipped_reason}".encode()
+            ).hexdigest()
+            existing_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("run_output_projection_receipts", receipt_id),
+            ).fetchone()
+            if existing_row is not None:
+                existing = RunOutputProjectionReceiptV1.model_validate_json(
+                    existing_row["payload"]
+                )
+                if existing.run_id != run.id or existing.output_hash != output_hash:
+                    raise ResearchStoreConflict("run_output_projection_conflict")
+                return existing
+            receipt = RunOutputProjectionReceiptV1(
+                id=receipt_id,
+                run_id=run.id,
+                run_origin="chat" if run.project_chat else "agent_api",
+                terminal_status=run.status,
+                disposition="status_only",
+                memory_disposition="not_applicable",
+                skipped_reason=skipped_reason,
+                output_hash=output_hash,
+            )
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                (
+                    "run_output_projection_receipts",
+                    receipt.id,
+                    receipt.model_dump_json(),
+                ),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "run_output_projected",
+                        {
+                            "output_hash": output_hash,
+                            "skipped_reason": skipped_reason,
+                        },
+                    )
+                ],
+            )
+        return receipt
+
+    def project_terminal_run_output(
+        self,
+        *,
+        run_id: str,
+        content: str,
+        workflow_trace: ChatWorkflowTrace,
+        memory_item: UserMemoryItem | None = None,
+    ) -> tuple[RunOutputProjectionReceiptV1, ChatMessage, UserMemoryItem | None]:
+        output_hash = hashlib.sha256(content.encode()).hexdigest()
+        receipt_id = "run_output_projection_" + hashlib.sha256(run_id.encode()).hexdigest()[:24]
+        message_id = "message_run_output_" + hashlib.sha256(run_id.encode()).hexdigest()[:24]
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                raise ResearchStoreConflict("run_output_projection_run_missing")
+            run = self._decode_agent_run_row(run_row)
+            if run.status not in {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.REJECTED,
+            }:
+                raise ResearchStoreConflict("run_output_projection_run_not_terminal")
+            if run.output_text != content:
+                raise ResearchStoreConflict("run_output_projection_content_mismatch")
+            existing_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("run_output_projection_receipts", receipt_id),
+            ).fetchone()
+            if existing_row is not None:
+                existing = RunOutputProjectionReceiptV1.model_validate_json(
+                    existing_row["payload"]
+                )
+                if existing.run_id != run.id or existing.output_hash != output_hash:
+                    raise ResearchStoreConflict("run_output_projection_conflict")
+                message_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("chat_messages", existing.assistant_message_id),
+                ).fetchone()
+                if message_row is None:
+                    raise ResearchStoreConflict("run_output_projection_message_missing")
+                if existing.memory_item_id is not None:
+                    memory_row = connection.execute(
+                        "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                        ("user_memory_items", existing.memory_item_id),
+                    ).fetchone()
+                    if memory_row is None:
+                        raise ResearchStoreConflict(
+                            "run_output_projection_memory_missing"
+                        )
+                    projected_memory = UserMemoryItem.model_validate_json(
+                        memory_row["payload"]
+                    )
+                else:
+                    projected_memory = None
+                return (
+                    existing,
+                    ChatMessage.model_validate_json(message_row["payload"]),
+                    projected_memory,
+                )
+            message = ChatMessage(
+                id=message_id,
+                thread_id=run.thread_id,
+                role=ChatRole.ASSISTANT,
+                content=content,
+                scope=Scope.PRIVATE,
+                workflow_trace=workflow_trace,
+            )
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                ("chat_messages", message.id, message.model_dump_json()),
+            )
+            self._sync_fts(connection, "chat_messages", message)
+            thread_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("chat_threads", run.thread_id),
+            ).fetchone()
+            if thread_row is not None:
+                thread = ChatThread.model_validate_json(thread_row["payload"])
+                thread.updated_at = now_utc()
+                connection.execute(
+                    "UPDATE records SET payload = ? WHERE collection = ? AND id = ?",
+                    (thread.model_dump_json(), "chat_threads", thread.id),
+                )
+            session_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("sdk_sessions", run.thread_id),
+            ).fetchone()
+            session = (
+                SDKSessionRecord.model_validate_json(session_row["payload"])
+                if session_row is not None
+                else SDKSessionRecord(id=run.thread_id)
+            )
+            session.synced_chat_message_ids = list(
+                dict.fromkeys([*session.synced_chat_message_ids, message.id])
+            )
+            session.version += 1
+            session.updated_at = now_utc()
+            connection.execute(
+                """
+                INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)
+                ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
+                """,
+                ("sdk_sessions", session.id, session.model_dump_json()),
+            )
+            if memory_item is not None:
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                    (
+                        "user_memory_items",
+                        memory_item.id,
+                        memory_item.model_dump_json(),
+                    ),
+                )
+                self._sync_fts(connection, "user_memory_items", memory_item)
+            receipt = RunOutputProjectionReceiptV1(
+                id=receipt_id,
+                run_id=run.id,
+                run_origin="chat" if run.project_chat else "agent_api",
+                terminal_status=run.status,
+                disposition="message",
+                assistant_message_id=message.id,
+                memory_item_id=memory_item.id if memory_item is not None else None,
+                memory_disposition=(
+                    "projected" if memory_item is not None else "policy_skipped"
+                ),
+                output_hash=output_hash,
+            )
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                (
+                    "run_output_projection_receipts",
+                    receipt.id,
+                    receipt.model_dump_json(),
+                ),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "run_output_projected",
+                        {
+                            "output_hash": output_hash,
+                            "assistant_message_id": message.id,
+                            "memory_item_id": memory_item.id if memory_item else None,
+                        },
+                    )
+                ],
+            )
+        return receipt, message, memory_item
+
+    def get_run_output_projection(
+        self,
+        run_id: str,
+    ) -> RunOutputProjectionReceiptV1 | None:
+        receipt_id = "run_output_projection_" + hashlib.sha256(run_id.encode()).hexdigest()[:24]
+        return self._get(
+            "run_output_projection_receipts",
+            receipt_id,
+            RunOutputProjectionReceiptV1,
+        )
 
     def mark_sdk_session_chat_messages(self, session_id: str, message_ids: list[str]) -> SDKSessionRecord:
         with self._connect() as connection:
@@ -3111,6 +3391,7 @@ class SQLiteStore:
         next_run_status: AgentRunStatus,
         events: list[tuple[str, dict[str, object]]],
         output_text: str | None = None,
+        dispatch: RunDispatchReceiptV1 | None = None,
     ) -> tuple[SkillPlan, AgentRun] | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -3163,6 +3444,16 @@ class SQLiteStore:
                 "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
                 (run.model_dump_json(), now.isoformat(), run.id),
             )
+            if dispatch is not None:
+                if dispatch.run_id != run.id:
+                    raise ResearchStoreConflict("run_dispatch_identity_invalid")
+                self._settle_active_run_dispatches_for_handoff(
+                    connection,
+                    run_id=run.id,
+                    next_operation_key=dispatch.operation_key,
+                    settled_at=now,
+                )
+                self._insert_run_dispatch_in_transaction(connection, dispatch)
             sequence = connection.execute(
                 "SELECT COALESCE(MAX(sequence), 0) FROM agent_run_events WHERE run_id = ?",
                 (run.id,),
@@ -7132,6 +7423,7 @@ class SQLiteStore:
         plan: SkillPlan,
         plan_snapshot: Artifact,
         checked_at: datetime | None = None,
+        dispatch: RunDispatchReceiptV1 | None = None,
     ) -> tuple[SkillPlan, AgentRun, Artifact] | None:
         """Atomically freeze the approved DeepSearch Plan version and start its Run."""
 
@@ -7257,6 +7549,16 @@ class SQLiteStore:
                     "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
                     (run.model_dump_json(), now.isoformat(), run.id),
                 )
+                if dispatch is not None:
+                    if dispatch.run_id != run.id:
+                        raise ResearchStoreConflict("run_dispatch_identity_invalid")
+                    self._settle_active_run_dispatches_for_handoff(
+                        connection,
+                        run_id=run.id,
+                        next_operation_key=dispatch.operation_key,
+                        settled_at=now,
+                    )
+                    self._insert_run_dispatch_in_transaction(connection, dispatch)
                 self._append_agent_run_events(
                     connection,
                     run.id,
@@ -7894,14 +8196,138 @@ class SQLiteStore:
         ):
             raise ResearchStoreConflict("DeepSearch Run persistence invariants are invalid")
 
-    def claim_new_agent_run(self, run: AgentRun) -> tuple[AgentRun, bool]:
+    @staticmethod
+    def _settle_active_run_dispatches_for_handoff(
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        next_operation_key: str,
+        settled_at: datetime,
+    ) -> None:
+        rows = connection.execute(
+            """
+            SELECT * FROM run_dispatch_receipts
+            WHERE run_id = ? AND state IN (?, ?) AND operation_key != ?
+            ORDER BY created_at, operation_key
+            """,
+            (
+                run_id,
+                RunDispatchState.PENDING.value,
+                RunDispatchState.STARTED.value,
+                next_operation_key,
+            ),
+        ).fetchall()
+        events: list[tuple[str, dict[str, object]]] = []
+        for row in rows:
+            current = SQLiteStore._decode_run_dispatch_row(row)
+            settled = current.model_copy(
+                update={
+                    "state": RunDispatchState.SETTLED,
+                    "updated_at": settled_at,
+                }
+            )
+            connection.execute(
+                """
+                UPDATE run_dispatch_receipts
+                SET state = ?, payload = ?, updated_at = ?
+                WHERE operation_key = ? AND state IN (?, ?)
+                """,
+                (
+                    RunDispatchState.SETTLED.value,
+                    settled.model_dump_json(),
+                    settled_at.isoformat(),
+                    settled.operation_key,
+                    RunDispatchState.PENDING.value,
+                    RunDispatchState.STARTED.value,
+                ),
+            )
+            events.append(
+                (
+                    "run_dispatch_settled",
+                    {
+                        "operation_key": settled.operation_key,
+                        "operation_kind": settled.operation_kind,
+                        "generation": settled.generation,
+                        "attempt_count": settled.attempt_count,
+                        "disposition": "handoff",
+                    },
+                )
+            )
+        SQLiteStore._append_agent_run_events(connection, run_id, events)
+
+    @staticmethod
+    def _insert_run_dispatch_in_transaction(
+        connection: sqlite3.Connection,
+        receipt: RunDispatchReceiptV1,
+    ) -> None:
+        if (
+            receipt.state is not RunDispatchState.PENDING
+            or receipt.process_epoch is not None
+            or receipt.attempt_count != 0
+        ):
+            raise ResearchStoreConflict("run_dispatch_initial_state_invalid")
+        connection.execute(
+            """
+            INSERT INTO run_dispatch_receipts(
+                operation_key, run_id, operation_kind, generation, state,
+                process_epoch, attempt_count, payload, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                receipt.operation_key,
+                receipt.run_id,
+                receipt.operation_kind,
+                receipt.generation,
+                receipt.state.value,
+                receipt.process_epoch,
+                receipt.attempt_count,
+                receipt.model_dump_json(),
+                receipt.created_at.isoformat(),
+                receipt.updated_at.isoformat(),
+            ),
+        )
+        SQLiteStore._append_agent_run_events(
+            connection,
+            receipt.run_id,
+            [
+                (
+                    "run_dispatch_pending",
+                    {
+                        "operation_key": receipt.operation_key,
+                        "operation_kind": receipt.operation_kind,
+                        "generation": receipt.generation,
+                    },
+                )
+            ],
+        )
+
+    def claim_new_agent_run(
+        self,
+        run: AgentRun,
+        *,
+        dispatch: RunDispatchReceiptV1 | None = None,
+    ) -> tuple[AgentRun, bool]:
         if run.orchestration_version == "research-v2":
             raise ResearchStoreConflict("research-v2 writer is retired")
         if run.orchestration_version == "research-v3":
             raise ResearchStoreConflict("research-v3 writer is retired")
         self._require_new_deepsearch_run_invariants(run)
+        if dispatch is not None and dispatch.run_id != run.id:
+            raise ResearchStoreConflict("run_dispatch_identity_invalid")
         if not run.client_turn_id:
-            return self.save_agent_run(run), True
+            if dispatch is None:
+                return self.save_agent_run(run), True
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                self._require_agent_run_thread_available(connection, run)
+                self._insert_agent_run_claim(connection, run)
+                self._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [("run_started", {"skill_name": run.skill_name or ""})],
+                )
+                self._insert_run_dispatch_in_transaction(connection, dispatch)
+            return run, True
         expected_hash = agent_run_create_request_hash_for_run(run)
         if expected_hash is None:
             raise RuntimeError("Agent run creation request identity is incomplete")
@@ -7915,7 +8341,212 @@ class SQLiteStore:
                 return existing, False
             self._require_agent_run_thread_available(connection, run)
             self._insert_agent_run_claim(connection, run)
+            if dispatch is not None:
+                self._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [("run_started", {"skill_name": run.skill_name or ""})],
+                )
+                self._insert_run_dispatch_in_transaction(connection, dispatch)
         return run, True
+
+    @staticmethod
+    def _decode_run_dispatch_row(row: sqlite3.Row) -> RunDispatchReceiptV1:
+        try:
+            receipt = RunDispatchReceiptV1.model_validate_json(row["payload"])
+        except (TypeError, ValueError) as error:
+            raise ResearchStoreConflict("run_dispatch_integrity_invalid") from error
+        if (
+            receipt.operation_key != row["operation_key"]
+            or receipt.run_id != row["run_id"]
+            or receipt.operation_kind != row["operation_kind"]
+            or receipt.generation != row["generation"]
+            or receipt.state.value != row["state"]
+            or receipt.process_epoch != row["process_epoch"]
+            or receipt.attempt_count != row["attempt_count"]
+            or receipt.created_at.isoformat() != row["created_at"]
+            or receipt.updated_at.isoformat() != row["updated_at"]
+        ):
+            raise ResearchStoreConflict("run_dispatch_integrity_invalid")
+        return receipt
+
+    def get_run_dispatch(self, operation_key: str) -> RunDispatchReceiptV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM run_dispatch_receipts WHERE operation_key = ?",
+                (operation_key,),
+            ).fetchone()
+        return self._decode_run_dispatch_row(row) if row is not None else None
+
+    def list_pending_run_dispatches(
+        self,
+        *,
+        limit: int = 50,
+        after: tuple[str, str] | None = None,
+    ) -> list[RunDispatchReceiptV1]:
+        if not 1 <= limit <= 50:
+            raise ValueError("run_dispatch_page_limit_invalid")
+        cursor_clause = (
+            "AND (created_at > ? OR (created_at = ? AND operation_key > ?))"
+            if after is not None
+            else ""
+        )
+        cursor_parameters: tuple[object, ...] = (
+            (after[0], after[0], after[1]) if after is not None else ()
+        )
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM run_dispatch_receipts
+                WHERE state = ? {cursor_clause}
+                ORDER BY created_at, operation_key
+                LIMIT ?
+                """,
+                (RunDispatchState.PENDING.value, *cursor_parameters, limit),
+            ).fetchall()
+        return [self._decode_run_dispatch_row(row) for row in rows]
+
+    def claim_run_dispatch(
+        self,
+        operation_key: str,
+        *,
+        process_epoch: str,
+    ) -> RunDispatchReceiptV1 | None:
+        if not process_epoch or len(process_epoch) > 160:
+            raise ValueError("run_dispatch_process_epoch_invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM run_dispatch_receipts WHERE operation_key = ?",
+                (operation_key,),
+            ).fetchone()
+            if row is None:
+                return None
+            current = self._decode_run_dispatch_row(row)
+            if current.state is RunDispatchState.STARTED:
+                return current if current.process_epoch == process_epoch else None
+            if current.state is not RunDispatchState.PENDING:
+                return None
+            updated = current.model_copy(
+                update={
+                    "state": RunDispatchState.STARTED,
+                    "process_epoch": process_epoch,
+                    "attempt_count": current.attempt_count + 1,
+                    "updated_at": now_utc(),
+                }
+            )
+            cursor = connection.execute(
+                """
+                UPDATE run_dispatch_receipts
+                SET state = ?, process_epoch = ?, attempt_count = ?, payload = ?, updated_at = ?
+                WHERE operation_key = ? AND state = ?
+                """,
+                (
+                    updated.state.value,
+                    updated.process_epoch,
+                    updated.attempt_count,
+                    updated.model_dump_json(),
+                    updated.updated_at.isoformat(),
+                    operation_key,
+                    RunDispatchState.PENDING.value,
+                ),
+            )
+            if cursor.rowcount == 1:
+                self._append_agent_run_events(
+                    connection,
+                    updated.run_id,
+                    [
+                        (
+                            "run_dispatch_started",
+                            {
+                                "operation_key": updated.operation_key,
+                                "operation_kind": updated.operation_kind,
+                                "generation": updated.generation,
+                                "attempt_count": updated.attempt_count,
+                            },
+                        )
+                    ],
+                )
+                return updated
+            return None
+
+    def settle_run_dispatch(
+        self,
+        operation_key: str,
+        *,
+        process_epoch: str,
+    ) -> RunDispatchReceiptV1 | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM run_dispatch_receipts WHERE operation_key = ?",
+                (operation_key,),
+            ).fetchone()
+            if row is None:
+                return None
+            current = self._decode_run_dispatch_row(row)
+            if current.state is RunDispatchState.SETTLED:
+                return current
+            if (
+                current.state is not RunDispatchState.STARTED
+                or current.process_epoch != process_epoch
+            ):
+                return None
+            settled = current.model_copy(
+                update={
+                    "state": RunDispatchState.SETTLED,
+                    "updated_at": now_utc(),
+                }
+            )
+            cursor = connection.execute(
+                """
+                UPDATE run_dispatch_receipts
+                SET state = ?, payload = ?, updated_at = ?
+                WHERE operation_key = ? AND state = ? AND process_epoch = ?
+                """,
+                (
+                    settled.state.value,
+                    settled.model_dump_json(),
+                    settled.updated_at.isoformat(),
+                    operation_key,
+                    RunDispatchState.STARTED.value,
+                    process_epoch,
+                ),
+            )
+            if cursor.rowcount == 1:
+                self._append_agent_run_events(
+                    connection,
+                    settled.run_id,
+                    [
+                        (
+                            "run_dispatch_settled",
+                            {
+                                "operation_key": settled.operation_key,
+                                "operation_kind": settled.operation_kind,
+                                "generation": settled.generation,
+                                "attempt_count": settled.attempt_count,
+                            },
+                        )
+                    ],
+                )
+                return settled
+            return None
+
+    def get_latest_run_dispatch(
+        self,
+        run_id: str,
+    ) -> RunDispatchReceiptV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM run_dispatch_receipts
+                WHERE run_id = ?
+                ORDER BY generation DESC, created_at DESC
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+        return self._decode_run_dispatch_row(row) if row is not None else None
 
     def get_agent_run_by_client_turn(self, user_id: str, client_turn_id: str) -> AgentRun | None:
         with self._connect() as connection:
@@ -8053,6 +8684,64 @@ class SQLiteStore:
         cls._append_agent_run_events(connection, run.id, events)
         return any(claim.side_effect != "read" for claim in claims)
 
+    def reconcile_run_dispatches_for_startup(self) -> int:
+        """Reset checkpoint-safe DeepSearch or terminal projection work."""
+
+        reset = 0
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT * FROM run_dispatch_receipts WHERE state = ? ORDER BY created_at, operation_key",
+                (RunDispatchState.STARTED.value,),
+            ).fetchall()
+            for row in rows:
+                receipt = self._decode_run_dispatch_row(row)
+                run_row = connection.execute(
+                    "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                    (receipt.run_id,),
+                ).fetchone()
+                if run_row is None:
+                    continue
+                run = self._decode_agent_run_row(run_row)
+                terminal_or_waiting = run.status in {
+                    AgentRunStatus.COMPLETED,
+                    AgentRunStatus.PARTIAL,
+                    AgentRunStatus.FAILED,
+                    AgentRunStatus.REJECTED,
+                    AgentRunStatus.CANCELLED,
+                    AgentRunStatus.WAITING_CLARIFICATION,
+                    AgentRunStatus.WAITING_PLAN_APPROVAL,
+                    AgentRunStatus.WAITING_APPROVAL,
+                }
+                if (
+                    run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+                    and not terminal_or_waiting
+                ):
+                    continue
+                pending = receipt.model_copy(
+                    update={
+                        "state": RunDispatchState.PENDING,
+                        "process_epoch": None,
+                        "updated_at": now_utc(),
+                    }
+                )
+                connection.execute(
+                    """
+                    UPDATE run_dispatch_receipts
+                    SET state = ?, process_epoch = NULL, payload = ?, updated_at = ?
+                    WHERE operation_key = ? AND state = ?
+                    """,
+                    (
+                        pending.state.value,
+                        pending.model_dump_json(),
+                        pending.updated_at.isoformat(),
+                        pending.operation_key,
+                        RunDispatchState.STARTED.value,
+                    ),
+                )
+                reset += 1
+        return reset
+
     def reconcile_orphaned_agent_runs(self) -> int:
         reconciled = 0
         with self._connect() as connection:
@@ -8064,6 +8753,28 @@ class SQLiteStore:
             for row in rows:
                 run = AgentRun.model_validate_json(row["payload"])
                 if self._is_retired_research_run(run, row["orchestration_version"]):
+                    continue
+                dispatch_row = connection.execute(
+                    """
+                    SELECT * FROM run_dispatch_receipts
+                    WHERE run_id = ? AND state IN (?, ?)
+                    ORDER BY generation DESC LIMIT 1
+                    """,
+                    (
+                        run.id,
+                        RunDispatchState.PENDING.value,
+                        RunDispatchState.STARTED.value,
+                    ),
+                ).fetchone()
+                active_dispatch = (
+                    self._decode_run_dispatch_row(dispatch_row)
+                    if dispatch_row is not None
+                    else None
+                )
+                if (
+                    active_dispatch is not None
+                    and active_dispatch.state is RunDispatchState.PENDING
+                ):
                     continue
                 has_non_read_tool_claim = self._reconcile_runtime_tool_calls_in_transaction(
                     connection,
@@ -8184,6 +8895,44 @@ class SQLiteStore:
                     "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
                     (run.model_dump_json(), run.updated_at.isoformat(), run.id),
                 )
+                if (
+                    active_dispatch is not None
+                    and active_dispatch.state is RunDispatchState.STARTED
+                ):
+                    pending_dispatch = active_dispatch.model_copy(
+                        update={
+                            "state": RunDispatchState.PENDING,
+                            "process_epoch": None,
+                            "updated_at": checked_at,
+                        }
+                    )
+                    connection.execute(
+                        """
+                        UPDATE run_dispatch_receipts
+                        SET state = ?, process_epoch = NULL, payload = ?, updated_at = ?
+                        WHERE operation_key = ? AND state = ?
+                        """,
+                        (
+                            pending_dispatch.state.value,
+                            pending_dispatch.model_dump_json(),
+                            pending_dispatch.updated_at.isoformat(),
+                            pending_dispatch.operation_key,
+                            RunDispatchState.STARTED.value,
+                        ),
+                    )
+                    self._append_agent_run_events(
+                        connection,
+                        run.id,
+                        [
+                            (
+                                "run_dispatch_reconciled",
+                                {
+                                    "operation_key": pending_dispatch.operation_key,
+                                    "disposition": "terminal_projection_pending",
+                                },
+                            )
+                        ],
+                    )
                 sequence = connection.execute(
                     "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_run_events WHERE run_id = ?",
                     (run.id,),
@@ -8218,6 +8967,7 @@ class SQLiteStore:
         ).fetchall()
         run_ids: set[str] = set()
         plan_ids: set[str] = set()
+        active_dispatch_operation_keys: set[str] = set()
         unresolved_call_ids: set[str] = set()
         unsafe_no_plan_run_ids: set[str] = set()
         anomalies: set[str] = set()
@@ -8225,6 +8975,18 @@ class SQLiteStore:
             AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
             AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
         }
+        active_dispatch_rows = connection.execute(
+            """
+            SELECT operation_key, run_id FROM run_dispatch_receipts
+            WHERE state IN (?, ?)
+            ORDER BY operation_key
+            """,
+            (RunDispatchState.PENDING.value, RunDispatchState.STARTED.value),
+        ).fetchall()
+        active_dispatch_operation_keys.update(
+            row["operation_key"] for row in active_dispatch_rows
+        )
+        active_dispatch_run_ids = {row["run_id"] for row in active_dispatch_rows}
         for row in rows:
             run = cls._decode_agent_run_row(row)
             claims, outcomes = cls._runtime_tool_call_history_in_transaction(connection, run.id)
@@ -8232,6 +8994,20 @@ class SQLiteStore:
             unresolved = [claim for claim in claims if claim.call_id not in terminal_call_ids]
             unresolved_call_ids.update(claim.call_id for claim in unresolved)
             active = run.status not in terminal_statuses
+            has_active_dispatch = run.id in active_dispatch_run_ids
+            if has_active_dispatch and not active:
+                projection_row = connection.execute(
+                    """
+                    SELECT 1 FROM records
+                    WHERE collection = ? AND json_extract(payload, '$.run_id') = ?
+                    LIMIT 1
+                    """,
+                    ("run_output_projection_receipts", run.id),
+                ).fetchone()
+                if projection_row is None:
+                    anomalies.add(f"terminal_projection_pending:{run.id}")
+            elif has_active_dispatch:
+                run_ids.add(run.id)
             plan_row = connection.execute(
                 "SELECT id, payload FROM skill_plans WHERE run_id = ?",
                 (run.id,),
@@ -8269,6 +9045,9 @@ class SQLiteStore:
             "schema_version": "orchestration-quiesce-inventory-v1",
             "run_ids": sorted(run_ids),
             "plan_ids": sorted(plan_ids),
+            "active_dispatch_operation_keys": sorted(
+                active_dispatch_operation_keys
+            ),
             "unresolved_tool_call_ids": sorted(unresolved_call_ids),
             "unsafe_no_plan_run_ids": sorted(unsafe_no_plan_run_ids),
             "anomaly_codes": sorted(anomalies),
@@ -8327,17 +9106,29 @@ class SQLiteStore:
                 if row is None:
                     raise RuntimeToolCallConflict("quiesce_run_disappeared")
                 run = self._decode_agent_run_row(row)
-                run_claims, _run_outcomes = self._runtime_tool_call_history_in_transaction(
+                run_claims, run_outcomes = self._runtime_tool_call_history_in_transaction(
                     connection,
                     run.id,
                 )
                 has_non_read_claim = any(claim.side_effect != "read" for claim in run_claims)
+                non_read_call_ids = {
+                    claim.call_id for claim in run_claims if claim.side_effect != "read"
+                }
+                has_unknown_write_outcome = any(
+                    outcome.call_id in non_read_call_ids
+                    and outcome.outcome == "outcome_unknown"
+                    for outcome in run_outcomes
+                )
                 plan_row = connection.execute(
                     "SELECT payload FROM skill_plans WHERE run_id = ?",
                     (run.id,),
                 ).fetchone()
                 events: list[tuple[str, dict[str, object]]] = []
-                has_unknown_write = has_non_read_claim
+                has_unknown_write = (
+                    has_unknown_write_outcome
+                    if plan_row is not None
+                    else has_non_read_claim
+                )
                 partial = False
                 if plan_row is not None:
                     plan = SkillPlan.model_validate_json(plan_row["payload"])
@@ -8425,6 +9216,38 @@ class SQLiteStore:
                     "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
                     (run.model_dump_json(), checked_at.isoformat(), run.id),
                 )
+                dispatch_rows = connection.execute(
+                    """
+                    SELECT * FROM run_dispatch_receipts
+                    WHERE run_id = ? AND state IN (?, ?)
+                    """,
+                    (
+                        run.id,
+                        RunDispatchState.PENDING.value,
+                        RunDispatchState.STARTED.value,
+                    ),
+                ).fetchall()
+                for dispatch_row in dispatch_rows:
+                    dispatch = self._decode_run_dispatch_row(dispatch_row)
+                    settled_dispatch = dispatch.model_copy(
+                        update={
+                            "state": RunDispatchState.SETTLED,
+                            "updated_at": checked_at,
+                        }
+                    )
+                    connection.execute(
+                        """
+                        UPDATE run_dispatch_receipts
+                        SET state = ?, payload = ?, updated_at = ?
+                        WHERE operation_key = ?
+                        """,
+                        (
+                            settled_dispatch.state.value,
+                            settled_dispatch.model_dump_json(),
+                            settled_dispatch.updated_at.isoformat(),
+                            settled_dispatch.operation_key,
+                        ),
+                    )
                 events.append(
                     (
                         "run_partially_completed"
@@ -8436,6 +9259,55 @@ class SQLiteStore:
                     )
                 )
                 self._append_agent_run_events(connection, run.id, events)
+            remaining_dispatch_rows = connection.execute(
+                """
+                SELECT * FROM run_dispatch_receipts
+                WHERE state IN (?, ?)
+                ORDER BY operation_key
+                """,
+                (RunDispatchState.PENDING.value, RunDispatchState.STARTED.value),
+            ).fetchall()
+            for dispatch_row in remaining_dispatch_rows:
+                dispatch = self._decode_run_dispatch_row(dispatch_row)
+                if dispatch.operation_key not in inventory.active_dispatch_operation_keys:
+                    continue
+                settled_dispatch = dispatch.model_copy(
+                    update={
+                        "state": RunDispatchState.SETTLED,
+                        "updated_at": checked_at,
+                    }
+                )
+                connection.execute(
+                    """
+                    UPDATE run_dispatch_receipts
+                    SET state = ?, payload = ?, updated_at = ?
+                    WHERE operation_key = ? AND state IN (?, ?)
+                    """,
+                    (
+                        settled_dispatch.state.value,
+                        settled_dispatch.model_dump_json(),
+                        settled_dispatch.updated_at.isoformat(),
+                        settled_dispatch.operation_key,
+                        RunDispatchState.PENDING.value,
+                        RunDispatchState.STARTED.value,
+                    ),
+                )
+                self._append_agent_run_events(
+                    connection,
+                    dispatch.run_id,
+                    [
+                        (
+                            "run_dispatch_settled",
+                            {
+                                "operation_key": dispatch.operation_key,
+                                "operation_kind": dispatch.operation_kind,
+                                "generation": dispatch.generation,
+                                "attempt_count": dispatch.attempt_count,
+                                "disposition": "quiesce_terminal_preserved",
+                            },
+                        )
+                    ],
+                )
             return inventory
 
     def list_active_agent_runs_for_planning_contracts(
@@ -9284,7 +10156,7 @@ class SQLiteStore:
         *,
         after_sequence: int = 0,
         limit: int = 100,
-    ) -> tuple[list[AgentRunEvent], AgentRun | None]:
+    ) -> tuple[list[AgentRunEvent], AgentRun | None, bool, bool]:
         if not 1 <= limit <= 100:
             raise ValueError("agent_run_event_page_limit_invalid")
         with self._read_connect() as connection:
@@ -9302,9 +10174,22 @@ class SQLiteStore:
                 "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
                 (run_id,),
             ).fetchone()
+            projection_row = connection.execute(
+                """
+                SELECT 1 FROM records
+                WHERE collection = 'run_output_projection_receipts'
+                  AND json_extract(payload, '$.run_id') = ?
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+            dispatch_row = connection.execute(
+                "SELECT 1 FROM run_dispatch_receipts WHERE run_id = ? LIMIT 1",
+                (run_id,),
+            ).fetchone()
         events = [AgentRunEvent.model_validate_json(row["payload"]) for row in event_rows]
         run = self._decode_agent_run_row(run_row) if run_row is not None else None
-        return events, run
+        return events, run, projection_row is not None, dispatch_row is not None
 
     def list_agent_run_events(self, run_id: str, after_sequence: int = 0) -> list[AgentRunEvent]:
         with self._connect() as connection:

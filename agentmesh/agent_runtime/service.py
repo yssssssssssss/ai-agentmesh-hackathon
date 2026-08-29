@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from contextlib import AsyncExitStack
+from collections.abc import Callable
+from contextlib import AsyncExitStack, suppress
 from datetime import datetime, timedelta
 from time import monotonic
-from typing import Any
+from typing import Any, Literal
 
 from agents import (
     Agent,
@@ -100,6 +101,7 @@ from agentmesh.models import (
     InboxItem,
     Intent,
     MemoryLayer,
+    RunDispatchReceiptV1,
     Scope,
     SkillCandidate,
     SkillDefinition,
@@ -125,6 +127,11 @@ from agentmesh.models import (
     now_utc,
 )
 from agentmesh.runtime_admission import current_orchestration_admission
+from agentmesh.runtime_capacity import (
+    RuntimeCapacityController,
+    RuntimeCapacityError,
+    current_runtime_capacity,
+)
 from agentmesh.skill_runtime.activation import build_skill_activation_tool
 from agentmesh.skill_runtime.executor import (
     BoundedDAGExecutor,
@@ -143,7 +150,10 @@ from agentmesh.skill_runtime.planner import (
     single_skill_draft,
 )
 from agentmesh.skill_runtime.profiles import is_pilot_orchestration_skill, profile_matches_skill
-from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
+from agentmesh.skill_runtime.quiesce import (
+    OrchestrationQuiesceController,
+    OrchestrationQuiescingError,
+)
 from agentmesh.skill_runtime.recommendation import (
     UniversalSkillSearchService,
     build_candidate_snapshot,
@@ -237,6 +247,39 @@ def _deepsearch_model_operation_key(
     identity: object,
 ) -> str:
     return f"{scope}:{stage}:{canonical_json_sha256(identity)}"
+
+
+class _CapacityBoundModel(Model):
+    """Hold one process-wide LLM slot for each provider request or stream."""
+
+    def __init__(self, model: Model, capacity: RuntimeCapacityController) -> None:
+        self._model = model
+        self._capacity = capacity
+
+    async def get_response(self, *args: Any, **kwargs: Any):  # noqa: ANN202
+        async with self._capacity.llm_slot():
+            return await self._model.get_response(*args, **kwargs)
+
+    def stream_response(self, *args: Any, **kwargs: Any):  # noqa: ANN202
+        return self._stream_response(args, kwargs)
+
+    async def _stream_response(
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ):  # noqa: ANN202
+        async with self._capacity.llm_slot():
+            async for event in self._model.stream_response(*args, **kwargs):
+                yield event
+
+    async def _cleanup_on_run_end(self, owner: object) -> None:
+        await self._model._cleanup_on_run_end(owner)
+
+    async def close(self) -> None:
+        await self._model.close()
+
+    def get_retry_advice(self, request):  # noqa: ANN001, ANN201
+        return self._model.get_retry_advice(request)
 
 
 class _BudgetedDeepSearchModel(Model):
@@ -1004,29 +1047,43 @@ class AgentRuntimeService:
         task_router: TaskScenarioRouter | None = None,
         deepsearch_planning_service: DeepSearchPlanningService | None = None,
         admission: OrchestrationQuiesceController | None = None,
+        capacity: RuntimeCapacityController | None = None,
         profile_trust: ProfileTrustVerifier | None = None,
         universal_search: UniversalSkillSearchService | None = None,
         universal_task_catalog: TaskCatalogV2 | None = None,
         universal_preview_enabled: bool | None = None,
     ):
         self.repository = repository
+        self._process_epoch = new_id("process_epoch")
         self._model = model
         self._enabled_override = enabled
         self.admission = admission or current_orchestration_admission()
+        self.capacity = capacity or current_runtime_capacity()
         self.model_factory = model_factory or AgentMeshModelFactory(repository)
-        self.tool_factory = tool_factory or AgentMeshToolFactory(repository, admission=self.admission)
+        self.tool_factory = tool_factory or AgentMeshToolFactory(
+            repository,
+            admission=self.admission,
+            capacity=self.capacity,
+        )
         if tool_factory is not None:
             set_admission = getattr(tool_factory, "set_admission_controller", None)
             if callable(set_admission):
                 set_admission(self.admission)
+            set_tool_capacity = getattr(tool_factory, "set_capacity_controller", None)
+            if callable(set_tool_capacity):
+                set_tool_capacity(self.capacity)
         self.mcp_factory = mcp_factory or AgentMeshMCPFactory(
             repository,
             admission=self.admission,
+            capacity=self.capacity,
         )
         if mcp_factory is not None:
             set_mcp_admission = getattr(mcp_factory, "set_admission_controller", None)
             if callable(set_mcp_admission):
                 set_mcp_admission(self.admission)
+            set_mcp_capacity = getattr(mcp_factory, "set_capacity_controller", None)
+            if callable(set_mcp_capacity):
+                set_mcp_capacity(self.capacity)
         self.skill_catalog = skill_catalog or SkillCatalogService(repository)
         self.profile_trust = profile_trust or runtime_profile_trust_verifier()
         self.universal_preview_enabled = (
@@ -1053,8 +1110,25 @@ class AgentRuntimeService:
         self.deepsearch_review_service = DeepSearchReviewService()
         self.hooks = AgentMeshRunHooks(repository, admission=self.admission)
         self._tasks: dict[str, asyncio.Task] = {}
+        self._dispatch_pump_task: asyncio.Task | None = None
+        self._dispatch_wakeup = asyncio.Event()
+        self._dispatch_last_error: str | None = None
+        self._deepsearch_recovery_wakeup: Callable[[], None] | None = None
         self._plan_semaphore = asyncio.Semaphore(4)
         configure_agentmesh_tracing(repository)
+
+    def set_capacity_controller(self, capacity: RuntimeCapacityController) -> None:
+        self.capacity = capacity
+        for factory in (self.tool_factory, self.mcp_factory):
+            setter = getattr(factory, "set_capacity_controller", None)
+            if callable(setter):
+                setter(capacity)
+
+    def set_deepsearch_recovery_wakeup(
+        self,
+        wakeup: Callable[[], None] | None,
+    ) -> None:
+        self._deepsearch_recovery_wakeup = wakeup
 
     def set_admission_controller(self, admission: OrchestrationQuiesceController) -> None:
         self.admission = admission
@@ -1075,8 +1149,24 @@ class AgentRuntimeService:
     def _select_model(self, user: User) -> SelectedSDKModel | None:
         if self._model is not None:
             name = self._model.__class__.__name__
-            return SelectedSDKModel(model=self._model, requested_model=name, actual_model=name)
-        return self.model_factory.for_user(user)
+            selected = SelectedSDKModel(
+                model=self._model,
+                requested_model=name,
+                actual_model=name,
+            )
+        else:
+            selected = self.model_factory.for_user(user)
+        if selected is None:
+            return None
+        model = selected.model
+        if not isinstance(model, _CapacityBoundModel):
+            model = _CapacityBoundModel(model, self.capacity)
+        return SelectedSDKModel(
+            model=model,
+            requested_model=selected.requested_model,
+            actual_model=selected.actual_model,
+            structured_output_mode=selected.structured_output_mode,
+        )
 
     def select_model(self, user: User) -> SelectedSDKModel | None:
         return self._select_model(user)
@@ -1475,7 +1565,14 @@ Follow the activated Skill for this request, subject to the platform rules above
     ) -> Agent[AgentMeshRunContext]:
         tools = self.tool_factory.build(user, skill, allowed_tool_names=allowed_tool_names)
         if skill is not None:
-            tools.append(build_skill_resource_tool(self.repository, skill))
+            tools.append(
+                build_skill_resource_tool(
+                    self.repository,
+                    skill,
+                    admission=self.admission,
+                    capacity=self.capacity,
+                )
+            )
         if allow_skill_activation:
             activation_tool = build_skill_activation_tool(self.repository, self.skill_catalog, user)
             if activation_tool is not None:
@@ -1583,6 +1680,95 @@ Follow the activated Skill for this request, subject to the platform rules above
             request_scoped=request_scoped,
         )
 
+    @staticmethod
+    def _capacity_operation_key(
+        *,
+        user_id: str,
+        thread_id: str,
+        client_turn_id: str | None,
+        operation_kind: str,
+    ) -> str:
+        return "runtime:" + canonical_json_sha256(
+            {
+                "user_id": user_id,
+                "thread_id": thread_id,
+                "client_turn_id": client_turn_id,
+                "operation_kind": operation_kind,
+            }
+        )
+
+    def _claim_run_capacity(
+        self,
+        *,
+        user_id: str,
+        thread_id: str,
+        client_turn_id: str | None,
+        operation_kind: str,
+    ) -> tuple[str, bool]:
+        operation_key = self._capacity_operation_key(
+            user_id=user_id,
+            thread_id=thread_id,
+            client_turn_id=client_turn_id,
+            operation_kind=operation_kind,
+        )
+        accepted, newly_reserved = self.capacity.claim_run(
+            operation_key=operation_key,
+            user_id=user_id,
+        )
+        if not accepted:
+            raise RuntimeCapacityError("run")
+        return operation_key, newly_reserved
+
+    @staticmethod
+    def _dispatch_operation_key(
+        run_id: str,
+        operation_kind: str,
+        *,
+        generation: int = 1,
+    ) -> str:
+        return "dispatch:" + canonical_json_sha256(
+            {
+                "run_id": run_id,
+                "operation_kind": operation_kind,
+                "generation": generation,
+            }
+        )
+
+    def new_dispatch_receipt(
+        self,
+        run_id: str,
+        operation_kind: Literal["approved_plan", "approval_resume"],
+        *,
+        generation: int = 1,
+    ) -> RunDispatchReceiptV1:
+        return RunDispatchReceiptV1(
+            operation_key=self._dispatch_operation_key(
+                run_id,
+                operation_kind,
+                generation=generation,
+            ),
+            run_id=run_id,
+            operation_kind=operation_kind,
+            generation=generation,
+        )
+
+    def _claim_dispatch(
+        self,
+        run_id: str,
+        operation_kind: str,
+    ) -> RunDispatchReceiptV1 | None:
+        with self.admission.permit():
+            return self.repository.claim_run_dispatch(
+                self._dispatch_operation_key(run_id, operation_kind),
+                process_epoch=self._process_epoch,
+            )
+
+    def _settle_dispatch(self, operation_key: str) -> None:
+        self.repository.settle_run_dispatch(
+            operation_key,
+            process_epoch=self._process_epoch,
+        )
+
     def _new_run(
         self,
         content: str,
@@ -1601,6 +1787,12 @@ Follow the activated Skill for this request, subject to the platform rules above
         create_request_hash: str | None = None,
         project_id: str | None = None,
         retry_of_run_id: str | None = None,
+        dispatch_kind: Literal[
+            "standard_direct",
+            "standard_plan",
+            "deepsearch_plan",
+        ]
+        | None = None,
     ) -> tuple[AgentRun, bool]:
         if client_turn_id is not None:
             expected_create_request_hash = agent_run_create_request_hash(
@@ -1662,9 +1854,26 @@ Follow the activated Skill for this request, subject to the platform rules above
             created_at=created_at,
             updated_at=created_at,
         )
+        dispatch = (
+            RunDispatchReceiptV1(
+                operation_key=self._dispatch_operation_key(run.id, dispatch_kind),
+                run_id=run.id,
+                operation_kind=dispatch_kind,
+                generation=1,
+                payload={
+                    "thread_id": run.thread_id,
+                    "user_id": run.user_id,
+                },
+            )
+            if dispatch_kind is not None
+            else None
+        )
         with self.admission.permit():
-            run, created = self.repository.claim_new_agent_run(run)
-            if created:
+            run, created = self.repository.claim_new_agent_run(
+                run,
+                dispatch=dispatch,
+            )
+            if created and dispatch is None:
                 self.repository.append_agent_run_event(
                     run.id,
                     "run_started",
@@ -1845,6 +2054,22 @@ Follow the activated Skill for this request, subject to the platform rules above
                 ) from error
             raise error from failure
 
+    def _ensure_run_user_message(self, run: AgentRun) -> None:
+        message_id = "message_" + canonical_json_sha256(
+            {"run_id": run.id, "role": "user"}
+        )[:24]
+        message = self.repository.add_chat_message(
+            ChatMessage(
+                id=message_id,
+                thread_id=run.thread_id,
+                role=ChatRole.USER,
+                content=run.input_text,
+                scope=Scope.PRIVATE,
+                created_at=run.created_at,
+            )
+        )
+        self.repository.mark_sdk_session_chat_messages(run.thread_id, [message.id])
+
     async def start(
         self,
         *,
@@ -1863,23 +2088,46 @@ Follow the activated Skill for this request, subject to the platform rules above
         selected = self._select_model(user)
         if selected is None:
             raise RuntimeError("Agent model is not configured")
-        run, created = self._new_run(
-            content,
-            user,
-            thread_id,
-            skill,
+        capacity_key, capacity_created = self._claim_run_capacity(
+            user_id=user.id,
+            thread_id=thread_id,
             client_turn_id=client_turn_id,
-            project_chat=True,
-            project_id=project_id,
-            requested_orchestration_mode=requested_orchestration_mode,
-            retry_of_run_id=retry_of_run_id,
+            operation_kind="standard_direct",
         )
-        if not created:
+        try:
+            run, created = self._new_run(
+                content,
+                user,
+                thread_id,
+                skill,
+                client_turn_id=client_turn_id,
+                project_chat=True,
+                project_id=project_id,
+                requested_orchestration_mode=requested_orchestration_mode,
+                retry_of_run_id=retry_of_run_id,
+                dispatch_kind="standard_direct",
+            )
+        except BaseException:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            raise
+        existing_task = self._tasks.get(run.id)
+        if existing_task is not None and not existing_task.done():
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
             return run
-        user_message = self.repository.add_chat_message(
-            ChatMessage(thread_id=thread_id, role=ChatRole.USER, content=content, scope=Scope.PRIVATE)
-        )
-        self.repository.mark_sdk_session_chat_messages(thread_id, [user_message.id])
+        try:
+            if created:
+                self._ensure_run_user_message(run)
+            dispatch = self._claim_dispatch(run.id, "standard_direct")
+        except BaseException:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            raise
+        if dispatch is None:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            return run
         task = asyncio.create_task(
             self._execute_run(
                 run=run,
@@ -1893,7 +2141,14 @@ Follow the activated Skill for this request, subject to the platform rules above
             name=f"agentmesh-run-{run.id}",
         )
         self._tasks[run.id] = task
-        task.add_done_callback(lambda completed, run_id=run.id: self._finish_background_task(run_id, completed))
+        task.add_done_callback(
+            lambda completed, run_id=run.id, operation_key=dispatch.operation_key: self._finish_background_task(
+                run_id,
+                completed,
+                dispatch_operation_key=operation_key,
+                capacity_operation_key=capacity_key,
+            )
+        )
         return run
 
     @staticmethod
@@ -2020,36 +2275,57 @@ Follow the activated Skill for this request, subject to the platform rules above
             raise RuntimeError("OpenAI Agents SDK runtime is disabled")
         if self._select_model(user) is None:
             raise RuntimeError("Agent model is not configured")
-        run, created = self._new_run(
-            content,
-            user,
-            thread_id,
-            None,
+        capacity_key, capacity_created = self._claim_run_capacity(
+            user_id=user.id,
+            thread_id=thread_id,
             client_turn_id=client_turn_id,
-            project_chat=True,
-            status=AgentRunStatus.PLANNING,
-            orchestration_mode=mode,
-            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
-            planning_mode=AgentPlanningMode.DEEPSEARCH,
-            planning_contract_version=self.planning_contract_for(
+            operation_kind="deepsearch_plan",
+        )
+        try:
+            run, created = self._new_run(
+                content,
+                user,
+                thread_id,
+                None,
+                client_turn_id=client_turn_id,
+                project_chat=True,
+                status=AgentRunStatus.PLANNING,
+                orchestration_mode=mode,
+                requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
                 planning_mode=AgentPlanningMode.DEEPSEARCH,
-                planned=True,
-            ),
-            create_request_hash=create_request_hash,
-            project_id=project_id,
-            retry_of_run_id=retry_of_run_id,
-        )
-        if not created:
-            return run
-        user_message = self.repository.add_chat_message(
-            ChatMessage(
-                thread_id=thread_id,
-                role=ChatRole.USER,
-                content=content,
-                scope=Scope.PRIVATE,
+                planning_contract_version=self.planning_contract_for(
+                    planning_mode=AgentPlanningMode.DEEPSEARCH,
+                    planned=True,
+                ),
+                create_request_hash=create_request_hash,
+                project_id=project_id,
+                retry_of_run_id=retry_of_run_id,
+                dispatch_kind="deepsearch_plan",
             )
-        )
-        self.repository.mark_sdk_session_chat_messages(thread_id, [user_message.id])
+        except BaseException:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            raise
+        existing_task = self._tasks.get(run.id)
+        if existing_task is not None and not existing_task.done():
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            return run
+        try:
+            if created:
+                self._ensure_run_user_message(run)
+            dispatch = self._claim_dispatch(run.id, "deepsearch_plan")
+        except BaseException:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            raise
+        if dispatch is None:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            return run
+        active_task = asyncio.current_task()
+        if active_task is not None:
+            self._tasks[run.id] = active_task
         try:
             run = self._clone_deepsearch_retry_requirement(run)
             state = await self.deepsearch_planning_service.refine_initial(run)
@@ -2076,6 +2352,11 @@ Follow the activated Skill for this request, subject to the platform rules above
         except Exception as error:
             self._fail_deepsearch_planning(run, error)
             raise
+        finally:
+            self._settle_dispatch(dispatch.operation_key)
+            self.capacity.release_run(capacity_key)
+            if active_task is not None and self._tasks.get(run.id) is active_task:
+                self._tasks.pop(run.id, None)
 
     async def start_orchestrated(
         self,
@@ -2106,27 +2387,50 @@ Follow the activated Skill for this request, subject to the platform rules above
             planning_mode=AgentPlanningMode.STANDARD,
             planned=True,
         )
-        run, created = self._new_run(
-            content,
-            user,
-            thread_id,
-            None,
+        capacity_key, capacity_created = self._claim_run_capacity(
+            user_id=user.id,
+            thread_id=thread_id,
             client_turn_id=client_turn_id,
-            project_chat=True,
-            status=AgentRunStatus.PLANNING,
-            orchestration_mode=mode,
-            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
-            planning_contract_version=planning_contract,
-            execution_contract_version=self.execution_contract_for(planning_contract),
-            project_id=project_id,
-            retry_of_run_id=retry_of_run_id,
+            operation_kind="standard_plan",
         )
-        if not created:
+        try:
+            run, created = self._new_run(
+                content,
+                user,
+                thread_id,
+                None,
+                client_turn_id=client_turn_id,
+                project_chat=True,
+                status=AgentRunStatus.PLANNING,
+                orchestration_mode=mode,
+                requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+                planning_contract_version=planning_contract,
+                execution_contract_version=self.execution_contract_for(planning_contract),
+                project_id=project_id,
+                retry_of_run_id=retry_of_run_id,
+                dispatch_kind="standard_plan",
+            )
+        except BaseException:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            raise
+        existing_task = self._tasks.get(run.id)
+        if existing_task is not None and not existing_task.done():
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
             return run
-        user_message = self.repository.add_chat_message(
-            ChatMessage(thread_id=thread_id, role=ChatRole.USER, content=content, scope=Scope.PRIVATE)
-        )
-        self.repository.mark_sdk_session_chat_messages(thread_id, [user_message.id])
+        try:
+            if created:
+                self._ensure_run_user_message(run)
+            dispatch = self._claim_dispatch(run.id, "standard_plan")
+        except BaseException:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            raise
+        if dispatch is None:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            return run
         task = asyncio.create_task(
             self._prepare_orchestration(
                 run=run,
@@ -2139,7 +2443,14 @@ Follow the activated Skill for this request, subject to the platform rules above
             name=f"agentmesh-plan-{run.id}",
         )
         self._tasks[run.id] = task
-        task.add_done_callback(lambda completed, run_id=run.id: self._finish_background_task(run_id, completed))
+        task.add_done_callback(
+            lambda completed, run_id=run.id, operation_key=dispatch.operation_key: self._finish_background_task(
+                run_id,
+                completed,
+                dispatch_operation_key=operation_key,
+                capacity_operation_key=capacity_key,
+            )
+        )
         return run
 
     async def retry_orchestrated(
@@ -2878,7 +3189,13 @@ Follow the activated Skill for this request, subject to the platform rules above
                 )
             raise
 
-    async def start_approved_skill_plan(self, plan_id: str, *, user: User) -> AgentRun:
+    async def start_approved_skill_plan(
+        self,
+        plan_id: str,
+        *,
+        user: User,
+        dispatch_receipt: RunDispatchReceiptV1 | None = None,
+    ) -> AgentRun:
         if skill_orchestration_mode() != SkillOrchestrationMode.EXECUTE:
             raise RuntimeError("Skill orchestration execution is disabled")
         if not self.enabled:
@@ -2912,16 +3229,129 @@ Follow the activated Skill for this request, subject to the platform rules above
             raise RuntimeError("Skill plan is not approved for execution")
         existing = self._tasks.get(run.id)
         if existing is not None and not existing.done():
+            if dispatch_receipt is not None:
+                self.wake_dispatch_pump()
+                return run
             raise RuntimeError("Skill plan execution is already active")
+        try:
+            capacity_key, capacity_created = self._claim_run_capacity(
+                user_id=run.user_id,
+                thread_id=run.thread_id,
+                client_turn_id=run.client_turn_id,
+                operation_kind="approved_plan",
+            )
+        except RuntimeCapacityError:
+            # A persisted pending dispatch is consumed by the long-lived pump
+            # after any active reservation releases. Legacy callers without a
+            # receipt must receive the admission failure instead of stranding.
+            if dispatch_receipt is None:
+                raise
+            self.wake_dispatch_pump()
+            return run
+        claimed_dispatch = None
+        if dispatch_receipt is not None:
+            if dispatch_receipt.run_id != run.id:
+                raise RuntimeError("run_dispatch_identity_invalid")
+            claimed_dispatch = self._claim_dispatch(
+                run.id,
+                dispatch_receipt.operation_kind,
+            )
+            if claimed_dispatch is None:
+                if capacity_created:
+                    self.capacity.release_run(capacity_key)
+                return run
         task = asyncio.create_task(
             self._execute_approved_skill_plan(plan=plan, run=run, user=user),
             name=f"agentmesh-plan-execution-{plan.id}",
         )
         self._tasks[run.id] = task
-        task.add_done_callback(lambda completed, run_id=run.id: self._finish_background_task(run_id, completed))
+        task.add_done_callback(
+            lambda completed, run_id=run.id, operation_key=(
+                claimed_dispatch.operation_key if claimed_dispatch is not None else None
+            ): self._finish_background_task(
+                run_id,
+                completed,
+                dispatch_operation_key=operation_key,
+                capacity_operation_key=capacity_key,
+            )
+        )
         return run
 
     async def recover_deepsearch_run(self, run_id: str) -> AgentRun | None:
+        run = self.repository.get_agent_run(run_id)
+        if run is None:
+            return None
+        active_task = asyncio.current_task()
+        existing_task = self._tasks.get(run.id)
+        if (
+            existing_task is not None
+            and not existing_task.done()
+            and existing_task is not active_task
+        ):
+            return run
+        claimed_dispatch = None
+        capacity_key = self._capacity_operation_key(
+            user_id=run.user_id,
+            thread_id=run.thread_id,
+            client_turn_id=run.client_turn_id,
+            operation_kind="deepsearch_recovery",
+        )
+        accepted, capacity_created = self.capacity.claim_run(
+            operation_key=capacity_key,
+            user_id=run.user_id,
+        )
+        if not accepted:
+            raise RuntimeCapacityError("run")
+        try:
+            for operation_kind in ("approved_plan", "deepsearch_plan"):
+                claimed_dispatch = self._claim_dispatch(run.id, operation_kind)
+                if claimed_dispatch is not None:
+                    break
+            return await self._recover_deepsearch_run_reserved(run_id)
+        finally:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            if self._deepsearch_recovery_wakeup is not None:
+                self._deepsearch_recovery_wakeup()
+            if claimed_dispatch is not None:
+                with suppress(Exception):
+                    current = self.repository.get_agent_run(run_id)
+                    stable_statuses = {
+                        AgentRunStatus.COMPLETED,
+                        AgentRunStatus.PARTIAL,
+                        AgentRunStatus.FAILED,
+                        AgentRunStatus.REJECTED,
+                        AgentRunStatus.CANCELLED,
+                        AgentRunStatus.WAITING_CLARIFICATION,
+                        AgentRunStatus.WAITING_PLAN_APPROVAL,
+                        AgentRunStatus.WAITING_APPROVAL,
+                    }
+                    if current is not None and current.status in stable_statuses:
+                        if self.repository.get_run_output_projection(current.id) is None:
+                            if (
+                                current.status
+                                in {
+                                    AgentRunStatus.COMPLETED,
+                                    AgentRunStatus.PARTIAL,
+                                    AgentRunStatus.REJECTED,
+                                }
+                                and current.output_text
+                            ):
+                                self.project_orchestration_output(current, current.output_text)
+                            elif current.status in {
+                                AgentRunStatus.COMPLETED,
+                                AgentRunStatus.PARTIAL,
+                                AgentRunStatus.FAILED,
+                                AgentRunStatus.REJECTED,
+                                AgentRunStatus.CANCELLED,
+                            }:
+                                self.repository.project_terminal_run_status(
+                                    run_id=current.id,
+                                    skipped_reason=current.error_code or current.status.value,
+                                )
+                        self._settle_dispatch(claimed_dispatch.operation_key)
+
+    async def _recover_deepsearch_run_reserved(self, run_id: str) -> AgentRun | None:
         """Resume one persisted DeepSearch Run through its existing planner/executor."""
 
         run = self.repository.get_agent_run(run_id)
@@ -3188,6 +3618,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                     recover_unsettled=resume,
                 ),
                 admission=self.admission,
+                capacity=self.capacity,
             )
             if deepsearch
             else BoundedDAGExecutor(
@@ -3195,6 +3626,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                 node_runner=node_runner,
                 synthesis_runner=synthesis_runner,
                 admission=self.admission,
+                capacity=self.capacity,
             )
         )
         try:
@@ -3274,6 +3706,17 @@ Follow the activated Skill for this request, subject to the platform rules above
                 render_synthesis(outcome.synthesis),
                 selected=selected,
             )
+        elif deepsearch:
+            final_run = self.repository.get_agent_run(run.id) or outcome.run
+            if (
+                final_run.status in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}
+                and final_run.output_text
+            ):
+                self.project_orchestration_output(
+                    final_run,
+                    final_run.output_text,
+                    selected=selected,
+                )
         return outcome
 
     def _require_run_project_access(
@@ -4272,15 +4715,317 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         if transition is None:
             raise RuntimeError("Agent run changed while pausing for tool approval")
 
-    def _finish_background_task(self, run_id: str, task: asyncio.Task) -> None:
-        if self._tasks.get(run_id) is task:
-            self._tasks.pop(run_id, None)
-        if task.cancelled():
-            return
+    def _finish_background_task(
+        self,
+        run_id: str,
+        task: asyncio.Task,
+        *,
+        dispatch_operation_key: str | None = None,
+        capacity_operation_key: str | None = None,
+    ) -> None:
         try:
-            task.exception()
+            if not task.cancelled():
+                task.exception()
         except (asyncio.CancelledError, Exception):
+            pass
+        finally:
+            projection_ready = not task.cancelled()
+            if dispatch_operation_key is not None:
+                try:
+                    run = self.repository.get_agent_run(run_id)
+                    if run is None or run.status not in {
+                        AgentRunStatus.COMPLETED,
+                        AgentRunStatus.PARTIAL,
+                        AgentRunStatus.FAILED,
+                        AgentRunStatus.REJECTED,
+                        AgentRunStatus.CANCELLED,
+                        AgentRunStatus.WAITING_CLARIFICATION,
+                        AgentRunStatus.WAITING_PLAN_APPROVAL,
+                        AgentRunStatus.WAITING_APPROVAL,
+                    }:
+                        projection_ready = False
+                    if task.cancelled() and run is not None:
+                        projection_ready = run.status in {
+                            AgentRunStatus.COMPLETED,
+                            AgentRunStatus.PARTIAL,
+                            AgentRunStatus.FAILED,
+                            AgentRunStatus.REJECTED,
+                            AgentRunStatus.CANCELLED,
+                        }
+                    if (
+                        run is not None
+                        and run.status
+                        in {
+                            AgentRunStatus.COMPLETED,
+                            AgentRunStatus.PARTIAL,
+                            AgentRunStatus.REJECTED,
+                        }
+                        and run.output_text
+                        and self.repository.get_run_output_projection(run.id) is None
+                    ):
+                        self.project_orchestration_output(run, run.output_text)
+                    elif (
+                        run is not None
+                        and run.status
+                        in {
+                            AgentRunStatus.COMPLETED,
+                            AgentRunStatus.PARTIAL,
+                        }
+                        and not run.output_text
+                        and self.repository.get_run_output_projection(run.id) is None
+                    ):
+                        self.repository.project_terminal_run_status(
+                            run_id=run.id,
+                            skipped_reason="terminal_output_empty",
+                        )
+                    elif (
+                        run is not None
+                        and run.status
+                        in {
+                            AgentRunStatus.FAILED,
+                            AgentRunStatus.REJECTED,
+                            AgentRunStatus.CANCELLED,
+                        }
+                        and self.repository.get_run_output_projection(run.id) is None
+                    ):
+                        self.repository.project_terminal_run_status(
+                            run_id=run.id,
+                            skipped_reason=run.error_code or run.status.value,
+                        )
+                except Exception:
+                    projection_ready = False
+                if projection_ready:
+                    with suppress(Exception):
+                        self._settle_dispatch(dispatch_operation_key)
+            if self._tasks.get(run_id) is task:
+                self._tasks.pop(run_id, None)
+            if capacity_operation_key is not None:
+                self.capacity.release_run(capacity_operation_key)
+            self.wake_dispatch_pump()
+
+    async def start_dispatch_pump(self) -> None:
+        if self._dispatch_pump_task is not None and not self._dispatch_pump_task.done():
+            self._dispatch_wakeup.set()
             return
+        self._dispatch_wakeup.set()
+        self._dispatch_pump_task = asyncio.create_task(
+            self._dispatch_pump_loop(),
+            name="agentmesh-run-dispatch-pump",
+        )
+
+    async def stop_dispatch_pump(self) -> None:
+        task = self._dispatch_pump_task
+        self._dispatch_pump_task = None
+        if task is None:
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    def wake_dispatch_pump(self) -> None:
+        self._dispatch_wakeup.set()
+        if self._deepsearch_recovery_wakeup is not None:
+            self._deepsearch_recovery_wakeup()
+
+    async def _dispatch_pump_loop(self) -> None:
+        try:
+            while True:
+                self._dispatch_wakeup.clear()
+                if self.admission.is_quiescing:
+                    return
+                try:
+                    await self.recover_pending_dispatches(limit=1_000)
+                    self._dispatch_last_error = None
+                except OrchestrationQuiescingError:
+                    return
+                except Exception as error:
+                    self._dispatch_last_error = type(error).__name__
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(self._dispatch_wakeup.wait(), timeout=0.5)
+        finally:
+            current = asyncio.current_task()
+            if self._dispatch_pump_task is current:
+                self._dispatch_pump_task = None
+
+    async def recover_pending_dispatches(self, *, limit: int = 50) -> int:
+        if self.admission.is_quiescing:
+            return 0
+        scheduled = 0
+        scanned = 0
+        cursor: tuple[str, str] | None = None
+        while scanned < limit:
+            page_limit = min(50, limit - scanned)
+            pending = self.repository.list_pending_run_dispatches(
+                limit=page_limit,
+                after=cursor,
+            )
+            if not pending:
+                break
+            scanned += len(pending)
+            for receipt in pending:
+                if self.admission.is_quiescing:
+                    return scheduled
+                cursor = (receipt.created_at.isoformat(), receipt.operation_key)
+                run = self.repository.get_agent_run(receipt.run_id)
+                if run is None:
+                    continue
+                if run.status in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}:
+                    user = self.repository.get_user(run.user_id)
+                    if user is None:
+                        continue
+                    try:
+                        if run.output_text:
+                            self.project_orchestration_output(run, run.output_text)
+                        else:
+                            self.repository.project_terminal_run_status(
+                                run_id=run.id,
+                                skipped_reason="terminal_output_empty",
+                            )
+                    except Exception:
+                        continue
+                    claimed = self._claim_dispatch(
+                        receipt.run_id,
+                        receipt.operation_kind,
+                    )
+                    if claimed is not None:
+                        self._settle_dispatch(receipt.operation_key)
+                    continue
+                if run.status in {
+                    AgentRunStatus.FAILED,
+                    AgentRunStatus.REJECTED,
+                    AgentRunStatus.CANCELLED,
+                }:
+                    try:
+                        if self.repository.get_run_output_projection(run.id) is None:
+                            if run.status is AgentRunStatus.REJECTED and run.output_text:
+                                self.project_orchestration_output(run, run.output_text)
+                            else:
+                                self.repository.project_terminal_run_status(
+                                    run_id=run.id,
+                                    skipped_reason=run.error_code or run.status.value,
+                                )
+                    except Exception:
+                        continue
+                    claimed = self._claim_dispatch(
+                        receipt.run_id,
+                        receipt.operation_kind,
+                    )
+                    if claimed is not None:
+                        self._settle_dispatch(receipt.operation_key)
+                    continue
+                if run.status in {
+                    AgentRunStatus.WAITING_CLARIFICATION,
+                    AgentRunStatus.WAITING_PLAN_APPROVAL,
+                    AgentRunStatus.WAITING_APPROVAL,
+                }:
+                    claimed = self._claim_dispatch(
+                        receipt.run_id,
+                        receipt.operation_kind,
+                    )
+                    if claimed is not None:
+                        self._settle_dispatch(receipt.operation_key)
+                    continue
+                if run.id in self._tasks and not self._tasks[run.id].done():
+                    continue
+                if (
+                    run.planning_mode is AgentPlanningMode.DEEPSEARCH
+                    or receipt.operation_kind == "deepsearch_plan"
+                ):
+                    # The DeepSearch coordinator owns the bounded two-worker
+                    # checkpoint recovery path. Its terminal/waiting result is
+                    # observed and settled by a later pump pass above.
+                    continue
+                if (
+                    receipt.operation_kind in {"standard_plan", "approved_plan"}
+                    and skill_orchestration_mode() is not SkillOrchestrationMode.EXECUTE
+                ):
+                    continue
+                user = self.repository.get_user(run.user_id)
+                selected = self._select_model(user) if user is not None else None
+                if user is None or selected is None:
+                    continue
+                try:
+                    capacity_key, capacity_created = self._claim_run_capacity(
+                        user_id=run.user_id,
+                        thread_id=run.thread_id,
+                        client_turn_id=run.client_turn_id,
+                        operation_kind=receipt.operation_kind,
+                    )
+                except RuntimeCapacityError:
+                    continue
+                claimed = self._claim_dispatch(run.id, receipt.operation_kind)
+                if claimed is None:
+                    if capacity_created:
+                        self.capacity.release_run(capacity_key)
+                    continue
+                self._ensure_run_user_message(run)
+                history = self.repository.list_recent_thread_messages(run.thread_id)
+                if receipt.operation_kind == "standard_direct":
+                    skill = (
+                        self.repository.get_skill_definition(run.skill_id)
+                        if run.skill_id is not None
+                        else None
+                    )
+                    coroutine = self._execute_run(
+                        run=run,
+                        selected=selected,
+                        content=run.input_text,
+                        user=user,
+                        history=history,
+                        skill=skill,
+                        project_chat=True,
+                    )
+                elif receipt.operation_kind == "standard_plan":
+                    coroutine = self._prepare_orchestration(
+                        run=run,
+                        selected=selected,
+                        content=run.input_text,
+                        user=user,
+                        history=history,
+                        mode=SkillOrchestrationMode(run.orchestration_mode),
+                    )
+                elif receipt.operation_kind == "approved_plan":
+                    plan = self.repository.get_skill_plan_for_run(run.id)
+                    if plan is None:
+                        self._settle_dispatch(receipt.operation_key)
+                        if capacity_created:
+                            self.capacity.release_run(capacity_key)
+                        continue
+                    coroutine = self._execute_approved_skill_plan(
+                        plan=plan,
+                        run=run,
+                        user=user,
+                    )
+                else:
+                    self._settle_dispatch(receipt.operation_key)
+                    if capacity_created:
+                        self.capacity.release_run(capacity_key)
+                    continue
+                try:
+                    task = asyncio.create_task(
+                        coroutine,
+                        name=f"agentmesh-dispatch-{run.id}",
+                    )
+                except BaseException:
+                    if capacity_created:
+                        self.capacity.release_run(capacity_key)
+                    raise
+                self._tasks[run.id] = task
+                task.add_done_callback(
+                    lambda completed,
+                    run_id=run.id,
+                    operation_key=receipt.operation_key,
+                    capacity_key=capacity_key: self._finish_background_task(
+                        run_id,
+                        completed,
+                        dispatch_operation_key=operation_key,
+                        capacity_operation_key=capacity_key,
+                    )
+                )
+                scheduled += 1
+            if len(pending) < page_limit:
+                break
+        return scheduled
 
     def mark_projected_messages(self, thread_id: str, message_ids: list[str]) -> None:
         self.repository.mark_sdk_session_chat_messages(thread_id, message_ids)
@@ -4392,47 +5137,49 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         source: str | None = None,
         selected_workflow: str | None = None,
     ) -> None:
-        assistant_message = self.repository.add_chat_message(
-            ChatMessage(
-                thread_id=run.thread_id,
-                role=ChatRole.ASSISTANT,
-                content=answer.content,
-                scope=Scope.PRIVATE,
-                workflow_trace=ChatWorkflowTrace(
-                    intent=Intent.GENERAL_CHAT,
-                    confidence=1.0,
-                    source=source or ("skill" if answer.skill_name else "chat"),
-                    selected_workflow=(
-                        selected_workflow
-                        or (f"${answer.skill_name}" if answer.skill_name else "chat")
-                    ),
-                    persisted=True,
-                    llm_used=answer.llm_used,
-                    requested_provider="openai_agents_sdk",
-                    actual_provider="openai_agents_sdk",
-                    requested_model=answer.requested_model,
-                    actual_model=answer.actual_model,
-                    provider_mode="real" if answer.llm_used else "fallback",
-                ),
-            )
+        workflow_trace = ChatWorkflowTrace(
+            intent=Intent.GENERAL_CHAT,
+            confidence=1.0,
+            source=source or ("skill" if answer.skill_name else "chat"),
+            selected_workflow=(
+                selected_workflow
+                or (f"${answer.skill_name}" if answer.skill_name else "chat")
+            ),
+            persisted=True,
+            llm_used=answer.llm_used,
+            requested_provider="openai_agents_sdk",
+            actual_provider="openai_agents_sdk",
+            requested_model=answer.requested_model,
+            actual_model=answer.actual_model,
+            provider_mode="real" if answer.llm_used else "fallback",
         )
-        self.repository.mark_sdk_session_chat_messages(run.thread_id, [assistant_message.id])
         skill = self.repository.get_skill_definition(run.skill_id) if run.skill_id else None
-        if skill is not None and skill.memory_write_policy == SkillMemoryWritePolicy.PRIVATE_SHORT_TERM:
-            self.repository.add_user_memory_item(
-                UserMemoryItem(
-                    user_id=run.user_id,
-                    layer=MemoryLayer.SHORT_TERM,
-                    title=skill.title,
-                    summary=answer.content[:4000],
-                    source_kind=f"sdk_skill:{skill.name}",
-                    memory_type="skill_output",
-                    scope=Scope.PRIVATE,
-                    workspace_id=run.workspace_id,
-                    project_id=run.project_id,
-                    source_thread_id=run.thread_id,
-                )
+        memory_item = (
+            UserMemoryItem(
+                id="memory_run_output_"
+                + canonical_json_sha256({"run_id": run.id, "kind": "skill_output"})[:24],
+                user_id=run.user_id,
+                layer=MemoryLayer.SHORT_TERM,
+                title=skill.title,
+                summary=answer.content[:4000],
+                source_kind=f"sdk_skill:{skill.name}",
+                memory_type="skill_output",
+                scope=Scope.PRIVATE,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                source_thread_id=run.thread_id,
             )
+            if run.status in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}
+            and skill is not None
+            and skill.memory_write_policy == SkillMemoryWritePolicy.PRIVATE_SHORT_TERM
+            else None
+        )
+        self.repository.project_terminal_run_output(
+            run_id=run.id,
+            content=answer.content,
+            workflow_trace=workflow_trace,
+            memory_item=memory_item,
+        )
 
     def project_orchestration_output(
         self,
@@ -4495,15 +5242,25 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 skill_name=skill.name if skill else None,
             )
 
-        run, _created = self._new_run(content, user, thread_id, skill)
-        return await self._execute_run(
-            run=run,
-            selected=selected,
-            content=content,
-            user=user,
-            history=history,
-            skill=skill,
+        capacity_key = new_id("runtime_capacity")
+        accepted, _created_capacity = self.capacity.claim_run(
+            operation_key=capacity_key,
+            user_id=user.id,
         )
+        if not accepted:
+            raise RuntimeCapacityError("run")
+        try:
+            run, _created = self._new_run(content, user, thread_id, skill)
+            return await self._execute_run(
+                run=run,
+                selected=selected,
+                content=content,
+                user=user,
+                history=history,
+                skill=skill,
+            )
+        finally:
+            self.capacity.release_run(capacity_key)
 
     def resume_sync(self, run_id: str, *, user: User, decisions: dict[str, bool]) -> RuntimeAnswer:
         return asyncio.run(self.resume(run_id, user=user, decisions=decisions))
@@ -5031,7 +5788,35 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             run_id=run.id,
         )
 
-    async def resume(self, run_id: str, *, user: User, decisions: dict[str, bool]) -> RuntimeAnswer:
+    async def resume(
+        self,
+        run_id: str,
+        *,
+        user: User,
+        decisions: dict[str, bool],
+    ) -> RuntimeAnswer:
+        existing = self.repository.get_agent_run(run_id)
+        if existing is None:
+            raise LookupError("Agent run not found")
+        capacity_key = self._capacity_operation_key(
+            user_id=user.id,
+            thread_id=existing.thread_id,
+            client_turn_id=existing.client_turn_id,
+            operation_kind="approval_resume",
+        )
+        accepted, capacity_created = self.capacity.claim_run(
+            operation_key=capacity_key,
+            user_id=user.id,
+        )
+        if not accepted:
+            raise RuntimeCapacityError("run")
+        try:
+            return await self._resume_reserved(run_id, user=user, decisions=decisions)
+        finally:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+
+    async def _resume_reserved(self, run_id: str, *, user: User, decisions: dict[str, bool]) -> RuntimeAnswer:
         existing = self.repository.get_agent_run(run_id)
         if existing is None:
             raise LookupError("Agent run not found")

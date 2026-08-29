@@ -18,6 +18,7 @@ from agentmesh.models import (
     SkillSourceScope,
     ToolDefinition,
 )
+from agentmesh.runtime_capacity import RuntimeCapacityController
 from agentmesh.seed import USER, ensure_base_workspace_data
 from agentmesh.skill_runtime.quiesce import (
     OrchestrationQuiesceController,
@@ -278,6 +279,81 @@ class _UnsafeInner:
 
     async def list_resource_templates(self, cursor=None):
         raise NotImplementedError
+
+
+def test_governed_mcp_rechecks_grant_after_waiting_for_capacity(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "mcp-capacity-revocation.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+    context = _context().model_copy(
+        update={
+            "thread_id": "thread_mcp_capacity_revocation",
+            "run_id": "run_mcp_capacity_revocation",
+        }
+    )
+    repository.add_chat_thread(
+        ChatThread(
+            id=context.thread_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            user_id=context.user_id,
+            title="MCP capacity revocation",
+        )
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id=context.run_id,
+            thread_id=context.thread_id,
+            user_id=context.user_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            input_text="wait before MCP claim",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    definition = repository.save_tool_definition(
+        ToolDefinition(
+            id="tool_mcp_capacity_revocation",
+            name="mcp_capacity_revocation",
+            description="Must recheck after capacity wait",
+            category="integration",
+            side_effect="read",
+        )
+    )
+    grant = repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_mcp_capacity_revocation",
+            agent_id=USER.personal_agent_id,
+            tool_id=definition.id,
+            granted_by="test",
+        )
+    )
+    capacity = RuntimeCapacityController(tool_limit=1)
+    inner = _UnsafeInner()
+    server = GovernedMCPServer(
+        inner,
+        repository=repository,
+        context=context,
+        definition=definition,
+        allowed_tool_names={"lookup"},
+        capacity=capacity,
+    )
+
+    async def scenario() -> None:
+        await capacity.acquire_tool()
+        invocation = asyncio.create_task(server.call_tool("lookup", {}))
+        await asyncio.sleep(0.03)
+        repository.save_agent_tool_grant(grant.model_copy(update={"enabled": False}))
+        capacity.release_tool()
+        with pytest.raises(PermissionError, match="tool grant was revoked"):
+            await invocation
+
+    asyncio.run(scenario())
+
+    claims, _outcomes = repository.list_runtime_tool_call_history(run_id=context.run_id)
+    assert claims == []
+    assert inner.calls == 0
+    assert capacity.snapshot()["active_tool_calls"] == 0
 
 
 def test_governed_mcp_withholds_secret_output() -> None:

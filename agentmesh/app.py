@@ -53,6 +53,7 @@ from agentmesh.routes.skills import router as skills_router
 from agentmesh.routes.users import router as users_router
 from agentmesh.routes.workspace import router as workspace_router
 from agentmesh.runtime_admission import install_orchestration_admission
+from agentmesh.runtime_capacity import RuntimeCapacityController, install_runtime_capacity
 from agentmesh.seed import (
     demo_mode_enabled,
     ensure_base_workspace_data,
@@ -73,6 +74,7 @@ FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 
 
 def initialize_application_data(repository: SQLiteStore) -> None:
+    repository.reconcile_run_dispatches_for_startup()
     repository.reconcile_orphaned_agent_runs()
     ensure_base_workspace_data(repository)
     ensure_tool_seed_data(repository, granted_by="system")
@@ -98,8 +100,15 @@ async def lifespan(app: FastAPI):
     orchestration_admission = install_orchestration_admission(
         OrchestrationQuiesceController()
     )
+    runtime_capacity = install_runtime_capacity(RuntimeCapacityController())
     if runtime is not None:
         runtime.set_admission_controller(orchestration_admission)
+        set_capacity = getattr(runtime, "set_capacity_controller", None)
+        if callable(set_capacity):
+            set_capacity(runtime_capacity)
+        start_dispatch_pump = getattr(runtime, "start_dispatch_pump", None)
+        if callable(start_dispatch_pump):
+            await start_dispatch_pump()
     app.state.orchestration_quiesce_controller = orchestration_admission
     deepsearch_recovery = (
         DeepSearchRecoveryCoordinator(
@@ -112,6 +121,17 @@ async def lifespan(app: FastAPI):
         else None
     )
     app.state.deepsearch_recovery_coordinator = deepsearch_recovery
+    if runtime is not None:
+        set_recovery_wakeup = getattr(
+            runtime,
+            "set_deepsearch_recovery_wakeup",
+            None,
+        )
+        if callable(set_recovery_wakeup):
+            recovery_wakeup = getattr(deepsearch_recovery, "wake", None)
+            set_recovery_wakeup(
+                recovery_wakeup if callable(recovery_wakeup) else None
+            )
     try:
         if deepsearch_recovery is not None:
             await deepsearch_recovery.start()
@@ -123,6 +143,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         try:
+            if runtime is not None:
+                stop_dispatch_pump = getattr(runtime, "stop_dispatch_pump", None)
+                if callable(stop_dispatch_pump):
+                    await stop_dispatch_pump()
             if deepsearch_recovery is not None:
                 await deepsearch_recovery.stop()
             await stop_market_scout_worker()
@@ -143,11 +167,25 @@ async def lifespan(app: FastAPI):
                 is orchestration_admission
             ):
                 del app.state.orchestration_quiesce_controller
+            if runtime is not None:
+                set_recovery_wakeup = getattr(
+                    runtime,
+                    "set_deepsearch_recovery_wakeup",
+                    None,
+                )
+                if callable(set_recovery_wakeup):
+                    set_recovery_wakeup(None)
             replacement_admission = install_orchestration_admission(
                 OrchestrationQuiesceController()
             )
+            replacement_capacity = install_runtime_capacity(
+                RuntimeCapacityController()
+            )
             if runtime is not None:
                 runtime.set_admission_controller(replacement_admission)
+                set_capacity = getattr(runtime, "set_capacity_controller", None)
+                if callable(set_capacity):
+                    set_capacity(replacement_capacity)
             await asyncio.to_thread(ingestion_service.shutdown)
 
 

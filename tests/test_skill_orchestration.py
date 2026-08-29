@@ -2089,5 +2089,9 @@ def test_revoked_grant_fails_optional_waiting_node_and_continues_partial_plan(
     event_types = [event.event_type for event in repository.list_agent_run_events(run.id)]
     assert "node_failed" in event_types
     assert "node_skipped" in event_types
-    assert event_types[-2:] == ["synthesis_completed", "run_partial"]
+    assert event_types[-3:] == [
+        "synthesis_completed",
+        "run_partial",
+        "run_output_projected",
+    ]
     model.assert_complete()

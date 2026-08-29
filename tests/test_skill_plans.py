@@ -1036,6 +1036,37 @@ def test_plan_approval_is_rejected_without_mutation_when_orchestration_is_off(tm
     assert repository.get_skill_plan(plan.id).status == SkillPlanStatus.WAITING_APPROVAL  # type: ignore[union-attr]
 
 
+def test_plan_rejection_projects_terminal_message_once(tmp_path, monkeypatch) -> None:
+    repository = SQLiteStore(tmp_path / "rejection-projection.sqlite3")
+    run, plan, _candidate = _approval_plan(repository, suffix="reject_projection")
+    runtime = AgentRuntimeService(
+        repository,
+        model=ScriptedModel([]),
+        enabled=True,
+    )
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "execute")
+    monkeypatch.setattr(agent_run_routes, "store", repository)
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", runtime)
+
+    response = agent_run_routes.reject_agent_run_plan(
+        run.id,
+        SkillPlanVersionRequest(expected_version=plan.version),
+        user=USER,
+    )
+
+    assert response.run.status is AgentRunStatus.REJECTED
+    receipt = repository.get_run_output_projection(run.id)
+    assert receipt is not None and receipt.disposition == "message"
+    assert receipt.terminal_status is AgentRunStatus.REJECTED
+    messages = repository.list_thread_messages(run.thread_id)
+    assert len([message for message in messages if message.role.value == "assistant"]) == 1
+    _events, _stored_run, projection_ready, has_dispatch = (
+        repository.read_agent_run_event_page(run.id, after_sequence=0, limit=100)
+    )
+    assert projection_ready is True
+    assert has_dispatch is False
+
+
 def test_plan_rejection_is_rejected_without_mutation_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
     repository = SQLiteStore(tmp_path / "rejection-off.sqlite3")
     run, plan, _candidate = _approval_plan(repository, suffix="reject_off")

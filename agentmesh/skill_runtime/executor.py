@@ -20,6 +20,7 @@ from agentmesh.models import (
     now_utc,
 )
 from agentmesh.runtime_admission import current_orchestration_admission
+from agentmesh.runtime_capacity import RuntimeCapacityController, current_runtime_capacity
 from agentmesh.skill_runtime.finalization import (
     NodePause,
     PlanExecutionOutcome,
@@ -109,6 +110,7 @@ class BoundedDAGExecutor:
         synthesis_runner: SynthesisRunner | None = None,
         finalization_strategy: PlanFinalizationStrategy | None = None,
         admission: OrchestrationQuiesceController | None = None,
+        capacity: RuntimeCapacityController | None = None,
     ):
         if synthesis_runner is not None and finalization_strategy is not None:
             raise ValueError("synthesis_runner and finalization_strategy are mutually exclusive")
@@ -117,6 +119,7 @@ class BoundedDAGExecutor:
         self.repository = repository
         self.node_runner = node_runner
         self.admission = admission or current_orchestration_admission()
+        self.capacity = capacity or current_runtime_capacity()
         if finalization_strategy is None:
             assert synthesis_runner is not None
             finalization_strategy = StandardPlanFinalizer(
@@ -160,6 +163,16 @@ class BoundedDAGExecutor:
         return transitioned
 
     async def _execute_one(
+        self,
+        plan: SkillPlan,
+        run: AgentRun,
+        node: SkillPlanNode,
+        results: list[SkillNodeResult],
+    ) -> tuple[SkillPlanNode, NodeExecutionOutcome | None, Exception | None]:
+        async with self.capacity.node_slot():
+            return await self._execute_one_reserved(plan, run, node, results)
+
+    async def _execute_one_reserved(
         self,
         plan: SkillPlan,
         run: AgentRun,

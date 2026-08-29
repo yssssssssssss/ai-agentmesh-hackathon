@@ -1289,6 +1289,7 @@ class OrchestrationQuiesceInventoryV1(BaseModel):
     )
     run_ids: tuple[str, ...] = Field(default_factory=tuple)
     plan_ids: tuple[str, ...] = Field(default_factory=tuple)
+    active_dispatch_operation_keys: tuple[str, ...] = Field(default_factory=tuple)
     unresolved_tool_call_ids: tuple[str, ...] = Field(default_factory=tuple)
     unsafe_no_plan_run_ids: tuple[str, ...] = Field(default_factory=tuple)
     anomaly_codes: tuple[str, ...] = Field(default_factory=tuple)
@@ -1299,6 +1300,7 @@ class OrchestrationQuiesceInventoryV1(BaseModel):
         values = (
             self.run_ids,
             self.plan_ids,
+            self.active_dispatch_operation_keys,
             self.unresolved_tool_call_ids,
             self.unsafe_no_plan_run_ids,
             self.anomaly_codes,
@@ -2596,6 +2598,35 @@ class AgentRunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class RunDispatchState(StrEnum):
+    PENDING = "pending"
+    STARTED = "started"
+    SETTLED = "settled"
+
+
+class RunDispatchReceiptV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["run-dispatch-receipt-v1"] = "run-dispatch-receipt-v1"
+    operation_key: str = Field(min_length=1, max_length=160)
+    run_id: str = Field(min_length=1, max_length=120)
+    operation_kind: Literal[
+        "standard_direct",
+        "standard_plan",
+        "approved_plan",
+        "approval_resume",
+        "deepsearch_plan",
+        "deepsearch_recovery",
+    ]
+    generation: int = Field(default=1, ge=1)
+    state: RunDispatchState = RunDispatchState.PENDING
+    process_epoch: str | None = Field(default=None, max_length=160)
+    attempt_count: int = Field(default=0, ge=0)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
 class AgentRun(BaseModel):
     id: str = Field(default_factory=lambda: new_id("run"))
     thread_id: str
@@ -2652,6 +2683,23 @@ class SkillPlanTransitionResponse(BaseModel):
     scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
         default_factory=dict
     )
+
+
+class RunOutputProjectionReceiptV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["run-output-projection-v1"] = "run-output-projection-v1"
+    id: str = Field(min_length=1, max_length=160)
+    run_id: str = Field(min_length=1, max_length=120)
+    run_origin: Literal["chat", "agent_api", "internal"]
+    terminal_status: AgentRunStatus
+    disposition: Literal["message", "status_only"]
+    assistant_message_id: str | None = Field(default=None, max_length=160)
+    memory_item_id: str | None = Field(default=None, max_length=160)
+    memory_disposition: Literal["projected", "policy_skipped", "not_applicable"]
+    skipped_reason: str | None = Field(default=None, max_length=160)
+    output_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime = Field(default_factory=now_utc)
 
 
 class AgentRunEvent(BaseModel):

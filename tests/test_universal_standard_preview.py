@@ -593,6 +593,14 @@ def test_phase2b_executes_a_frozen_read_only_universal_plan(tmp_path, monkeypatc
     assert run.error_code is None
     assert plan is not None and plan.status.value == "completed"
     assert plan.completion_check is not None and plan.completion_check.completed is True
+    planning_dispatch = repository.get_run_dispatch(
+        runtime._dispatch_operation_key(run.id, "standard_plan")
+    )
+    execution_dispatch = repository.get_run_dispatch(
+        runtime._dispatch_operation_key(run.id, "approved_plan")
+    )
+    assert planning_dispatch is not None and planning_dispatch.state.value == "settled"
+    assert execution_dispatch is not None and execution_dispatch.state.value == "settled"
 
 
 def test_phase2a_approve_api_rejects_persisted_universal_plan_in_execute_mode(
