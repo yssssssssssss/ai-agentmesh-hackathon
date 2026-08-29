@@ -2,33 +2,42 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import shutil
 import stat
+import tempfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from yaml.events import AliasEvent
 from yaml.nodes import MappingNode, ScalarNode
 
-from agentmesh.canonical_json import canonical_json_sha256
+from agentmesh.canonical_json import canonical_json_sha256, strict_json_loads
 from agentmesh.task_routing.contracts import (
     CatalogManifest,
+    CatalogManifestV2,
     CatalogSkillReference,
     CatalogStatus,
     CompletionCheckResult,
     KnowledgeCatalogEntry,
     ScenarioCatalogEntry,
+    ScenarioCatalogEntryV2,
+    ScenarioOutputV2,
     SkillCatalogEntry,
     TaskCatalogEntry,
     TaskRoutingResult,
     TaskSkillMappingEntry,
 )
 
-_CATALOG_VERSION = "user-research-v1"
+_CATALOG_V1 = "user-research-v1"
+_CATALOG_V1_HASH = "480d88f8f9d11c0f24bcff7ecb6f2a333d5852391bb80ee2de9217b81b6b9629"
+_CATALOG_V2 = "user-research-v2"
+_SUPPORTED_CATALOG_VERSIONS = frozenset({_CATALOG_V1, _CATALOG_V2})
 _MANIFEST_FILE = "catalog.json"
 _TASKS_FILE = "tasks.json"
 _SCENARIOS_FILE = "scenarios.json"
@@ -36,8 +45,10 @@ _MAPPING_FILE = "task-skill-mapping.json"
 _SKILLS_FILE = "skill-registry.json"
 _KNOWLEDGE_FILE = "knowledge-registry.json"
 _MAPPING_SOURCE = "01-task-任务/task-skill-knowledge-mapping.md"
+_OUTPUT_MAPPING_SOURCE_KEY = "scenario-output-mapping.json"
 _REGISTRY_ROOT = "05-registry-索引"
 _ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_OUTPUT_KIND_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _KNOWLEDGE_DESCRIPTORS = frozenset(
     {
         "current-project-materials",
@@ -145,10 +156,27 @@ class _SourceScenario(BaseModel):
     updated_at: date
 
 
+class _ScenarioOutputMappingEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_id: str
+    outputs: list[ScenarioOutputV2] = Field(min_length=1)
+
+
+class _ScenarioOutputMappingDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["task-catalog-v2-output-mapping-v1"]
+    catalog_version: Literal["user-research-v2"]
+    source_catalog_version: Literal["user-research-v1"]
+    source_catalog_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    scenarios: list[_ScenarioOutputMappingEntry] = Field(min_length=1)
+
+
 @dataclass(frozen=True)
 class CompiledTaskCatalog:
     files: dict[str, Any]
-    manifest: CatalogManifest
+    manifest: CatalogManifest | CatalogManifestV2
 
 
 class _StrictYamlLoader(yaml.SafeLoader):
@@ -208,6 +236,16 @@ def _safe_source_path(source_root: Path, relative_path: str) -> Path:
     return candidate
 
 
+def _safe_regular_file(path: Path, *, label: str) -> Path:
+    try:
+        metadata = path.lstat()
+    except OSError as error:
+        raise TaskCatalogBuildError(f"source_path_missing:{label}") from error
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise TaskCatalogBuildError(f"source_path_invalid:{label}")
+    return path.resolve()
+
+
 def _load_yaml_list[T: BaseModel](path: Path, adapter: TypeAdapter[list[T]]) -> list[T]:
     try:
         payload = _strict_yaml_load(path.read_text(encoding="utf-8"))
@@ -215,6 +253,16 @@ def _load_yaml_list[T: BaseModel](path: Path, adapter: TypeAdapter[list[T]]) -> 
     except OSError as error:
         raise TaskCatalogBuildError(f"source_unavailable:{path}") from error
     except (ValueError, yaml.YAMLError, ValidationError) as error:
+        raise TaskCatalogBuildError(f"source_invalid:{path}") from error
+
+
+def _load_output_mapping(path: Path) -> _ScenarioOutputMappingDocument:
+    try:
+        payload = strict_json_loads(path.read_bytes())
+        return _ScenarioOutputMappingDocument.model_validate(payload)
+    except OSError as error:
+        raise TaskCatalogBuildError(f"source_unavailable:{path}") from error
+    except (UnicodeError, ValueError, ValidationError) as error:
         raise TaskCatalogBuildError(f"source_invalid:{path}") from error
 
 
@@ -254,6 +302,42 @@ def _unique_by_id[T: BaseModel](items: list[T], *, source_name: str) -> dict[str
 def _require_unique(values: list[str] | tuple[str, ...], *, label: str) -> None:
     if len(values) != len(set(values)):
         raise TaskCatalogBuildError(f"duplicate_reference:{label}")
+
+
+def _validate_v2_output_mappings(
+    document: _ScenarioOutputMappingDocument,
+    scenarios: dict[str, _SourceScenario],
+) -> dict[str, tuple[ScenarioOutputV2, ...]]:
+    if document.source_catalog_hash != _CATALOG_V1_HASH:
+        raise TaskCatalogBuildError("scenario_output_mapping_source_catalog_mismatch")
+    mappings: dict[str, tuple[ScenarioOutputV2, ...]] = {}
+    for entry in document.scenarios:
+        if entry.scenario_id in mappings:
+            raise TaskCatalogBuildError(f"scenario_output_mapping_duplicate:{entry.scenario_id}")
+        source = scenarios.get(entry.scenario_id)
+        if source is None:
+            raise TaskCatalogBuildError(f"scenario_output_mapping_unknown:{entry.scenario_id}")
+        output_ids = [output.id for output in entry.outputs]
+        if len(output_ids) != len(set(output_ids)):
+            raise TaskCatalogBuildError(f"scenario_output_id_duplicate:{entry.scenario_id}")
+        labels = [output.label for output in entry.outputs]
+        if labels != source.outputs:
+            raise TaskCatalogBuildError(f"scenario_output_labels_mismatch:{entry.scenario_id}")
+        for output in entry.outputs:
+            kinds = output.compatible_output_kinds
+            if len(kinds) != len(set(kinds)):
+                raise TaskCatalogBuildError(
+                    f"scenario_output_kind_duplicate:{entry.scenario_id}:{output.id}"
+                )
+            if any(not _OUTPUT_KIND_PATTERN.fullmatch(kind) for kind in kinds):
+                raise TaskCatalogBuildError(
+                    f"scenario_output_kind_invalid:{entry.scenario_id}:{output.id}"
+                )
+        mappings[entry.scenario_id] = tuple(entry.outputs)
+    if set(mappings) != set(scenarios):
+        missing = ",".join(sorted(set(scenarios) - set(mappings)))
+        raise TaskCatalogBuildError(f"scenario_output_mappings_incomplete:{missing}")
+    return mappings
 
 
 def _validate_dependency_graph(scenarios: dict[str, _SourceScenario]) -> None:
@@ -349,39 +433,70 @@ def _serialized_list(items: list[BaseModel]) -> list[dict[str, Any]]:
     return [item.model_dump(mode="json") for item in sorted(items, key=lambda item: str(getattr(item, "id", "")))]
 
 
-def _schema(document: dict[str, Any], name: str) -> dict[str, Any]:
+def _schema(document: dict[str, Any], name: str, *, catalog_version: str) -> dict[str, Any]:
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": f"https://agentmesh.local/schemas/task-catalog/{_CATALOG_VERSION}/{name}",
+        "$id": f"https://agentmesh.local/schemas/task-catalog/{catalog_version}/{name}",
         **document,
     }
 
 
-def _schema_payloads() -> dict[str, dict[str, Any]]:
+def _schema_payloads(
+    *,
+    catalog_version: str,
+    scenario_model: type[ScenarioCatalogEntry] | type[ScenarioCatalogEntryV2],
+) -> dict[str, dict[str, Any]]:
     return {
-        "schemas/task.schema.json": _schema(TypeAdapter(list[TaskCatalogEntry]).json_schema(), "task.schema.json"),
+        "schemas/task.schema.json": _schema(
+            TypeAdapter(list[TaskCatalogEntry]).json_schema(),
+            "task.schema.json",
+            catalog_version=catalog_version,
+        ),
         "schemas/scenario.schema.json": _schema(
-            TypeAdapter(list[ScenarioCatalogEntry]).json_schema(), "scenario.schema.json"
+            TypeAdapter(list[scenario_model]).json_schema(),
+            "scenario.schema.json",
+            catalog_version=catalog_version,
         ),
         "schemas/task-skill-mapping.schema.json": _schema(
-            TypeAdapter(list[TaskSkillMappingEntry]).json_schema(), "task-skill-mapping.schema.json"
+            TypeAdapter(list[TaskSkillMappingEntry]).json_schema(),
+            "task-skill-mapping.schema.json",
+            catalog_version=catalog_version,
         ),
         "schemas/skill-registry.schema.json": _schema(
-            TypeAdapter(list[SkillCatalogEntry]).json_schema(), "skill-registry.schema.json"
+            TypeAdapter(list[SkillCatalogEntry]).json_schema(),
+            "skill-registry.schema.json",
+            catalog_version=catalog_version,
         ),
         "schemas/knowledge-registry.schema.json": _schema(
-            TypeAdapter(list[KnowledgeCatalogEntry]).json_schema(), "knowledge-registry.schema.json"
+            TypeAdapter(list[KnowledgeCatalogEntry]).json_schema(),
+            "knowledge-registry.schema.json",
+            catalog_version=catalog_version,
         ),
         "schemas/routing-result.schema.json": _schema(
-            TaskRoutingResult.model_json_schema(), "routing-result.schema.json"
+            TaskRoutingResult.model_json_schema(),
+            "routing-result.schema.json",
+            catalog_version=catalog_version,
         ),
         "schemas/completion-check.schema.json": _schema(
-            CompletionCheckResult.model_json_schema(), "completion-check.schema.json"
+            CompletionCheckResult.model_json_schema(),
+            "completion-check.schema.json",
+            catalog_version=catalog_version,
         ),
     }
 
 
-def compile_task_catalog(source_root: Path) -> CompiledTaskCatalog:
+def compile_task_catalog(
+    source_root: Path,
+    *,
+    catalog_version: str = _CATALOG_V1,
+    scenario_output_mapping_path: Path | None = None,
+) -> CompiledTaskCatalog:
+    if catalog_version not in _SUPPORTED_CATALOG_VERSIONS:
+        raise TaskCatalogBuildError(f"catalog_version_unsupported:{catalog_version}")
+    if catalog_version == _CATALOG_V1 and scenario_output_mapping_path is not None:
+        raise TaskCatalogBuildError("catalog_v1_output_mapping_forbidden")
+    if catalog_version == _CATALOG_V2 and scenario_output_mapping_path is None:
+        raise TaskCatalogBuildError("catalog_v2_output_mapping_required")
     source_root = source_root.resolve()
     task_registry_path = _safe_source_path(source_root, f"{_REGISTRY_ROOT}/task-registry.yaml")
     skill_registry_path = _safe_source_path(source_root, f"{_REGISTRY_ROOT}/skill-registry.yaml")
@@ -432,7 +547,7 @@ def compile_task_catalog(source_root: Path) -> CompiledTaskCatalog:
             )
         )
 
-    scenarios: list[ScenarioCatalogEntry] = []
+    scenarios_v1: list[ScenarioCatalogEntry] = []
     scenario_sources_by_title: dict[str, _SourceTaskRegistryItem] = {}
     scenario_frontmatter: dict[str, _SourceScenario] = {}
     for item in scenario_sources:
@@ -477,7 +592,7 @@ def compile_task_catalog(source_root: Path) -> CompiledTaskCatalog:
         _require_unique([reference.id for reference in skill_references], label=f"{item.id}:skills")
         for reference in skill_references:
             _validate_reference_status(reference, skills_by_id)
-        scenarios.append(
+        scenarios_v1.append(
             ScenarioCatalogEntry(
                 **source.model_dump(exclude={"task_type"}),
                 source_path=item.source_path,
@@ -487,6 +602,27 @@ def compile_task_catalog(source_root: Path) -> CompiledTaskCatalog:
         scenario_sources_by_title[item.title] = item
         scenario_frontmatter[item.id] = source
     _validate_dependency_graph(scenario_frontmatter)
+
+    output_mapping_path: Path | None = None
+    if catalog_version == _CATALOG_V2:
+        assert scenario_output_mapping_path is not None
+        output_mapping_path = _safe_regular_file(
+            scenario_output_mapping_path,
+            label=_OUTPUT_MAPPING_SOURCE_KEY,
+        )
+        output_mappings = _validate_v2_output_mappings(
+            _load_output_mapping(output_mapping_path),
+            scenario_frontmatter,
+        )
+        scenarios: list[ScenarioCatalogEntry | ScenarioCatalogEntryV2] = [
+            ScenarioCatalogEntryV2(
+                **scenario.model_dump(exclude={"outputs"}),
+                outputs=output_mappings[scenario.id],
+            )
+            for scenario in scenarios_v1
+        ]
+    else:
+        scenarios = list(scenarios_v1)
 
     skills: list[SkillCatalogEntry] = []
     for item in skill_registry:
@@ -568,7 +704,10 @@ def compile_task_catalog(source_root: Path) -> CompiledTaskCatalog:
         ],
         _SKILLS_FILE: _serialized_list(skills),
         _KNOWLEDGE_FILE: _serialized_list(knowledge),
-        **_schema_payloads(),
+        **_schema_payloads(
+            catalog_version=catalog_version,
+            scenario_model=(ScenarioCatalogEntryV2 if catalog_version == _CATALOG_V2 else ScenarioCatalogEntry),
+        ),
     }
     file_hashes = {
         name: hashlib.sha256(json_bytes(payload)).hexdigest() for name, payload in sorted(data_files.items())
@@ -579,6 +718,8 @@ def compile_task_catalog(source_root: Path) -> CompiledTaskCatalog:
         f"{_REGISTRY_ROOT}/task-registry.yaml": file_sha256(task_registry_path),
         _MAPPING_SOURCE: file_sha256(mapping_path),
     }
+    if output_mapping_path is not None:
+        registry_hashes[_OUTPUT_MAPPING_SOURCE_KEY] = file_sha256(output_mapping_path)
     source_updated_at = max(item.updated_at for item in task_registry)
     counts = {
         "knowledge": len(knowledge),
@@ -588,31 +729,138 @@ def compile_task_catalog(source_root: Path) -> CompiledTaskCatalog:
         "tasks": len(tasks),
     }
     manifest_body = {
-        "schema_version": "task-catalog-manifest-v1",
-        "catalog_version": _CATALOG_VERSION,
+        "schema_version": (
+            "task-catalog-manifest-v2" if catalog_version == _CATALOG_V2 else "task-catalog-manifest-v1"
+        ),
+        "catalog_version": catalog_version,
         "hash_algorithm": "sha256-bytes+agentmesh-canonical-json-v3",
         "source_updated_at": source_updated_at.isoformat(),
         "source_registry_hashes": registry_hashes,
         "files": file_hashes,
         "counts": counts,
     }
-    manifest = CatalogManifest(**manifest_body, catalog_hash=canonical_sha256(manifest_body))
+    manifest_type = CatalogManifestV2 if catalog_version == _CATALOG_V2 else CatalogManifest
+    manifest = manifest_type(**manifest_body, catalog_hash=canonical_sha256(manifest_body))
     return CompiledTaskCatalog(files=data_files, manifest=manifest)
 
 
-def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(json_bytes(payload))
+def catalog_bytes(compiled: CompiledTaskCatalog) -> dict[str, bytes]:
+    return {
+        **{relative_path: json_bytes(payload) for relative_path, payload in compiled.files.items()},
+        _MANIFEST_FILE: json_bytes(compiled.manifest.model_dump(mode="json")),
+    }
+
+
+def catalog_tree_mismatches(output_root: Path, expected: dict[str, bytes]) -> list[str]:
+    if not output_root.exists():
+        return sorted(expected)
+    metadata = output_root.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise TaskCatalogBuildError("catalog_output_root_invalid")
+    actual_paths: set[str] = set()
+    for path in output_root.rglob("*"):
+        item_metadata = path.lstat()
+        relative_path = path.relative_to(output_root).as_posix()
+        if stat.S_ISLNK(item_metadata.st_mode):
+            raise TaskCatalogBuildError(f"catalog_output_symlink_forbidden:{relative_path}")
+        if stat.S_ISDIR(item_metadata.st_mode):
+            continue
+        if not stat.S_ISREG(item_metadata.st_mode):
+            raise TaskCatalogBuildError(f"catalog_output_entry_invalid:{relative_path}")
+        actual_paths.add(relative_path)
+    mismatches = sorted(set(expected) ^ actual_paths)
+    for relative_path, content in sorted(expected.items()):
+        path = output_root / relative_path
+        if not path.is_file() or path.read_bytes() != content:
+            mismatches.append(relative_path)
+    return list(dict.fromkeys(mismatches))
+
+
+def _write_staged_catalog(stage_root: Path, expected: dict[str, bytes]) -> None:
+    for relative_path, content in sorted(expected.items()):
+        path = stage_root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+    for directory in sorted(
+        {stage_root, *(path.parent for path in stage_root.rglob("*") if path.is_file())},
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
 
 def write_task_catalog(compiled: CompiledTaskCatalog, output_root: Path) -> None:
-    output_root.mkdir(parents=True, exist_ok=True)
-    for relative_path, payload in sorted(compiled.files.items()):
-        _write_json(output_root / relative_path, payload)
-    _write_json(output_root / _MANIFEST_FILE, compiled.manifest.model_dump(mode="json"))
+    if output_root.name != compiled.manifest.catalog_version:
+        raise TaskCatalogBuildError(
+            f"catalog_output_version_mismatch:{compiled.manifest.catalog_version}:{output_root.name}"
+        )
+    expected = catalog_bytes(compiled)
+    if output_root.exists():
+        if not catalog_tree_mismatches(output_root, expected):
+            return
+        raise TaskCatalogBuildError(
+            f"catalog_published_version_immutable:{compiled.manifest.catalog_version}"
+        )
+
+    output_root.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = output_root.parent / f".{output_root.name}.publish.lock"
+    try:
+        lock_descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as error:
+        raise TaskCatalogBuildError(f"catalog_publish_in_progress:{compiled.manifest.catalog_version}") from error
+    stage_root: Path | None = None
+    try:
+        os.close(lock_descriptor)
+        if output_root.exists():
+            if not catalog_tree_mismatches(output_root, expected):
+                return
+            raise TaskCatalogBuildError(
+                f"catalog_published_version_immutable:{compiled.manifest.catalog_version}"
+            )
+        stage_root = Path(
+            tempfile.mkdtemp(
+                prefix=f".{output_root.name}.staging-",
+                dir=output_root.parent,
+            )
+        )
+        _write_staged_catalog(stage_root, expected)
+        if output_root.exists():
+            if not catalog_tree_mismatches(output_root, expected):
+                return
+            raise TaskCatalogBuildError(
+                f"catalog_published_version_immutable:{compiled.manifest.catalog_version}"
+            )
+        stage_root.rename(output_root)
+        stage_root = None
+        parent_descriptor = os.open(output_root.parent, os.O_RDONLY)
+        try:
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
+    finally:
+        if stage_root is not None:
+            shutil.rmtree(stage_root, ignore_errors=True)
+        lock_path.unlink(missing_ok=True)
 
 
-def build_task_catalog(source_root: Path, output_root: Path) -> CompiledTaskCatalog:
-    compiled = compile_task_catalog(source_root)
+def build_task_catalog(
+    source_root: Path,
+    output_root: Path,
+    *,
+    catalog_version: str = _CATALOG_V1,
+    scenario_output_mapping_path: Path | None = None,
+) -> CompiledTaskCatalog:
+    compiled = compile_task_catalog(
+        source_root,
+        catalog_version=catalog_version,
+        scenario_output_mapping_path=scenario_output_mapping_path,
+    )
     write_task_catalog(compiled, output_root)
     return compiled

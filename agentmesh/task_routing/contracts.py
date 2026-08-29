@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -93,6 +93,52 @@ class ScenarioCatalogEntry(SourceSnapshot):
     updated_at: date
 
 
+# Explicit alias for code that dispatches on a persisted Catalog version. Keeping
+# the original class name preserves the generated v1 JSON Schema byte contract.
+ScenarioCatalogEntryV1 = ScenarioCatalogEntry
+
+
+OutputKindV2 = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=120,
+        pattern=r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+    ),
+]
+
+
+class ScenarioOutputV2(FrozenStrictModel):
+    id: str = Field(
+        pattern=r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+        min_length=1,
+        max_length=120,
+    )
+    label: str = Field(min_length=1, max_length=200)
+    compatible_output_kinds: tuple[OutputKindV2, ...] = Field(min_length=1, max_length=20)
+
+
+class ScenarioCatalogEntryV2(SourceSnapshot):
+    id: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=200)
+    parent_task: str = Field(min_length=1, max_length=120)
+    definition: str = Field(min_length=1)
+    trigger_examples: tuple[str, ...] = Field(default_factory=tuple)
+    required_inputs: tuple[str, ...] = Field(default_factory=tuple)
+    optional_inputs: tuple[str, ...] = Field(default_factory=tuple)
+    outputs: tuple[ScenarioOutputV2, ...] = Field(min_length=1)
+    completion_criteria: tuple[str, ...] = Field(min_length=1)
+    default_skills: tuple[CatalogSkillReference, ...] = Field(default_factory=tuple)
+    optional_skills: tuple[CatalogSkillReference, ...] = Field(default_factory=tuple)
+    knowledge_requirements: tuple[str, ...] = Field(default_factory=tuple)
+    dependencies: tuple[str, ...] = Field(default_factory=tuple)
+    fallback: tuple[str, ...] = Field(default_factory=tuple)
+    human_confirmation: tuple[str, ...] = Field(default_factory=tuple)
+    status: CatalogStatus
+    owner: str = Field(min_length=1, max_length=200)
+    updated_at: date
+
+
 class SkillCatalogEntry(SourceSnapshot):
     id: str = Field(min_length=1, max_length=160)
     title: str = Field(min_length=1, max_length=240)
@@ -134,8 +180,26 @@ class TaskSkillMappingEntry(SourceSnapshot):
 
 
 class CatalogManifest(FrozenStrictModel):
+    """Task Catalog v1 manifest; retained for exact legacy parsing."""
+
     schema_version: Literal["task-catalog-manifest-v1"] = "task-catalog-manifest-v1"
-    catalog_version: str = Field(min_length=1, max_length=120)
+    catalog_version: Literal["user-research-v1"] = "user-research-v1"
+    hash_algorithm: Literal["sha256-bytes+agentmesh-canonical-json-v3"] = (
+        "sha256-bytes+agentmesh-canonical-json-v3"
+    )
+    catalog_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_updated_at: date
+    source_registry_hashes: dict[str, str]
+    files: dict[str, str]
+    counts: dict[str, int]
+
+
+CatalogManifestV1 = CatalogManifest
+
+
+class CatalogManifestV2(FrozenStrictModel):
+    schema_version: Literal["task-catalog-manifest-v2"] = "task-catalog-manifest-v2"
+    catalog_version: Literal["user-research-v2"] = "user-research-v2"
     hash_algorithm: Literal["sha256-bytes+agentmesh-canonical-json-v3"] = (
         "sha256-bytes+agentmesh-canonical-json-v3"
     )

@@ -1,0 +1,70 @@
+{
+  "$defs": {
+    "RoutingConfidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "RoutingConfidence",
+      "type": "string"
+    }
+  },
+  "$id": "https://agentmesh.local/schemas/task-catalog/user-research-v2/completion-check.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "completed": {
+      "default": false,
+      "title": "Completed",
+      "type": "boolean"
+    },
+    "confidence": {
+      "$ref": "#/$defs/RoutingConfidence",
+      "default": "low"
+    },
+    "criteria_results": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "title": "Criteria Results",
+      "type": "object"
+    },
+    "evidence_sufficient": {
+      "default": false,
+      "title": "Evidence Sufficient",
+      "type": "boolean"
+    },
+    "gaps": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Gaps",
+      "type": "array"
+    },
+    "human_confirmation_required": {
+      "default": false,
+      "title": "Human Confirmation Required",
+      "type": "boolean"
+    },
+    "missing_outputs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Outputs",
+      "type": "array"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    },
+    "scenario_outputs": {
+      "additionalProperties": true,
+      "title": "Scenario Outputs",
+      "type": "object"
+    }
+  },
+  "title": "CompletionCheckResult",
+  "type": "object"
+}

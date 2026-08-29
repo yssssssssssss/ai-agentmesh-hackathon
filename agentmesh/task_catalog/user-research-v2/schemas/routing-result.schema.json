@@ -1,0 +1,458 @@
+{
+  "$defs": {
+    "CompletionCheckResult": {
+      "additionalProperties": false,
+      "properties": {
+        "completed": {
+          "default": false,
+          "title": "Completed",
+          "type": "boolean"
+        },
+        "confidence": {
+          "$ref": "#/$defs/RoutingConfidence",
+          "default": "low"
+        },
+        "criteria_results": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "title": "Criteria Results",
+          "type": "object"
+        },
+        "evidence_sufficient": {
+          "default": false,
+          "title": "Evidence Sufficient",
+          "type": "boolean"
+        },
+        "gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "human_confirmation_required": {
+          "default": false,
+          "title": "Human Confirmation Required",
+          "type": "boolean"
+        },
+        "missing_outputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Outputs",
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "scenario_outputs": {
+          "additionalProperties": true,
+          "title": "Scenario Outputs",
+          "type": "object"
+        }
+      },
+      "title": "CompletionCheckResult",
+      "type": "object"
+    },
+    "EvidenceRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "external_evidence_required": {
+          "default": false,
+          "title": "External Evidence Required",
+          "type": "boolean"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Freshness"
+        },
+        "independent_sources": {
+          "default": 0,
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Independent Sources",
+          "type": "integer"
+        },
+        "minimum_sources": {
+          "default": 0,
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Minimum Sources",
+          "type": "integer"
+        }
+      },
+      "title": "EvidenceRequirement",
+      "type": "object"
+    },
+    "ExecutionRelation": {
+      "enum": [
+        "serial",
+        "parallel",
+        "parallel_then_merge",
+        "conditional"
+      ],
+      "title": "ExecutionRelation",
+      "type": "string"
+    },
+    "HumanConfirmationDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "title": "HumanConfirmationDecision",
+      "type": "object"
+    },
+    "InputCheckResult": {
+      "additionalProperties": false,
+      "properties": {
+        "available_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Available Inputs",
+          "type": "array"
+        },
+        "input_decision": {
+          "$ref": "#/$defs/InputDecision",
+          "default": "continue"
+        },
+        "missing_optional_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Optional Inputs",
+          "type": "array"
+        },
+        "missing_required_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Required Inputs",
+          "type": "array"
+        }
+      },
+      "title": "InputCheckResult",
+      "type": "object"
+    },
+    "InputDecision": {
+      "enum": [
+        "continue",
+        "degrade",
+        "clarify",
+        "human_confirmation"
+      ],
+      "title": "InputDecision",
+      "type": "string"
+    },
+    "KnowledgeRoutingDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "excluded_knowledge": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Excluded Knowledge",
+          "type": "array"
+        },
+        "optional_knowledge": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Knowledge",
+          "type": "array"
+        },
+        "required_knowledge": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Knowledge",
+          "type": "array"
+        }
+      },
+      "title": "KnowledgeRoutingDecision",
+      "type": "object"
+    },
+    "RoutingConfidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "RoutingConfidence",
+      "type": "string"
+    },
+    "RoutingContext": {
+      "additionalProperties": false,
+      "properties": {
+        "data_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Scope"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "journey": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Journey",
+          "type": "array"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "user_segment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Segment"
+        }
+      },
+      "title": "RoutingContext",
+      "type": "object"
+    },
+    "ScenarioRoute": {
+      "additionalProperties": false,
+      "properties": {
+        "alternative_scenarios": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternative Scenarios",
+          "type": "array"
+        },
+        "confidence": {
+          "$ref": "#/$defs/RoutingConfidence"
+        },
+        "scenario_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "supporting_scenarios": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Scenarios",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "confidence"
+      ],
+      "title": "ScenarioRoute",
+      "type": "object"
+    },
+    "SkillRoutingDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "default_skills": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Default Skills",
+          "type": "array"
+        },
+        "execution_mode": {
+          "$ref": "#/$defs/ExecutionRelation",
+          "default": "serial"
+        },
+        "fallback_skill": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fallback Skill"
+        },
+        "optional_skills": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Skills",
+          "type": "array"
+        },
+        "planned_skills": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Planned Skills",
+          "type": "array"
+        }
+      },
+      "title": "SkillRoutingDecision",
+      "type": "object"
+    },
+    "TaskRoute": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/RoutingConfidence"
+        },
+        "execution_relation": {
+          "$ref": "#/$defs/ExecutionRelation",
+          "default": "serial"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "secondary_tasks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Secondary Tasks",
+          "type": "array"
+        },
+        "task_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "confidence"
+      ],
+      "title": "TaskRoute",
+      "type": "object"
+    }
+  },
+  "$id": "https://agentmesh.local/schemas/task-catalog/user-research-v2/routing-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "analysis_requirements": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Analysis Requirements",
+      "type": "array"
+    },
+    "catalog_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Catalog Hash",
+      "type": "string"
+    },
+    "catalog_version": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Catalog Version",
+      "type": "string"
+    },
+    "completion_check": {
+      "$ref": "#/$defs/CompletionCheckResult"
+    },
+    "context": {
+      "$ref": "#/$defs/RoutingContext"
+    },
+    "evidence_requirement": {
+      "$ref": "#/$defs/EvidenceRequirement"
+    },
+    "human_confirmation": {
+      "$ref": "#/$defs/HumanConfirmationDecision"
+    },
+    "input_check": {
+      "$ref": "#/$defs/InputCheckResult"
+    },
+    "knowledge_routing": {
+      "$ref": "#/$defs/KnowledgeRoutingDecision"
+    },
+    "presentation_requirements": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Presentation Requirements",
+      "type": "array"
+    },
+    "scenario": {
+      "$ref": "#/$defs/ScenarioRoute"
+    },
+    "skill_routing": {
+      "$ref": "#/$defs/SkillRoutingDecision"
+    },
+    "task": {
+      "$ref": "#/$defs/TaskRoute"
+    }
+  },
+  "required": [
+    "catalog_version",
+    "catalog_hash",
+    "task",
+    "scenario"
+  ],
+  "title": "TaskRoutingResult",
+  "type": "object"
+}

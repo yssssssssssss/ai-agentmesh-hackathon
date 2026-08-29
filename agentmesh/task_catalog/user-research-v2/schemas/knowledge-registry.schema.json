@@ -1,0 +1,114 @@
+{
+  "$defs": {
+    "CatalogStatus": {
+      "enum": [
+        "draft",
+        "reviewed",
+        "validated",
+        "planned"
+      ],
+      "title": "CatalogStatus",
+      "type": "string"
+    },
+    "KnowledgeCatalogEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "business_domain": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Business Domain",
+          "type": "string"
+        },
+        "capability_domain": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Domain",
+          "type": "array"
+        },
+        "dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "item_type": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Item Type",
+          "type": "string"
+        },
+        "related_items": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Items",
+          "type": "array"
+        },
+        "source_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Hash",
+          "type": "string"
+        },
+        "source_path": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CatalogStatus"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "task_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Task Types",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "source_hash",
+        "id",
+        "title",
+        "item_type",
+        "business_domain",
+        "status"
+      ],
+      "title": "KnowledgeCatalogEntry",
+      "type": "object"
+    }
+  },
+  "$id": "https://agentmesh.local/schemas/task-catalog/user-research-v2/knowledge-registry.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "#/$defs/KnowledgeCatalogEntry"
+  },
+  "type": "array"
+}
