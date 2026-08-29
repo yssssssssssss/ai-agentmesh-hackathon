@@ -13,6 +13,7 @@ from agentmesh.agent_runtime.settings import (
     skill_orchestration_mode,
 )
 from agentmesh.models import AgentPlanningMode, AgentRun, AgentRunStatus, now_utc
+from agentmesh.runtime_capacity import RuntimeCapacityError
 from agentmesh.skill_runtime.quiesce import (
     OrchestrationQuiesceController,
     OrchestrationQuiescingError,
@@ -100,7 +101,7 @@ class DeepSearchRecoveryCoordinator:
     def _recovery_allowed(self) -> bool:
         return (
             not self._stop.is_set()
-            and self._mode_provider() is not SkillOrchestrationMode.OFF
+            and self._mode_provider() is SkillOrchestrationMode.EXECUTE
             and not self._admission.is_quiescing
         )
 
@@ -160,7 +161,10 @@ class DeepSearchRecoveryCoordinator:
                         continue
                     try:
                         with self._admission.permit():
-                            if self._mode_provider() is SkillOrchestrationMode.OFF:
+                            if (
+                                self._mode_provider()
+                                is not SkillOrchestrationMode.EXECUTE
+                            ):
                                 cursor_blocked = True
                                 continue
                             task = asyncio.create_task(
@@ -189,6 +193,12 @@ class DeepSearchRecoveryCoordinator:
             self._cursor = next_cursor
         return scheduled
 
+    def wake(self) -> None:
+        """Restart the cursor so newly-active durable work is considered promptly."""
+
+        self._cursor = None
+        self._wake.set()
+
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
             return
@@ -199,7 +209,10 @@ class DeepSearchRecoveryCoordinator:
         await self.recover_once()
         try:
             with self._admission.permit():
-                if self._mode_provider() is SkillOrchestrationMode.OFF:
+                if (
+                    self._mode_provider()
+                    is not SkillOrchestrationMode.EXECUTE
+                ):
                     return
                 self._task = asyncio.create_task(
                     self._run(),
@@ -249,10 +262,21 @@ class DeepSearchRecoveryCoordinator:
         except asyncio.CancelledError:
             return
         if error is not None and not self._stop.is_set():
-            # Retry from the beginning only after an abnormal managed task;
-            # successful/isolated records keep the stable forward cursor.
+            # Capacity pressure is ordinary deferred work: reset the cursor but
+            # wait for the bounded interval (or an explicit capacity wakeup).
             self._cursor = None
+            if isinstance(error, RuntimeCapacityError):
+                return
             self._wake.set()
+            return
+        if error is None and not self._stop.is_set():
+            result = task.result()
+            if result is not None and result.status in {
+                *_TERMINAL_STATUSES,
+                *_WAITING_STATUSES,
+            }:
+                self._cursor = None
+                self._wake.set()
 
     async def _run(self) -> None:
         while not self._stop.is_set():

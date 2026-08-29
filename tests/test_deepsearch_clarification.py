@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient, Response
 
+import agentmesh.routes.deepsearch as deepsearch_routes
 from agentmesh.app import app
 from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.deepsearch.contracts import (
@@ -47,6 +48,7 @@ from agentmesh.models import (
 )
 from agentmesh.routes.deepsearch import get_deepsearch_planning_service
 from agentmesh.routes.deps import current_user
+from agentmesh.runtime_capacity import RuntimeCapacityController
 from agentmesh.seed import PROJECT, TEAM_LEAD, USER, WORKSPACE
 from agentmesh.store import store
 
@@ -559,6 +561,46 @@ def test_clarification_rejects_an_oversized_body_before_request_validation() -> 
         "code": "deepsearch_clarification_payload_too_large"
     }
     assert refiner.calls == []
+
+
+def test_clarification_rejects_capacity_before_refinement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run, requirement = _seed_waiting_requirement("run_clarification_capacity")
+    question_id = requirement.payload.clarification_questions[0].id
+    refiner = ScriptedRefiner([])
+    _install_service(refiner)
+    capacity = RuntimeCapacityController(
+        process_run_limit=1,
+        user_run_limit=1,
+        node_limit=1,
+    )
+    assert capacity.reserve_run(operation_key="occupied", user_id=USER.id)
+    monkeypatch.setattr(
+        deepsearch_routes,
+        "current_runtime_capacity",
+        lambda: capacity,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/agent/runs/{run.id}/deepsearch/clarify",
+        json=_clarification_payload(
+            client_turn_id="clarify_capacity",
+            expected_requirement_version=requirement.version,
+            question_id=question_id,
+            answer="Keep the original scope.",
+        ),
+    )
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "1"
+    assert response.json()["detail"] == {"code": "runtime_capacity_exceeded"}
+    assert refiner.calls == []
+    persisted = store.get_active_deepsearch_requirement(run.id)
+    assert persisted is not None
+    assert persisted["id"] == requirement.id
+    assert persisted["version"] == requirement.version
 
 
 def test_clarification_counts_chunked_body_without_content_length() -> None:

@@ -23,6 +23,7 @@ from agentmesh.o2 import O2CommandRunner, maybe_register_o2_data_connector, o2_r
 from agentmesh.permissions import ACTION_VIEW_PROVIDER_HEALTH
 from agentmesh.provider_status import ProviderStatus, build_provider_status
 from agentmesh.routes.deps import require_permission
+from agentmesh.runtime_capacity import current_runtime_capacity
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.skill_runtime.trust import runtime_profile_trust_verifier
 from agentmesh.skill_runtime.universal_execution import universal_standard_execution_available
@@ -392,6 +393,7 @@ def _agent_runtime_status(*, deepsearch_recovery_running: bool = False) -> dict[
         ),
         "runs": len(runs),
         "run_status_counts": status_counts,
+        "runtime_capacity": current_runtime_capacity().snapshot(),
         "orchestration_metrics": _orchestration_metrics(runs),
         "deepsearch_metrics": _deepsearch_metrics(runs),
         "skill_activations": sum(event.action == "sdk_skill_activated" for event in store.audit_events),

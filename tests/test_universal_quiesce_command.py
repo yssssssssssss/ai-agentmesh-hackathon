@@ -14,9 +14,14 @@ from agentmesh.models import (
     AgentRunStatus,
     CandidateIdentityV1,
     CandidateSnapshotV1,
+    ChatWorkflowTrace,
     DeepSearchBudgetV1,
     DeliverableAtomV1,
+    Intent,
+    RunDispatchReceiptV1,
+    RunDispatchState,
     RuntimeToolCallClaimV1,
+    RuntimeToolCallOutcomeV1,
     SkillIntent,
     SkillNodeResult,
     SkillPlan,
@@ -264,6 +269,27 @@ def test_quiesce_apply_preserves_verified_partial_delivery(tmp_path: Path) -> No
             delivered_output_kinds=["analysis_result"],
         ),
     )
+    write_claim = RuntimeToolCallClaimV1(
+        call_id="call_quiesce_settled_write",
+        run_id=run.id,
+        plan_id=plan.id,
+        node_id=node.id,
+        tool_definition_id="tool_write",
+        tool_name="write_tool",
+        implementation_id="provider.write",
+        implementation_version="1",
+        side_effect="external",
+        operation_identity="c" * 64,
+    )
+    assert repository.claim_runtime_tool_call(write_claim)
+    repository.finish_runtime_tool_call(
+        RuntimeToolCallOutcomeV1(
+            call_id=write_claim.call_id,
+            run_id=run.id,
+            outcome="settled",
+            result_hash="d" * 64,
+        )
+    )
     inventory = repository.universal_quiesce_inventory()
 
     repository.apply_universal_quiesce(
@@ -274,6 +300,68 @@ def test_quiesce_apply_preserves_verified_partial_delivery(tmp_path: Path) -> No
     stored_run = repository.get_agent_run(run.id)
     assert stored_plan is not None and stored_plan.status is SkillPlanStatus.PARTIAL
     assert stored_run is not None and stored_run.status is AgentRunStatus.PARTIAL
+    assert stored_run.error_code == "process_restarted"
+
+
+def test_quiesce_preserves_terminal_run_and_requires_projection_before_settlement(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteStore(tmp_path / "quiesce-terminal-dispatch.sqlite3")
+    run = _run("run_quiesce_terminal_dispatch").model_copy(
+        update={
+            "status": AgentRunStatus.COMPLETED,
+            "output_text": "Completed output",
+        }
+    )
+    receipt = RunDispatchReceiptV1(
+        operation_key="dispatch:"
+        + canonical_json_sha256(
+            {
+                "run_id": run.id,
+                "operation_kind": "standard_direct",
+                "generation": 1,
+            }
+        ),
+        run_id=run.id,
+        operation_kind="standard_direct",
+    )
+    repository.claim_new_agent_run(run, dispatch=receipt)
+
+    blocked_inventory = repository.universal_quiesce_inventory()
+    assert blocked_inventory.anomaly_codes == (
+        f"terminal_projection_pending:{run.id}",
+    )
+    with pytest.raises(RuntimeError, match="quiesce_inventory_invalid"):
+        repository.apply_universal_quiesce(
+            expected_operation_checksum=blocked_inventory.operation_checksum,
+        )
+    assert repository.get_agent_run(run.id).status is AgentRunStatus.COMPLETED  # type: ignore[union-attr]
+
+    repository.project_terminal_run_output(
+        run_id=run.id,
+        content=run.output_text or "",
+        workflow_trace=ChatWorkflowTrace(
+            intent=Intent.GENERAL_CHAT,
+            confidence=1.0,
+            source="chat",
+            selected_workflow="chat",
+            persisted=True,
+            llm_used=True,
+        ),
+    )
+    inventory = repository.universal_quiesce_inventory()
+    assert inventory.anomaly_codes == ()
+    assert run.id not in inventory.run_ids
+
+    repository.apply_universal_quiesce(
+        expected_operation_checksum=inventory.operation_checksum,
+    )
+
+    preserved = repository.get_agent_run(run.id)
+    settled = repository.get_run_dispatch(receipt.operation_key)
+    assert preserved is not None and preserved.status is AgentRunStatus.COMPLETED
+    assert preserved.output_text == "Completed output"
+    assert settled is not None and settled.state is RunDispatchState.SETTLED
 
 
 def test_quiesce_apply_rejects_inconsistent_universal_plan_shape(tmp_path: Path) -> None:

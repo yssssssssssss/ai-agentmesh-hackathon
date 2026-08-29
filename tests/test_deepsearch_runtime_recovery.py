@@ -10,6 +10,7 @@ import agentmesh.agent_runtime.service as runtime_service_module
 import agentmesh.store as store_module
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agent_runtime.settings import SkillOrchestrationMode
+from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.deepsearch.budget import DeepSearchBudgetMeter
 from agentmesh.deepsearch.contracts import (
     DeepSearchStateResponse,
@@ -25,6 +26,8 @@ from agentmesh.models import (
     AgentRunStatus,
     ChatThread,
     DeepSearchBudgetUsageV1,
+    RunDispatchReceiptV1,
+    RunDispatchState,
     SkillPlan,
     SkillPlanNodeStatus,
 )
@@ -159,12 +162,20 @@ def test_recover_planning_run_resumes_from_persisted_requirement(tmp_path) -> No
     )
     planning = _PlanningService(repository)
     runtime = _runtime(repository, planning)
+    wakeups = 0
+
+    def wake_recovery() -> None:
+        nonlocal wakeups
+        wakeups += 1
+
+    runtime.set_deepsearch_recovery_wakeup(wake_recovery)
 
     recovered = asyncio.run(runtime.recover_deepsearch_run(run.id))
 
     assert planning.calls == [run.id]
     assert recovered is not None
     assert recovered.id == run.id
+    assert wakeups == 1
 
 
 def test_recover_planning_run_without_requirement_fails_closed(tmp_path) -> None:
@@ -245,6 +256,73 @@ def test_recover_running_plan_with_ready_node_resumes_existing_claim(tmp_path) -
     called_plan, _called_run, resume = calls[0]
     assert called_plan.nodes[0].status is SkillPlanNodeStatus.READY
     assert resume is True
+
+
+def test_recover_running_plan_uses_checkpoint_path_for_restarted_dispatch(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "deepsearch-recover-dispatch.sqlite3")
+    run, plan, _snapshot, _grant = _prepare_approved_plan(
+        repository,
+        run_id="run_recover_dispatch",
+    )
+    receipt = RunDispatchReceiptV1(
+        operation_key="dispatch:"
+        + canonical_json_sha256(
+            {
+                "run_id": run.id,
+                "operation_kind": "approved_plan",
+                "generation": 1,
+            }
+        ),
+        run_id=run.id,
+        operation_kind="approved_plan",
+    )
+    with repository._connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        repository._insert_run_dispatch_in_transaction(connection, receipt)
+    repository.claim_run_dispatch(receipt.operation_key, process_epoch="old-process")
+    running = repository.claim_skill_plan_for_execution(plan.id, run.id)
+    assert running is not None
+    ready = running.nodes[0].model_copy(update={"status": SkillPlanNodeStatus.READY})
+    assert repository.transition_skill_plan_node(
+        plan_id=running.id,
+        run_id=run.id,
+        node=ready,
+        expected_statuses={SkillPlanNodeStatus.PENDING},
+        event_type="node_ready",
+        event_payload={"plan_id": running.id, "node_id": ready.id},
+    ) is not None
+    assert repository.reconcile_run_dispatches_for_startup() == 1
+    runtime = _runtime(repository, _PlanningService(repository))
+    calls: list[tuple[SkillPlan, AgentRun, bool]] = []
+
+    async def execute(
+        *,
+        plan: SkillPlan,
+        run: AgentRun,
+        user: object,
+        resume: bool = False,
+    ) -> PlanExecutionOutcome:
+        del user
+        calls.append((plan.model_copy(deep=True), run.model_copy(deep=True), resume))
+        terminal = repository.fail_deepsearch_recovery_state(
+            run_id=run.id,
+            error_code="test_recovered",
+        )
+        assert terminal is not None
+        return PlanExecutionOutcome(
+            plan=repository.get_skill_plan(plan.id) or plan,
+            run=terminal,
+        )
+
+    runtime._execute_approved_skill_plan = execute  # type: ignore[method-assign]
+
+    asyncio.run(runtime.recover_deepsearch_run(run.id))
+
+    assert len(calls) == 1 and calls[0][2] is True
+    settled = repository.get_run_dispatch(receipt.operation_key)
+    assert settled is not None and settled.state is RunDispatchState.SETTLED
+    assert settled.attempt_count == 2
+    assert repository.get_run_output_projection(run.id) is not None
 
 
 def test_recover_orphaned_running_node_marks_unknown_before_resume(tmp_path) -> None:

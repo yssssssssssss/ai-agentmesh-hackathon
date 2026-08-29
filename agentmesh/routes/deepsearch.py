@@ -17,8 +17,12 @@ from agentmesh.deepsearch.service import (
     DeepSearchRequirementIntegrityError,
     DeepSearchRequirementInvalid,
 )
-from agentmesh.models import AgentPlanningMode, AgentRun, User
+from agentmesh.models import AgentPlanningMode, AgentRun, User, new_id
 from agentmesh.routes.deps import current_user
+from agentmesh.runtime_capacity import (
+    RuntimeCapacityError,
+    current_runtime_capacity,
+)
 from agentmesh.store import DeepSearchRequirementConflict, ResearchStoreConflict, store
 
 _CLARIFICATION_PATH = "/api/agent/runs/{run_id}/deepsearch/clarify"
@@ -148,6 +152,18 @@ async def clarify_deepsearch_requirement(
     service: DeepSearchService,
 ) -> DeepSearchStateResponse:
     run = _visible_deepsearch_run(run_id, user)
+    capacity = current_runtime_capacity()
+    capacity_key = new_id("deepsearch_clarification")
+    accepted, capacity_created = capacity.claim_run(
+        operation_key=capacity_key,
+        user_id=user.id,
+    )
+    if not accepted:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": RuntimeCapacityError.code},
+            headers={"Retry-After": "1"},
+        )
     try:
         return await service.clarify(run=run, request=request)
     except DeepSearchRequirementConflict as error:
@@ -177,3 +193,6 @@ async def clarify_deepsearch_requirement(
             status_code=409,
             detail={"code": "deepsearch_requirement_state_conflict"},
         ) from error
+    finally:
+        if capacity_created:
+            capacity.release_run(capacity_key)

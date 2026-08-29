@@ -73,6 +73,7 @@ from agentmesh.models import (
 from agentmesh.report_html import render_report_html
 from agentmesh.routes.deps import current_user, require_default_project
 from agentmesh.runtime_admission import current_orchestration_admission
+from agentmesh.runtime_capacity import RuntimeCapacityError
 from agentmesh.skill_runtime.plan_validation import PlanValidationError, adjust_plan, validate_draft
 from agentmesh.skill_runtime.quiesce import OrchestrationQuiescingError
 from agentmesh.skill_runtime.recommendation import revalidate_candidate_snapshot
@@ -503,6 +504,12 @@ def _require_deepsearch_tool_runtime(plan, runtime) -> None:  # noqa: ANN001
 def _agent_run_creation_error(error: RuntimeError) -> HTTPException:
     if isinstance(error, OrchestrationQuiescingError):
         return HTTPException(status_code=503, detail={"code": error.code})
+    if isinstance(error, RuntimeCapacityError):
+        return HTTPException(
+            status_code=429,
+            detail={"code": error.code, "scope": error.scope},
+            headers={"Retry-After": "1"},
+        )
     if str(error) == "client_turn_id was already used for another Agent run":
         return HTTPException(status_code=409, detail={"code": "client_turn_id_conflict"})
     return HTTPException(status_code=409, detail=str(error))
@@ -935,6 +942,12 @@ async def approve_agent_run_plan(
                 created_at=checked_at,
             )
             approved.approved_plan_artifact_id = snapshot.id
+            dispatch_factory = getattr(runtime, "new_dispatch_receipt", None)
+            dispatch_receipt = (
+                dispatch_factory(run.id, "approved_plan")
+                if callable(dispatch_factory)
+                else None
+            )
             with current_orchestration_admission().permit():
                 transition = store.approve_deepsearch_plan_and_transition(
                     run_id=run.id,
@@ -943,6 +956,7 @@ async def approve_agent_run_plan(
                     plan=approved,
                     plan_snapshot=snapshot,
                     checked_at=checked_at,
+                    dispatch=dispatch_receipt,
                 )
         except ResearchStoreConflict as error:
             raise _deepsearch_plan_store_error(error) from error
@@ -955,7 +969,14 @@ async def approve_agent_run_plan(
             raise HTTPException(status_code=409, detail="Skill plan approval conflict")
         transitioned_plan, transitioned_run, _snapshot = transition
         try:
-            await runtime.start_approved_skill_plan(transitioned_plan.id, user=user)
+            if dispatch_receipt is None:
+                await runtime.start_approved_skill_plan(transitioned_plan.id, user=user)
+            else:
+                await runtime.start_approved_skill_plan(
+                    transitioned_plan.id,
+                    user=user,
+                    dispatch_receipt=dispatch_receipt,
+                )
         except (LookupError, PermissionError) as error:
             raise HTTPException(
                 status_code=409,
@@ -1009,6 +1030,12 @@ async def approve_agent_run_plan(
         allowed_statuses={AgentRunStatus.WAITING_PLAN_APPROVAL},
     ):
         raise HTTPException(status_code=404, detail="Agent run not found")
+    dispatch_factory = getattr(runtime, "new_dispatch_receipt", None)
+    dispatch_receipt = (
+        dispatch_factory(run.id, "approved_plan")
+        if callable(dispatch_factory)
+        else None
+    )
     with current_orchestration_admission().permit():
         transition = store.transition_skill_plan_and_run(
             plan_id=plan.id,
@@ -1019,12 +1046,20 @@ async def approve_agent_run_plan(
             next_plan_status=SkillPlanStatus.APPROVED,
             next_run_status=AgentRunStatus.RUNNING,
             events=[("plan_approved", {"plan_id": plan.id})],
+            dispatch=dispatch_receipt,
         )
     if transition is None:
         raise HTTPException(status_code=409, detail="Skill plan approval conflict")
     transitioned_plan, transitioned_run = transition
     try:
-        await runtime.start_approved_skill_plan(transitioned_plan.id, user=user)
+        if dispatch_receipt is None:
+            await runtime.start_approved_skill_plan(transitioned_plan.id, user=user)
+        else:
+            await runtime.start_approved_skill_plan(
+                transitioned_plan.id,
+                user=user,
+                dispatch_receipt=dispatch_receipt,
+            )
     except OrchestrationQuiescingError as error:
         raise HTTPException(status_code=503, detail={"code": error.code}) from error
     except (LookupError, PermissionError, RuntimeError) as error:
@@ -1302,7 +1337,7 @@ def stream_agent_run_events(
         idle_delay = 0.25
         try:
             while True:
-                raw_events, run = await asyncio.to_thread(
+                raw_events, run, projection_ready, has_dispatch = await asyncio.to_thread(
                     store.read_agent_run_event_page,
                     run_id,
                     after_sequence=sequence,
@@ -1313,7 +1348,9 @@ def stream_agent_run_events(
                     sequence = event.sequence
                     yield f"id: {event.sequence}\nevent: {event.event_type}\ndata: {event.model_dump_json()}\n\n"
                 if run is None or (
-                    run.status.value in _TERMINAL and len(events) < 100
+                    run.status.value in _TERMINAL
+                    and len(events) < 100
+                    and (not has_dispatch or projection_ready)
                 ):
                     break
                 if len(events) == 100:

@@ -14,8 +14,15 @@ from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agent_runtime.settings import strict_tools_enabled
 from agentmesh.agent_runtime.trace_processor import AgentMeshTraceProcessor
 from agentmesh.agents import PersonalAgent
-from agentmesh.models import AgentRun, AgentRunStatus, SkillActivationPolicy, SkillDefinition, SkillSourceScope
-from agentmesh.seed import USER
+from agentmesh.models import (
+    AgentRun,
+    AgentRunStatus,
+    ChatThread,
+    SkillActivationPolicy,
+    SkillDefinition,
+    SkillSourceScope,
+)
+from agentmesh.seed import USER, ensure_base_workspace_data
 from agentmesh.skill_runtime.resources import build_skill_resource_tool
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
@@ -111,6 +118,17 @@ def test_skill_resource_tool_batches_reads_against_the_shared_tool_budget(tmp_pa
 
 def test_orchestration_projection_preserves_real_model_provenance(tmp_path) -> None:
     repository = SQLiteStore(tmp_path / "orchestration-projection.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+    repository.add_chat_thread(
+        ChatThread(
+            id="thread_orchestration_projection",
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            user_id=USER.id,
+            title="Projection",
+        )
+    )
     model = ScriptedModel([])
     runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
     run = AgentRun(
@@ -121,8 +139,10 @@ def test_orchestration_projection_preserves_real_model_provenance(tmp_path) -> N
         project_id=USER.default_project_id,
         input_text="create a research plan and synthesize it",
         status=AgentRunStatus.COMPLETED,
+        output_text="synthesized result",
         project_chat=True,
     )
+    repository.save_agent_run(run)
 
     runtime.project_orchestration_output(
         run,
@@ -133,8 +153,19 @@ def test_orchestration_projection_preserves_real_model_provenance(tmp_path) -> N
             actual_model="gpt-5.2",
         ),
     )
+    runtime.project_orchestration_output(
+        run,
+        "synthesized result",
+        selected=SelectedSDKModel(
+            model=model,
+            requested_model="gpt-primary",
+            actual_model="gpt-5.2",
+        ),
+    )
 
-    trace = repository.list_thread_messages(run.thread_id)[-1].workflow_trace
+    messages = repository.list_thread_messages(run.thread_id)
+    assert len(messages) == 1
+    trace = messages[-1].workflow_trace
     assert trace is not None
     assert trace.source == "orchestration"
     assert trace.selected_workflow == "skill_orchestration"
@@ -144,6 +175,10 @@ def test_orchestration_projection_preserves_real_model_provenance(tmp_path) -> N
     assert trace.requested_model == "gpt-primary"
     assert trace.actual_model == "gpt-5.2"
     assert trace.provider_mode == "real"
+    receipt = repository.get_run_output_projection(run.id)
+    assert receipt is not None
+    assert receipt.assistant_message_id == messages[0].id
+    assert receipt.disposition == "message"
 
 
 def test_personal_agent_routes_general_and_catalog_skill_through_sdk(tmp_path, configure_pilot_wiki) -> None:

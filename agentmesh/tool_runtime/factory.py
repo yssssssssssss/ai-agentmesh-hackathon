@@ -29,6 +29,7 @@ from agentmesh.models import (
 )
 from agentmesh.risk import RiskDecision, assess_tool_request
 from agentmesh.runtime_admission import current_orchestration_admission
+from agentmesh.runtime_capacity import RuntimeCapacityController, current_runtime_capacity
 from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
 from agentmesh.store import RuntimeToolCallConflict, SQLiteStore
 from agentmesh.tool_runtime.deepsearch import DeepSearchToolRuntimeError, build_deepsearch_tool_invocation
@@ -58,10 +59,15 @@ class AgentMeshToolFactory:
         repository: SQLiteStore,
         gateway: ToolGateway | None = None,
         admission: OrchestrationQuiesceController | None = None,
+        capacity: RuntimeCapacityController | None = None,
     ):
         self.repository = repository
         self.gateway = gateway or ToolGateway(repository)
         self.admission = admission or current_orchestration_admission()
+        self.capacity = capacity or current_runtime_capacity()
+
+    def set_capacity_controller(self, capacity: RuntimeCapacityController) -> None:
+        self.capacity = capacity
 
     def set_admission_controller(self, admission: OrchestrationQuiesceController) -> None:
         self.admission = admission
@@ -372,25 +378,60 @@ class AgentMeshToolFactory:
                     else None
                 ),
             )
-            with self.admission.permit():
-                claimed = self.repository.claim_runtime_tool_call(claim)
+            await self.capacity.acquire_tool()
+            try:
+                if not self.repository.user_can_execute_agent_run(
+                    ctx.context.user_id,
+                    ctx.context.run_id,
+                    allowed_statuses={AgentRunStatus.RUNNING},
+                ):
+                    raise PermissionError("Agent run project access was revoked")
+                if not any(
+                    tool.id == definition.id
+                    for tool in list_agent_tools(
+                        self.repository,
+                        user.personal_agent_id,
+                    )
+                ):
+                    raise PermissionError("Agent tool grant was revoked")
+                with self.admission.permit():
+                    claimed = self.repository.claim_runtime_tool_call(claim)
+            except BaseException:
+                self.capacity.release_tool()
+                raise
             if not claimed:
+                self.capacity.release_tool()
                 raise RuntimeToolCallConflict("tool_call_already_claimed")
-            self.repository.add_audit_event(
-                AuditEvent(
-                    actor=ctx.context.user_id,
-                    action="sdk_tool_started",
-                    target_type="tool_definition",
-                    target_id=definition.id,
-                    workspace_id=ctx.context.workspace_id,
-                    project_id=ctx.context.project_id,
-                    metadata={
-                        "run_id": ctx.context.run_id,
-                        "tool_name": definition.name,
-                        "argument_keys": sorted(arguments),
-                    },
+            try:
+                self.repository.add_audit_event(
+                    AuditEvent(
+                        actor=ctx.context.user_id,
+                        action="sdk_tool_started",
+                        target_type="tool_definition",
+                        target_id=definition.id,
+                        workspace_id=ctx.context.workspace_id,
+                        project_id=ctx.context.project_id,
+                        metadata={
+                            "run_id": ctx.context.run_id,
+                            "tool_name": definition.name,
+                            "argument_keys": sorted(arguments),
+                        },
+                    )
                 )
-            )
+            except BaseException:
+                try:
+                    self._finish_claim(
+                        claim,
+                        outcome=("abandoned" if definition.side_effect == "read" else "outcome_unknown"),
+                        error_code=(
+                            "process_restarted"
+                            if definition.side_effect == "read"
+                            else "external_outcome_unknown"
+                        ),
+                    )
+                finally:
+                    self.capacity.release_tool()
+                raise
             try:
                 if deepsearch_invocation is not None:
                     gateway_invoke = getattr(self.gateway, "invoke", None)
@@ -474,21 +515,27 @@ class AgentMeshToolFactory:
                     )
                 )
             except BaseException:
+                try:
+                    self._finish_claim(
+                        claim,
+                        outcome=("abandoned" if definition.side_effect == "read" else "outcome_unknown"),
+                        error_code=(
+                            "process_restarted"
+                            if definition.side_effect == "read"
+                            else "external_outcome_unknown"
+                        ),
+                    )
+                finally:
+                    self.capacity.release_tool()
+                raise
+            try:
                 self._finish_claim(
                     claim,
-                    outcome=("abandoned" if definition.side_effect == "read" else "outcome_unknown"),
-                    error_code=(
-                        "process_restarted"
-                        if definition.side_effect == "read"
-                        else "external_outcome_unknown"
-                    ),
+                    outcome="settled",
+                    result_hash=hashlib.sha256(output.encode("utf-8")).hexdigest(),
                 )
-                raise
-            self._finish_claim(
-                claim,
-                outcome="settled",
-                result_hash=hashlib.sha256(output.encode("utf-8")).hexdigest(),
-            )
+            finally:
+                self.capacity.release_tool()
             return visible
 
         return FunctionTool(

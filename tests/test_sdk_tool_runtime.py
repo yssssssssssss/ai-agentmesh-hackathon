@@ -28,6 +28,7 @@ from agentmesh.models import (
     ToolDefinition,
     UserMemoryItem,
 )
+from agentmesh.runtime_capacity import RuntimeCapacityController
 from agentmesh.seed import USER, ensure_base_workspace_data
 from agentmesh.skill_runtime.resources import (
     build_skill_resource_tool,
@@ -885,6 +886,86 @@ def test_function_tool_rechecks_grant_immediately_before_invocation(tmp_path) ->
         asyncio.run(tool.on_invoke_tool(SimpleNamespace(context=context), "{}"))
 
     assert calls == []
+
+
+def test_function_tool_rechecks_grant_after_waiting_for_capacity(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    context = AgentMeshRunContext(
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        thread_id="thread_capacity_revocation",
+        run_id="run_capacity_revocation",
+    )
+    repository.add_chat_thread(
+        ChatThread(
+            id=context.thread_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            user_id=context.user_id,
+            title="Capacity revocation",
+        )
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id=context.run_id,
+            thread_id=context.thread_id,
+            user_id=context.user_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            input_text="wait before Tool claim",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    definition = repository.save_tool_definition(
+        ToolDefinition(
+            id="tool_capacity_revocation",
+            name="capacity_revocation",
+            description="Must recheck after capacity wait",
+            category="test",
+            side_effect="read",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        )
+    )
+    grant = repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_capacity_revocation",
+            agent_id=USER.personal_agent_id,
+            tool_id=definition.id,
+            granted_by="test",
+        )
+    )
+    calls: list[str] = []
+
+    class Gateway:
+        @staticmethod
+        def handlers():
+            return {definition.name: lambda _context, _arguments: calls.append("called")}
+
+    capacity = RuntimeCapacityController(tool_limit=1)
+    tool = AgentMeshToolFactory(
+        repository,
+        gateway=Gateway(),  # type: ignore[arg-type]
+        capacity=capacity,
+    ).build(USER, allowed_tool_names={definition.name})[0]
+
+    async def scenario() -> None:
+        await capacity.acquire_tool()
+        invocation = asyncio.create_task(
+            tool.on_invoke_tool(SimpleNamespace(context=context), "{}")
+        )
+        await asyncio.sleep(0.03)
+        repository.save_agent_tool_grant(grant.model_copy(update={"enabled": False}))
+        capacity.release_tool()
+        with pytest.raises(PermissionError, match="tool grant was revoked"):
+            await invocation
+
+    asyncio.run(scenario())
+
+    claims, _outcomes = repository.list_runtime_tool_call_history(run_id=context.run_id)
+    assert claims == []
+    assert calls == []
+    assert capacity.snapshot()["active_tool_calls"] == 0
 
 
 def test_skill_resource_tool_cannot_cross_registered_wiki_subtree(tmp_path, monkeypatch) -> None:
