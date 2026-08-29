@@ -9,9 +9,14 @@ from agents.testing import ScriptedModel
 
 import agentmesh.routes.agent_runs as agent_run_routes
 import agentmesh.routes.chat as chat_routes
-from agentmesh.agent_runtime.service import AgentRuntimeService
+from agentmesh.agent_runtime.models import AgentMeshRunContext
+from agentmesh.agent_runtime.service import (
+    AgentRuntimeService,
+    _StandardSkillNodeResultDraft,
+)
 from agentmesh.agent_runtime.settings import SkillOrchestrationMode
 from agentmesh.models import (
+    AgentExecutionContractVersion,
     AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRunStatus,
@@ -20,9 +25,11 @@ from agentmesh.models import (
     SkillIntentComplexity,
     SkillPlanVersionRequest,
     SkillSourceScope,
+    SkillSynthesisResult,
 )
 from agentmesh.seed import USER, ensure_base_workspace_data
 from agentmesh.skill_runtime import universal_execution
+from agentmesh.skill_runtime.executor import NodeExecutionOutcome
 from agentmesh.skill_runtime.profiles import load_capability_profile_record
 from agentmesh.skill_runtime.recommendation import UniversalSkillSearchService
 from agentmesh.skill_runtime.service import SkillCatalogService
@@ -124,6 +131,9 @@ def test_planning_contract_selection_is_mode_specific_and_direct_runs_stay_unmar
         planning_mode=AgentPlanningMode.STANDARD,
         planned=True,
     ) is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+    assert universal.execution_contract_for(
+        AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+    ) is AgentExecutionContractVersion.STANDARD_UNIVERSAL_V1
     assert universal.planning_contract_for(
         planning_mode=AgentPlanningMode.DEEPSEARCH,
         planned=True,
@@ -183,11 +193,11 @@ def test_standard_universal_preview_freezes_marker_snapshot_and_skeleton(tmp_pat
 
     assert run is not None and plan is not None
     assert run.planning_contract_version is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
-    assert run.execution_contract_version is None
+    assert run.execution_contract_version is AgentExecutionContractVersion.STANDARD_UNIVERSAL_V1
     assert "execution_contract_version" in run.model_dump()
     assert run.status is AgentRunStatus.WAITING_PLAN_APPROVAL
     assert plan.candidate_snapshot is not None
-    assert plan.execution_contract_version is None
+    assert plan.execution_contract_version is AgentExecutionContractVersion.STANDARD_UNIVERSAL_V1
     assert "execution_contract_version" in plan.model_dump()
     assert plan.candidate_skill_ids == [skill.id]
     assert plan.candidate_snapshot.candidates[0].skill_id == skill.id
@@ -207,21 +217,15 @@ def test_standard_universal_preview_freezes_marker_snapshot_and_skeleton(tmp_pat
     assert "profile_content_hash" not in serialized
     assert "evidence_path_witnesses" not in serialized
     assert "resource_manifest" not in serialized
-    try:
-        asyncio.run(
-            agent_run_routes.approve_agent_run_plan(
-                run.id,
-                SkillPlanVersionRequest(expected_version=plan.version),
-                user=USER,
-            )
+    approved = asyncio.run(
+        agent_run_routes.approve_agent_run_plan(
+            run.id,
+            SkillPlanVersionRequest(expected_version=plan.version),
+            user=USER,
         )
-    except Exception as error:
-        assert getattr(error, "status_code", None) == 409
-        assert getattr(error, "detail", None) == {"code": "universal_execution_not_available"}
-    else:
-        raise AssertionError("Phase 2A preview Plan was approved")
-    persisted = repository.get_agent_run(run.id)
-    assert persisted is not None and persisted.status is AgentRunStatus.WAITING_PLAN_APPROVAL
+    )
+    assert approved.run.status is AgentRunStatus.COMPLETED
+    assert approved.plan.execution_contract_version is AgentExecutionContractVersion.STANDARD_UNIVERSAL_V1
 
 
 def test_routed_universal_preview_accepts_server_owned_scenario_assignment(tmp_path, monkeypatch) -> None:
@@ -476,6 +480,121 @@ def test_universal_retrieval_failure_terminates_run_without_empty_plan(tmp_path,
     assert repository.get_skill_plan_for_run(run.id) is None
 
 
+def test_phase2b_executes_a_frozen_read_only_universal_plan(tmp_path, monkeypatch) -> None:
+    repository, catalog, skill = _catalog(tmp_path)
+    intent = SkillIntent(goal="Analyze this product", deliverables=["analysis_result"])
+
+    class IntentAnalyzer:
+        async def analyze(self, *_args, **_kwargs):
+            return intent, []
+
+    class Trust:
+        available = True
+
+        def __call__(self, _skill, _loaded):  # noqa: ANN001, ANN204
+            return True
+
+    class Synthesis:
+        async def synthesize(self, **_kwargs):
+            return SkillSynthesisResult(summary="Completed analysis"), False
+
+    trust = Trust()
+    runtime = AgentRuntimeService(
+        repository,
+        model=ScriptedModel([]),
+        enabled=True,
+        skill_catalog=catalog,
+        intent_analyzer=IntentAnalyzer(),  # type: ignore[arg-type]
+        profile_trust=trust,  # type: ignore[arg-type]
+        universal_search=UniversalSkillSearchService(
+            repository,
+            catalog,
+            profile_trust=trust,
+            profile_ranker=lambda queries, _ids: [([], [skill.id], []) for _query in queries],
+        ),
+        universal_preview_enabled=True,
+    )
+    runtime.synthesis_service = Synthesis()  # type: ignore[assignment]
+    monkeypatch.setenv("AGENTMESH_TASK_SCENARIO_ROUTING", "false")
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "execute")
+
+    async def fake_node(*, plan, node, **kwargs):  # noqa: ANN001, ANN202
+        run = kwargs["run"]
+        user = kwargs["user"]
+        runtime._resolve_plan_node_security(
+            plan=plan,
+            node=node,
+            run=run,
+            user=user,
+        )
+        definition = repository.get_skill_definition(node.skill_id)
+        assert definition is not None
+        normalized = runtime._normalize_skill_node_result(
+            _StandardSkillNodeResultDraft(
+                node_id=node.id,
+                skill_id=node.skill_id,
+                summary="Complete",
+                deliverable_markdown="# Analysis",
+                delivered_output_kinds=list(node.output_contract),
+            ),
+            total_tokens=1,
+            plan=plan,
+            node=node,
+            skill=definition,
+            run=run,
+            user=user,
+            allowed_source_ids=set(),
+            allowed_artifact_ids=set(),
+            allowed_resource_references=set(),
+            upstream_source_origins={},
+            runtime_context=AgentMeshRunContext(
+                user_id=run.user_id,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                thread_id=run.thread_id,
+                run_id=run.id,
+                plan_id=plan.id,
+                node_id=node.id,
+                skill_id=node.skill_id,
+            ),
+        )
+        return NodeExecutionOutcome(result=normalized)
+
+    runtime._execute_skill_plan_node = fake_node  # type: ignore[method-assign]
+
+    async def scenario():
+        created = await runtime.start_orchestrated(
+            content=intent.goal,
+            user=USER,
+            thread_id="thread_universal_execute",
+            history=[],
+            client_turn_id="turn_universal_execute",
+            mode=SkillOrchestrationMode.EXECUTE,
+        )
+        await runtime._tasks[created.id]
+        waiting_run = repository.get_agent_run(created.id)
+        plan = repository.get_skill_plan_for_run(created.id)
+        assert waiting_run is not None and plan is not None
+        monkeypatch.setattr(agent_run_routes, "store", repository)
+        monkeypatch.setattr(agent_run_routes, "catalog_service", lambda: catalog)
+        monkeypatch.setattr(chat_routes.agent, "agent_runtime", runtime)
+        transition = await agent_run_routes.approve_agent_run_plan(
+            created.id,
+            SkillPlanVersionRequest(expected_version=plan.version),
+            user=USER,
+        )
+        assert transition.run.status is AgentRunStatus.RUNNING
+        await runtime._tasks[created.id]
+        return repository.get_agent_run(created.id), repository.get_skill_plan_for_run(created.id)
+
+    run, plan = asyncio.run(scenario())
+
+    assert run is not None and run.status is AgentRunStatus.COMPLETED
+    assert run.error_code is None
+    assert plan is not None and plan.status.value == "completed"
+    assert plan.completion_check is not None and plan.completion_check.completed is True
+
+
 def test_phase2a_approve_api_rejects_persisted_universal_plan_in_execute_mode(
     tmp_path,
     monkeypatch,
@@ -494,6 +613,11 @@ def test_phase2a_approve_api_rejects_persisted_universal_plan_in_execute_mode(
             return True
 
     trust = Trust()
+    monkeypatch.setattr(
+        universal_execution,
+        "STANDARD_UNIVERSAL_EXECUTION_CONTRACT",
+        None,
+    )
     runtime = AgentRuntimeService(
         repository,
         model=ScriptedModel([]),
@@ -552,7 +676,7 @@ def test_phase2a_approve_api_rejects_persisted_universal_plan_in_execute_mode(
     assert persisted is not None and persisted.status is AgentRunStatus.WAITING_PLAN_APPROVAL
 
 
-def test_phase2a_rejects_universal_execute_before_creating_a_run(tmp_path) -> None:
+def test_phase2b_freezes_execution_contract_for_new_universal_runs(tmp_path) -> None:
     repository, catalog, _skill = _catalog(tmp_path)
     runtime = AgentRuntimeService(
         repository,
@@ -562,19 +686,9 @@ def test_phase2a_rejects_universal_execute_before_creating_a_run(tmp_path) -> No
         universal_preview_enabled=True,
     )
 
-    try:
-        asyncio.run(
-            runtime.start_orchestrated(
-                content="Analyze this product",
-                user=USER,
-                thread_id="thread_universal_execute_blocked",
-                history=[],
-                client_turn_id="turn_universal_execute_blocked",
-                mode=SkillOrchestrationMode.EXECUTE,
-            )
-        )
-    except RuntimeError as error:
-        assert str(error) == "universal_execution_not_available"
-    else:
-        raise AssertionError("Phase 2A admitted Universal execution")
-    assert repository.get_agent_run_by_client_turn(USER.id, "turn_universal_execute_blocked") is None
+    assert runtime.execution_contract_for(
+        AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+    ) is AgentExecutionContractVersion.STANDARD_UNIVERSAL_V1
+    assert runtime.execution_contract_for(
+        AgentPlanningContractVersion.STANDARD_LEGACY_V1
+    ) is None

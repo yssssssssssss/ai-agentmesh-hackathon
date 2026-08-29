@@ -97,6 +97,7 @@ from agentmesh.models import (
     SkillPlanStatus,
     SkillSideEffect,
     SkillStatus,
+    SkillSynthesisResult,
     Source,
     Task,
     Team,
@@ -2571,6 +2572,72 @@ class SQLiteStore:
         return None
 
 
+    @staticmethod
+    def _artifact_in_transaction(
+        connection: sqlite3.Connection,
+        artifact_id: str,
+    ) -> Artifact | None:
+        row = connection.execute(
+            "SELECT payload FROM artifacts WHERE id = ?",
+            (artifact_id,),
+        ).fetchone()
+        return Artifact.model_validate_json(row["payload"]) if row is not None else None
+
+    @staticmethod
+    def _universal_synthesis_in_transaction(
+        connection: sqlite3.Connection,
+        plan: SkillPlan,
+    ) -> SkillSynthesisResult | None:
+        rows = connection.execute(
+            """
+            SELECT payload FROM artifacts
+            WHERE run_id = ?
+              AND plan_version_id = ?
+              AND artifact_type = 'universal_synthesis'
+              AND verification_state = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (
+                plan.run_id,
+                f"{plan.id}:v{plan.version}",
+                ArtifactVerificationState.SEALED.value,
+            ),
+        ).fetchall()
+        from agentmesh.artifacts import DeepSearchArtifactSchemaRegistry
+
+        for row in rows:
+            try:
+                artifact = Artifact.model_validate_json(row["payload"])
+                parsed = DeepSearchArtifactSchemaRegistry.parse(
+                    artifact.artifact_type,
+                    artifact.schema_version or "",
+                    artifact.content,
+                )
+                synthesis = getattr(parsed, "synthesis", None)
+                if (
+                    getattr(parsed, "run_id", None) == plan.run_id
+                    and getattr(parsed, "plan_id", None) == plan.id
+                    and getattr(parsed, "plan_version", None) == plan.version
+                    and isinstance(synthesis, SkillSynthesisResult)
+                ):
+                    return synthesis.model_copy(
+                        update={
+                            "artifact_ids": list(
+                                dict.fromkeys([*synthesis.artifact_ids, artifact.id])
+                            )
+                        }
+                    )
+            except (TypeError, ValueError, RuntimeError):
+                continue
+        return None
+
+    def get_universal_synthesis_for_plan(
+        self,
+        plan: SkillPlan,
+    ) -> SkillSynthesisResult | None:
+        with self._read_connect() as connection:
+            return self._universal_synthesis_in_transaction(connection, plan)
+
     def _cancel_agent_run_tree_in_transaction(
         self,
         connection: sqlite3.Connection,
@@ -2658,7 +2725,9 @@ class SQLiteStore:
                     )
                 )
             if unknown_write and plan.candidate_snapshot is not None:
-                from agentmesh.skill_runtime.universal_plan import has_valid_partial_delivery
+                from agentmesh.skill_runtime.universal_plan import (
+                    persisted_universal_partial_delivery,
+                )
 
                 result_rows = connection.execute(
                     """
@@ -2667,12 +2736,22 @@ class SQLiteStore:
                     """,
                     (plan.id,),
                 ).fetchall()
-                partial = has_valid_partial_delivery(
+                synthesis = (
+                    SkillSynthesisResult.model_validate(plan.synthesis)
+                    if plan.synthesis is not None
+                    else self._universal_synthesis_in_transaction(connection, plan)
+                )
+                partial = persisted_universal_partial_delivery(
                     plan=plan,
                     results=[
                         SkillNodeResult.model_validate_json(result_row["payload"])
                         for result_row in result_rows
                     ],
+                    synthesis=synthesis,
+                    artifact_lookup=lambda artifact_id: self._artifact_in_transaction(
+                        connection,
+                        artifact_id,
+                    ),
                 )
             plan.status = (
                 SkillPlanStatus.PARTIAL
@@ -7875,7 +7954,9 @@ class SQLiteStore:
                             node.status = SkillPlanNodeStatus.CANCELLED
                             node.completed_at = now_utc()
                     if plan.candidate_snapshot is not None:
-                        from agentmesh.skill_runtime.universal_plan import has_valid_partial_delivery
+                        from agentmesh.skill_runtime.universal_plan import (
+                            persisted_universal_partial_delivery,
+                        )
 
                         result_rows = connection.execute(
                             """
@@ -7884,12 +7965,22 @@ class SQLiteStore:
                             """,
                             (plan.id,),
                         ).fetchall()
-                        partial = has_valid_partial_delivery(
+                        synthesis = (
+                            SkillSynthesisResult.model_validate(plan.synthesis)
+                            if plan.synthesis is not None
+                            else self._universal_synthesis_in_transaction(connection, plan)
+                        )
+                        partial = persisted_universal_partial_delivery(
                             plan=plan,
                             results=[
                                 SkillNodeResult.model_validate_json(result_row["payload"])
                                 for result_row in result_rows
                             ],
+                            synthesis=synthesis,
+                            artifact_lookup=lambda artifact_id: self._artifact_in_transaction(
+                                connection,
+                                artifact_id,
+                            ),
                         )
                     plan.status = SkillPlanStatus.PARTIAL if partial else SkillPlanStatus.FAILED
                     plan.updated_at = now_utc()
@@ -7971,6 +8062,7 @@ class SQLiteStore:
                     run.plan_id != plan.id
                     or plan.run_id != run.id
                     or plan.candidate_snapshot is None
+                    or run.execution_contract_version != plan.execution_contract_version
                 )
             ):
                 anomalies.add(f"planning_contract_shape_mismatch:{run.id}")
@@ -8095,7 +8187,9 @@ class SQLiteStore:
                             )
                         )
                     if plan.candidate_snapshot is not None:
-                        from agentmesh.skill_runtime.universal_plan import has_valid_partial_delivery
+                        from agentmesh.skill_runtime.universal_plan import (
+                            persisted_universal_partial_delivery,
+                        )
 
                         result_rows = connection.execute(
                             """
@@ -8104,12 +8198,22 @@ class SQLiteStore:
                             """,
                             (plan.id,),
                         ).fetchall()
-                        partial = has_valid_partial_delivery(
+                        synthesis = (
+                            SkillSynthesisResult.model_validate(plan.synthesis)
+                            if plan.synthesis is not None
+                            else self._universal_synthesis_in_transaction(connection, plan)
+                        )
+                        partial = persisted_universal_partial_delivery(
                             plan=plan,
                             results=[
                                 SkillNodeResult.model_validate_json(result_row["payload"])
                                 for result_row in result_rows
                             ],
+                            synthesis=synthesis,
+                            artifact_lookup=lambda artifact_id: self._artifact_in_transaction(
+                                connection,
+                                artifact_id,
+                            ),
                         )
                     plan.status = SkillPlanStatus.PARTIAL if partial else SkillPlanStatus.FAILED
                     plan.updated_at = checked_at

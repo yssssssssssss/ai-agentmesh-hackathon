@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256, strict_json_loads
 from agentmesh.models import (
+    AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRun,
     Artifact,
@@ -20,6 +21,7 @@ from agentmesh.models import (
     SkillPlanKnowledgeBindings,
     SkillResourceManifestV1,
     SkillSideEffect,
+    SkillSynthesisResult,
 )
 from agentmesh.task_routing.contracts import TaskRoutingResult
 
@@ -115,6 +117,7 @@ class TrustedEvidenceEnvelopeV1(BaseModel):
         "deepsearch-tool-evidence-v1",
         "deepsearch-user-evidence-v1",
         "deepsearch-knowledge-evidence-v1",
+        "universal-tool-evidence-v1",
     ]
     origin_type: Literal["tool", "user_input", "knowledge"]
     run_id: str = Field(min_length=1, max_length=120)
@@ -124,7 +127,7 @@ class TrustedEvidenceEnvelopeV1(BaseModel):
     node_id: str | None = Field(default=None, max_length=120)
     attempt: int | None = Field(default=None, ge=1)
     tool_name: str | None = Field(default=None, max_length=160)
-    tool_implementation_id: str | None = Field(default=None, max_length=160)
+    tool_implementation_id: str | None = Field(default=None, max_length=240)
     tool_implementation_version: str | None = Field(default=None, max_length=120)
     execution_mode: Literal["real", "fake", "fallback"] | None = None
     content_provider: str | None = Field(default=None, max_length=160)
@@ -148,6 +151,7 @@ class TrustedEvidenceEnvelopeV1(BaseModel):
             "deepsearch-tool-evidence-v1": "tool",
             "deepsearch-user-evidence-v1": "user_input",
             "deepsearch-knowledge-evidence-v1": "knowledge",
+            "universal-tool-evidence-v1": "tool",
         }[self.schema_version]
         if self.origin_type != expected_origin:
             raise ValueError("evidence schema and origin_type mismatch")
@@ -185,6 +189,17 @@ class TrustedEvidenceEnvelopeV1(BaseModel):
         ):
             raise ValueError("non-tool evidence cannot carry tool invocation lineage")
         return self
+
+
+class UniversalSynthesisEnvelopeV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["universal-synthesis-v1"] = "universal-synthesis-v1"
+    run_id: str = Field(min_length=1, max_length=120)
+    requirement_version_id: str = Field(min_length=1, max_length=120)
+    plan_id: str = Field(min_length=1, max_length=120)
+    plan_version: int = Field(ge=1)
+    synthesis: SkillSynthesisResult
 
 
 class DeepSearchEvidenceManifestItemV1(BaseModel):
@@ -353,6 +368,8 @@ class DeepSearchArtifactSchemaRegistry:
         ("deepsearch_tool_evidence", "deepsearch-tool-evidence-v1"): TrustedEvidenceEnvelopeV1,
         ("deepsearch_user_evidence", "deepsearch-user-evidence-v1"): TrustedEvidenceEnvelopeV1,
         ("deepsearch_knowledge_evidence", "deepsearch-knowledge-evidence-v1"): TrustedEvidenceEnvelopeV1,
+        ("universal_tool_evidence", "universal-tool-evidence-v1"): TrustedEvidenceEnvelopeV1,
+        ("universal_synthesis", "universal-synthesis-v1"): UniversalSynthesisEnvelopeV1,
         ("deepsearch_evidence_manifest", "deepsearch-evidence-manifest-v1"): DeepSearchEvidenceManifestV1,
         ("deepsearch_report", "deepsearch-report-v1"): DeepSearchReportV1,
     }
@@ -451,9 +468,24 @@ def _validate_verified_outer_artifact(
     *,
     enforce_writable_state: bool = False,
 ) -> None:
+    deepsearch_artifact = (
+        run.planning_mode is AgentPlanningMode.DEEPSEARCH
+        and artifact.artifact_type
+        not in {"universal_tool_evidence", "universal_synthesis"}
+    )
+    universal_artifact = (
+        run.planning_contract_version
+        is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+        and (
+            artifact.artifact_type == "universal_tool_evidence"
+            and artifact.schema_version == "universal-tool-evidence-v1"
+            or artifact.artifact_type == "universal_synthesis"
+            and artifact.schema_version == "universal-synthesis-v1"
+        )
+    )
     if (
         run.orchestration_version != "v1"
-        or run.planning_mode != AgentPlanningMode.DEEPSEARCH
+        or not (deepsearch_artifact or universal_artifact)
         or artifact.run_id != run.id
         or artifact.user_id != run.user_id
         or artifact.workspace_id != run.workspace_id
@@ -470,11 +502,16 @@ def _validate_verified_outer_artifact(
         "deepsearch_tool_evidence",
         "deepsearch_evidence_manifest",
         "deepsearch_report",
+        "universal_tool_evidence",
+        "universal_synthesis",
     }
     if requires_plan != (artifact.plan_version_id is not None):
         raise ArtifactAccessError("artifact_integrity_failed")
 
-    is_tool_evidence = artifact.artifact_type == "deepsearch_tool_evidence"
+    is_tool_evidence = artifact.artifact_type in {
+        "deepsearch_tool_evidence",
+        "universal_tool_evidence",
+    }
     if is_tool_evidence != (artifact.attempt_id is not None and artifact.step_number is not None):
         raise ArtifactAccessError("artifact_integrity_failed")
     if not is_tool_evidence and (artifact.attempt_id is not None or artifact.step_number is not None):
@@ -761,10 +798,19 @@ class V1VerifiedArtifactStore:
             run = AgentRun.model_validate_json(row["payload"])
         except (TypeError, ValueError):
             raise ArtifactAccessError("artifact_integrity_failed") from None
+        verified_runtime = (
+            run.planning_mode is AgentPlanningMode.DEEPSEARCH
+            or (
+                run.planning_contract_version
+                is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+                and artifact.artifact_type
+                in {"universal_tool_evidence", "universal_synthesis"}
+            )
+        )
         if (
             row["orchestration_version"] != "v1"
             or run.orchestration_version != "v1"
-            or run.planning_mode != AgentPlanningMode.DEEPSEARCH
+            or not verified_runtime
             or run.user_id != artifact.user_id
             or run.workspace_id != artifact.workspace_id
             or run.project_id != artifact.project_id

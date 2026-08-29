@@ -921,8 +921,11 @@ def _universal_readiness_diagnostics(
         diagnostics.append("planner_ineligible")
     if not profile_matches_skill(profile, skill):
         diagnostics.append("profile_stale")
-    if profile.side_effect is SkillSideEffect.EXTERNAL_WRITE and not intent.constraints.external_write:
-        diagnostics.append("external_write_not_requested")
+    if profile.side_effect in {
+        SkillSideEffect.LOCAL_WRITE,
+        SkillSideEffect.EXTERNAL_WRITE,
+    }:
+        diagnostics.append("write_execution_not_released")
     if not runtime_enabled:
         diagnostics.append("public_resource_unavailable")
     if any(
