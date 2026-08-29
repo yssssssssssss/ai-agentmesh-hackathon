@@ -1,0 +1,42 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: e25ab487aa007f0aaf9a3b2fc253292ea6eb9a5347feddd380053b12de7cafdf
+profile_version: '1'
+display_description: 在上线前对设计方案进行模拟用户与专家走查，输出 HTML 评审报告。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: review
+input_kinds:
+- design_artifact
+- target_user
+- review_scope
+output_kinds:
+- usability_review
+- design_findings
+- html_report
+examples:
+- 对改版方案做上线前可用性评审
+- 模拟真实用户走查这个原型
+- 比较 before/after 体验并输出 HTML 报告
+negative_examples:
+- 分析已上线漏斗数据
+- 生成组件代码
+required_capabilities: &id001 []
+task_types:
+- usability_review
+- design_findings
+- html_report
+archetypes:
+- review
+required_tools:
+- artifact_write
+required_resources: *id001
+produces_factual_claims: true
+report_policy: default
+cost_level: high
+risk_level: high
+owner: design-quality
+review_state: draft
+side_effect: draft
+planner_eligible: false

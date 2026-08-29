@@ -1,0 +1,42 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 19521dc5c9af8af47e1a27039ff906bf041977b724ee0ebbeb2e731e60e23152
+profile_version: '1'
+display_description: 将 zero-md bundle 转换为商详大脑组件规范页或抽屉内容数据。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- zero_markdown_bundle
+output_kinds:
+- component_spec_page
+- drawer_content
+examples:
+- 把 zero-md 转成组件库规范页
+- 生成商详大脑抽屉内容数据
+- 将规范 bundle 发布为页面结构
+negative_examples:
+- 读取 Zero 节点生成 Markdown
+- 分析实验结果
+required_capabilities: &id001 []
+task_types:
+- component_spec_page
+- drawer_content
+archetypes:
+- delivery
+required_tools:
+- Bash
+- Read
+- Write
+- Edit
+- filesystem_write
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: local_write
+planner_eligible: false

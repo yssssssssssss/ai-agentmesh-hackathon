@@ -1,0 +1,40 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 58c4ce87c161e53ce2b6a95a2fe785b7bae43e1b7a3db0690a46dd21201e66b3
+profile_version: '1'
+display_description: 将知识库内容生成可视化 HTML 预览，并支持增量数据更新。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- knowledge_repository
+output_kinds:
+- knowledge_preview
+- html_document
+examples:
+- 生成知识库可视化预览
+- 增量更新案例数据并打开预览
+- 重建知识库静态浏览页面
+negative_examples:
+- 修改线上业务数据
+- 生成访谈提纲
+required_capabilities: &id001 []
+task_types:
+- knowledge_preview
+- html_document
+archetypes:
+- delivery
+required_tools:
+- Bash
+- Read
+- Write
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: local_write
+planner_eligible: false

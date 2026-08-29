@@ -1,0 +1,41 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 02a1ccde525c96fc956d7ccf8817aa6f2fa8e03db61319c85aaea137ae5ace12
+profile_version: '1'
+display_description: 设计 Relay/Zero 插件中的用户 API Key 存储、通信与代理接入方案。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: planning
+input_kinds:
+- plugin_requirement
+- ai_provider
+output_kinds:
+- plugin_architecture
+- security_design
+- implementation_plan
+examples:
+- 为 Relay 插件设计自定义 API Key 接入
+- 规划 clientStorage 与 postMessage 通信
+- 设计本地代理解决插件 AI 跨域
+negative_examples:
+- 直接处理真实密钥
+- 分析用户满意度
+required_capabilities: &id001 []
+task_types:
+- plugin_architecture
+- security_design
+- implementation_plan
+archetypes:
+- planning
+required_tools:
+- filesystem_write
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: local_write
+planner_eligible: false

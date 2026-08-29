@@ -1,0 +1,39 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 4be38543725d57a60ee96a69ee0320ef1b099f2a2a9e269b760409a968f250e1
+profile_version: '1'
+display_description: 将经确认的 A/B 实验结论写入实验知识库并更新索引与预览。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: knowledge
+input_kinds:
+- experiment_result
+- experiment_evidence
+output_kinds:
+- experiment_record
+- knowledge_index_update
+examples:
+- 录入这次频道 A/B 实验结论
+- 预览确认后写入实验知识库
+- 根据实验 PDF 更新 INDEX 和预览
+negative_examples:
+- 分析尚未结束的实验
+- 生成设计组件
+required_capabilities: &id001 []
+task_types:
+- experiment_record
+- knowledge_index_update
+archetypes:
+- knowledge
+required_tools:
+- artifact_write
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: knowledge-platform
+review_state: draft
+side_effect: local_write
+planner_eligible: false

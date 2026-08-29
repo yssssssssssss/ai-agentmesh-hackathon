@@ -1,0 +1,39 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: a70b975c7a7000d97a27554eb80f0f14955f2dff13ed124072647abfeb9919a4
+profile_version: '1'
+display_description: 从 channel-demo 与组件 Markdown Schema 生成并同步 Relay 演示页。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: generation
+input_kinds:
+- channel_demo_config
+- component_schema
+output_kinds:
+- relay_demo_page
+- design_artifact
+examples:
+- 根据 channel-demo.yaml 生成 Relay 演示页
+- 按 ai-schema 更新规范总览
+- 同步组件 Markdown 到演示画板
+negative_examples:
+- 分析用户分群
+- 创建 Git 分支
+required_capabilities: &id001 []
+task_types:
+- relay_demo_page
+- design_artifact
+archetypes:
+- generation
+required_tools:
+- zero_design
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

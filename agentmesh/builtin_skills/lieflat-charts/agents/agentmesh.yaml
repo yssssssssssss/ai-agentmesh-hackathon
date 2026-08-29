@@ -1,0 +1,38 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: f3d4a5b85e67514a0e20644244fde2aac1e23d6d78696ec2bc80069acb2c910a
+profile_version: '1'
+display_description: 依据既有图表模板生成克制、单色且可交付的 HTML 数据可视化。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: generation
+input_kinds:
+- chart_data
+- visualization_goal
+output_kinds:
+- data_visualization
+- html_chart
+examples:
+- 把这组数据做成单色编辑风图表
+- 用 Lupi 模板生成 HTML 图表
+- 为汇报选择合适图表并可视化
+negative_examples:
+- 分析指标根因
+- 修改 Relay 组件
+required_capabilities: &id001 []
+task_types:
+- data_visualization
+- html_chart
+archetypes:
+- generation
+required_tools: []
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: medium
+risk_level: low
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

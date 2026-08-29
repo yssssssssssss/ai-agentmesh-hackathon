@@ -11,6 +11,7 @@ output_kinds: [competitive_analysis, research_evidence]
 examples:
   - 对比竞品功能和战略意图并给出应对建议
   - 分析淘宝与拼多多首页方案的差异和威胁
+  - 梳理主要竞品定位、功能模式和潜在机会
 negative_examples:
   - 用尼尔森原则逐条检查界面问题
   - 给自己的产品建立长期体验指标

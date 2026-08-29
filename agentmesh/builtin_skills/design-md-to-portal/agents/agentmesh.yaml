@@ -1,0 +1,42 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: c28b8f49a74a45150fb237bdb90d42b5cd1fedac3ceb9cfe35a508ac0ee70adc
+profile_version: '1'
+display_description: 将 design.md 组件集合聚合为可发布的设计系统门户页面。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- design_markdown_collection
+output_kinds:
+- design_portal
+- html_document
+examples:
+- 把全部 design.md 汇总成设计规范总站
+- 重建设计系统 docs/design.html
+- 生成可浏览的组件规范门户
+negative_examples:
+- 分析访谈逐字稿
+- 评估 A/B 实验
+required_capabilities: &id001 []
+task_types:
+- design_portal
+- html_document
+archetypes:
+- delivery
+required_tools:
+- Bash
+- Read
+- Write
+- Edit
+- Glob
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: local_write
+planner_eligible: false

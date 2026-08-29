@@ -1,0 +1,39 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 2197306c2e7b65b67952ecf2e0eb1eb8c7266c578462317eb21f87d29b9dbda7
+profile_version: '1'
+display_description: 根据骑手抢单场景描述生成真实订单数据和高保真流程页面。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: generation
+input_kinds:
+- delivery_scenario
+- order_parameters
+output_kinds:
+- design_artifact
+- scenario_prototype
+examples:
+- 生成骑手抢单大厅高保真场景
+- 根据订单数量和状态绘制配送流程
+- 在 Zero 中生成接单到送达页面
+negative_examples:
+- 分析满意度指标
+- 生成用户画像
+required_capabilities: &id001 []
+task_types:
+- design_artifact
+- scenario_prototype
+archetypes:
+- generation
+required_tools:
+- zero_design
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

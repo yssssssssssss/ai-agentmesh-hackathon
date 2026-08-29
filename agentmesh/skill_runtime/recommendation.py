@@ -49,6 +49,7 @@ from agentmesh.skill_runtime.profiles import (
 from agentmesh.skill_runtime.readiness import ToolHealthProbeCoordinator, ToolProbeRequest
 from agentmesh.skill_runtime.resources import build_skill_resource_manifest_snapshot, skill_wiki_corpus_ready
 from agentmesh.skill_runtime.service import SkillCatalogService
+from agentmesh.skill_runtime.trust import runtime_profile_trust_verifier
 from agentmesh.skill_runtime.universal_policy import universal_retrieval_policy
 from agentmesh.store import SQLiteStore
 from agentmesh.task_routing.catalog import TaskCatalogV2
@@ -779,7 +780,7 @@ class UniversalSkillSearchService:
     ) -> None:
         self._repository = repository
         self._catalog = catalog
-        self._profile_trust = profile_trust or (lambda _skill, _loaded: False)
+        self._profile_trust = profile_trust or runtime_profile_trust_verifier()
         self._profile_ranker = profile_ranker or repository.rank_skill_profiles_batch
         if tool_health is None:
             gateways = []

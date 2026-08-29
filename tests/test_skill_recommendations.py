@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 from agents.testing import ScriptedModel, assistant_message
@@ -159,7 +160,7 @@ def test_builtin_and_legacy_profiles_are_persisted_and_current(tmp_path, configu
     ]
 
     assert len(domain_profiles) == 10
-    assert len(draft_profiles) == 12
+    assert len(draft_profiles) == 74
     assert len(legacy_profiles) == 11
     assert not [diagnostic for diagnostic in catalog.diagnostics if diagnostic.level == "error"]
     for profile in domain_profiles:
@@ -314,8 +315,70 @@ def test_recommendations_api_returns_only_safe_profile_metadata(tmp_path, config
     assert response.status_code == 200
     payload = response.json()
     assert payload["candidates"][0]["skill_name"] == "prd-feasibility"
+    assert "profile" not in payload["candidates"][0]
+    assert "required_resources" not in payload["candidates"][0]["capability_card"]
     assert "instructions" not in response.text
+    assert payload["outcome_code"] == "legacy_trust_fallback"
+    assert "skill_profile_trust_unavailable" in payload["diagnostics"]
     assert len(payload["candidates"]) <= 12
+
+
+def test_recommendations_api_uses_universal_search_only_when_release_trust_is_available(
+    tmp_path,
+    monkeypatch,
+    configure_pilot_wiki,
+) -> None:
+    repository, catalog = _catalog(tmp_path, configure_pilot_wiki)
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+    intent = deterministic_intent("生成研究计划")
+    candidates, _diagnostics = SkillCandidateRetriever(repository, catalog).recommend(USER, intent)
+    candidate = candidates[0]
+    calls = 0
+
+    class Analyzer:
+        async def analyze(self, *_args, **_kwargs):
+            return intent, []
+
+    class Universal:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def search(self, *_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            return SimpleNamespace(
+                selectable_candidates=(candidate,),
+                blocked_matches=(),
+                retrieval_policy_version="policy-test",
+                outcome_code="ok",
+                searchable_count=1,
+                required_coverage_atoms=(),
+                required_synthesis_output_ids=("summary",),
+                capability_gaps=(),
+                diagnostics=(),
+            )
+
+    monkeypatch.setattr(skill_routes, "store", repository)
+    monkeypatch.setattr(skill_routes, "catalog_service", lambda: catalog)
+    monkeypatch.setattr(skill_routes, "_intent_analyzer", Analyzer())
+    monkeypatch.setattr(skill_routes, "runtime_profile_trust_verifier", lambda: SimpleNamespace(available=True))
+    monkeypatch.setattr(skill_routes, "UniversalSkillSearchService", Universal)
+    before_events = len(repository.audit_events)
+
+    response = asyncio.run(
+        skill_routes.recommend_skills(
+            SkillRecommendationRequest(content="生成研究计划"),
+            user=USER,
+        )
+    )
+
+    assert calls == 1
+    assert response.retrieval_policy_version == "policy-test"
+    assert response.candidates[0].skill_name == candidate.skill_name
+    assert response.candidates[0].capability_card
+    assert response.blocked_matches == []
+    assert len(repository.audit_events) == before_events
 
 
 @pytest.mark.parametrize("project_state", ["missing", "wrong_workspace", "revoked"])

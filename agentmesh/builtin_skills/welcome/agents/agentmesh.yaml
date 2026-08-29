@@ -1,0 +1,39 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: b0e05efb10e80c2035024490f56d646cdbc653310c8f4b8ddd11c6bdbd7a1523
+profile_version: '1'
+display_description: 展示当前可用工具、知识库状态和新用户操作入口。
+primary_stage: pre_design
+lifecycle_tags:
+- pre_design
+capability_type: platform
+input_kinds:
+- session_context
+output_kinds:
+- onboarding_guide
+- tool_inventory
+examples:
+- 展示新用户欢迎引导
+- 告诉我当前有哪些设计工具
+- 打开知识库浏览入口并说明用法
+negative_examples:
+- 执行仓库提交
+- 分析复杂用户研究
+required_capabilities: &id001 []
+task_types:
+- onboarding_guide
+- tool_inventory
+archetypes:
+- platform
+required_tools:
+- Bash
+- Read
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

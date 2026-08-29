@@ -1,0 +1,38 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 115ddea10b824a91a5fe5a6decc3d796cf021630e9039ae95fd0e8e4a2acb1d3
+profile_version: '1'
+display_description: 按平台交易收银台场域规则校验输入并路由收银台设计任务。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: planning
+input_kinds:
+- cashier_requirement
+- transaction_context
+output_kinds:
+- field_task_route
+- cashier_design_brief
+examples:
+- 规划收银台体验改版
+- 路由支付方式选择需求
+- 按场域方法拆解收银台任务
+negative_examples:
+- 分析市场规模
+- 更新知识索引
+required_capabilities: &id001 []
+task_types:
+- field_task_route
+- cashier_design_brief
+archetypes:
+- planning
+required_tools: []
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: low
+risk_level: low
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

@@ -11,6 +11,7 @@ output_kinds: [prioritized_issues, action_plan]
 examples:
   - 对评审发现的问题按影响和成本排优先级
   - 把可用性问题整理成可执行的修复顺序
+  - 用严重度、覆盖人数和实现成本排序缺陷
 negative_examples:
   - 从零生成研究计划
   - 查询历史 AB 实验

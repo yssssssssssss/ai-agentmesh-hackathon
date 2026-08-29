@@ -1,0 +1,41 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 5d07458ca675441016d78dfc8ca7b7bc6326e313cbab0737a79ac1de0dc21bad
+profile_version: '1'
+display_description: 编码海量开放反馈，形成主题、情感、严重度和高频痛点统计。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: analysis
+input_kinds:
+- open_feedback
+- feedback_corpus
+output_kinds:
+- feedback_insights
+- pain_point_taxonomy
+- feedback_codebook
+examples:
+- 给这批应用商店评论做开放编码
+- 归纳客服工单主题并统计频次
+- 从问卷开放题识别高频痛点和情感
+negative_examples:
+- 生成访谈提纲
+- 评审页面可用性
+required_capabilities: &id001
+- wiki.corpus
+task_types:
+- feedback_insights
+- pain_point_taxonomy
+- feedback_codebook
+archetypes:
+- analysis
+required_tools: []
+required_resources: *id001
+produces_factual_claims: true
+report_policy: default
+cost_level: medium
+risk_level: medium
+owner: research-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

@@ -12,12 +12,14 @@ from agentmesh.models import (
     ItemsResponse,
     SkillBinding,
     SkillBindingUpdateRequest,
+    SkillCandidate,
     SkillCatalogItem,
     SkillCatalogItemResponse,
     SkillCatalogResponse,
     SkillMatchItem,
     SkillMatchRequest,
     SkillMatchResponse,
+    SkillRecommendationCandidateView,
     SkillRecommendationRequest,
     SkillRecommendationResponse,
     User,
@@ -26,9 +28,11 @@ from agentmesh.models import (
 from agentmesh.permissions import ensure_admin
 from agentmesh.routes.deps import create_audit_event, current_user, require_default_project
 from agentmesh.skill_runtime.planner import SkillIntentAnalyzer
-from agentmesh.skill_runtime.recommendation import recommend_skill_directory
+from agentmesh.skill_runtime.profiles import skill_capability_card
+from agentmesh.skill_runtime.recommendation import UniversalSkillSearchService, recommend_skill_directory
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
 from agentmesh.skill_runtime.service import catalog_service
+from agentmesh.skill_runtime.trust import runtime_profile_trust_verifier
 from agentmesh.store import store
 from agentmesh.task_routing.contracts import TaskRoutingPreviewRequest, TaskRoutingPreviewResponse
 from agentmesh.task_routing.router import TaskScenarioRouter
@@ -40,6 +44,26 @@ _package_service = SkillPackageService(
 )
 _intent_analyzer = SkillIntentAnalyzer()
 _task_router = TaskScenarioRouter()
+
+
+def _public_candidate(candidate: SkillCandidate) -> SkillRecommendationCandidateView:
+    skill = store.get_skill_definition(candidate.skill_id)
+    if skill is None:
+        raise RuntimeError("recommended_skill_missing")
+    return SkillRecommendationCandidateView(
+        skill_id=candidate.skill_id,
+        skill_name=candidate.skill_name,
+        title=candidate.title,
+        description=candidate.description,
+        capability_card=skill_capability_card(skill, candidate.profile),
+        score=candidate.score,
+        reason=candidate.reason,
+        match_reason_codes=candidate.match_reason_codes,
+        ready=candidate.ready,
+        diagnostics=candidate.diagnostics,
+        coverage_witness_scenario_id=candidate.coverage_witness_scenario_id,
+        covered_requirement_ids=candidate.covered_requirement_ids,
+    )
 
 
 @router.get("", response_model=SkillCatalogResponse)
@@ -182,11 +206,44 @@ async def recommend_skills(
         thread_summary=thread_summary,
     )
     require_default_project(user, store)
+    verifier = runtime_profile_trust_verifier()
+    if verifier.available:
+        result = UniversalSkillSearchService(
+            store,
+            catalog_service(),
+            profile_trust=verifier,
+        ).search(user, intent)
+        return SkillRecommendationResponse(
+            intent=intent,
+            candidates=[_public_candidate(candidate) for candidate in result.selectable_candidates],
+            blocked_matches=[_public_candidate(candidate) for candidate in result.blocked_matches],
+            retrieval_policy_version=result.retrieval_policy_version,
+            outcome_code=result.outcome_code,
+            searchable_count=result.searchable_count,
+            selectable_count=len(result.selectable_candidates),
+            blocked_match_count=len(result.blocked_matches),
+            required_coverage_atoms=list(result.required_coverage_atoms),
+            required_synthesis_output_ids=list(result.required_synthesis_output_ids),
+            capability_gaps=list(result.capability_gaps),
+            diagnostics=list(dict.fromkeys([*intent_diagnostics, *result.diagnostics])),
+        )
+
     candidates, retrieval_diagnostics = SkillCandidateRetriever(store, catalog_service()).recommend(user, intent)
     return SkillRecommendationResponse(
         intent=intent,
-        candidates=candidates,
-        diagnostics=list(dict.fromkeys([*intent_diagnostics, *retrieval_diagnostics])),
+        candidates=[_public_candidate(candidate) for candidate in candidates],
+        outcome_code="legacy_trust_fallback",
+        selectable_count=len(candidates),
+        blocked_match_count=0,
+        diagnostics=list(
+            dict.fromkeys(
+                [
+                    *intent_diagnostics,
+                    *retrieval_diagnostics,
+                    "skill_profile_trust_unavailable",
+                ]
+            )
+        ),
     )
 
 

@@ -535,6 +535,30 @@ def check_sync(plan: SyncPlan, builtin_root: Path = DEFAULT_BUILTIN_ROOT) -> lis
         expected = render_skill(skill)
         if destination.read_bytes() != expected:
             problems.append(f"generated builtin is stale: {skill.name}")
+        frontmatter, _body = _split_frontmatter(destination.read_text(encoding="utf-8"))
+        metadata = frontmatter.get("metadata") if isinstance(frontmatter, dict) else None
+        skill_version = str(metadata.get("version", "1")) if isinstance(metadata, dict) else "1"
+        sidecar = destination.parent / "agents" / "agentmesh.yaml"
+        if not sidecar.is_file():
+            problems.append(f"generated builtin profile is missing: {skill.name}")
+            continue
+        try:
+            profile = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, yaml.YAMLError):
+            profile = None
+        if not isinstance(profile, dict) or profile.get("primary_stage") != SKILL_STAGES[skill.name]:
+            problems.append(f"generated builtin profile stage differs from stage mapping: {skill.name}")
+        if not isinstance(profile, dict) or profile.get("review_state") != "draft":
+            problems.append(f"generated builtin profile must remain draft: {skill.name}")
+        if not isinstance(profile, dict) or profile.get("planner_eligible") is not False:
+            problems.append(f"generated builtin profile planner eligibility is enabled: {skill.name}")
+        if not isinstance(profile, dict) or profile.get("skill_version") != skill_version:
+            problems.append(f"generated builtin profile version differs from Skill metadata: {skill.name}")
+        if not isinstance(profile, dict) or profile.get("skill_content_hash") != _destination_hash(
+            skill,
+            builtin_root,
+        ):
+            problems.append(f"generated builtin profile hash is stale: {skill.name}")
 
     manifest_path = builtin_root / MANIFEST_FILENAME
     if not manifest_path.is_file():

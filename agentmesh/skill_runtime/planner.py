@@ -130,8 +130,15 @@ def deterministic_intent(content: str, *, explicit_skill_name: str | None = None
             input_kinds.append(kind)
 
     deliverables: list[str] = []
+    if any(token in lowered for token in ("逐字稿", "转写", "转录", "清洗")):
+        interview_output = "structured_interview_summary"
+    elif any(token in lowered for token in ("材料", "记录", "整理", "归纳", "总结", "提炼", "洞察")):
+        interview_output = "qualitative_insights"
+    else:
+        interview_output = "interview_guide"
     keyword_outputs = {
         "研究计划": "research_plan",
+        "访谈": interview_output,
         "问卷": "survey",
         "可用性": "usability_test_plan",
         "竞品": "competitive_analysis",
@@ -156,15 +163,6 @@ def deterministic_intent(content: str, *, explicit_skill_name: str | None = None
     for keyword, output in keyword_outputs.items():
         if keyword in lowered and output not in deliverables:
             deliverables.append(output)
-    if "访谈" in lowered:
-        if any(token in lowered for token in ("逐字稿", "转写", "转录", "清洗")):
-            interview_output = "structured_interview_summary"
-        elif any(token in lowered for token in ("材料", "记录", "整理", "归纳", "总结", "提炼", "洞察")):
-            interview_output = "qualitative_insights"
-        else:
-            interview_output = "interview_guide"
-        if interview_output not in deliverables:
-            deliverables.append(interview_output)
     if (
         "优先级" in lowered
         and "prioritized_issues" not in deliverables

@@ -1,0 +1,41 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: abd100364e70c62478d4aac22f9868561dec37ef24c75e24b2b183b8f575b639
+profile_version: '1'
+display_description: 将项目进度与成果整理为面向管理层的可编辑 HTML 汇报页。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- project_progress
+- report_notes
+output_kinds:
+- executive_report
+- html_document
+examples:
+- 生成本周领导汇报页
+- 把项目进度做成可导出 PDF 的 HTML
+- 按管理层语言总结成果和风险
+negative_examples:
+- 生成组件变体
+- 分析用户分群
+required_capabilities: &id001 []
+task_types:
+- executive_report
+- html_document
+archetypes:
+- delivery
+required_tools:
+- Bash
+- Read
+- Write
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: local_write
+planner_eligible: false

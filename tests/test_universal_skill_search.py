@@ -365,7 +365,7 @@ def test_directory_reranker_does_not_receive_draft_profile_fields(tmp_path) -> N
     assert "required_tools" not in captured[0]
 
 
-def test_phase1a_catalog_loads_twelve_complete_draft_profiles_without_expanding_legacy_planner(
+def test_catalog_loads_all_draft_profiles_without_expanding_legacy_planner(
     tmp_path,
     configure_pilot_wiki,
 ) -> None:
@@ -385,8 +385,11 @@ def test_phase1a_catalog_loads_twelve_complete_draft_profiles_without_expanding_
         if loaded.profile.planner_eligible:
             legacy_planner_names.add(skill.name)
 
-    assert draft_names == DRAFT_PROFILE_NAMES
-    assert len(canonical_json_bytes(draft_cards)) <= 32 * 1024
+    assert draft_names >= DRAFT_PROFILE_NAMES
+    assert len(draft_names) == 74
+    assert all(len(canonical_json_bytes(card)) <= 4 * 1024 for card in draft_cards)
+    largest_cards = sorted(draft_cards, key=lambda card: len(canonical_json_bytes(card)), reverse=True)[:12]
+    assert len(canonical_json_bytes(largest_cards)) <= 32 * 1024
     assert len(legacy_planner_names) == 10
     draft_skill = catalog.get_by_name("journey-map", USER.personal_agent_id)
     assert draft_skill is not None

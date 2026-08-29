@@ -11,6 +11,7 @@ output_kinds: [jtbd_analysis, opportunity_definition]
 examples:
   - 用 JTBD 分析用户真正要完成的任务
   - 判断一键复购需求命中了什么 Job
+  - 提炼用户在退换货场景中的功能与情感任务
 negative_examples:
   - 生成完整访谈提纲
   - 系统比较多个竞品的战略

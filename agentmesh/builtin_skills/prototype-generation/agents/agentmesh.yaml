@@ -1,0 +1,40 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 814e851ab75bf62239451a9adfe1ebcbc52da34ada78f3ae66fc2c747fc6e767
+profile_version: '1'
+display_description: 从 PRD、低保真原型或文字需求生成可编辑的高保真 Relay/Zero 原型。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: generation
+input_kinds:
+- prd
+- prototype
+- requirement_text
+output_kinds:
+- design_artifact
+- interactive_prototype
+examples:
+- 把这份 PRD 生成高保真原型
+- 将低保真页面优化后画到 Relay
+- 补齐页面状态并生成可编辑设计稿
+negative_examples:
+- 分析用户反馈主题
+- 登记实验结论
+required_capabilities: &id001 []
+task_types:
+- design_artifact
+- interactive_prototype
+archetypes:
+- generation
+required_tools:
+- zero_design
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false
