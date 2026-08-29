@@ -54,5 +54,6 @@ include = ["agentmesh*"]
 [tool.setuptools.package-data]
 agentmesh = [
   "builtin_skills/**",
+  "skill_runtime/policies/*.json",
   "task_catalog/**",
 ]

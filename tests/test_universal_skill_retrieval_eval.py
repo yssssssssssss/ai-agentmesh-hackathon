@@ -22,14 +22,16 @@ def test_phase1a_calibration_manifest_has_five_independent_cases_per_skill() -> 
     counts = Counter(case.expected_skills[0] for case in single_cases)
 
     assert hashlib.sha256(DEFAULT_DATASET.read_bytes()).hexdigest() == (
-        "d965ca93cae3f1985b33714df4b0f0bf4e52345acf1699fc45f0ed2eb85d8954"
+        "e5599af8cbfca91edb4820c61a93d8604293e754b3991d30602b6af19062221d"
     )
     assert len(cases) == 72
     assert len(single_cases) == 60
     assert len(compound_cases) == 6
     assert all(len(case.expected_skills) >= 2 for case in compound_cases)
+    assert all(case.required_deliverables and case.expected_outcome == "ok" for case in compound_cases)
     assert len(boundary_cases) == 6
     assert all(not case.expected_skills for case in boundary_cases)
+    assert all(case.expected_outcome == "no_matching_skill" for case in boundary_cases)
     assert len(counts) == 12
     assert set(counts.values()) == {5}
     assert len({case.request for case in cases}) == 72

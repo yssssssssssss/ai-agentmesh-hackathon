@@ -5325,6 +5325,12 @@ export interface components {
             score: components["schemas"]["SkillCandidateScore"];
             /** Reason */
             reason: string;
+            /** Match Reason Codes */
+            match_reason_codes?: string[];
+            /** Coverage Witness Scenario Id */
+            coverage_witness_scenario_id?: string | null;
+            /** Covered Requirement Ids */
+            covered_requirement_ids?: string[];
             /**
              * Ready
              * @default true

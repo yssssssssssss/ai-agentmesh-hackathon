@@ -106,13 +106,63 @@ def embedding_provider_status() -> ProviderStatus:
     )
 
 
-def embed_texts(texts: list[str]) -> list[list[float] | None]:
-    if not EMBEDDING_ENABLED:
+def embed_texts(
+    texts: list[str],
+    *,
+    timeout_seconds: float | None = None,
+) -> list[list[float] | None]:
+    results: list[list[float] | None] = [None] * len(texts)
+    if not EMBEDDING_ENABLED or not EMBEDDING_API_URL or not EMBEDDING_API_KEY:
+        return results
+    active = [(index, text[:2000]) for index, text in enumerate(texts) if text.strip()]
+    if not active:
+        return results
+    started = monotonic()
+    try:
+        request_options = {"timeout": timeout_seconds} if timeout_seconds is not None else {}
+        response = _get_client().post(
+            EMBEDDING_API_URL,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {EMBEDDING_API_KEY}",
+            },
+            json={"model": EMBEDDING_MODEL, "input": [text for _index, text in active]},
+            **request_options,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload["data"]
+        if not isinstance(data, list) or len(data) != len(active):
+            raise ValueError("invalid_embedding_batch_count")
+        ordered: list[list[float] | None] = [None] * len(active)
+        seen_indexes: set[int] = set()
+        for position, item in enumerate(data):
+            if not isinstance(item, dict):
+                raise ValueError("invalid_embedding_batch_item")
+            response_index = item.get("index", position)
+            if (
+                isinstance(response_index, bool)
+                or not isinstance(response_index, int)
+                or response_index < 0
+                or response_index >= len(active)
+                or response_index in seen_indexes
+            ):
+                raise ValueError("invalid_embedding_batch_index")
+            seen_indexes.add(response_index)
+            ordered[response_index] = validate_embedding(
+                item.get("embedding"),
+                expected_dimensions=EMBEDDING_DIMENSIONS,
+            )
+        if any(value is None for value in ordered):
+            raise ValueError("invalid_embedding_batch_count")
+        for (original_index, _text), value in zip(active, ordered, strict=True):
+            results[original_index] = value
+        _telemetry.success((monotonic() - started) * 1000)
+        return results
+    except Exception as error:
+        _telemetry.failure(error, (monotonic() - started) * 1000)
+        logger.warning("Embedding API batch call failed: %s", _telemetry.snapshot().last_error)
         return [None] * len(texts)
-    results: list[list[float] | None] = []
-    for text in texts:
-        results.append(embed_text(text))
-    return results
 
 
 def embedding_index_signature() -> str:

@@ -52,21 +52,22 @@ Draft Profiles are loaded into the local SQLite FTS index but remain runtime pla
 
 ## Calibration asset
 
-- Dataset: `eval/universal_skill_retrieval_calibration_v1.json`
-- Dataset SHA-256: `d965ca93cae3f1985b33714df4b0f0bf4e52345acf1699fc45f0ed2eb85d8954`
+- Dataset: `eval/universal_skill_retrieval_calibration_v2.json`
+- Dataset SHA-256: `e5599af8cbfca91edb4820c61a93d8604293e754b3991d30602b6af19062221d`
 - Partition: calibration, not release holdout
 - Cases: 60 single-intent cases (five independently written cases for each draft Skill), 6 compound cases, and 6 out-of-domain boundary cases
 - Languages: Chinese, English, and mixed Chinese/English
-- Retrieval policy: `universal-profile-rrf-v1`
+- Retrieval policy: `universal-profile-rrf-v2` (`agentmesh/skill_runtime/policies/universal-retrieval-policy-v2.json`)
+- Retrieval policy SHA-256 (canonical payload): `a42246ab63329548e7bf6f0bad67c2171bbee3e72b3a008d83c4ff7cdfeb11ab`
 
-The policy uses one canonical positive Profile projection for FTS, direct lexical scoring, and fake-vector scoring; a `0.4` vector-similarity floor; deterministic lexical and positive-example evidence; strong negative-example penalties; a `0.6` minimum relevance score; and stable score/match/Skill-ID ordering. Generic legacy intent kinds are not promoted to query atoms in this slice because the Universal canonicalizer is not yet implemented.
+Production code and the evaluator consume the same hash-verified policy asset. It freezes the canonicalizer/projection identity, Task Catalog v2 and Scenario-mapping hashes, FTS/Vector/RRF weights, relevance and vector floors, 24-atom/12-candidate/6-witness limits, and Tool probe TTL/budgets. The six compound cases now declare explicit deliverable IDs and are scored against deterministic assignment-aware coverage witnesses rather than simple Top-5 name membership.
 
 ## Result
 
 ```text
 Universal Skill retrieval calibration
-fts-only:    Top-1 91.7%, Top-3 98.3%, Recall@5 100.0%, compound coverage 100.0%, boundary rejection 100.0%, p95 39.257 ms
-fake-vector: Top-1 93.3%, Top-3 100.0%, Recall@5 100.0%, compound coverage 100.0%, boundary rejection 100.0%, p95 62.650 ms
+fts-only:    Top-1 90.0%, Top-3 100.0%, Recall@5 100.0%, compound witness coverage 100.0%, boundary rejection 100.0%, p95 41.031 ms
+fake-vector: Top-1 91.7%, Top-3 100.0%, Recall@5 100.0%, compound witness coverage 100.0%, boundary rejection 100.0%, p95 75.345 ms
 family[behavior-metrics]: 15/15 in both modes
 family[design-review]: 5/5 in both modes
 family[experiment-analysis]: 5/5 in both modes
@@ -106,4 +107,4 @@ PYTHONPATH=. AGENTMESH_EMBEDDING_ENABLED=false \
 
 ## Remaining Phase 1A work
 
-Batch production embedding, Tool-health probe budgeting, coverage atoms/witness selection, production trust/provenance enforcement, and the full 84-Profile authoring/review flow remain outside this first vertical slice. The create-only `--generate-profile-stubs` command now exists but intentionally emits identity-only, incomplete drafts so it never guesses capability or safety fields. Production recommendation exposure remains blocked by the solo-maintainer review and release-topology gates recorded in the Phase 0 report.
+Production trust/provenance enforcement, public recommendation cutover, the full 84-Profile authoring/review flow, and the independent release holdout remain outside this slice. The create-only `--generate-profile-stubs` command intentionally emits identity-only, incomplete drafts so it never guesses capability or safety fields. External CODEOWNER, protected-branch, attestation, and pre-production evidence remain hard production gates under the solo-maintainer constraint.

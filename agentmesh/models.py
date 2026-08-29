@@ -1078,6 +1078,55 @@ class SkillCandidateScore(BaseModel):
     total: float = 0
 
 
+class DeliverableAtomV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["deliverable"] = "deliverable"
+    id: str = Field(pattern=r"^deliverable:[a-z][a-z0-9_]*$", max_length=180)
+    label: str = Field(min_length=1, max_length=200)
+    output_kind: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=120)
+
+
+class ScenarioOutputAtomV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["scenario_output"] = "scenario_output"
+    id: str = Field(
+        pattern=r"^scenario:[a-z0-9]+(?:-[a-z0-9]+)*:output:[a-z][a-z0-9_]*$",
+        max_length=300,
+    )
+    label: str = Field(min_length=1, max_length=200)
+    scenario_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=120)
+    output_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=120)
+    compatible_output_kinds: tuple[str, ...] = Field(min_length=1, max_length=20)
+
+
+class EvidenceAtomV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["evidence"] = "evidence"
+    id: Literal["evidence:trusted_external_path"] = "evidence:trusted_external_path"
+    label: str = Field(default="Trusted external evidence", min_length=1, max_length=200)
+    requirement_key: Literal["trusted_external_path"] = "trusted_external_path"
+    evidence_policy_id: str = Field(default="deepsearch-evidence-v1", min_length=1, max_length=120)
+    evidence_policy_version: str = Field(default="1", min_length=1, max_length=40)
+    evidence_policy_hash: str = Field(default="phase1a-readiness-only", min_length=1, max_length=128)
+
+
+CoverageAtomV1 = Annotated[
+    DeliverableAtomV1 | ScenarioOutputAtomV1 | EvidenceAtomV1,
+    Field(discriminator="kind"),
+]
+
+
+class CapabilityGapV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    requirement_id: str = Field(min_length=1, max_length=300)
+    label: str = Field(min_length=1, max_length=200)
+    diagnostics: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
+
+
 class SkillCandidate(BaseModel):
     skill_id: str
     skill_name: str
@@ -1086,6 +1135,9 @@ class SkillCandidate(BaseModel):
     profile: SkillCapabilityProfile
     score: SkillCandidateScore
     reason: str
+    match_reason_codes: list[str] = Field(default_factory=list, max_length=20)
+    coverage_witness_scenario_id: str | None = Field(default=None, max_length=120)
+    covered_requirement_ids: list[str] = Field(default_factory=list, max_length=24)
     ready: bool = True
     diagnostics: list[str] = Field(default_factory=list)
 

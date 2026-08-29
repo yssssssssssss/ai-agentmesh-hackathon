@@ -8,6 +8,8 @@ import sqlite3
 import threading
 import unicodedata
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -114,6 +116,7 @@ from agentmesh.research_orchestration.contracts import (
     ToolReceipt,
     canonical_sha256,
 )
+from agentmesh.skill_runtime.universal_policy import universal_retrieval_policy
 from agentmesh.vector_index import VectorIndex, VectorState, VectorStatus, VectorWork
 
 if TYPE_CHECKING:
@@ -217,8 +220,9 @@ _FTS_COLLECTIONS = frozenset(
 
 _SKILL_FTS_COLLECTIONS = frozenset({"skill_definitions", "skill_capability_profiles"})
 _SKILL_DIRECTORY_VECTOR_SIMILARITY_THRESHOLD = 0.4
-SKILL_PROFILE_VECTOR_SIMILARITY_THRESHOLD = 0.4
-_SKILL_QUERY_EMBEDDING_TIMEOUT_SECONDS = 0.35
+_UNIVERSAL_RETRIEVAL_POLICY = universal_retrieval_policy()
+SKILL_PROFILE_VECTOR_SIMILARITY_THRESHOLD = _UNIVERSAL_RETRIEVAL_POLICY.vector_similarity_millis / 1000
+_SKILL_QUERY_EMBEDDING_TIMEOUT_SECONDS = _UNIVERSAL_RETRIEVAL_POLICY.embedding_batch_deadline_ms / 1000
 
 _KNOWLEDGE_FTS_COLLECTIONS = frozenset(_FTS_COLLECTIONS - _SKILL_FTS_COLLECTIONS)
 
@@ -1682,6 +1686,115 @@ class SQLiteStore:
                 """
             ).fetchone()
         return {key: int(row[key]) for key in ("records", "indexed", "missing")}
+
+    def rank_skill_profiles_batch(
+        self,
+        queries: list[str],
+        allowed_skill_ids: set[str],
+    ) -> list[tuple[list[str], list[str], list[str]]]:
+        """Rank multiple Profile queries with one all-or-nothing embedding request."""
+        if not queries:
+            return []
+        if not allowed_skill_ids:
+            return [([], [], []) for _query in queries]
+        allowed = sorted(allowed_skill_ids)
+        placeholders = ",".join("?" for _ in allowed)
+        fts_rankings: list[list[str]] = []
+        vector_rankings: list[list[str]] = [[] for _query in queries]
+        diagnostics: list[str] = []
+
+        from agentmesh.embedding import EMBEDDING_ENABLED, cosine_similarity, deserialize_embedding, embed_texts
+        from agentmesh.tool_runtime.guardrails import redact_sensitive_text
+
+        embedding_future = None
+        executor = None
+        started = monotonic()
+        if EMBEDDING_ENABLED:
+            executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skill-query-embedding")
+            embedding_future = executor.submit(
+                embed_texts,
+                [redact_sensitive_text(query)[:2000] for query in queries],
+                timeout_seconds=_SKILL_QUERY_EMBEDDING_TIMEOUT_SECONDS,
+            )
+        else:
+            diagnostics.append("embedding_unavailable")
+
+        with self._connect() as connection:
+            for query in queries:
+                chunks: list[str] = []
+                for token in re.findall(r"[\w\u3400-\u9fff]+", query.lower()):
+                    if 3 <= len(token) <= 8:
+                        chunks.append(token)
+                    chunks.extend(token[index : index + 3] for index in range(max(0, len(token) - 2)))
+                chunks = list(dict.fromkeys(chunks))[:80]
+                if not chunks:
+                    fts_rankings.append([])
+                    continue
+                match_query = " OR ".join(f'"{chunk.replace(chr(34), chr(34) * 2)}"' for chunk in chunks)
+                rows = connection.execute(
+                    f"""
+                    SELECT record_id
+                    FROM records_fts
+                    WHERE records_fts MATCH ?
+                      AND collection = 'skill_capability_profiles'
+                      AND record_id IN ({placeholders})
+                    ORDER BY bm25(records_fts), record_id
+                    LIMIT 50
+                    """,
+                    [match_query, *allowed],
+                ).fetchall()
+                fts_rankings.append([str(row["record_id"]) for row in rows])
+
+            query_embeddings: list[list[float] | None] | None = None
+            if embedding_future is not None:
+                remaining = max(0.0, _SKILL_QUERY_EMBEDDING_TIMEOUT_SECONDS - (monotonic() - started))
+                try:
+                    query_embeddings = embedding_future.result(timeout=remaining)
+                except FutureTimeoutError:
+                    diagnostics.append("embedding_timeout")
+                finally:
+                    assert executor is not None
+                    executor.shutdown(wait=False, cancel_futures=True)
+            if query_embeddings is None or any(value is None for value in query_embeddings):
+                if EMBEDDING_ENABLED:
+                    diagnostics.append("embedding_unavailable")
+            else:
+                rows = connection.execute(
+                    f"""
+                    SELECT rv.record_id, rv.embedding
+                    FROM records_vec AS rv
+                    JOIN vector_states AS vs
+                      ON vs.collection = rv.collection AND vs.record_id = rv.record_id
+                    WHERE rv.collection = 'skill_capability_profiles'
+                      AND vs.state = ?
+                      AND rv.record_id IN ({placeholders})
+                    """,
+                    [VectorState.READY.value, *allowed],
+                ).fetchall()
+                indexed: list[tuple[str, list[float]]] = []
+                for row in rows:
+                    try:
+                        indexed.append((str(row["record_id"]), deserialize_embedding(row["embedding"])))
+                    except (TypeError, ValueError):
+                        diagnostics.append("embedding_index_invalid")
+                for query_index, query_embedding in enumerate(query_embeddings):
+                    assert query_embedding is not None
+                    scores: list[tuple[float, str]] = []
+                    for skill_id, indexed_embedding in indexed:
+                        if len(indexed_embedding) != len(query_embedding):
+                            diagnostics.append("embedding_incompatible")
+                            continue
+                        score = cosine_similarity(query_embedding, indexed_embedding)
+                        if score >= SKILL_PROFILE_VECTOR_SIMILARITY_THRESHOLD:
+                            scores.append((score, skill_id))
+                    scores.sort(key=lambda item: (-item[0], item[1]))
+                    vector_rankings[query_index] = [skill_id for _score, skill_id in scores]
+
+        normalized_diagnostics = list(dict.fromkeys(diagnostics))
+        return [
+            (fts_rankings[index], vector_rankings[index], normalized_diagnostics)
+            for index in range(len(queries))
+        ]
 
     def rank_skill_profiles(
         self,

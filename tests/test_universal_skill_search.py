@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -8,9 +9,12 @@ import yaml
 
 from agentmesh.canonical_json import canonical_json_bytes
 from agentmesh.models import (
+    AgentToolGrant,
     SkillBinding,
     SkillDefinition,
+    SkillIntent,
     SkillSourceScope,
+    ToolDefinition,
 )
 from agentmesh.seed import USER
 from agentmesh.skill_runtime.planner import deterministic_intent
@@ -18,6 +22,7 @@ from agentmesh.skill_runtime.profiles import (
     ProfileError,
     load_capability_profile_record,
 )
+from agentmesh.skill_runtime.readiness import ToolHealthProbeCoordinator
 from agentmesh.skill_runtime.recommendation import (
     SkillRerankDecision,
     UniversalSkillSearchService,
@@ -27,6 +32,8 @@ from agentmesh.skill_runtime.recommendation import (
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
+from agentmesh.task_routing.catalog import TaskCatalogV2, load_universal_task_catalog
+from agentmesh.task_routing.contracts import ScenarioRoute, TaskRoute, TaskRoutingResult
 from agentmesh.tools import ensure_tool_seed_data
 
 DRAFT_PROFILE_NAMES = {
@@ -43,6 +50,13 @@ DRAFT_PROFILE_NAMES = {
     "synthesize-qualitative-insights",
     "usability-review",
 }
+
+
+@dataclass(frozen=True)
+class _HealthDescriptor:
+    implementation_id: str
+    implementation_version: str
+    health_state: str
 
 
 def _profile_skill(
@@ -103,6 +117,132 @@ def _catalog(tmp_path: Path, configure_pilot_wiki) -> tuple[SQLiteStore, SkillCa
     catalog = SkillCatalogService(repository)
     catalog.reload()
     return repository, catalog
+
+
+def _controlled_universal_service(
+    tmp_path: Path,
+    profiles: list[tuple[str, list[str], str]],
+) -> tuple[UniversalSkillSearchService, list[SkillDefinition], list[list[str]]]:
+    repository = SQLiteStore(tmp_path / "controlled-universal.sqlite3")
+    catalog = SkillCatalogService(repository)
+    skills: list[SkillDefinition] = []
+    for name, output_kinds, review_state in profiles:
+        skill = _profile_skill(
+            tmp_path,
+            {
+                "review_state": review_state,
+                "planner_eligible": review_state == "approved",
+                "display_description": f"Capability for {' '.join(output_kinds)}"[:100],
+                "output_kinds": output_kinds,
+                "examples": [f"Need {' '.join(output_kinds)}"],
+                "negative_examples": ["Unrelated request"],
+            },
+            name=name,
+        )
+        repository.save_skill_definition(skill, defer_vector=True)
+        repository.save_skill_capability_profile(
+            load_capability_profile_record(skill).profile,
+            defer_vector=True,
+        )
+        skills.append(skill)
+    catalog._skills = {skill.name: skill for skill in skills}
+    ranker_calls: list[list[str]] = []
+
+    def ranker(queries: list[str], _allowed_ids: set[str]):  # noqa: ANN202
+        ranker_calls.append(queries)
+        ordered_ids = [skill.id for skill in skills]
+        return [([], ordered_ids, []) for _query in queries]
+
+    service = UniversalSkillSearchService(
+        repository,
+        catalog,
+        profile_trust=lambda _skill, _loaded: True,
+        profile_ranker=ranker,
+    )
+    return service, skills, ranker_calls
+
+
+def _remote_tool_universal_service(
+    tmp_path: Path,
+    output_kinds: list[str],
+    *,
+    probe,
+) -> tuple[UniversalSkillSearchService, list[str]]:  # noqa: ANN001
+    repository = SQLiteStore(tmp_path / "remote-tool-universal.sqlite3")
+    catalog = SkillCatalogService(repository)
+    skills: list[SkillDefinition] = []
+    tool_names: list[str] = []
+    for index, output_kind in enumerate(output_kinds):
+        tool_name = f"remote_tool_{index}"
+        tool_names.append(tool_name)
+        skill = _profile_skill(
+            tmp_path,
+            {
+                "review_state": "approved",
+                "planner_eligible": True,
+                "display_description": f"Capability for {output_kind}",
+                "output_kinds": [output_kind],
+                "examples": [f"Need {output_kind}"],
+                "negative_examples": ["Unrelated request"],
+                "required_tools": [tool_name],
+            },
+            name=f"remote-candidate-{index}",
+        )
+        repository.save_skill_definition(skill, defer_vector=True)
+        repository.save_skill_capability_profile(
+            load_capability_profile_record(skill).profile,
+            defer_vector=True,
+        )
+        definition = repository.save_tool_definition(
+            ToolDefinition(
+                id=f"tool_remote_{index}",
+                name=tool_name,
+                description="Remote test tool",
+                category="test",
+                implementation_id=f"implementation-{index}",
+                implementation_version="1",
+            )
+        )
+        repository.save_agent_tool_grant(
+            AgentToolGrant(
+                id=f"grant_remote_{index}",
+                agent_id=USER.personal_agent_id,
+                tool_id=definition.id,
+                granted_by=USER.id,
+            )
+        )
+        skills.append(skill)
+    catalog._skills = {skill.name: skill for skill in skills}
+
+    def ranker(queries: list[str], _allowed_ids: set[str]):  # noqa: ANN202
+        ordered_ids = [skill.id for skill in skills]
+        return [([], ordered_ids, []) for _query in queries]
+
+    return (
+        UniversalSkillSearchService(
+            repository,
+            catalog,
+            profile_trust=lambda _skill, _loaded: True,
+            profile_ranker=ranker,
+            tool_health=ToolHealthProbeCoordinator(probe),
+        ),
+        tool_names,
+    )
+
+
+def _routing_result_for(scenario_id: str) -> tuple[TaskRoutingResult, TaskCatalogV2]:
+    catalog = load_universal_task_catalog()
+    scenario = catalog.get_scenario(scenario_id)
+    assert scenario is not None
+    return (
+        TaskRoutingResult(
+            catalog_version=catalog.manifest.catalog_version,
+            catalog_hash=catalog.manifest.catalog_hash,
+            task=TaskRoute(task_id=scenario.parent_task, confidence="high"),
+            scenario=ScenarioRoute(scenario_id=scenario.id, confidence="high"),
+        ),
+        catalog,
+    )
 
 
 def test_profile_record_preserves_file_review_state_without_granting_planner_eligibility(tmp_path) -> None:
@@ -300,6 +440,7 @@ def test_universal_search_ranks_draft_profiles_only_in_explicit_offline_mode(
 
     trusted = service.search(USER, intent)
     offline = service.search_for_evaluation(USER, intent)
+    coverage_evaluation = service.search_for_coverage_evaluation(USER, intent)
 
     assert "synthesize-qualitative-insights" not in {
         candidate.skill_name for candidate in trusted.ranked_matches
@@ -308,6 +449,283 @@ def test_universal_search_ranks_draft_profiles_only_in_explicit_offline_mode(
     assert offline.ranked_matches[0].ready is False
     assert "profile_unapproved" in offline.ranked_matches[0].diagnostics
     assert offline.selectable_candidates == ()
+    assert coverage_evaluation.selectable_candidates[0].skill_name == "synthesize-qualitative-insights"
+
+
+def test_universal_search_rejects_unknown_deliverable_before_ranking(tmp_path) -> None:
+    service, _skills, ranker_calls = _controlled_universal_service(
+        tmp_path,
+        [("known-candidate", ["known_output"], "approved")],
+    )
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="Need an unknown output", deliverables=["invented_output"]),
+    )
+
+    assert result.outcome_code == "unsupported_requirement"
+    assert result.ranked_matches == ()
+    assert ranker_calls == []
+
+
+def test_pure_synthesis_requirement_does_not_create_a_fake_coverage_atom(tmp_path) -> None:
+    service, _skills, _calls = _controlled_universal_service(
+        tmp_path,
+        [("synthesis-input-candidate", ["research_report"], "approved")],
+    )
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="Summarize the available findings", deliverables=["executive_summary"]),
+    )
+
+    assert result.outcome_code == "ok"
+    assert result.required_coverage_atoms == ()
+    assert result.required_synthesis_output_ids == ("executive_summary",)
+    assert result.coverage_witness_skill_ids == ()
+    assert result.selectable_candidates
+
+
+def test_universal_search_builds_assignment_aware_coverage_witnesses(tmp_path) -> None:
+    service, skills, ranker_calls = _controlled_universal_service(
+        tmp_path,
+        [
+            ("metrics-candidate", ["experience_metrics"], "approved"),
+            ("measurement-candidate", ["measurement_plan"], "approved"),
+        ],
+    )
+    routing_result, task_catalog = _routing_result_for("metrics-validation")
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="建立体验指标并制定验证方案", deliverables=["experience_metrics"]),
+        routing_result=routing_result,
+        task_catalog=task_catalog,
+    )
+
+    assert result.outcome_code == "ok"
+    assert len(ranker_calls) == 1
+    assert len(result.required_coverage_atoms) == 5
+    assert result.plannable_coverage_atom_ids == tuple(atom.id for atom in result.required_coverage_atoms)
+    assert set(result.coverage_witness_skill_ids) == {skill.id for skill in skills}
+    assert {candidate.coverage_witness_scenario_id for candidate in result.selectable_candidates} == {
+        "metrics-validation"
+    }
+    assert not result.capability_gaps
+
+
+def test_universal_search_keeps_blocked_matches_out_of_ready_shortlist_and_builds_gaps(tmp_path) -> None:
+    service, _skills, _calls = _controlled_universal_service(
+        tmp_path,
+        [
+            ("ready-metrics", ["experience_metrics"], "approved"),
+            ("draft-measurement", ["measurement_plan"], "draft"),
+        ],
+    )
+    routing_result, task_catalog = _routing_result_for("metrics-validation")
+
+    result = service.search_for_evaluation(
+        USER,
+        SkillIntent(goal="建立体验指标并制定验证方案", deliverables=["experience_metrics"]),
+        routing_result=routing_result,
+        task_catalog=task_catalog,
+    )
+
+    assert result.outcome_code == "ok"
+    assert [candidate.skill_name for candidate in result.selectable_candidates] == ["ready-metrics"]
+    assert [candidate.skill_name for candidate in result.blocked_matches] == ["draft-measurement"]
+    assert {gap.requirement_id for gap in result.capability_gaps} == {
+        "scenario:metrics-validation:output:validation_plan",
+        "scenario:metrics-validation:output:observation_window",
+    }
+
+
+def test_universal_search_enforces_six_skill_coverage_witness_budget(tmp_path) -> None:
+    output_kinds = [f"output_{index}" for index in range(7)]
+    service, _skills, _calls = _controlled_universal_service(
+        tmp_path,
+        [(f"coverage-candidate-{index}", [output_kind], "approved") for index, output_kind in enumerate(output_kinds)],
+    )
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="Produce all required outputs", deliverables=output_kinds),
+    )
+
+    assert result.outcome_code == "coverage_search_exhausted"
+    assert len(result.coverage_witness_skill_ids) == 6
+    assert "coverage_search_exhausted" in result.diagnostics
+    assert any(item.startswith("uncovered_requirement:") for item in result.diagnostics)
+
+
+def test_universal_search_accepts_twenty_four_ordered_coverage_atoms(tmp_path) -> None:
+    output_kinds = [f"output_{index}" for index in range(19)]
+    service, _skills, ranker_calls = _controlled_universal_service(
+        tmp_path,
+        [("budget-candidate", output_kinds, "approved")],
+    )
+    routing_result, task_catalog = _routing_result_for("trend-change-identification")
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="Produce every output", deliverables=output_kinds),
+        routing_result=routing_result,
+        task_catalog=task_catalog,
+    )
+
+    assert result.outcome_code == "ok"
+    assert len(result.required_coverage_atoms) == 24
+    assert len({atom.id for atom in result.required_coverage_atoms}) == 24
+    assert len(ranker_calls) == 1
+
+
+def test_universal_search_rejects_twenty_fifth_coverage_atom_before_ranking(tmp_path) -> None:
+    output_kinds = [f"output_{index}" for index in range(20)]
+    service, _skills, ranker_calls = _controlled_universal_service(
+        tmp_path,
+        [("budget-candidate", output_kinds, "approved")],
+    )
+    routing_result, task_catalog = _routing_result_for("trend-change-identification")
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="Produce every output", deliverables=output_kinds),
+        routing_result=routing_result,
+        task_catalog=task_catalog,
+    )
+
+    assert result.outcome_code == "requirement_budget_exceeded"
+    assert result.ranked_matches == ()
+    assert ranker_calls == []
+
+
+def test_one_skill_cannot_cover_two_scenario_assignments(tmp_path) -> None:
+    service, _skills, _calls = _controlled_universal_service(
+        tmp_path,
+        [("research-plan-candidate", ["research_plan"], "approved")],
+    )
+    routing_result, task_catalog = _routing_result_for("metrics-validation")
+    routing_result.scenario.supporting_scenarios = ["trend-change-identification"]
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="Plan validation for metrics and trends", deliverables=["research_plan"]),
+        routing_result=routing_result,
+        task_catalog=task_catalog,
+    )
+
+    assert result.outcome_code == "coverage_search_exhausted"
+    assert result.coverage_witness_skill_ids
+    uncovered = [item for item in result.diagnostics if item.startswith("uncovered_requirement:")]
+    assert len(uncovered) == 1
+    assert result.selectable_candidates[0].coverage_witness_scenario_id in {
+        "metrics-validation",
+        "trend-change-identification",
+    }
+
+
+def test_blocked_matches_do_not_consume_the_twelve_ready_slots(tmp_path) -> None:
+    profiles = [("highest-blocked", ["unrelated_output"], "draft")]
+    profiles.extend(
+        (f"ready-candidate-{index}", ["target_output"], "approved")
+        for index in range(12)
+    )
+    service, _skills, _calls = _controlled_universal_service(tmp_path, profiles)
+
+    result = service.search_for_evaluation(
+        USER,
+        SkillIntent(goal="Need a target output", deliverables=["target_output"]),
+    )
+
+    assert result.outcome_code == "ok"
+    assert len(result.selectable_candidates) == 12
+    assert len(result.blocked_matches) == 1
+    assert result.blocked_matches[0].skill_name == "highest-blocked"
+
+
+def test_tool_probe_budget_does_not_fail_when_ready_coverage_is_already_known(tmp_path) -> None:
+    output_kinds = ["target_output", *[f"unrelated_{index}" for index in range(8)]]
+
+    def probe(tool_name: str) -> _HealthDescriptor:
+        index = tool_name.removeprefix("remote_tool_")
+        return _HealthDescriptor(f"implementation-{index}", "1", "healthy")
+
+    service, _tool_names = _remote_tool_universal_service(tmp_path, output_kinds, probe=probe)
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="Need target output", deliverables=["target_output"]),
+    )
+
+    assert result.outcome_code == "ok"
+    assert result.selectable_candidates
+    assert all("readiness_unprobed" not in candidate.diagnostics for candidate in result.blocked_matches)
+
+
+def test_tool_probe_budget_fails_when_required_coverage_depends_on_unprobed_tail(tmp_path) -> None:
+    output_kinds = [f"target_{index}" for index in range(9)]
+
+    def probe(tool_name: str) -> _HealthDescriptor:
+        index = tool_name.removeprefix("remote_tool_")
+        return _HealthDescriptor(f"implementation-{index}", "1", "healthy")
+
+    service, _tool_names = _remote_tool_universal_service(tmp_path, output_kinds, probe=probe)
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="Need every target output", deliverables=output_kinds),
+    )
+
+    assert result.outcome_code == "readiness_probe_budget_exceeded"
+    assert "readiness_probe_budget_exceeded" in result.diagnostics
+    assert all("readiness_unprobed" not in candidate.diagnostics for candidate in result.blocked_matches)
+
+
+def test_tool_health_timeout_is_a_confirmed_blocked_match(tmp_path) -> None:
+    def probe(_tool_name: str):  # noqa: ANN202
+        raise TimeoutError("probe timed out")
+
+    service, _tool_names = _remote_tool_universal_service(tmp_path, ["target_output"], probe=probe)
+
+    result = service.search(
+        USER,
+        SkillIntent(goal="Need target output", deliverables=["target_output"]),
+    )
+
+    assert result.outcome_code == "no_executable_skill"
+    assert result.selectable_candidates == ()
+    assert result.blocked_matches[0].diagnostics == ["tool_health_timeout"]
+
+
+def test_universal_search_marks_missing_declared_resource_as_blocked(tmp_path) -> None:
+    skill = _profile_skill(
+        tmp_path,
+        {
+            "review_state": "approved",
+            "planner_eligible": True,
+            "output_kinds": ["research_insight"],
+            "required_resources": ["wiki.corpus"],
+        },
+        name="resource-candidate",
+    )
+    repository = SQLiteStore(tmp_path / "resource-universal.sqlite3")
+    repository.save_skill_definition(skill, defer_vector=True)
+    repository.save_skill_capability_profile(load_capability_profile_record(skill).profile, defer_vector=True)
+    catalog = SkillCatalogService(repository)
+    catalog._skills = {skill.name: skill}
+
+    result = UniversalSkillSearchService(
+        repository,
+        catalog,
+        profile_trust=lambda _skill, _loaded: True,
+        profile_ranker=lambda queries, _ids: [([], [skill.id], []) for _query in queries],
+    ).search(
+        USER,
+        SkillIntent(goal="Need a research insight", deliverables=["research_insight"]),
+    )
+
+    assert result.outcome_code == "no_executable_skill"
+    assert result.blocked_matches[0].diagnostics == ["public_resource_unavailable"]
 
 
 def test_universal_search_removes_disabled_binding_before_offline_ranking(
