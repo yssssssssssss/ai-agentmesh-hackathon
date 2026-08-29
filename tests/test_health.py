@@ -61,6 +61,8 @@ class TestProviderHealthCheck:
         assert all("provider" not in item for item in data["providers"])
         runtime = next(item for item in data["providers"] if item["name"] == "openai_agents_sdk")
         assert runtime["profile_health"] in {"ready", "degraded"}
+        assert runtime["skill_profile_trust"] == "unavailable"
+        assert runtime["skill_profile_trust_error"] == "skill_profile_trust_unavailable"
         assert runtime["index_health"] in {"ready", "degraded"}
         assert runtime["planner_health"] in {"disabled", "ready", "degraded"}
         assert runtime["deepsearch_recovery_running"] is False

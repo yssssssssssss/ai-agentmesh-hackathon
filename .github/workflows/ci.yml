@@ -27,6 +27,7 @@ jobs:
       - run: .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
       - run: .venv/bin/python eval/run_skill_retrieval_eval.py
       - run: .venv/bin/python eval/run_universal_skill_retrieval_eval.py
+      - run: .venv/bin/python eval/run_universal_skill_profile_smoke.py --mode fts-only
       - run: .venv/bin/python -m pytest --ignore=tests/test_frontend_routes.py
         env:
           AGENTMESH_EMBEDDING_ENABLED: "false"

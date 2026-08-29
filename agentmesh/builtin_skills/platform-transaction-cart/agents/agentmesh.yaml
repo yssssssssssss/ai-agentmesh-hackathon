@@ -1,0 +1,38 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 7dfd7a5a36d8a444dd3b862385c5547fa1d2d829d1031342ba30324e287bd4b2
+profile_version: '1'
+display_description: 按平台交易购物车场域规则校验输入并路由购物车设计任务。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: planning
+input_kinds:
+- cart_requirement
+- transaction_context
+output_kinds:
+- field_task_route
+- cart_design_brief
+examples:
+- 规划购物车改版设计任务
+- 路由购物车促销体验需求
+- 按场域方法拆解购物车交互
+negative_examples:
+- 生成用户问卷
+- 审核无障碍规范
+required_capabilities: &id001 []
+task_types:
+- field_task_route
+- cart_design_brief
+archetypes:
+- planning
+required_tools: []
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: low
+risk_level: low
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

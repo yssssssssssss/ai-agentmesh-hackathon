@@ -1149,9 +1149,35 @@ class SkillRecommendationRequest(BaseModel):
     thread_id: str | None = Field(default=None, max_length=120)
 
 
+class SkillRecommendationCandidateView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    skill_id: str
+    skill_name: str
+    title: str
+    description: str
+    capability_card: dict[str, Any]
+    score: SkillCandidateScore
+    reason: str
+    match_reason_codes: list[str] = Field(default_factory=list)
+    ready: bool
+    diagnostics: list[str] = Field(default_factory=list)
+    coverage_witness_scenario_id: str | None = None
+    covered_requirement_ids: list[str] = Field(default_factory=list)
+
+
 class SkillRecommendationResponse(BaseModel):
     intent: SkillIntent
-    candidates: list[SkillCandidate]
+    candidates: list[SkillRecommendationCandidateView]
+    blocked_matches: list[SkillRecommendationCandidateView] = Field(default_factory=list)
+    retrieval_policy_version: str | None = None
+    outcome_code: str | None = None
+    searchable_count: int | None = Field(default=None, ge=0)
+    selectable_count: int | None = Field(default=None, ge=0)
+    blocked_match_count: int | None = Field(default=None, ge=0)
+    required_coverage_atoms: list[CoverageAtomV1] = Field(default_factory=list)
+    required_synthesis_output_ids: list[str] = Field(default_factory=list)
+    capability_gaps: list[CapabilityGapV1] = Field(default_factory=list)
     diagnostics: list[str] = Field(default_factory=list)
 
 

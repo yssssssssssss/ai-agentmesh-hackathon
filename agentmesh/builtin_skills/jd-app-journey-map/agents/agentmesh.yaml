@@ -1,0 +1,42 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 052bfd2681a8a6174933883d8c880c645ec9c1ab51b001ceb718c3ec63ddf4a0
+profile_version: '1'
+display_description: 面向京东 App 场景生成可交付 HTML 用户旅程图与体验优化分析。
+primary_stage: pre_design
+lifecycle_tags:
+- pre_design
+capability_type: synthesis
+input_kinds:
+- jd_app_scenario
+- research_material
+- behavior_metrics
+output_kinds:
+- jd_app_journey_map
+- user_segments
+- experience_opportunities
+- html_report
+examples:
+- 生成京东商详场景用户旅程图
+- 结合行为指标诊断下单旅程
+- 为新功能输出分层、痛点和机会 HTML 报告
+negative_examples:
+- 生成通用组件代码
+- 登记实验结论
+required_capabilities: &id001 []
+task_types:
+- journey_map
+- user_segments
+- experience_opportunities
+archetypes:
+- synthesis
+required_tools: []
+required_resources: *id001
+produces_factual_claims: true
+report_policy: default
+cost_level: low
+risk_level: low
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

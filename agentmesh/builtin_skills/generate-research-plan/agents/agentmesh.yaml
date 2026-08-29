@@ -11,6 +11,7 @@ output_kinds: [research_plan, research_brief]
 examples:
   - 根据业务问题制定完整的用户研究计划
   - 为首页改版规划研究方法样本和时间表
+  - 围绕流失问题设计定性定量混合研究排期
 negative_examples:
   - 只生成访谈提纲
   - 直接分析竞品战略

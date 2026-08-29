@@ -1,0 +1,44 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 89f037d820a27f01be73d2ca1fe573f17d176c939297977cf4c6aa77afef72e2
+profile_version: '1'
+display_description: 登记历史设计需求、素材链接和检索关键词，维护案例索引。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: knowledge
+input_kinds:
+- case_material
+- source_link
+- keywords
+output_kinds:
+- case_registration
+- knowledge_index_update
+examples:
+- 登记这份历史设计案例
+- 把 Relay 和 PRD 链接加入素材索引
+- 补充案例关键词供后续检索
+negative_examples:
+- 分析案例给设计建议
+- 生成用户旅程图
+required_capabilities: &id001 []
+task_types:
+- case_registration
+- knowledge_index_update
+archetypes:
+- knowledge
+required_tools:
+- mcp__zero-design__get_design_metadata
+- Bash
+- Read
+- Write
+- Edit
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: knowledge-platform
+review_state: draft
+side_effect: local_write
+planner_eligible: false

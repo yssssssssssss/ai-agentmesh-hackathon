@@ -66,8 +66,8 @@ Production code and the evaluator consume the same hash-verified policy asset. I
 
 ```text
 Universal Skill retrieval calibration
-fts-only:    Top-1 90.0%, Top-3 100.0%, Recall@5 100.0%, compound witness coverage 100.0%, boundary rejection 100.0%, p95 41.031 ms
-fake-vector: Top-1 91.7%, Top-3 100.0%, Recall@5 100.0%, compound witness coverage 100.0%, boundary rejection 100.0%, p95 75.345 ms
+fts-only:    Top-1 90.0%, Top-3 98.3%, Recall@5 100.0%, compound witness coverage 100.0%, boundary rejection 100.0%, p95 134.035 ms
+fake-vector: Top-1 90.0%, Top-3 100.0%, Recall@5 100.0%, compound witness coverage 100.0%, boundary rejection 100.0%, p95 259.237 ms
 family[behavior-metrics]: 15/15 in both modes
 family[design-review]: 5/5 in both modes
 family[experiment-analysis]: 5/5 in both modes
@@ -80,7 +80,7 @@ language[zh]: 48/48 in both modes
 PASS
 ```
 
-The unchanged legacy gate also passed at Top-3 recall 100%, p95 31.839 ms, with unavailable/disabled/unauthorized recall all 0%. The full backend suite passed with `1569 passed, 6 skipped`; Ruff passed for the repository. The React unit suite passed with `161 passed`, the production build passed its 500 KiB bundle gate, and `tests/test_frontend_routes.py` passed with `6 passed`.
+The unchanged legacy gate also passed at Top-3 recall 100%, p95 31.839 ms, with unavailable/disabled/unauthorized recall all 0%. The full backend suite passed with `1611 passed, 6 skipped`; Ruff passed for the repository. The React unit suite passed with `161 passed`, the production build passed its 500 KiB bundle gate, and `tests/test_frontend_routes.py` passed with `6 passed`.
 
 ## Task Catalog v2 compatibility
 

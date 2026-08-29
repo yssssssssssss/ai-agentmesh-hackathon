@@ -11,6 +11,7 @@ output_kinds: [interview_guide]
 examples:
   - 根据研究目标生成用户访谈提纲
   - 为流失用户设计可执行的深访问题
+  - 围绕首次购买障碍设计开场、主问和追问
 negative_examples:
   - 设计完整研究项目计划
   - 生成定量调查问卷

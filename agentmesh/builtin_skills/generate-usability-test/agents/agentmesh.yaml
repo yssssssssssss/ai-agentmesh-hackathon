@@ -11,6 +11,7 @@ output_kinds: [usability_test_plan, usability_review]
 examples:
   - 为原型生成可执行的可用性测试方案和任务脚本
   - 上线前规划用户任务观察和 SEQ SUS 度量
+  - 为结算原型制定招募、任务、观察点和成功指标
 negative_examples:
   - 只用专家原则检查界面
   - 生成市场调查问卷

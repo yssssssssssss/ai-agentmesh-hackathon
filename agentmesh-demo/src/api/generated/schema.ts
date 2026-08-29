@@ -2857,6 +2857,15 @@ export interface components {
             /** Expected Document Version */
             expected_document_version: number;
         };
+        /** CapabilityGapV1 */
+        CapabilityGapV1: {
+            /** Requirement Id */
+            requirement_id: string;
+            /** Label */
+            label: string;
+            /** Diagnostics */
+            diagnostics?: string[];
+        };
         /** ChatMessage */
         ChatMessage: {
             /** Id */
@@ -3709,6 +3718,20 @@ export interface components {
             /** Canonical Arguments Hash */
             canonical_arguments_hash: string;
         };
+        /** DeliverableAtomV1 */
+        DeliverableAtomV1: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "deliverable";
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Output Kind */
+            output_kind: string;
+        };
         /** DocumentUpdateRequest */
         DocumentUpdateRequest: {
             /** Expected Version */
@@ -3725,6 +3748,46 @@ export interface components {
             posted: number;
             /** Items */
             items: components["schemas"]["AutoBlackboardPostRequest"][];
+        };
+        /** EvidenceAtomV1 */
+        EvidenceAtomV1: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "evidence";
+            /**
+             * Id
+             * @default evidence:trusted_external_path
+             * @constant
+             */
+            id: "evidence:trusted_external_path";
+            /**
+             * Label
+             * @default Trusted external evidence
+             */
+            label: string;
+            /**
+             * Requirement Key
+             * @default trusted_external_path
+             * @constant
+             */
+            requirement_key: "trusted_external_path";
+            /**
+             * Evidence Policy Id
+             * @default deepsearch-evidence-v1
+             */
+            evidence_policy_id: string;
+            /**
+             * Evidence Policy Version
+             * @default 1
+             */
+            evidence_policy_version: string;
+            /**
+             * Evidence Policy Hash
+             * @default phase1a-readiness-only
+             */
+            evidence_policy_hash: string;
         };
         /** EvidenceRequirement */
         EvidenceRequirement: {
@@ -5202,6 +5265,24 @@ export interface components {
             /** Data Scope */
             data_scope?: string | null;
         };
+        /** ScenarioOutputAtomV1 */
+        ScenarioOutputAtomV1: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "scenario_output";
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Scenario Id */
+            scenario_id: string;
+            /** Output Id */
+            output_id: string;
+            /** Compatible Output Kinds */
+            compatible_output_kinds: string[];
+        };
         /** ScenarioRoute */
         ScenarioRoute: {
             /** Scenario Id */
@@ -5311,34 +5392,6 @@ export interface components {
             /** Aliases */
             aliases?: string[] | null;
         };
-        /** SkillCandidate */
-        SkillCandidate: {
-            /** Skill Id */
-            skill_id: string;
-            /** Skill Name */
-            skill_name: string;
-            /** Title */
-            title: string;
-            /** Description */
-            description: string;
-            profile: components["schemas"]["SkillCapabilityProfile"];
-            score: components["schemas"]["SkillCandidateScore"];
-            /** Reason */
-            reason: string;
-            /** Match Reason Codes */
-            match_reason_codes?: string[];
-            /** Coverage Witness Scenario Id */
-            coverage_witness_scenario_id?: string | null;
-            /** Covered Requirement Ids */
-            covered_requirement_ids?: string[];
-            /**
-             * Ready
-             * @default true
-             */
-            ready: boolean;
-            /** Diagnostics */
-            diagnostics?: string[];
-        };
         /** SkillCandidateScore */
         SkillCandidateScore: {
             /**
@@ -5386,101 +5439,6 @@ export interface components {
              * @default 0
              */
             total: number;
-        };
-        /**
-         * SkillCapabilityProfile
-         * @description Planner-safe metadata. It never contains Skill instructions or credentials.
-         */
-        SkillCapabilityProfile: {
-            /** Id */
-            id: string;
-            /** Skill Id */
-            skill_id: string;
-            /** Skill Name */
-            skill_name: string;
-            /**
-             * Skill Title
-             * @default
-             */
-            skill_title: string;
-            /** Skill Aliases */
-            skill_aliases?: string[];
-            /** Skill Version */
-            skill_version: string;
-            /** Skill Content Hash */
-            skill_content_hash: string;
-            /** Profile Version */
-            profile_version: string;
-            /** Profile Content Hash */
-            profile_content_hash: string;
-            /** Display Description */
-            display_description?: string | null;
-            primary_stage: components["schemas"]["SkillLifecycleStage"];
-            /** Lifecycle Tags */
-            lifecycle_tags?: components["schemas"]["SkillLifecycleStage"][];
-            capability_type: components["schemas"]["SkillCapabilityType"];
-            /** Input Kinds */
-            input_kinds?: string[];
-            /** Output Kinds */
-            output_kinds?: string[];
-            /** Examples */
-            examples?: string[];
-            /** Negative Examples */
-            negative_examples?: string[];
-            /** Required Capabilities */
-            required_capabilities?: string[];
-            /** Task Types */
-            task_types?: string[];
-            /** Archetypes */
-            archetypes?: string[];
-            /** Required Tools */
-            required_tools?: string[];
-            /** Required Resources */
-            required_resources?: string[];
-            /** Input Schema Ref */
-            input_schema_ref?: string | null;
-            /** Output Schema Ref */
-            output_schema_ref?: string | null;
-            /**
-             * Produces Factual Claims
-             * @default false
-             */
-            produces_factual_claims: boolean;
-            /**
-             * Report Policy
-             * @default never
-             * @enum {string}
-             */
-            report_policy: "never" | "on_request" | "default";
-            /**
-             * Cost Level
-             * @default low
-             * @enum {string}
-             */
-            cost_level: "low" | "medium" | "high";
-            /**
-             * Risk Level
-             * @default low
-             * @enum {string}
-             */
-            risk_level: "low" | "medium" | "high";
-            /**
-             * Owner
-             * @default platform
-             */
-            owner: string;
-            /** @default read */
-            side_effect: components["schemas"]["SkillSideEffect"];
-            /**
-             * Planner Eligible
-             * @default true
-             */
-            planner_eligible: boolean;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at?: string;
         };
         /**
          * SkillCapabilityType
@@ -5924,6 +5882,34 @@ export interface components {
             /** Expected Version */
             expected_version: number;
         };
+        /** SkillRecommendationCandidateView */
+        SkillRecommendationCandidateView: {
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Name */
+            skill_name: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            /** Capability Card */
+            capability_card: {
+                [key: string]: unknown;
+            };
+            score: components["schemas"]["SkillCandidateScore"];
+            /** Reason */
+            reason: string;
+            /** Match Reason Codes */
+            match_reason_codes?: string[];
+            /** Ready */
+            ready: boolean;
+            /** Diagnostics */
+            diagnostics?: string[];
+            /** Coverage Witness Scenario Id */
+            coverage_witness_scenario_id?: string | null;
+            /** Covered Requirement Ids */
+            covered_requirement_ids?: string[];
+        };
         /** SkillRecommendationRequest */
         SkillRecommendationRequest: {
             /** Content */
@@ -5935,7 +5921,25 @@ export interface components {
         SkillRecommendationResponse: {
             intent: components["schemas"]["SkillIntent"];
             /** Candidates */
-            candidates: components["schemas"]["SkillCandidate"][];
+            candidates: components["schemas"]["SkillRecommendationCandidateView"][];
+            /** Blocked Matches */
+            blocked_matches?: components["schemas"]["SkillRecommendationCandidateView"][];
+            /** Retrieval Policy Version */
+            retrieval_policy_version?: string | null;
+            /** Outcome Code */
+            outcome_code?: string | null;
+            /** Searchable Count */
+            searchable_count?: number | null;
+            /** Selectable Count */
+            selectable_count?: number | null;
+            /** Blocked Match Count */
+            blocked_match_count?: number | null;
+            /** Required Coverage Atoms */
+            required_coverage_atoms?: (components["schemas"]["DeliverableAtomV1"] | components["schemas"]["ScenarioOutputAtomV1"] | components["schemas"]["EvidenceAtomV1"])[];
+            /** Required Synthesis Output Ids */
+            required_synthesis_output_ids?: string[];
+            /** Capability Gaps */
+            capability_gaps?: components["schemas"]["CapabilityGapV1"][];
             /** Diagnostics */
             diagnostics?: string[];
         };

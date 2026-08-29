@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from agentmesh import embedding
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.app import app
+from agentmesh.canonical_json import canonical_json_bytes
 from agentmesh.models import (
     SkillBinding,
     SkillCapabilityProfile,
@@ -1149,7 +1150,9 @@ def test_real_catalog_capability_cards_are_compact_and_cover_research_report_lan
 
     assert len(cards) == 84
     assert all(len(str(card["description"])) <= 140 for card in cards)
-    assert len(json.dumps(cards, ensure_ascii=False)) <= 30_000
+    assert all(len(canonical_json_bytes(card)) <= 4 * 1024 for card in cards)
+    largest_cards = sorted(cards, key=lambda card: len(canonical_json_bytes(card)), reverse=True)[:12]
+    assert len(canonical_json_bytes(largest_cards)) <= 32 * 1024
     assert "用研报告" in str(by_name["synthesize-qualitative-insights"]["description"])
 
 

@@ -1,0 +1,39 @@
+skill_id: auto
+skill_version: 0.1.0
+skill_content_hash: 389d488309bffaac8cbd8ccd62d20d5c318b79a8ded88b2cd7a8a18f6dac6edb
+profile_version: '1'
+display_description: 读取、创建和发布 JoySpace 文档，并支持模板克隆与目录搜索。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- joyspace_document
+- local_document
+output_kinds:
+- joyspace_document
+- document_publication
+examples:
+- 读取并总结这个 JoySpace 页面
+- 把本地 Markdown 发布到 JoySpace
+- 按模板创建团队文档并发表评论
+negative_examples:
+- 生成 Relay 组件
+- 分析转化漏斗
+required_capabilities: &id001 []
+task_types:
+- joyspace_document
+- document_publication
+archetypes:
+- delivery
+required_tools:
+- joyspace
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

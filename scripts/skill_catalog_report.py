@@ -7,7 +7,10 @@ import argparse
 import json
 import sys
 from collections import Counter
+from datetime import date
 from pathlib import Path
+
+import yaml
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -26,7 +29,8 @@ from agentmesh.skill_runtime.profiles import (  # noqa: E402
 
 EXPECTED_DOMAIN_SKILLS = 84
 EXPECTED_PLANNER_PROFILES = len(PILOT_BUILTIN_SKILL_NAMES)
-MINIMUM_PHASE1A_DRAFT_PROFILES = 12
+EXPECTED_PROFILE_FILES = EXPECTED_DOMAIN_SKILLS
+EXPECTED_DRAFT_PROFILES = EXPECTED_DOMAIN_SKILLS - EXPECTED_PLANNER_PROFILES
 EXPECTED_LEGACY_PROFILES = 11
 KNOWN_CAPABILITIES = {
     "data.query",
@@ -39,15 +43,99 @@ KNOWN_CAPABILITIES = {
 }
 
 
+def _release_review_blockers(
+    *,
+    profile_records: list[tuple[str, object]],
+    roster_path: Path,
+    codeowners_path: Path,
+    source_manifest_path: Path,
+) -> list[str]:
+    blockers: list[str] = []
+    approved_names = {
+        name
+        for name, loaded in profile_records
+        if getattr(loaded, "review_state", None) == "approved"
+        and getattr(loaded, "declared_planner_eligible", False)
+    }
+    if len(approved_names) != EXPECTED_DOMAIN_SKILLS:
+        blockers.append(
+            f"profiles_not_approved:{len(approved_names)}/{EXPECTED_DOMAIN_SKILLS}"
+        )
+    try:
+        roster = yaml.safe_load(roster_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError):
+        roster = None
+    roster_items = roster.get("items") if isinstance(roster, dict) else None
+    if not isinstance(roster_items, list):
+        blockers.append("review_roster_invalid")
+    else:
+        by_name = {
+            item.get("skill_name"): item
+            for item in roster_items
+            if isinstance(item, dict) and isinstance(item.get("skill_name"), str)
+        }
+        if set(by_name) != {name for name, _loaded in profile_records}:
+            blockers.append("review_roster_coverage_mismatch")
+        today = date.today()
+        for name, item in sorted(by_name.items()):
+            author = item.get("author")
+            reviewers = item.get("reviewers")
+            required = item.get("required_reviewers")
+            if (
+                not isinstance(author, str)
+                or not isinstance(reviewers, list)
+                or not isinstance(required, int)
+                or required not in {1, 2}
+                or len(set(reviewers)) < required
+                or author in reviewers
+            ):
+                blockers.append(f"review_incomplete:{name}")
+                continue
+            try:
+                due_at = date.fromisoformat(str(item.get("review_due_at")))
+                confirmed_at = date.fromisoformat(str(item.get("confirmed_at")))
+            except ValueError:
+                blockers.append(f"review_schedule_invalid:{name}")
+                continue
+            if due_at < today or confirmed_at > due_at:
+                blockers.append(f"review_schedule_invalid:{name}")
+    if not codeowners_path.is_file():
+        blockers.append("codeowners_missing")
+    try:
+        manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        manifest = None
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != 2:
+        blockers.append("profile_provenance_v2_missing")
+    return blockers
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("root", nargs="?", default=str(ROOT_DIR / "agentmesh" / "builtin_skills"))
+    parser.add_argument("--release-gate", action="store_true")
+    parser.add_argument(
+        "--review-roster",
+        type=Path,
+        default=ROOT_DIR / "docs" / "verification" / "skill-profile-review-roster.yaml",
+    )
+    parser.add_argument(
+        "--codeowners",
+        type=Path,
+        default=ROOT_DIR / ".github" / "CODEOWNERS",
+    )
+    parser.add_argument(
+        "--profile-provenance",
+        type=Path,
+        help="Schema-v2 build-staging Profile provenance; defaults to the catalog-root manifest path.",
+    )
     args = parser.parse_args()
     root = Path(args.root).resolve()
     files = sorted(root.rglob("SKILL.md"))
     names: list[str] = []
     diagnostics: list[dict[str, str]] = []
     profiles = []
+    profile_records: list[tuple[str, object]] = []
     draft_profiles = []
     legacy_unreviewed_profiles = []
     for path in files:
@@ -60,6 +148,7 @@ def main() -> int:
                     loaded = load_capability_profile_record(result.skill)
                     profile = loaded.profile
                     profiles.append(profile)
+                    profile_records.append((result.skill.name, loaded))
                     if not profile_matches_skill(profile, result.skill):
                         diagnostics.append(
                             {
@@ -130,6 +219,15 @@ def main() -> int:
                         "path": str(sidecar),
                     }
                 )
+            else:
+                diagnostics.append(
+                    {
+                        "level": "error",
+                        "code": "profile_missing",
+                        "message": "Every built-in Runtime Skill requires a versioned Profile sidecar",
+                        "path": str(sidecar),
+                    }
+                )
         diagnostics.extend(
             {"level": item.level, "code": item.code, "message": item.message, "path": item.path}
             for item in result.diagnostics
@@ -177,12 +275,21 @@ def main() -> int:
                 "path": str(root),
             }
         )
-    if len(draft_profiles) < MINIMUM_PHASE1A_DRAFT_PROFILES:
+    if len(profiles) != EXPECTED_PROFILE_FILES:
         diagnostics.append(
             {
                 "level": "error",
-                "code": "phase1a_draft_profile_count",
-                "message": f"expected at least {MINIMUM_PHASE1A_DRAFT_PROFILES}, loaded {len(draft_profiles)}",
+                "code": "profile_coverage_incomplete",
+                "message": f"expected {EXPECTED_PROFILE_FILES} Profile files, loaded {len(profiles)}",
+                "path": str(root),
+            }
+        )
+    if len(draft_profiles) != EXPECTED_DRAFT_PROFILES:
+        diagnostics.append(
+            {
+                "level": "error",
+                "code": "draft_profile_count",
+                "message": f"expected {EXPECTED_DRAFT_PROFILES}, loaded {len(draft_profiles)}",
                 "path": str(root),
             }
         )
@@ -206,6 +313,12 @@ def main() -> int:
                 "path": "agentmesh/skill_runtime/profiles.py",
             }
         )
+    release_blockers = _release_review_blockers(
+        profile_records=profile_records,
+        roster_path=args.review_roster,
+        codeowners_path=args.codeowners,
+        source_manifest_path=(args.profile_provenance or root / "wiki-skill-provenance.json"),
+    )
     payload = {
         "root": str(root),
         "files": len(files),
@@ -213,6 +326,7 @@ def main() -> int:
         "unique": len(counts),
         "planner_profiles": sum(profile.planner_eligible for profile in profiles),
         "profile_files": len(profiles),
+        "profile_coverage": f"{len(profiles)}/{EXPECTED_PROFILE_FILES}",
         "draft_profiles": len(draft_profiles),
         "legacy_unreviewed_profiles": len(legacy_unreviewed_profiles),
         "legacy_profiles": len(legacy_profiles),
@@ -224,9 +338,11 @@ def main() -> int:
         "errors": sum(item["level"] == "error" for item in diagnostics),
         "warnings": sum(item["level"] == "warning" for item in diagnostics),
         "diagnostics": diagnostics,
+        "release_gate_eligible": not release_blockers,
+        "release_blockers": release_blockers,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
-    return 1 if payload["errors"] else 0
+    return 1 if payload["errors"] or (args.release_gate and release_blockers) else 0
 
 
 if __name__ == "__main__":

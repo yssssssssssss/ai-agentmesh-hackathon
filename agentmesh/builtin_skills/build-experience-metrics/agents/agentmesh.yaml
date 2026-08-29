@@ -11,6 +11,7 @@ output_kinds: [experience_metrics, measurement_plan]
 examples:
   - 为改版建立 HEART 体验北极星和护栏指标
   - 设计跨版本体验度量体系和采集口径
+  - 为新功能定义任务成功率、留存与体验护栏
 negative_examples:
   - 分析已有满意度数据为什么下降
   - 生成可直接投放的问卷

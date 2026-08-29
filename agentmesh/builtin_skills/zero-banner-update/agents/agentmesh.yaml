@@ -1,0 +1,47 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 7b4f3bb117b294864a7d36ade010eaeb47094cab386b445e69a9e192bd28fafb
+profile_version: '1'
+display_description: 批量替换 Zero Banner 截图与文案，并按设备分组导出图片。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: transformation
+input_kinds:
+- zero_banner_file
+- replacement_assets
+- copy_changes
+output_kinds:
+- updated_banner_design
+- exported_images
+examples:
+- 批量替换 Banner 里的手机截图
+- 更新所有匹配标题并导出画板 PNG
+- 按设备标签分组输出通栏图片
+negative_examples:
+- 审核通栏视觉问题
+- 分析用户反馈
+required_capabilities: &id001 []
+task_types:
+- updated_banner_design
+- exported_images
+archetypes:
+- transformation
+required_tools:
+- mcp__zero-design__use_design_script
+- mcp__zero-design__get_screenshot
+- mcp__zero-design__export_image
+- mcp__zero-design__get_design_metadata
+- Bash(curl *)
+- Bash(python3 *)
+- Read
+- Write
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

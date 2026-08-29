@@ -1,0 +1,40 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 4a2cfc023e967d98dc5386a0c9d35d7bb8230f6ff84908ae0b180c313449751d
+profile_version: '1'
+display_description: 解析 PRD、文本或原型截图，生成设计简报和结构化模块清单。
+primary_stage: pre_design
+lifecycle_tags:
+- pre_design
+capability_type: planning
+input_kinds:
+- prd
+- prototype
+- requirement_text
+output_kinds:
+- design_brief
+- module_inventory
+examples:
+- 把这份 PRD 整理成设计简报
+- 从原型截图提取模块清单
+- 定位需求影响的场域页面和组件
+negative_examples:
+- 执行 Git 合并
+- 分析 A/B 实验结果
+required_capabilities: &id001 []
+task_types:
+- design_brief
+- module_inventory
+archetypes:
+- planning
+required_tools:
+- document_reader
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

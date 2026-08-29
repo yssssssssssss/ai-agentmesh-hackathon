@@ -1,0 +1,48 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 814ccac37c54169d213412049de292b43000eb552286126033d3a45f24a220f1
+profile_version: '1'
+display_description: 依据 Zero 组件库生成父子嵌套 Tab 的 React 与 Tailwind 实现。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: generation
+input_kinds:
+- relay_design
+- nested_tab_requirement
+output_kinds:
+- react_component
+- nested_tab_implementation
+examples:
+- 生成父子嵌套 Tab 组件
+- 按 Zero 规范实现展开收起状态
+- 还原 Nested Structure 的 React 代码
+negative_examples:
+- 生成调查问卷
+- 分析竞品市场
+required_capabilities: &id001 []
+task_types:
+- react_component
+- nested_tab_implementation
+archetypes:
+- generation
+required_tools:
+- Read
+- Write
+- Edit
+- Glob
+- Grep
+- Bash
+- mcp__zero-design__get_design_context
+- mcp__zero-design__get_screenshot
+- mcp__zero-design__get_design_metadata
+- mcp__zero-design__get_variables
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

@@ -1,0 +1,38 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 9e30f065282fa3762644be70ee30cde69a2617da27a51739e06313806ee90401
+profile_version: '1'
+display_description: 查询与校验 Design Wiki 组件、规范和同步状态。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: knowledge
+input_kinds:
+- wiki_query
+- design_markdown
+output_kinds:
+- wiki_search_result
+- wiki_validation_report
+examples:
+- 查询设计 Wiki 的组件索引
+- 校验这个 design.md 是否合规
+- 统计当前设计知识库状态
+negative_examples:
+- 修改线上设计稿
+- 分析满意度驱动因素
+required_capabilities: &id001 []
+task_types:
+- wiki_search_result
+- wiki_validation_report
+archetypes:
+- knowledge
+required_tools: []
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: low
+risk_level: low
+owner: knowledge-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

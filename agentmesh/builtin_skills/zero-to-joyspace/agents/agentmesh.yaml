@@ -1,0 +1,47 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 9754837c57515215f395fb58a5975eeb3218a4e96a8e9791d706fad19ba73dfe
+profile_version: '1'
+display_description: 将 Zero/Relay 设计稿结构与示例图转换并发布为 JoySpace 文档。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- zero_design
+output_kinds:
+- joyspace_document
+- document_publication
+examples:
+- 把这个 Zero 设计稿发布到 JoySpace
+- 将正文转成 Markdown 并嵌入示例图
+- 生成带导航标题的设计规范文档
+negative_examples:
+- 生成 Relay 组件代码
+- 分析用户满意度
+required_capabilities: &id001 []
+task_types:
+- joyspace_document
+- document_publication
+archetypes:
+- delivery
+required_tools:
+- mcp__zero-design__get_design_metadata
+- mcp__zero-design__get_design_context
+- mcp__zero-design__get_screenshot
+- mcp__zero-design__export_image
+- Bash(webcli *)
+- Bash(curl *)
+- Bash(python3 *)
+- Read
+- Write
+- TodoWrite
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

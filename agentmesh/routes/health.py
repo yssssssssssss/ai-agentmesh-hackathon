@@ -24,6 +24,7 @@ from agentmesh.permissions import ACTION_VIEW_PROVIDER_HEALTH
 from agentmesh.provider_status import ProviderStatus, build_provider_status
 from agentmesh.routes.deps import require_permission
 from agentmesh.skill_runtime.service import catalog_service
+from agentmesh.skill_runtime.trust import runtime_profile_trust_verifier
 from agentmesh.store import store
 from agentmesh.web_research import web_research_provider_status
 
@@ -349,6 +350,7 @@ def _agent_runtime_status(*, deepsearch_recovery_running: bool = False) -> dict[
     planner_profiles = [profile for profile in store.skill_capability_profiles if profile.planner_eligible]
     profile_errors = sum(item.level == "error" for item in catalog.diagnostics)
     profile_ready = bool(planner_profiles) and profile_errors == 0
+    profile_trust = runtime_profile_trust_verifier()
     index_counts = store.skill_search_index_counts()
     index_ready = index_counts["records"] == index_counts["indexed"] and index_counts["missing"] == 0
     orchestration_mode = skill_orchestration_mode()
@@ -375,6 +377,8 @@ def _agent_runtime_status(*, deepsearch_recovery_running: bool = False) -> dict[
         "planner_profiles": len(planner_profiles),
         "profile_health": "ready" if profile_ready else "degraded",
         "profile_errors": profile_errors,
+        "skill_profile_trust": "ready" if profile_trust.available else "unavailable",
+        "skill_profile_trust_error": profile_trust.diagnostic,
         "index_health": "ready" if index_ready else "degraded",
         "index_counts": index_counts,
         "planner_health": (

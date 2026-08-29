@@ -1,0 +1,39 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 83cb0cc169b42027ae6d87d6be4fd81dc2343c8cde79d77d4df237625b9a614f
+profile_version: '1'
+display_description: 将 Relay/Zero 中多个状态样式归纳为可复用组件集与属性结构。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: transformation
+input_kinds:
+- relay_design_states
+- component_logic
+output_kinds:
+- component_set
+- component_properties
+examples:
+- 把这些选中未选中状态封装为组件集
+- 识别多个画板的变体维度
+- 将现有 Relay 样式整理成可复用组件
+negative_examples:
+- 从文字直接生成完整页面
+- 分析用户旅程
+required_capabilities: &id001 []
+task_types:
+- component_set
+- component_properties
+archetypes:
+- transformation
+required_tools:
+- zero_design
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

@@ -1,0 +1,39 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: f90e8bfe99e9ebb278e5130e5efedaff4ed26cf0427d480864d5f274bcb78c65
+profile_version: '1'
+display_description: 通过受控 Coding 仓库接口创建分支、提交文件并发起合并请求。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- repository_target
+- file_changes
+output_kinds:
+- repository_change
+- merge_request
+examples:
+- 在 Coding 仓库创建分支并提交文件
+- 把这组修改同步到 JD Coding
+- 读取目标分支后发起合并请求
+negative_examples:
+- 分析用户访谈
+- 生成视觉评审报告
+required_capabilities: &id001 []
+task_types:
+- repository_change
+- merge_request
+archetypes:
+- delivery
+required_tools:
+- coding_api
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

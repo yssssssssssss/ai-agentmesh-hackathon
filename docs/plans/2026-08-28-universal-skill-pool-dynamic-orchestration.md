@@ -1,6 +1,6 @@
 # 全量内置 Runtime Skill 候选池与 LLM 动态编排开发方案
 
-- 状态：已批准；Phase 0 本地工程验证完成，Phase 1A 首个离线 Profile/检索纵切已通过；生产 Preview/执行仍受发布拓扑、独立审查人与预发布演练门禁阻断
+- 状态：已批准；Phase 0 本地工程验证完成，Phase 1A 离线 Profile/检索、Task Catalog v2、coverage/readiness/batch-embedding 骨架已通过，Phase 1B 已完成 84/84 本地 Profile 起草但独立审签未完成；生产 Preview/执行仍受发布拓扑、独立审查人与预发布演练门禁阻断
 - 日期：2026-08-28
 - 适用范围：Agent Runtime v2、Standard、DeepSearch 运行时 v1（FrozenPlan v1/v2）
 - 预计工期：核心工程 27~42 个工作日，另需 8~15 个 Profile 审查人日；27 个缺失工具适配另计 3~6 周

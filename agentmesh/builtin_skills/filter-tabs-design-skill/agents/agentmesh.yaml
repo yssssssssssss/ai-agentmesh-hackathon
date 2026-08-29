@@ -1,0 +1,38 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 2a6aa9a8f330b6d2a058bf8d530c6f49e45a91b11908ded682efd14c1b9f0af9
+profile_version: '1'
+display_description: 依据组件规范生成或更新 Filter Tabs 的 React 与 Tailwind 实现。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: generation
+input_kinds:
+- component_requirement
+- design_reference
+output_kinds:
+- react_component
+- component_implementation
+examples:
+- 生成 Filter Tabs React 组件
+- 按规范更新筛选项交互状态
+- 实现像素级筛选 Tabs 代码
+negative_examples:
+- 评审用户研究计划
+- 分析行业趋势
+required_capabilities: &id001 []
+task_types:
+- react_component
+- component_implementation
+archetypes:
+- generation
+required_tools: []
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: medium
+risk_level: low
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

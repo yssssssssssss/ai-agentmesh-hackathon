@@ -1,0 +1,38 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: dab605a3db4a76dc371bc89199757143c0388e94e2d28cbd741e2deeb93bb153
+profile_version: '1'
+display_description: 按业务线、场域和阶段为平台交易设计任务选择共享方法底座。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: planning
+input_kinds:
+- transaction_requirement
+- business_line
+output_kinds:
+- field_task_route
+- method_selection
+examples:
+- 为交易设计需求选择场域入口
+- 按业务线路由设计方法
+- 确定当前任务应使用的共享底座
+negative_examples:
+- 生成组件代码
+- 分析实验数据
+required_capabilities: &id001 []
+task_types:
+- field_task_route
+- method_selection
+archetypes:
+- planning
+required_tools: []
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: low
+risk_level: low
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

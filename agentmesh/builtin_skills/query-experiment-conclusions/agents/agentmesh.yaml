@@ -11,6 +11,7 @@ output_kinds: [historical_experiment, research_evidence]
 examples:
   - 查询历史 AB 实验结论和失败经验
   - 找类似首页组件以前是否做过以及结果如何
+  - 检索与按钮文案改版相关的历史实验和结论
 negative_examples:
   - 预测一个从未做过的实验结果
   - 生成新的产品方案
