@@ -14,7 +14,8 @@ This slice validates the Profile schema and retrieval discrimination before auth
 - added a read-only `UniversalSkillSearchService` that can inspect drafts only when the caller explicitly requests offline evaluation;
 - kept `SkillCandidateRetriever`, Agent Run creation, Plan Preview, Standard execution, and DeepSearch execution on the legacy ten-Skill path;
 - added strict sidecar and capability-card size/cardinality limits;
-- added a versioned deterministic retrieval policy and calibration runner.
+- added a versioned deterministic retrieval policy and calibration runner;
+- added immutable Task Catalog v2 assets with structured Scenario output IDs and reviewed output-kind mappings while preserving the exact v1 tree and default loader.
 
 The twelve draft Skills are:
 
@@ -80,6 +81,16 @@ PASS
 
 The unchanged legacy gate also passed at Top-3 recall 100%, p95 31.839 ms, with unavailable/disabled/unauthorized recall all 0%. The full backend suite passed with `1569 passed, 6 skipped`; Ruff passed for the repository. The React unit suite passed with `161 passed`, the production build passed its 500 KiB bundle gate, and `tests/test_frontend_routes.py` passed with `6 passed`.
 
+## Task Catalog v2 compatibility
+
+- Legacy `user-research-v1` catalog hash remains `480d88f8f9d11c0f24bcff7ecb6f2a333d5852391bb80ee2de9217b81b6b9629`.
+- Its 13-file tree digest remains `8d3527fb655ccee85a04f2b4f561c794bb4e3ea665d2eb521d8381a772ff799b`.
+- New `user-research-v2` catalog hash is `0817f656eaf2781ce6b5d8510e33b95fd0aa2a1d3e8d1bc00dfb9711a88ebdd7`.
+- V2 contains 15 Scenarios and 61 structured outputs. Labels and order match v1; IDs and `compatible_output_kinds` are machine contracts.
+- The loader dispatches v1/v2 models from the manifest and resolves only exact version/hash identities. `load_default_task_catalog()` remains pinned to v1 in Phase 1A.
+- Published version directories are create-only: rebuild is accepted only when every path and byte is identical.
+- A built and isolated wheel check loaded both identities through `importlib.resources` (13 files per version).
+
 ## Reproduce
 
 ```bash
@@ -95,4 +106,4 @@ PYTHONPATH=. AGENTMESH_EMBEDDING_ENABLED=false \
 
 ## Remaining Phase 1A work
 
-Task Catalog v2 assets and resolver, batch production embedding, Tool-health probe budgeting, coverage atoms/witness selection, and the full 84-Profile authoring/review flow remain outside this first vertical slice. The create-only `--generate-profile-stubs` command now exists but intentionally emits identity-only, incomplete drafts so it never guesses capability or safety fields. Production recommendation exposure remains blocked by the solo-maintainer review and release-topology gates recorded in the Phase 0 report.
+Batch production embedding, Tool-health probe budgeting, coverage atoms/witness selection, production trust/provenance enforcement, and the full 84-Profile authoring/review flow remain outside this first vertical slice. The create-only `--generate-profile-stubs` command now exists but intentionally emits identity-only, incomplete drafts so it never guesses capability or safety fields. Production recommendation exposure remains blocked by the solo-maintainer review and release-topology gates recorded in the Phase 0 report.

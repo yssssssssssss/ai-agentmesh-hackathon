@@ -1,0 +1,144 @@
+{
+  "schema_version": "task-catalog-v2-output-mapping-v1",
+  "catalog_version": "user-research-v2",
+  "source_catalog_version": "user-research-v1",
+  "source_catalog_hash": "480d88f8f9d11c0f24bcff7ecb6f2a333d5852391bb80ee2de9217b81b6b9629",
+  "scenarios": [
+    {
+      "scenario_id": "competitor-benchmark-research",
+      "outputs": [
+        {"id": "competitor_selection_logic", "label": "竞品选择逻辑", "compatible_output_kinds": ["competitive_analysis"]},
+        {"id": "pattern_comparison", "label": "模式对比", "compatible_output_kinds": ["competitive_analysis"]},
+        {"id": "benchmark_implications", "label": "标杆启发", "compatible_output_kinds": ["competitive_analysis", "design_strategy", "category_opportunities"]},
+        {"id": "risks_and_limitations", "label": "风险与限制", "compatible_output_kinds": ["risk_analysis", "competitive_analysis"]}
+      ]
+    },
+    {
+      "scenario_id": "data-behavior-diagnosis",
+      "outputs": [
+        {"id": "anomaly_description", "label": "异常描述", "compatible_output_kinds": ["conversion_funnel_analysis", "feature_adoption_analysis", "experience_metrics"]},
+        {"id": "affected_touchpoints", "label": "可能触点", "compatible_output_kinds": ["journey_findings", "journey_map"]},
+        {"id": "causal_hypotheses", "label": "原因假设", "compatible_output_kinds": ["dropoff_diagnosis", "driver_analysis"]},
+        {"id": "validation_recommendations", "label": "验证建议", "compatible_output_kinds": ["measurement_plan", "research_plan"]}
+      ]
+    },
+    {
+      "scenario_id": "experience-walkthrough",
+      "outputs": [
+        {"id": "issue_list", "label": "问题清单", "compatible_output_kinds": ["usability_review", "design_findings", "prioritized_issues"]},
+        {"id": "touchpoint_location", "label": "触点定位", "compatible_output_kinds": ["screenshot_analysis", "journey_findings"]},
+        {"id": "impact_assessment", "label": "影响判断", "compatible_output_kinds": ["design_findings", "experience_metrics"]},
+        {"id": "screenshot_evidence", "label": "证据截图说明", "compatible_output_kinds": ["screenshot_analysis", "research_evidence"]}
+      ]
+    },
+    {
+      "scenario_id": "feedback-issue-clustering",
+      "outputs": [
+        {"id": "issue_themes", "label": "问题主题", "compatible_output_kinds": ["feedback_insights", "pain_point_taxonomy", "qualitative_insights"]},
+        {"id": "representative_quotes", "label": "代表原声", "compatible_output_kinds": ["qualitative_insights", "structured_interview_summary"]},
+        {"id": "frequency_and_severity", "label": "频次/严重度", "compatible_output_kinds": ["pain_point_taxonomy", "prioritized_issues"]},
+        {"id": "follow_up_validation", "label": "后续验证建议", "compatible_output_kinds": ["research_plan", "interview_guide", "survey"]}
+      ]
+    },
+    {
+      "scenario_id": "metrics-validation",
+      "outputs": [
+        {"id": "metric_tree", "label": "指标树", "compatible_output_kinds": ["experience_metrics"]},
+        {"id": "validation_plan", "label": "验证计划", "compatible_output_kinds": ["measurement_plan", "research_plan"]},
+        {"id": "observation_window", "label": "观察窗口", "compatible_output_kinds": ["measurement_plan"]},
+        {"id": "risk_alerts", "label": "风险预警", "compatible_output_kinds": ["risk_analysis", "experience_metrics"]}
+      ]
+    },
+    {
+      "scenario_id": "opportunity-direction-evaluation",
+      "outputs": [
+        {"id": "opportunity_directions", "label": "机会方向清单", "compatible_output_kinds": ["opportunity_themes", "category_opportunities", "opportunity_definition"]},
+        {"id": "value_assessment", "label": "价值判断", "compatible_output_kinds": ["opportunity_definition", "feasibility_review"]},
+        {"id": "validation_hypotheses", "label": "验证假设", "compatible_output_kinds": ["research_plan", "jtbd_analysis"]},
+        {"id": "exploration_priorities", "label": "优先探索建议", "compatible_output_kinds": ["prioritized_issues", "improvement_priorities"]}
+      ]
+    },
+    {
+      "scenario_id": "priority-roadmap",
+      "outputs": [
+        {"id": "priority_tiers", "label": "优先级分层", "compatible_output_kinds": ["prioritized_issues", "improvement_priorities"]},
+        {"id": "implementation_path", "label": "实施路径", "compatible_output_kinds": ["action_plan", "design_strategy"]},
+        {"id": "dependencies", "label": "依赖关系", "compatible_output_kinds": ["feasibility_review", "risk_analysis"]},
+        {"id": "follow_up_plan", "label": "后续计划", "compatible_output_kinds": ["action_plan", "research_plan"]}
+      ]
+    },
+    {
+      "scenario_id": "root-cause-analysis",
+      "outputs": [
+        {"id": "root_cause_hypotheses", "label": "根因假设", "compatible_output_kinds": ["driver_analysis", "dropoff_diagnosis", "jtbd_analysis"]},
+        {"id": "evidence_chain", "label": "证据链", "compatible_output_kinds": ["research_evidence", "research_report"]},
+        {"id": "impact_mechanism", "label": "影响机制", "compatible_output_kinds": ["driver_analysis", "jtbd_analysis"]},
+        {"id": "open_validation_questions", "label": "待验证问题", "compatible_output_kinds": ["research_plan", "interview_guide"]}
+      ]
+    },
+    {
+      "scenario_id": "solution-comparison",
+      "outputs": [
+        {"id": "solution_comparison", "label": "方案对比表", "compatible_output_kinds": ["variant_comparison", "competitive_analysis"]},
+        {"id": "risks", "label": "风险清单", "compatible_output_kinds": ["risk_analysis", "feasibility_review"]},
+        {"id": "tradeoff_recommendation", "label": "推荐取舍", "compatible_output_kinds": ["optimization_recommendations", "design_strategy"]},
+        {"id": "validation_recommendation", "label": "验证建议", "compatible_output_kinds": ["measurement_plan", "usability_test_plan", "ab_test_analysis"]}
+      ]
+    },
+    {
+      "scenario_id": "solution-generation",
+      "outputs": [
+        {"id": "solution_directions", "label": "解决方向", "compatible_output_kinds": ["design_strategy", "optimization_recommendations"]},
+        {"id": "design_actions", "label": "设计动作", "compatible_output_kinds": ["action_plan", "design_findings"]},
+        {"id": "applicability_conditions", "label": "适用条件", "compatible_output_kinds": ["feasibility_review"]},
+        {"id": "dependencies_and_risks", "label": "依赖与风险", "compatible_output_kinds": ["risk_analysis", "feasibility_review"]}
+      ]
+    },
+    {
+      "scenario_id": "strategy-synthesis",
+      "outputs": [
+        {"id": "strategy_summary", "label": "策略摘要", "compatible_output_kinds": ["design_strategy", "research_report"]},
+        {"id": "problem_attribution", "label": "问题归因", "compatible_output_kinds": ["jtbd_analysis", "pain_point_taxonomy", "driver_analysis"]},
+        {"id": "strategy_directions", "label": "策略方向", "compatible_output_kinds": ["design_strategy", "category_opportunities"]},
+        {"id": "design_actions_and_value", "label": "设计动作与价值", "compatible_output_kinds": ["action_plan", "design_strategy"]}
+      ]
+    },
+    {
+      "scenario_id": "trend-change-identification",
+      "outputs": [
+        {"id": "change_signal_summary", "label": "变化信号摘要", "compatible_output_kinds": ["industry_market_analysis", "research_report"]},
+        {"id": "trend_assessment", "label": "趋势判断", "compatible_output_kinds": ["industry_market_analysis"]},
+        {"id": "affected_segments", "label": "影响对象", "compatible_output_kinds": ["user_segments", "persona"]},
+        {"id": "opportunity_hypotheses", "label": "机会假设", "compatible_output_kinds": ["category_opportunities", "opportunity_themes"]},
+        {"id": "open_validation_questions", "label": "待验证问题", "compatible_output_kinds": ["research_plan"]}
+      ]
+    },
+    {
+      "scenario_id": "user-journey-insight",
+      "outputs": [
+        {"id": "user_journey", "label": "用户旅程", "compatible_output_kinds": ["journey_map"]},
+        {"id": "key_touchpoints", "label": "关键触点", "compatible_output_kinds": ["journey_map", "journey_findings"]},
+        {"id": "needs_insights", "label": "需求洞察", "compatible_output_kinds": ["qualitative_insights", "jtbd_analysis"]},
+        {"id": "friction_and_opportunities", "label": "卡点与机会", "compatible_output_kinds": ["experience_opportunities", "pain_point_taxonomy"]}
+      ]
+    },
+    {
+      "scenario_id": "user-material-synthesis",
+      "outputs": [
+        {"id": "material_summary", "label": "资料摘要", "compatible_output_kinds": ["structured_interview_summary", "research_report"]},
+        {"id": "thematic_synthesis", "label": "主题归纳", "compatible_output_kinds": ["qualitative_insights", "feedback_insights"]},
+        {"id": "evidence_strength", "label": "证据强弱", "compatible_output_kinds": ["research_evidence", "research_report"]},
+        {"id": "information_gaps", "label": "待补信息", "compatible_output_kinds": ["research_plan"]}
+      ]
+    },
+    {
+      "scenario_id": "user-segmentation",
+      "outputs": [
+        {"id": "user_segments", "label": "用户分层", "compatible_output_kinds": ["user_segments", "persona"]},
+        {"id": "priority_segments", "label": "重点人群", "compatible_output_kinds": ["user_segments", "persona"]},
+        {"id": "segment_differences", "label": "人群差异", "compatible_output_kinds": ["user_segments", "qualitative_insights"]},
+        {"id": "design_considerations", "label": "设计关注点", "compatible_output_kinds": ["design_strategy", "journey_findings"]}
+      ]
+    }
+  ]
+}

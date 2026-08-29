@@ -1,0 +1,3770 @@
+[
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 / 00 模块总览 竞品分析 / 00 模块总览 定位 竞品分析子模块用于回答“行业中相似问题如何被组织、表达、承接和取舍”，为设计策略提供外部参照。 适用输入 竞品页面截图、流程录屏、规则说明 行业案例、活动机制、产品能力说明 本品现状截图、业务规则、触点结构 用户痛点和项目目标 核心产出 竞品选择逻辑 对",
+    "id": "ds-method-competitor-00-module-overview",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "efb37cfe62588a795c2fc22614312df33e42af9b25bd90ff799fc8d6a5e174f9",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/竞品分析/竞品分析00模块总览.md",
+    "status": "draft",
+    "tags": [
+      "competitor-analysis",
+      "method"
+    ],
+    "task_types": [
+      "competitor-analysis"
+    ],
+    "title": "竞品分析 / 00 模块总览"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 / 01 竞品选择 竞品分析 / 01 竞品选择 目标 明确本次分析为什么选择这些竞品，避免只看熟悉或视觉相似的对象。 竞品类型 类型 定义 适用场景 直接竞品 业务模式、用户任务、转化目标相近 对比核心路径和规则表达 间接竞品 用户任务相似但行业不同 借鉴信息组织和交互模式 标杆案例 在某类体验上表现成熟 ",
+    "id": "ds-method-competitor-01-competitor-selection",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "d9cc916ae69580e4301d21ec958ea22b76f4a29774658323b613981d7f4b2f0f",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/竞品分析/竞品分析01竞品选择.md",
+    "status": "draft",
+    "tags": [
+      "competitor-analysis",
+      "method"
+    ],
+    "task_types": [
+      "competitor-analysis"
+    ],
+    "title": "竞品分析 / 01 竞品选择"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 / 02 对比维度 竞品分析 / 02 对比维度 目标 建立稳定的对比口径，让竞品分析从“截图罗列”转向“模式判断”。 常用维度 维度 关注问题 输出 模式 竞品如何组织玩法、入口和能力 模式差异 阶段 如何表达前置、进行、等待、结束 阶段表达方式 信息位置 关键信息出现在什么页面、流程节点或反馈位置 信息组",
+    "id": "ds-method-competitor-02-comparison-dimensions",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "1d99fa2b7b8067df8395f5a1f40fe9b233f65010252cbad51233e2066aa505cf",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/竞品分析/竞品分析02对比维度.md",
+    "status": "draft",
+    "tags": [
+      "competitor-analysis",
+      "method"
+    ],
+    "task_types": [
+      "competitor-analysis"
+    ],
+    "title": "竞品分析 / 02 对比维度"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 / 竞品研究方法类 竞品分析 / 竞品研究方法类 本文件基于通用方法论整理，待补充团队案例或业务资料验证。 竞品分层方法 核心作用 用于判断哪些竞品应该被重点分析，以及不同竞品在策略推导中的参考价值。它帮助 AI 区分直接竞品、间接竞品、标杆竞品和替代方案，避免把所有产品放在同一层级比较。 调用条件 当用户需",
+    "id": "ds-method-competitor-03",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "d33c5328d4ae0aad6e9d6780edf121e23df61de4732fed507f7bd980d0bf6550",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/竞品分析/竞品分析竞品研究方法类.md",
+    "status": "draft",
+    "tags": [
+      "competitor-analysis",
+      "method"
+    ],
+    "task_types": [
+      "competitor-analysis"
+    ],
+    "title": "竞品分析 / 竞品研究方法类"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 / 03 模式分析 竞品分析 / 03 模式分析 目标 从竞品做法中抽象出可复用的组织模式，而不是停留在单个页面样式。 模式归纳 模式 典型做法 适合解决的问题 使用条件 集中表达 把关键规则和状态聚合到主触点 信息分散、用户找不到重点 信息量可控 分阶段表达 按时间或任务阶段切换信息 阶段不清、等待不确定 ",
+    "id": "ds-method-competitor-03-pattern-analysis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "e69e310d560b8440a6f59390d98fe5e4dc14aa464325d3393b9fe0fd4676de3e",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/竞品分析/竞品分析03模式分析.md",
+    "status": "draft",
+    "tags": [
+      "competitor-analysis",
+      "method"
+    ],
+    "task_types": [
+      "competitor-analysis"
+    ],
+    "title": "竞品分析 / 03 模式分析"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 / 竞品分析框架类 竞品分析 / 竞品分析框架类 本文件基于通用方法论整理，待补充团队案例或业务资料验证。 5W1H 核心作用 用于快速拆解竞品设计背后的对象、场景、原因、时机、位置和方式，帮助 AI 从“看到一个功能”转向理解“它为什么在这里、为谁解决什么问题、如何影响行动”。 调用条件 当竞品资料零散、需",
+    "id": "ds-method-competitor-04",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "58d7951a02bd1cc9750261c12930e2b3a76ea6b020f8ee61cd3bfc9822c64f70",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/竞品分析/竞品分析竞品分析框架类.md",
+    "status": "draft",
+    "tags": [
+      "competitor-analysis",
+      "method"
+    ],
+    "task_types": [
+      "competitor-analysis"
+    ],
+    "title": "竞品分析 / 竞品分析框架类"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 / 04 机会风险 竞品分析 / 04 机会风险 目标 判断竞品做法中哪些值得吸收，哪些因为业务、用户或规则差异不能直接照搬。 机会判断 机会 竞品证据 可解决的问题 落地前提 优先级 风险判断 风险 来源 可能影响 规避方式 业务规则不同 竞品机制和本品规则不一致 借鉴后无法落地 只借鉴信息结构 用户心智不",
+    "id": "ds-method-competitor-04-opportunity-and-risk",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "b8f2f53b0d2946bb407af915e7d668b47d9897d6943ab646fed8651a74bd9ecf",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/竞品分析/竞品分析04机会风险.md",
+    "status": "draft",
+    "tags": [
+      "competitor-analysis",
+      "method"
+    ],
+    "task_types": [
+      "competitor-analysis"
+    ],
+    "title": "竞品分析 / 04 机会风险"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 / 05 洞察输出 竞品分析 / 05 洞察输出 目标 把竞品分析收敛成可用于策略推导的外部启发。 洞察模板 竞品洞察 证据 对应本品问题 策略启发 风险 输出原则 用“模式启发”替代“照抄页面”。 同时说明借鉴价值和限制条件。 每条洞察尽量对应到本品的触点、规则、链路或能力。 可交付内容 竞品洞察摘要 机会",
+    "id": "ds-method-competitor-05-insight-output",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "e96ae99b37672d9d8354e265de91f26e4fab7bfedbc46685867fcadea7e636d4",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/竞品分析/竞品分析05洞察输出.md",
+    "status": "draft",
+    "tags": [
+      "competitor-analysis",
+      "method"
+    ],
+    "task_types": [
+      "competitor-analysis"
+    ],
+    "title": "竞品分析 / 05 洞察输出"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略 / 00 模块总览 设计策略 / 00 模块总览 定位 设计策略子模块用于把用户、竞品、业务和数据证据转译成可评审、可落地、可验证的设计方向。 适用输入 用户痛点和用户洞察 竞品模式和机会风险 业务规则、约束、目标和资源 数据表现、优先级和验证指标 核心产出 问题定义和归因 策略地图 优先级、路线图和验证计划",
+    "id": "ds-method-strategy-00-module-overview",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "894c1b0abc0edfc46bc66667167130a50406e2f52e9c90905abd419cad54d0e7",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/策略推导/设计策略00模块总览.md",
+    "status": "draft",
+    "tags": [
+      "strategy",
+      "method"
+    ],
+    "task_types": [
+      "strategy-map"
+    ],
+    "title": "设计策略 / 00 模块总览"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略 / 01 问题定义 设计策略 / 01 问题定义 目标 把分散证据收敛为 2 到 4 个高阶问题，说明为什么必须做设计策略，而不是只做单点优化。 问题定义模板 高阶问题 证据来源 根因 用户影响 业务影响 设计机会 常见问题类型 类型 表现 策略方向 认知混乱 名称、阶段、时间、状态不一致 统一心智和语义 感",
+    "id": "ds-method-strategy-01-problem-framing",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "89a0f7ebdb5addae99d8a1b363f556e44eda7b9adc66ebbf1a8f7f11cc5cedae",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/策略推导/设计策略01问题定义.md",
+    "status": "draft",
+    "tags": [
+      "strategy",
+      "method"
+    ],
+    "task_types": [
+      "strategy-map"
+    ],
+    "title": "设计策略 / 01 问题定义"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略 / 02 策略地图 设计策略 / 02 策略地图 目标 从痛点反推策略层、策略方向、关键措施、对应触点和验证指标。 策略层 策略层 目标 设计动作 心智层 建立清晰认知 统一命名、阶段、时间语义和文案句式 信息层 降低感知复杂 收敛触点、前置关键信息、明确主次 链路层 提升任务连续性 打通入口、闭环反馈、支持",
+    "id": "ds-method-strategy-02-strategy-map",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "5f13307c48afcdc2d6dbf48fdbeaca72895549e70cb667e78fdd0e1452dfebb8",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/策略推导/设计策略02策略地图.md",
+    "status": "draft",
+    "tags": [
+      "strategy",
+      "method"
+    ],
+    "task_types": [
+      "strategy-map"
+    ],
+    "title": "设计策略 / 02 策略地图"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略 / 04 优先路线 设计策略 / 04 优先路线 目标 根据用户影响、业务影响、上线窗口、实现成本和风险判断策略落地优先级。 优先级判断 优先级 判断标准 输出方式 必须做 影响主路径、造成误解或流失、上线窗口明确 放入核心方案 应该做 显著提升理解效率或转化，但不阻断主链路 放入增强方案 可后置 依赖较多、",
+    "id": "ds-method-strategy-04-priority-and-roadmap",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "0c8ad237732eb643fcf7afa8ceac76aac756f1fb61993de8ba6097e737f54ea8",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/策略推导/设计策略04优先路线.md",
+    "status": "draft",
+    "tags": [
+      "strategy",
+      "method"
+    ],
+    "task_types": [
+      "strategy-map"
+    ],
+    "title": "设计策略 / 04 优先路线"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略 / 体验策略方法论类 设计策略 / 体验策略方法论类 本文件基于通用方法论整理，待补充团队案例或业务资料验证。 体验五要素 核心作用 用于从战略、范围、结构、框架、表现五层拆解体验问题，帮助 AI 判断问题发生在目标、功能范围、信息结构、交互框架还是视觉表现层，并推导对应设计动作。 调用条件 当用户输入包含复",
+    "id": "ds-method-strategy-05",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "445f116921d801ae5f898715e8d36cf1b16bdb8784b4e529c6f3d5b3028167d4",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/策略推导/设计策略体验策略方法论类.md",
+    "status": "draft",
+    "tags": [
+      "strategy",
+      "method"
+    ],
+    "task_types": [
+      "strategy-map"
+    ],
+    "title": "设计策略 / 体验策略方法论类"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略 / 05 评审验证 设计策略 / 05 评审验证 目标 让设计策略可以被评审、被决策、被上线后验证。 汇报结构 部分 说明 背景 项目为什么重要，覆盖哪些用户和业务场景 问题 用用户、竞品、业务、数据证据说明现状问题 归因 收敛 2 到 4 个高阶问题 策略 说明每个问题对应的策略层 动作 展示触点级设计措施",
+    "id": "ds-method-strategy-05-review-and-validation",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "8f5e25f17526862382e419e367054f7023c77e65081167ac069b22406aeed7a1",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/策略推导/设计策略05评审验证.md",
+    "status": "draft",
+    "tags": [
+      "strategy",
+      "method"
+    ],
+    "task_types": [
+      "strategy-map"
+    ],
+    "title": "设计策略 / 05 评审验证"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略 / 策略推导模型类 设计策略 / 策略推导模型类 本文件基于通用方法论整理，待补充团队案例或业务资料验证。 目标 问题 策略 方案模型 核心作用 用于把业务目标、用户问题、策略侧重点和具体方案串成闭环，帮助 AI 避免直接从问题跳到方案，确保每个设计动作都有明确目标和验证方式。 调用条件 当用户需要输出策略方",
+    "id": "ds-method-strategy-06",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "a6f6a003feca3fc577ded0787fd10a64ebd3a94e4c25408d16e1e03bcc752e1c",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/策略推导/设计策略策略推导模型类.md",
+    "status": "draft",
+    "tags": [
+      "strategy",
+      "method"
+    ],
+    "task_types": [
+      "strategy-map"
+    ],
+    "title": "设计策略 / 策略推导模型类"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户分析 / 00 模块总览 用户分析 / 00 模块总览 定位 用户分析子模块用于回答“用户是谁、在什么任务里为什么卡住、这些卡点如何影响体验和业务结果”。 适用输入 用户访谈、问卷、客服反馈、用户之声 行为路径、点击数据、转化数据、流失数据 页面截图、流程录屏、可用性测试记录 业务目标、目标人群、项目边界 核心产出",
+    "id": "ds-method-user-00-module-overview",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "03b8b4e5c9b4060b62249df8752984385682d4574fa220e6b9d0eac66f498abc",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/用户分析/用户分析00模块总览.md",
+    "status": "draft",
+    "tags": [
+      "user-analysis",
+      "method"
+    ],
+    "task_types": [
+      "user-analysis"
+    ],
+    "title": "用户分析 / 00 模块总览"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户画像 Persona 用户画像 Persona 核心作用 Persona 是将用户研究信息综合为代表性用户类型的方法，用于判断不同用户的目标、行为、信息需求、决策标准和主要阻力是否存在差异。它不是为了描述“一个人”，而是帮助体验设计判断：谁是主要用户、谁需要兼容、谁不应影响主路径，以及是否需要差异化设计动作。 调用",
+    "id": "ds-method-user-01",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "0cd9bdadfc091c1b4e6c93ea7663a8253e69d7ae3d2eaf993188a3e1a87e9209",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/用户分析/用户画像Persona.md",
+    "status": "draft",
+    "tags": [
+      "user-analysis",
+      "method"
+    ],
+    "task_types": [
+      "user-analysis"
+    ],
+    "title": "用户画像 Persona"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户分析 / 01 分析边界 用户分析 / 01 分析边界 目标 在开始分析前，明确本次用户分析服务于哪个项目、哪类用户、哪个任务阶段和哪种设计决策。 需要确认 项目 说明 结论 分析对象 页面、模块、链路、活动阶段或业务能力 核心用户 新用户、老用户、高意向用户、价格敏感用户等 使用场景 时间、渠道、状态、任务背景 ",
+    "id": "ds-method-user-01-research-scope",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "b200380dd6bd4a8b4e4cfd708bb60c734f7418fe8f1afbf1b09a7c3c05c39a5c",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/用户分析/用户分析01分析边界.md",
+    "status": "draft",
+    "tags": [
+      "user-analysis",
+      "method"
+    ],
+    "task_types": [
+      "user-analysis"
+    ],
+    "title": "用户分析 / 01 分析边界"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户分析 / 用户认知与行为模型类 用户分析 / 用户认知与行为模型类 本文件基于通用方法论整理，待补充团队案例或业务资料验证。 认知负荷理论 核心作用 用于判断用户在理解规则、比较信息、完成决策时是否承受了过高的信息处理负担。它帮助 AI 识别用户不是“不感兴趣”，而是被信息数量、术语、步骤或计算成本拖住，从而推导信",
+    "id": "ds-method-user-02",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "ab552ee864263e58d20e9755e2e51734ac37f5f3c5f4b3b979c2d88772f0aa20",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/用户分析/用户分析用户认知与行为模型类.md",
+    "status": "draft",
+    "tags": [
+      "user-analysis",
+      "method"
+    ],
+    "task_types": [
+      "user-analysis"
+    ],
+    "title": "用户分析 / 用户认知与行为模型类"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户分析 / 02 用户分层 用户分析 / 02 用户分层 目标 识别不同用户类型在目标、认知、经验、敏感点和行为路径上的差异。 常见分层维度 维度 示例 设计意义 经验 新手、熟客、专家用户 判断解释深度和默认路径 意向 高意向、低意向、犹豫用户 判断利益表达和行动引导 规则敏感度 强规则敏感、弱规则敏感 判断规则前",
+    "id": "ds-method-user-02-user-segmentation",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "145fce590f5d40d95b01c61914a256363dee46edd03c7f2c2401e9d7f55901f9",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/用户分析/用户分析02用户分层.md",
+    "status": "draft",
+    "tags": [
+      "user-analysis",
+      "method"
+    ],
+    "task_types": [
+      "user-analysis"
+    ],
+    "title": "用户分析 / 02 用户分层"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户分析 / 03 旅程任务 用户分析 / 03 旅程任务 目标 按照用户完成任务的真实顺序，拆解触点、动作、信息需求、情绪变化和阻断点。 旅程拆解 阶段 用户目标 用户动作 关键触点 信息需求 情绪状态 风险 发现 理解 决策 行动 等待 回访 关注点 用户是否知道当前是什么。 用户是否知道下一步会发生什么。 用户是",
+    "id": "ds-method-user-03-journey-and-tasks",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "91f15a80bcffa19799c4f06e822997e68934393f31ce3f0a2b216418db1ed715",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/用户分析/用户分析03旅程任务.md",
+    "status": "draft",
+    "tags": [
+      "user-analysis",
+      "method"
+    ],
+    "task_types": [
+      "user-analysis"
+    ],
+    "title": "用户分析 / 03 旅程任务"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户分析 / 04 痛点诊断 用户分析 / 04 痛点诊断 目标 把零散问题归因为可被设计解决的体验痛点，避免只罗列现象。 诊断层级 层级 判断问题 典型表现 心智层 用户是否理解当前状态和阶段 名称不一致、阶段歧义、时间表达混乱 信息层 用户是否抓得住关键决策信息 信息分散、优先级冲突、规则后置 链路层 用户是否能连",
+    "id": "ds-method-user-04-painpoint-diagnosis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "94c2257517ba030f74c6e357df7ffa325df0bb0e999e1a17e13879aaf5c60d00",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/用户分析/用户分析04痛点诊断.md",
+    "status": "draft",
+    "tags": [
+      "user-analysis",
+      "method"
+    ],
+    "task_types": [
+      "user-analysis"
+    ],
+    "title": "用户分析 / 04 痛点诊断"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户分析 / 05 洞察输出 用户分析 / 05 洞察输出 目标 把用户分析结论收敛为设计策略可以直接使用的洞察。 洞察结构 洞察 证据 用户影响 策略启发 待验证 输出原则 洞察必须来自证据，不从方案倒推。 每条洞察要能对应到触点、信息、流程、规则或能力。 不确定内容标注为“待验证”。 可交付内容 用户洞察摘要 核心",
+    "id": "ds-method-user-05-insight-output",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "94ecd672879bf4ce62bd935c32b10a59ee79d1c033dfbe73675487035dc0f5ba",
+    "source_path": "03-knowledge-知识/方法知识/设计策略/用户分析/用户分析05洞察输出.md",
+    "status": "draft",
+    "tags": [
+      "user-analysis",
+      "method"
+    ],
+    "task_types": [
+      "user-analysis"
+    ],
+    "title": "用户分析 / 05 洞察输出"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品策略分析 Skill检查清单 定界是否完整。 四类证据是否分开。 痛点是否有根因和影响。 策略是否能落到触点、规则、文案或状态。 缺口是否标注待验证。",
+    "id": "ds-skill-competitor-strategy-analysis-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "3bf6e018a08032af209da227ea441465b593e30fcb6e80ed4167493cba51fb02",
+    "source_path": "02-skills-技能/设计策略/竞品策略分析/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "competitor-strategy-analysis"
+    ],
+    "title": "竞品策略分析 Skill检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略地图生成 Skill检查清单 定界是否完整。 四类证据是否分开。 痛点是否有根因和影响。 策略是否能落到触点、规则、文案或状态。 缺口是否标注待验证。",
+    "id": "ds-skill-strategy-map-generation-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "e06577b7a7027affcb72331820951b14fb774c537c7b43beb8c43adad69e4293",
+    "source_path": "02-skills-技能/设计策略/设计策略地图生成/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "strategy-map-generation"
+    ],
+    "title": "设计策略地图生成 Skill检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户洞察综合分析 Skill检查清单 定界是否完整。 四类证据是否分开。 痛点是否有根因和影响。 策略是否能落到触点、规则、文案或状态。 缺口是否标注待验证。",
+    "id": "ds-skill-user-insight-synthesis-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "b883a8e313aa6ac27e0ad37a2ef564645d3c79230ea3850fc807bb66ef0d1bf7",
+    "source_path": "02-skills-技能/设计策略/用户洞察综合分析/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "user-insight-synthesis"
+    ],
+    "title": "用户洞察综合分析 Skill检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略案例卡模板 设计策略案例卡模板 用于把 PDF、截图、汇报页、研究材料转成可检索、可复用的优秀案例卡。 核心原则：统一主模板，按案例类型裁剪；不为填满字段编造内容；所有判断都要能追溯到原始材料。 0. 录入规则 案例类型 类型 定义 必填重点 完整设计策略推导 从背景、证据、问题、洞察推导到策略、动作、取舍或验",
+    "id": "ds-template-design-strategy-case-card-template",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "b2de65772de63178c255fa3fefaaf93f42171313aeb1b1c4a824c1cded504df5",
+    "source_path": "03-knowledge-知识/模板库/设计策略/设计策略案例卡模板.md",
+    "status": "draft",
+    "tags": [
+      "template",
+      "design-strategy"
+    ],
+    "task_types": [],
+    "title": "设计策略案例卡模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "案例入库规则 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次性业务规则；商详规则不",
+    "id": "mechanism-case-intake",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "e40ee97547466fe896ba5a7691cb2cb0acef5df91b2da3929a7e8818e117dfe8",
+    "source_path": "04-mechanism-机制/治理机制/案例入库规则.md",
+    "status": "draft",
+    "tags": [
+      "case-intake"
+    ],
+    "task_types": [],
+    "title": "案例入库规则"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "缺少场域知识时的处理规则 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次性业务规则",
+    "id": "mechanism-domain-fallback",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "e65e2de67476b4925dfda443e95a4716ea8e432de845b2098ffc64c0de6e8f4c",
+    "source_path": "04-mechanism-机制/降级机制/缺少场域知识时的处理规则.md",
+    "status": "draft",
+    "tags": [
+      "domain-fallback"
+    ],
+    "task_types": [],
+    "title": "缺少场域知识时的处理规则"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "策略质量门禁 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次性业务规则；商详规则不",
+    "id": "mechanism-ds-quality-gates",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "5058acd3132fc23c6872a9cd6c1ea76fe2cfc8d045cfd509eccc81412bcfdc2d",
+    "source_path": "04-mechanism-机制/质量机制/策略质量门禁.md",
+    "status": "draft",
+    "tags": [
+      "quality",
+      "design-strategy"
+    ],
+    "task_types": [],
+    "title": "策略质量门禁"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "证据冲突处理规则 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次性业务规则；商详规",
+    "id": "mechanism-evidence-conflict",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "51b5709d224a95a7e476f1e306efcf6d578cab33b8242d950391bac99040d3c2",
+    "source_path": "04-mechanism-机制/证据机制/证据冲突处理规则.md",
+    "status": "draft",
+    "tags": [
+      "conflict"
+    ],
+    "task_types": [],
+    "title": "证据冲突处理规则"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "证据成熟度规则 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次性业务规则；商详规则",
+    "id": "mechanism-evidence-maturity",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "cba0e84ee9f2c47fe1d6a0a833d8579300440db358167571a9d350a05205f773",
+    "source_path": "04-mechanism-机制/证据机制/证据成熟度规则.md",
+    "status": "draft",
+    "tags": [
+      "evidence-maturity"
+    ],
+    "task_types": [],
+    "title": "证据成熟度规则"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "证据分类规则 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次性业务规则；商详规则不",
+    "id": "mechanism-evidence-taxonomy",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "146c5f1f2f547544a1c6472dbc0b387ad44246fff75a70b1a546bf7598fa694a",
+    "source_path": "04-mechanism-机制/证据机制/证据分类规则.md",
+    "status": "draft",
+    "tags": [
+      "evidence"
+    ],
+    "task_types": [],
+    "title": "证据分类规则"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "Frontmatter 与命名治理 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次",
+    "id": "mechanism-frontmatter-naming",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "b7ff0b3e64636112dcfab75d1f628d50fda67dc6fb3207042b915f17e432df18",
+    "source_path": "04-mechanism-机制/治理机制/Frontmatter与命名治理.md",
+    "status": "draft",
+    "tags": [
+      "frontmatter",
+      "naming"
+    ],
+    "task_types": [],
+    "title": "Frontmatter 与命名治理"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "缺失信息降级规则 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次性业务规则；商详规",
+    "id": "mechanism-missing-info-fallback",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "3fc0e56d29430df3a8c153632c23e5fb08dbe93bfe2d4e9ec34cb31bdeb8c61c",
+    "source_path": "04-mechanism-机制/降级机制/缺失信息降级规则.md",
+    "status": "draft",
+    "tags": [
+      "fallback"
+    ],
+    "task_types": [],
+    "title": "缺失信息降级规则"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "Skill 与 Knowledge 路由规则 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混",
+    "id": "mechanism-skill-knowledge-routing",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "6c53523f037843576ea589da222a643593199015ef1481656fff3b5715104acc",
+    "source_path": "04-mechanism-机制/路由机制/Skill与Knowledge路由规则.md",
+    "status": "draft",
+    "tags": [
+      "skill-routing",
+      "knowledge-routing"
+    ],
+    "task_types": [],
+    "title": "Skill 与 Knowledge 路由规则"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "任务路由规则 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次性业务规则；商详规则不",
+    "id": "mechanism-task-routing",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "465b44d5b0cbef2de4c5721012611ea902791633225ab6c3136c3323e2dac501",
+    "source_path": "04-mechanism-机制/路由机制/任务路由规则.md",
+    "status": "draft",
+    "tags": [
+      "task-routing"
+    ],
+    "task_types": [],
+    "title": "任务路由规则"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用研质量门禁 适用范围 该机制面向整个 Experience Knowledge Hub，不在各 Skill 中重复维护。 规则 先识别任务类型，再读取对应 task、skill、knowledge 和 case。 结论必须绑定证据；证据不足时标注 draft 或待验证。 通用方法不得混入商详一次性业务规则；商详规则不",
+    "id": "mechanism-ur-quality-gates",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "5c3aae7f011acb51b4a4bf67379d47d9b1d67b793745d8d2e96fb0500634d467",
+    "source_path": "04-mechanism-机制/质量机制/用研质量门禁.md",
+    "status": "draft",
+    "tags": [
+      "quality",
+      "user-research"
+    ],
+    "task_types": [],
+    "title": "用研质量门禁"
+  },
+  {
+    "business_domain": "product-detail-page",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "商详从浏览到决策的用户旅程 定位 描述用户从进入商详、理解商品、比较利益、确认规格到下单/收藏/咨询的任务链路。 来源与适用边界 本文件只根据已入库商详案例、命名规范和预研 PDF 提炼，状态为 draft。单次案例中的设计做法不得在未验证前作为强制通用规则。 可复用要点 先判断该知识是否属于商详稳定场域知识，而不是某",
+    "id": "pd-domain-browse-to-decision",
+    "item_type": "domain-knowledge",
+    "related_items": [],
+    "source_hash": "6833c8d5da6b8cbdf3aa99bbdb7b442d84ed669f51a672da6942268a67a6d536",
+    "source_path": "03-knowledge-知识/场域知识包/黄流导购设计部/原始材料/商品详情页旧结构/用户旅程/商详从浏览到决策的用户旅程.md",
+    "status": "draft",
+    "tags": [
+      "user-journeys"
+    ],
+    "task_types": [],
+    "title": "商详从浏览到决策的用户旅程"
+  },
+  {
+    "business_domain": "product-detail-page",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "商详模块边界与组件职责 定位 用于判断主图、标题、价格、活动、履约、服务、店铺、规格选择等模块各自承担的信息职责。 来源与适用边界 本文件只根据已入库商详案例、命名规范和预研 PDF 提炼，状态为 draft。单次案例中的设计做法不得在未验证前作为强制通用规则。 可复用要点 先判断该知识是否属于商详稳定场域知识，而不是",
+    "id": "pd-domain-component-boundaries",
+    "item_type": "domain-knowledge",
+    "related_items": [],
+    "source_hash": "77cbea4b4d9041f873758fba9d235aa0169f104225b269f43bd39c6383a4ed85",
+    "source_path": "03-knowledge-知识/场域知识包/黄流导购设计部/原始材料/商品详情页旧结构/模块定义/商详模块边界与组件职责.md",
+    "status": "draft",
+    "tags": [
+      "module-definitions"
+    ],
+    "task_types": [],
+    "title": "商详模块边界与组件职责"
+  },
+  {
+    "business_domain": "product-detail-page",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "商详首屏与核心模块结构 定位 沉淀商详首屏、主图、标题、价格、利益点、履约、服务、店铺、底部栏等模块的稳定知识入口。 来源与适用边界 本文件只根据已入库商详案例、命名规范和预研 PDF 提炼，状态为 draft。单次案例中的设计做法不得在未验证前作为强制通用规则。 可复用要点 先判断该知识是否属于商详稳定场域知识，而不",
+    "id": "pd-domain-first-screen-and-core-modules",
+    "item_type": "domain-knowledge",
+    "related_items": [],
+    "source_hash": "02ce8265e29d4b16fdecd7712356d348488306bb71e626ee70b59c816882ec34",
+    "source_path": "03-knowledge-知识/场域知识包/黄流导购设计部/原始材料/商品详情页旧结构/页面结构/商详首屏与核心模块结构.md",
+    "status": "draft",
+    "tags": [
+      "page-structure"
+    ],
+    "task_types": [],
+    "title": "商详首屏与核心模块结构"
+  },
+  {
+    "business_domain": "product-detail-page",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "商详落地约束与治理边界 定位 记录跨端适配、运营配置、研发成本、规则互斥、素材依赖等商详策略落地约束。 来源与适用边界 本文件只根据已入库商详案例、命名规范和预研 PDF 提炼，状态为 draft。单次案例中的设计做法不得在未验证前作为强制通用规则。 可复用要点 先判断该知识是否属于商详稳定场域知识，而不是某个项目的一",
+    "id": "pd-domain-implementation-and-governance-constraints",
+    "item_type": "domain-knowledge",
+    "related_items": [],
+    "source_hash": "cd45f04df1089a63a0c59fb6f559717e366ee64e9f6556f17bb4b75bee2681d6",
+    "source_path": "03-knowledge-知识/场域知识包/黄流导购设计部/原始材料/商品详情页旧结构/约束条件/商详落地约束与治理边界.md",
+    "status": "draft",
+    "tags": [
+      "constraints"
+    ],
+    "task_types": [],
+    "title": "商详落地约束与治理边界"
+  },
+  {
+    "business_domain": "product-detail-page",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "商详命名规范 来源说明 本文件由 xlsx 表格抽取，作为商详场域术语和命名规则的稳定知识。 Sheet: 功能定义及标识（instance） 层级1 层级 depth 层级2 区域 area 层级3 模块 module 类型 Ytype 横切 Xtype 场景 Scene 待绑定 通用楼层 universalFloo",
+    "id": "pd-domain-naming-rules",
+    "item_type": "domain-knowledge",
+    "related_items": [],
+    "source_hash": "77b2686cc9f90893701cfd59c6d2987ea582dc618cb1ca8522b0db61064edb80",
+    "source_path": "03-knowledge-知识/场域知识包/黄流导购设计部/原始材料/商品详情页旧结构/术语表/商详命名规范.md",
+    "status": "draft",
+    "tags": [
+      "glossary",
+      "naming"
+    ],
+    "task_types": [],
+    "title": "商详命名规范"
+  },
+  {
+    "business_domain": "product-detail-page",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "商详体验指标口径 定位 沉淀商详诊断时可观察的点击、转化、咨询、加购、停留、展开、异常反馈等指标口径。 来源与适用边界 本文件只根据已入库商详案例、命名规范和预研 PDF 提炼，状态为 draft。单次案例中的设计做法不得在未验证前作为强制通用规则。 可复用要点 先判断该知识是否属于商详稳定场域知识，而不是某个项目的一",
+    "id": "pd-domain-product-detail-experience-metrics",
+    "item_type": "domain-knowledge",
+    "related_items": [],
+    "source_hash": "462b44bd2bbb34acf7d4aec5b57a01511a091b8ce8f79919b9993cf39f7d9d09",
+    "source_path": "03-knowledge-知识/场域知识包/黄流导购设计部/原始材料/商品详情页旧结构/指标口径/商详体验指标口径.md",
+    "status": "draft",
+    "tags": [
+      "metrics"
+    ],
+    "task_types": [],
+    "title": "商详体验指标口径"
+  },
+  {
+    "business_domain": "product-detail-page",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "商详体验策略原则 定位 把案例中可复用的商详规律提炼为待验证原则，避免直接照搬单次项目方案。 来源与适用边界 本文件只根据已入库商详案例、命名规范和预研 PDF 提炼，状态为 draft。单次案例中的设计做法不得在未验证前作为强制通用规则。 可复用要点 先判断该知识是否属于商详稳定场域知识，而不是某个项目的一次性方案。",
+    "id": "pd-domain-product-detail-strategy-principles",
+    "item_type": "domain-knowledge",
+    "related_items": [],
+    "source_hash": "9665e7647f29f447cd8609a701a0aecbc71af3189c8e2b7b8a98ff0f50946e5e",
+    "source_path": "03-knowledge-知识/场域知识包/黄流导购设计部/原始材料/商品详情页旧结构/设计原则/商详体验策略原则.md",
+    "status": "draft",
+    "tags": [
+      "design-principles"
+    ],
+    "task_types": [],
+    "title": "商详体验策略原则"
+  },
+  {
+    "business_domain": "product-detail-page",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "商详促销与购买规则表达 定位 归纳商详中优惠、预售、预约、库存、规格、履约等规则需要被表达、解释和降级的位置。 来源与适用边界 本文件只根据已入库商详案例、命名规范和预研 PDF 提炼，状态为 draft。单次案例中的设计做法不得在未验证前作为强制通用规则。 可复用要点 先判断该知识是否属于商详稳定场域知识，而不是某个",
+    "id": "pd-domain-promotion-and-purchase-rules",
+    "item_type": "domain-knowledge",
+    "related_items": [],
+    "source_hash": "8737d46bf02b17fffebe40198204813f6cecbcc25f7c128911b5600bff6d7810",
+    "source_path": "03-knowledge-知识/场域知识包/黄流导购设计部/原始材料/商品详情页旧结构/业务规则/商详促销与购买规则表达.md",
+    "status": "draft",
+    "tags": [
+      "business-rules"
+    ],
+    "task_types": [],
+    "title": "商详促销与购买规则表达"
+  },
+  {
+    "business_domain": "product-detail-page",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "预约与预售表达模式 定位 保留预约、预售、阶段态、等待态等模式线索，供商详策略任务检索。 来源与适用边界 本文件只根据已入库商详案例、命名规范和预研 PDF 提炼，状态为 draft。单次案例中的设计做法不得在未验证前作为强制通用规则。 可复用要点 先判断该知识是否属于商详稳定场域知识，而不是某个项目的一次性方案。 使",
+    "id": "pd-domain-reservation-and-presale-patterns",
+    "item_type": "domain-knowledge",
+    "related_items": [],
+    "source_hash": "07a0513aad6b3aebb3d725b2c3d99372e73424b8082d10945695653848ff5957",
+    "source_path": "03-knowledge-知识/场域知识包/黄流导购设计部/原始材料/商品详情页旧结构/标杆模式/预约与预售表达模式.md",
+    "status": "draft",
+    "tags": [
+      "benchmark-patterns"
+    ],
+    "task_types": [],
+    "title": "预约与预售表达模式"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷题库 · 行为与习惯（behavior habits） 问卷题库 · 行为与习惯（behavior habits） 主题定义 ：现状行为的量化题——平台使用、频率、客单价、品类偏好、购买节奏。收\"平时怎么做\"。 占位符约定 ： [目标品类] / [目标人群] / [本平台] / [目标权益] / [AI功能] ，复",
+    "id": "ur-asset-behavior-habits",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "f733675f6f2ab06080cf843b6560925ccd170f137723d3e24bac7895a57dae27",
+    "source_path": "03-knowledge-知识/模板库/用户研究/问卷题库行为与习惯（behavior-habits）.md",
+    "status": "draft",
+    "tags": [
+      "asset",
+      "template"
+    ],
+    "task_types": [],
+    "title": "问卷题库 · 行为与习惯（behavior-habits）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷题库 · 概念与方案评估（concept test） 问卷题库 · 概念与方案评估（concept test） 主题定义 ：对具体方案/专区/功能/呈现的偏好与量化评价。收\"对这个方案怎么看、更倾向哪个\"。 占位符约定 ： [目标品类] / [目标人群] / [本平台] / [候选标签] / [候选规则] / [目",
+    "id": "ur-asset-concept-test",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "2fab414d1b55414ec611c299ef01e1e13e92f54e50ec1e080e3379c0f31b530d",
+    "source_path": "03-knowledge-知识/模板库/用户研究/问卷题库概念与方案评估（concept-test）.md",
+    "status": "draft",
+    "tags": [
+      "asset",
+      "template"
+    ],
+    "task_types": [],
+    "title": "问卷题库 · 概念与方案评估（concept-test）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷题库 · 决策与链路（decision journey） 问卷题库 · 决策与链路（decision journey） 主题定义 ：购买决策相关的量化题——关注因素、选店/选品偏好、信息展示优先级、筛选方式、优惠呈现。收\"选和买时看什么、怎么选\"。 占位符约定 ： [目标品类] / [目标人群] / [本平台] ，",
+    "id": "ur-asset-decision-journey",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "f8e9622532f59c7c426c64d0f247f9ad577af17a02a6cc63181f2a6461bc39a3",
+    "source_path": "03-knowledge-知识/模板库/用户研究/问卷题库决策与链路（decision-journey）.md",
+    "status": "draft",
+    "tags": [
+      "asset",
+      "template"
+    ],
+    "task_types": [],
+    "title": "问卷题库 · 决策与链路（decision-journey）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷题库 · 体验与痛点（experience painpoints） 问卷题库 · 体验与痛点（experience painpoints） 主题定义 ：使用/购买中的不便、阻碍、以及对本平台体验的负向评价（量化）。收\"哪里不方便/不满意/为何不选\"。 占位符约定 ： [目标品类] / [目标人群] / [本平台] ",
+    "id": "ur-asset-experience-painpoints",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "6e234b96a0e5b338e84283547c48b2e7d7960d55e14653111492618fcf7a8bd9",
+    "source_path": "03-knowledge-知识/模板库/用户研究/问卷题库体验与痛点（experience-painpoints）.md",
+    "status": "draft",
+    "tags": [
+      "asset",
+      "template"
+    ],
+    "task_types": [],
+    "title": "问卷题库 · 体验与痛点（experience-painpoints）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "访谈禁问清单与中立替代话术 访谈禁问清单与中立替代话术 来源：访谈技巧知识库·孙文佳《AI主持人访谈原则及技巧》（\"禁止提问清单\"，原用于 AI 主持人自动拦截不输出）。 现成可直接拿来用的「禁问—改写」对照卡：用户 无法作答 / 超出认知 / 答案必然失真 的六类问题，访谈（含 AI 主持）时应避免，并改为中立、可作",
+    "id": "ur-asset-interview-forbidden-questions",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "f6cd8a4a687e6d7516bbdf8b8c1688e628fe028bb1b744eb5f928e3bbc04909b",
+    "source_path": "03-knowledge-知识/模板库/用户研究/访谈禁问清单与中立替代话术.md",
+    "status": "draft",
+    "tags": [
+      "asset",
+      "template"
+    ],
+    "task_types": [],
+    "title": "访谈禁问清单与中立替代话术"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷题库 · 心智与认知（mindset cognition） 问卷题库 · 心智与认知（mindset cognition） 主题定义 ：态度/观念分型、品牌偏好、平台/活动认知的量化题。收\"怎么想/什么态度\"。 占位符约定 ： [目标品类] / [目标人群] / [本平台] / [目标活动] / [关联子品牌] /",
+    "id": "ur-asset-mindset-cognition",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "b897185fb59cbb5c36804ab1d31f0bfce18ba1661824f6b58773923c9d85ba4d",
+    "source_path": "03-knowledge-知识/模板库/用户研究/问卷题库心智与认知（mindset-cognition）.md",
+    "status": "draft",
+    "tags": [
+      "asset",
+      "template"
+    ],
+    "task_types": [],
+    "title": "问卷题库 · 心智与认知（mindset-cognition）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷题库 · 需求与场景（needs scenarios） 问卷题库 · 需求与场景（needs scenarios） 主题定义 ：场景枚举、场景触发原因、场景占比的量化题。收\"什么情况下用/买\"。 占位符约定 ： [目标品类] / [目标人群] / [场景] ，复用时替换。 题组 下单/使用场景枚举 【多选·限N项】",
+    "id": "ur-asset-needs-scenarios",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "0570413012ca95030b8c9fdbf18ffded147fae30666359e21ebde628311cbdd5",
+    "source_path": "03-knowledge-知识/模板库/用户研究/问卷题库需求与场景（needs-scenarios）.md",
+    "status": "draft",
+    "tags": [
+      "asset",
+      "template"
+    ],
+    "task_types": [],
+    "title": "问卷题库 · 需求与场景（needs-scenarios）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷题库 · 筛选与背景（screener demographics） 问卷题库 · 筛选与背景（screener demographics） 主题定义 ：甄别题（含终止逻辑）与人口统计题。收\"是否合格 + 是谁\"。 与相邻主题边界：现状行为归 [[behavior habits]]（survey）。 占位符约定 ： ",
+    "id": "ur-asset-screener-demographics",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "777f5acd73059511865bcc706cef31056fb7e0c6cdb357ad68247faf587a2460",
+    "source_path": "03-knowledge-知识/模板库/用户研究/问卷题库筛选与背景（screener-demographics）.md",
+    "status": "draft",
+    "tags": [
+      "asset",
+      "template"
+    ],
+    "task_types": [],
+    "title": "问卷题库 · 筛选与背景（screener-demographics）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "标准化体验量表（SUS / UMUX Lite / SEQ / NPS / CSAT / CES） 标准化体验量表（SUS / UMUX Lite / SEQ / NPS / CSAT / CES） 来源：Joyspace《体验度量方法（UX Metrics：HEART 框架与体验量化）》 https://joyspa",
+    "id": "ur-asset-standardized-ux-scales",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "85c2d88362d72a88b175079140a52dcb801824245f6dfb9e44094aabe2478303",
+    "source_path": "03-knowledge-知识/模板库/用户研究/标准化体验量表（SUSUMUX-LiteSEQNPSCSATCES）.md",
+    "status": "draft",
+    "tags": [
+      "asset",
+      "template"
+    ],
+    "task_types": [],
+    "title": "标准化体验量表（SUS / UMUX-Lite / SEQ / NPS / CSAT / CES）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "品类研究打法 品类研究打法 来源：神灯圈子·翁鸿诚《【品类研究系列课程 第一讲】品类研究初识》 原文 http://xingyun.jd.com/shendeng/article/detail/59941 本篇为「品类研究系列课程」的 第一讲（初识）系列开篇 ，定位为对品类研究的整体认知与场景框架。系列后续：第二讲「目",
+    "id": "ur-method-methods-scenarios-category-consumption-cross-category-category-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "4763e55f0b8a0c273f52f4bbecb3383ad457b04be93688fce1b680f34bff1804",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/场景打法/品类研究打法.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "品类研究打法"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "流失用户调研打法 流失用户调研打法 来源：神灯圈子·翁鸿诚《流失用户调研》两讲 —— 第一讲《真假流失用户判断与识别》 原文 http://xingyun.jd.com/shendeng/article/detail/53607（Joyspace 镜像 https://joyspace.jd.com/pages/Zk7",
+    "id": "ur-method-methods-scenarios-category-consumption-cross-category-churn-user-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "17d77ec7445903de252ffcfcf90050ec3c709e3ba22d81762c5f77fdb7884921",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/场景打法/流失用户调研打法.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "流失用户调研打法"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "B 端系统体验度量打法 B 端系统体验度量打法 来源：神灯圈子·王仰龙《B端系统体验度量OnePage》 原文 http://xingyun.jd.com/shendeng/article/detail/52413（Joyspace 镜像 https://joyspace.jd.com/pages/OVrKVjTmc9",
+    "id": "ur-method-methods-scenarios-comprehensive-business-cross-line-topics-b-end-experience-measurement",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "50139de7f8169b8bd913929f3110013911abecdf6257de1b4092d583261fa74a",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/场景打法/B端系统体验度量打法.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "B 端系统体验度量打法"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "持续发现（Continuous Discovery）打法 持续发现（Continuous Discovery）打法 来源：Joyspace《持续发现（Continuous Discovery）》 https://joyspace.jd.com/pages/LnnnXeI7dREvOyY0kB0x 本篇是 编排型 打法：",
+    "id": "ur-method-methods-scenarios-product-experience-iteration-continuous-discovery",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "1415f2d338dd59cb9e2d0dbabf1ff8cd00a9ed3c28fd5633b1c4d18e1ff12e0a",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/场景打法/持续发现（ContinuousDiscovery）打法.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "持续发现（Continuous Discovery）打法"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "产品迭代期·效果评估与问题诊断打法 产品迭代期·效果评估与问题诊断打法 把迭代期常用的 toolbox 方法编排成「这个阶段该怎么打」的应用指南。 只按路径引用方法本体，绝不复制方法正文。 落点： methods/scenarios/product experience/ （stage=迭代）。 说明：本篇是 编排篇 ",
+    "id": "ur-method-methods-scenarios-product-experience-iteration-iteration-evaluation-diagnosis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "b0b997bc60abac1a7b2855ac932c135c945ba18892fa5b42a10cd399c71635d8",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/场景打法/产品迭代期效果评估与问题诊断打法.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "产品迭代期·效果评估与问题诊断打法"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "无障碍产品体验与适配规范 无障碍产品体验与适配规范 来源：神灯圈子·金菁《无障碍产品体验与适配规范》原文 http://xingyun.jd.com/shendeng/article/detail/59315 内部「必须遵守」的权威规则。本规范在本库 单一出处 ，其他文件引用而非复制。 落点： methods/stan",
+    "id": "ur-method-methods-standards-accessibility-adaptation",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "ccc991c9629ed3bb43b98ea70d71fd166726154198fa8b3d355b2ba7428b47b3",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/无障碍产品体验与适配规范.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "无障碍产品体验与适配规范"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "访谈提纲设计规范 访谈提纲设计规范 目的与适用范围 本规范定义访谈提纲（含单人深访与焦点小组）的结构、内容构成、文字形式与执行边界的 必须遵守项 。适用于所有使用访谈法采集数据的研究项目，包括但不限于： 半结构式一对一深访 (SSI/DI) 线上/线下焦点小组 (FGD) CATI 电话访问提纲（需额外遵守场景适配原则",
+    "id": "ur-method-methods-standards-interview-guide-standard",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "005eff2b5f888e3bdaab8249eb066383cb4840a8878ad28dda3498b1f5d09c22",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/访谈提纲设计规范.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "访谈提纲设计规范"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "需求洞察的样本选择 需求洞察的样本选择 内部「必须遵守」的权威规则。本规范在本库 单一出处 ，其他文件引用而非复制。 落点： methods/standards/ 。边界： toolbox/ 讲「怎么做」（知识）；本规范讲「需求洞察类项目挑用户必须遵守什么」（规则）。 同族规范： methods/standards/s",
+    "id": "ur-method-methods-standards-need-discovery-sampling",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "dd48d2307e3262b7633dfd651f0e9369c978cb7f6aa1402a8fa045ad43300d69",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/需求洞察的样本选择.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "需求洞察的样本选择"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷设计规范 问卷设计规范 来源：神灯圈子·江竹《如何设计一份问卷——问卷设计步骤与常见错误》原文 <http://xingyun.jd.com/shendeng/article/detail/46476 来源：神灯圈子·焦玉霞《如何设计一份问卷——问卷设计步骤与常见错误》原文 <http://xingyun.jd.c",
+    "id": "ur-method-methods-standards-questionnaire-design",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "8e5eedde9349c32b0cbf9573531ce7d5ef63fc46f4c1916f50d8605b80352ccf",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/问卷设计规范.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "问卷设计规范"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷体验审核规范 问卷体验审核规范 来源：Joyspace「问卷推送及体验审核规范」 第二部分「二、问卷体验审核规范」 （原稿留底 joyspace raw/f4 questionnaire experience audit.pdf ；第一部分「消息盒子推送规范」属推送运营流程、不在本库范围，未转录）。 内部「必须遵守",
+    "id": "ur-method-methods-standards-questionnaire-experience-audit",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "4af97b0508813e001a99cde2eeab3e051f937e9b982dd805a051bacdb7f7a1e7",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/问卷体验审核规范.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "问卷体验审核规范"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用研需求分析与沟通规范 用研需求分析与沟通规范 来源：神灯圈子·翁鸿诚《用研项目需求分析沟通中的五个\"坑\"》（原作者徐凯，写于 2019 05 16） 原文 http://xingyun.jd.com/shendeng/article/detail/46608 内部「必须遵守」的权威规则。本规范在本库 单一出处 ，其他",
+    "id": "ur-method-methods-standards-requirement-elicitation",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "acc08ad84b6eb225b0def495686441bce4dde2a5729a2e305c0b5f90f0f215a1",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/用研需求分析与沟通规范.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "用研需求分析与沟通规范"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用研项目流程与角色规范 用研项目流程与角色规范 来源：神灯圈子·郭振男《浅谈用研项目流程和岗位角色》 原文 http://xingyun.jd.com/shendeng/article/detail/46640 内部「必须遵守」的权威规则。本规范在本库 单一出处 ，其他文件引用而非复制。 落点： methods/sta",
+    "id": "ur-method-methods-standards-research-project-workflow",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "e270094808a098419b9abe24c8f27f4e6062441552e4becb203be2fb9e26b9ca",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/用研项目流程与角色规范.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "用研项目流程与角色规范"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "研究问题定义规范（业务问题 vs 研究问题） 研究问题定义规范（业务问题 vs 研究问题） 内部\"必须遵守\"的权威规则。本规范在本库 单一出处 。 落点： methods/standards/ 。 适用：所有研究项目启动阶段——接到调研需求 → 拆解 → 转译。 适用范围 所有研究项目的 启动阶段 ——从接到需求方的调",
+    "id": "ur-method-methods-standards-research-question-definition",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "0fee91b19e6dc4b5f3634347e59f38b3e8431731024148c04a4e9fbc5bd49caf",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/研究问题定义规范（业务问题vs研究问题）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "研究问题定义规范（业务问题 vs 研究问题）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "调研报告撰写规范 调研报告撰写规范 来源：神灯圈子·吉国杰《用研新人成长记——调研报告撰写心得》原文 http://xingyun.jd.com/shendeng/article/detail/46546 （原作者伊萌，写于 2021 09 07） 内部参考规范。本规范在本库 单一出处 ，其他文件引用而非复制。 落点：",
+    "id": "ur-method-methods-standards-research-report-writing",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "d5c60f8a5295e39530e36dfeed298b2a36bcc72e2ae70598ded0cb12e5ab1e37",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/调研报告撰写规范.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "调研报告撰写规范"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "抽样与样本量规范 抽样与样本量规范 来源：Peron 用户研究《定性研究：我们到底应该访谈多少用户？》<https://www.woshipm.com/user research/6199694.html （综合 Nielsen Norman Group、Hennink 等、Katryna Balboni、Victor",
+    "id": "ur-method-methods-standards-sampling",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "1b1a4d87be73315af801f39fdcdcbe9938ddd0bff149dd97ecd2a48fba1a5cc9",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/执行规范/抽样与样本量规范.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "抽样与样本量规范"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "A/B 测试与在线对照实验（A/B Testing / OCE） A/B 测试与在线对照实验（A/B Testing / OCE） 来源：Joyspace《A/B测试与在线对照实验》 https://joyspace.jd.com/pages/bRxBXSA5ePLJIUFD1kuy 落地流程并入自：Joyspace《",
+    "id": "ur-method-methods-toolbox-analysis-ab-testing",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "e65a3ef71df15b9408ce6a6922eac7c4d60b1c7a09487dc04bc35d92b39f4774",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/AB测试与在线对照实验（ABTestingOCE）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "A/B 测试与在线对照实验（A/B Testing / OCE）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "亲和图法（Affinity Diagram） 亲和图法（Affinity Diagram） 来源：神灯圈子·赵真真《访谈数据处理小偏方：亲和图法（AD）》 原文 http://xingyun.jd.com/shendeng/article/detail/46642 本文原作者赵真真（zhaozhenzhen13），写于",
+    "id": "ur-method-methods-toolbox-analysis-affinity-diagram",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "a6b89eddb56dc3ed5f10b1d8f8ad208895de39e4b5736e39bde0c13f3c382d62",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/亲和图法（AffinityDiagram）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "亲和图法（Affinity Diagram）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "贝叶斯平台间品类优势对比 贝叶斯平台间品类优势对比 来源：神灯圈子·贺兆铎《基于贝叶斯法则实现平台间品类优势的有效对比》 原文 http://xingyun.jd.com/shendeng/article/detail/46686 本文原作者李妍，写于 2023.01.06 一句话：在大促等多平台品类购买调研中，用条件",
+    "id": "ur-method-methods-toolbox-analysis-bayesian-platform-category-comparison",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "b2959e7ffe249692663f5d6738f2707e38d5ad43b9799a831280cbd27231e040",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/贝叶斯平台间品类优势对比.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "贝叶斯平台间品类优势对比"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "行为数据辅助用研 行为数据辅助用研 来源：神灯圈子·孙文佳《行为数据如何助力用户研究？》 原文 http://xingyun.jd.com/shendeng/article/detail/46601 （本文原作者沈彩玥，写于 2021.01.29） 一句话：用行为大数据（交易/流量/用户数据）锁定关键环节、判断用户粘性",
+    "id": "ur-method-methods-toolbox-analysis-behavioral-data-augmented-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "68f5342561dd8a8a9ed891b558409794d4646ad5acbb882376141eda4e723dd4",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/行为数据辅助用研.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "行为数据辅助用研"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "控件热区点击实验 控件热区点击实验 来源：神灯圈子·吴佳毅《控件热区怎样设计点击准确率最高？》 原文 http://xingyun.jd.com/shendeng/article/detail/45605 一句话：用点击行为心理学实验，确定移动端控件「点击热区（可点击区域）」的最佳尺寸与位置，使小尺寸控件的点击准确率最",
+    "id": "ur-method-methods-toolbox-analysis-click-hotzone-experiment",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "b08e47fe88b6843787a0653e0e25220b3c32f7c7c1a9d2e1e417119f22335c39",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/控件热区点击实验.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "控件热区点击实验"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 竞品分析 来源：神灯圈子·夏凡舒《竞品分析：从\"功能记录\"走向\"读懂意图\"》 原文 http://xingyun.jd.com/shendeng/article/detail/59916 来源：神灯圈子·邱伟雄《浅谈竞品分析 以终为始的思考方式》 原文 http://xingyun.jd.com/shende",
+    "id": "ur-method-methods-toolbox-analysis-competitive-analysis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "7801c342088cc33c4945a559e69e325e4dd7c51d524d4d093299b3eb708f77ae",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/竞品分析.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "竞品分析"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "联合分析（Conjoint Analysis） 联合分析（Conjoint Analysis） 来源：神灯圈子·王仰龙《联合分析：数据驱动营销设计优化之道》 原文 http://xingyun.jd.com/shendeng/article/detail/46529 一句话：当产品/设计由一系列属性构成时，通过让用户对",
+    "id": "ur-method-methods-toolbox-analysis-conjoint-analysis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "4179e0083dbfba85fefe49819270d38787f1315c1631998ec5668836dbe19b14",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/联合分析（ConjointAnalysis）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "联合分析（Conjoint Analysis）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "转化漏斗分析（Conversion Funnel Analysis） 转化漏斗分析（Conversion Funnel Analysis） 来源：Joyspace《转化漏斗分析（Conversion Funnel Analysis）》 https://joyspace.jd.com/pages/FGs77Vxb2Kcn",
+    "id": "ur-method-methods-toolbox-analysis-conversion-funnel",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "0eb21b35273ab3d66060b2fad3598efd2982d17d8268b67ec06fcd2272e0b5ce",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/转化漏斗分析（ConversionFunnelAnalysis）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "转化漏斗分析（Conversion Funnel Analysis）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "数据标准化与跨维度对比 数据标准化与跨维度对比 来源：神灯圈子·王仰龙《数据标准化处理与分析》 原文 http://xingyun.jd.com/shendeng/article/detail/59072 来源：神灯圈子·费婧文《正态分布在客观指标度量模型中的应用》 原文 http://xingyun.jd.com/s",
+    "id": "ur-method-methods-toolbox-analysis-data-standardization",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "3f61f6e958bade8efc5c02a45485849cf6563ca40cbbde1ad218a50bbb70e368",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/数据标准化与跨维度对比.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "数据标准化与跨维度对比"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "体验度量方法（HEART 框架与体验量化） 体验度量方法（HEART 框架与体验量化） 来源：Joyspace《体验度量方法（UX Metrics：HEART 框架与体验量化）》 https://joyspace.jd.com/pages/xs4SHKkBjZXdrTOdOdyH 一句话：用一组结构化、可持续追踪的量化",
+    "id": "ur-method-methods-toolbox-analysis-experience-metrics-heart",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "e89fc99df7c92e36ddf3aed33b0e2bb3e4f9dbbfa67f47c27d1be0c862c376a0",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/体验度量方法（HEART框架与体验量化）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "体验度量方法（HEART 框架与体验量化）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "功能采纳分析（Feature Adoption Analysis） 功能采纳分析（Feature Adoption Analysis） 来源：Joyspace《功能采纳分析（Feature Adoption Analysis）》 https://joyspace.jd.com/pages/GAULbkq3kXZBb2L",
+    "id": "ur-method-methods-toolbox-analysis-feature-adoption",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "a75655b8c90f99061b56161eae97d9edd7c0f69e07cc821e1b205831926a6d34",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/功能采纳分析（FeatureAdoptionAnalysis）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "功能采纳分析（Feature Adoption Analysis）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问题分层与优先级评估（Issue Severity & Prioritization） 问题分层与优先级评估（Issue Severity & Prioritization） 来源：Joyspace《问题分层与优先级评估（Issue Severity & Prioritization）》 https://joyspac",
+    "id": "ur-method-methods-toolbox-analysis-issue-prioritization",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "32679a297e8b5050fdd9952cff04e59c3b453ff878d9e569d34b126838eac9fe",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/问题分层与优先级评估（IssueSeverity&Prioritization）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "问题分层与优先级评估（Issue Severity & Prioritization）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户旅程图（CJM） 用户旅程图（CJM） 一句话：把用户达成某一目标的过程 沿时间线可视化 ——叠加行为、想法、情感，揭示挫折点与喜悦点。 落点： methods/toolbox/analysis/ 。判据——CJM 是跨主题（电商 / B2B / 服务 / 教育 ... 任何\"用户走完一段流程\"的场景）通用的可视化",
+    "id": "ur-method-methods-toolbox-analysis-journey-map",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "1456d6eed0b54b80805c745481008d9d9f8403aa1a4523f8805e594c7a211a70",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/用户旅程图（CJM）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "用户旅程图（CJM）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "满意度驱动因素分析（Key Driver Analysis） 满意度驱动因素分析（Key Driver Analysis） 来源：Joyspace《满意度驱动因素分析（Key Driver Analysis / 关键驱动分析）》 https://joyspace.jd.com/pages/VZCZVZmTocEPj84",
+    "id": "ur-method-methods-toolbox-analysis-key-driver-analysis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "81b8784bdf0fc3d6e02e19c51b870d6b3b8c1d6c435c9383794d426c31e9b71b",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/满意度驱动因素分析（KeyDriverAnalysis）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "满意度驱动因素分析（Key Driver Analysis）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "跨版本纵向 / 基准追踪（Longitudinal / Benchmark Tracking） 跨版本纵向 / 基准追踪（Longitudinal / Benchmark Tracking） 来源：Joyspace《跨版本纵向 / 基准追踪（Longitudinal / Benchmark Tracking）》 htt",
+    "id": "ur-method-methods-toolbox-analysis-longitudinal-benchmark-tracking",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "12a2fb028781ac48030f195f4943cba98b5fcf5c010c4ac4135fd67f22630819",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/跨版本纵向基准追踪（LongitudinalBenchmarkTracking）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "跨版本纵向 / 基准追踪（Longitudinal / Benchmark Tracking）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "购物篮分析（关联分析） 购物篮分析（关联分析） 来源：神灯圈子·吴佳毅《购物篮分析：如何通过关联分析，让跨品类营销选品更高效》 原文 http://xingyun.jd.com/shendeng/article/detail/46744 一句话：从大量用户订单中挖掘\"哪些商品经常被一起购买\"的关联规则，为跨品类联合营销",
+    "id": "ur-method-methods-toolbox-analysis-market-basket-analysis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "ebba1bf4d353e82aa681960706b75192f46f8503deb36ff44f78975fbd5c4fc8",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/购物篮分析（关联分析）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "购物篮分析（关联分析）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "MaxDiff 最大差异缩放 MaxDiff 最大差异缩放 一句话：让受访者在一组选项中 同时指出最喜欢和最不喜欢 的项，由强制二选一推出各项的相对偏好排名。 落点： methods/toolbox/analysis/ 。判据——这套手段能脱离任一具体研究主题被单独复用（功能优先级 / 营销主张 / 口味偏好 / 信息",
+    "id": "ur-method-methods-toolbox-analysis-maxdiff",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "ee2a13dfdee53c670698fe33fb9428ee2883e7134b5d9a2d0c999c07df951f9f",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/MaxDiff最大差异缩放.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "MaxDiff 最大差异缩放"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "机会点研究 机会点研究 来源：神灯圈子·曾雨雯《看见增长：机会点研究的方法与局限》 原文 http://xingyun.jd.com/shendeng/article/detail/61852 一句话：在痛点研究\"守下限\"之外，系统化地挖掘\"造血\"的增长机会点，回答\"谁来了、为什么来、友商做对了什么\"。 落点： met",
+    "id": "ur-method-methods-toolbox-analysis-opportunity-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "58a3f33c8313b2e63ad36181d865e3b58b3ea355cb262b3362537d5e2314d08e",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/机会点研究.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "机会点研究"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "对偶比较法 对偶比较法 来源：神灯圈子·江竹《对偶比较法：一种提供相对优先级决策依据的研究方法》 原文 http://xingyun.jd.com/shendeng/article/detail/59123 一句话：当多个选项给用户的感受趋于相近、评分量表难以区分时，用两两强制选择推导出各选项的相对优先级排序。 落点：",
+    "id": "ur-method-methods-toolbox-analysis-paired-comparison",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "1c72585c3023fd80b0b51540b613d9cfa0405314a573f070699b07c9fa4b1605",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/对偶比较法.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "对偶比较法"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "Persona 构建（Cooper 法） Persona 构建（Cooper 法） 一句话：把定性研究产出，通过聚类与角色化，固化为可在产品决策中反复调用的标准化人物角色卡片（Persona）。 落点： methods/toolbox/analysis/ 。判据——这是一套可脱离具体项目复用的角色构建技术；概念辨析（P",
+    "id": "ur-method-methods-toolbox-analysis-persona-building",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "194572238cb08d7476d67ef1c2fad50553fbd67a1442cb32e8b650f78c9ee4cb",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/Persona构建（Cooper法）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "Persona 构建（Cooper 法）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "四象限优先级决策法 四象限优先级决策法 一句话：用 用户价值 / 商业价值 / 实现成本 / 战略契合度 四维加权打分，把候选功能映射到 必做 / 规划做 / 观察 / 放弃 四象限。 落点： methods/toolbox/analysis/ 。判据——这套手段能脱离任一具体研究主题被单独复用（产品规划、运营活动、研",
+    "id": "ur-method-methods-toolbox-analysis-priority-quadrant-method",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "1e01ac01b0802d663df886e2c323f5f0f8ea72c2e49a1b58bfa5908987b3a977",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/四象限优先级决策法.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "四象限优先级决策法"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "优惠文案内隐联结测试（IAT） 优惠文案内隐联结测试（IAT） 来源：神灯圈子·文子亦《优惠表达如何\"说中\"用户心里话？——解锁潜意识里的情绪开关》 原文 http://xingyun.jd.com/shendeng/article/detail/43010 一句话：用心理学内隐联结范式（IAT）测量用户对不同优惠文案",
+    "id": "ur-method-methods-toolbox-analysis-promo-copy-iat",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "dd2c2b0a29bd78ee027f9bbc6fb4258d70eb050297fbf3e6e540bea1ca0596dd",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/优惠文案内隐联结测试（IAT）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "优惠文案内隐联结测试（IAT）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "PSM 价格敏感度测试 PSM 价格敏感度测试 来源：神灯圈子·翁鸿诚《PSM价格敏感度测试及拓展应用》 原文 http://xingyun.jd.com/shendeng/article/detail/46667 一句话：衡量目标用户对不同价格的满意及接受程度，得到产品价格的可接受范围及合理定价区间。 PSM 模型（",
+    "id": "ur-method-methods-toolbox-analysis-psm-price-sensitivity",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "a4d9b35fe3bff695965c05909aa71f573bb1bb827db96d625617988c97fbc4cb",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/PSM价格敏感度测试.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "PSM 价格敏感度测试"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "质性资料分析（Miles & Huberman 框架） 质性资料分析（Miles & Huberman 框架） 一句话：把访谈/观察等质性资料，通过\"资料缩减 → 资料展示 → 结论引出与验证\"的循环操作，从原始记录提炼出概念和规律。 落点： methods/toolbox/analysis/ 。判据——这套手段能脱离",
+    "id": "ur-method-methods-toolbox-analysis-qualitative-analysis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "dd929ec93e06d45de40436049546f78547f29c1a0b1e83b70ac1e6719f8f6a68",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/质性资料分析（Miles&Huberman框架）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "质性资料分析（Miles & Huberman 框架）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "质性编码与访谈资料分析 质性编码与访谈资料分析 来源： 《访谈后如何得出有价值的访谈结论——用户访谈系列之三》@玄清，人人都是产品经理 https://www.woshipm.com/share/6033016.html （三进程编码、归纳vs演绎、数据整理、报告证据链） 徐凯《重新认识访谈——那些\"隐秘\"的访谈知识》",
+    "id": "ur-method-methods-toolbox-analysis-qualitative-coding",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "cf0f28eede464b63203efc6e5f77b7b13d44a2d7e92a6d6bb6d66effb3fd7ec3",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/质性编码与访谈资料分析.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "质性编码与访谈资料分析"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "定性洞察分析框架 定性洞察分析框架 来源：神灯圈子·邱伟雄《从“听见”到“看见”：定性研究中的洞察方法论》 原文 http://xingyun.jd.com/shendeng/article/detail/56773 <! 合并自 Joyspace「访谈技巧知识库」外部文章，2026 06 25 补充来源（「定性分析的",
+    "id": "ur-method-methods-toolbox-analysis-qualitative-insight-frameworks",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "60242bb21fe58571069744ed8d9e6c750c5c1439f21c14c3999fce17f44960a7",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/定性洞察分析框架.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "定性洞察分析框架"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "RFM 模型用户分群 RFM 模型用户分群 一句话：用 R（最近一次消费）/ F（消费频次）/ M（消费金额） 三个维度量化用户价值，组合出 8 类用户群体并施加差异化运营策略。 落点： methods/toolbox/analysis/ 。判据——RFM 是跨主题（电商 / 内容 / 工具）通用的用户价值分群分析手段",
+    "id": "ur-method-methods-toolbox-analysis-rfm",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "805e55798c8cf8be7b254bbe8a90c6677f6692ab2aaef4e45359b86687ab4bb1",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/RFM模型用户分群.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "RFM 模型用户分群"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "满意度分析模型（四分图/Kano/AHP/SEM） 满意度分析模型（四分图/Kano/AHP/SEM） 来源：神灯圈子·顾小妍《产品、系统、功能、服务的\"万能温度计\"——用户满意度》 原文 http://xingyun.jd.com/shendeng/article/detail/46493 （本文原作者徐凯，写于 2",
+    "id": "ur-method-methods-toolbox-analysis-satisfaction-analysis-models",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "a0d4aaf384e1c06254df7a6a59726067d0e09d645cb8cad5f75a75de0470aea5",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/满意度分析模型（四分图KanoAHPSEM）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "满意度分析模型（四分图/Kano/AHP/SEM）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "满意度异动归因（满意度下降如何分析） 满意度异动归因（满意度下降如何分析） 来源：神灯圈子·夏凡舒《NSS介绍：用户满意度下降时如何归因》 原文 http://xingyun.jd.com/shendeng/article/detail/54834（Joyspace 镜像 https://joyspace.jd.com",
+    "id": "ur-method-methods-toolbox-analysis-satisfaction-drop-attribution",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "36f9ca4b67eecfe716d2092ab05ced685473177c27f8229638fe8b4dfec9c889",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/满意度异动归因（满意度下降如何分析）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "满意度异动归因（满意度下降如何分析）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷数据统计分析（差异性与关联性） 问卷数据统计分析（差异性与关联性） 一句话：把问卷/量表收集的定量数据，通过差异性检验（不同群体是否不同）和关联性分析（变量是否相关）得出有统计支撑的结论。 落点： methods/toolbox/analysis/ 。判据——这套统计手段能脱离任一具体研究主题被单独复用（任何定量数",
+    "id": "ur-method-methods-toolbox-analysis-survey-statistics",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "7b17f2e0fe5ec0655eb27c10d5c1a290ab03cb6bceb12275fdff6b8af8db4662",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/问卷数据统计分析（差异性与关联性）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "问卷数据统计分析（差异性与关联性）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "系统思维做业务调研 系统思维做业务调研 来源：神灯圈子·乔露《如何系统化地进行UBP业务调研》 原文 http://xingyun.jd.com/shendeng/article/detail/46583 （原文作者关斯斯，写于 2022.01.25） 一句话：用系统思维（目标 变量 连接）跳出\"表象陷阱\"，借助因果回",
+    "id": "ur-method-methods-toolbox-analysis-systems-thinking-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "ff68f04b3edfaa51d0d18481b0de4ca049fb4b5dba7341df0249511a919709ef",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/系统思维做业务调研.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "系统思维做业务调研"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "文本分析 文本分析 来源：神灯圈子·焦玉霞《浅谈如何用文本分析助力用研》（原作者赵洋帆，2022.10.31） 原文 http://xingyun.jd.com/shendeng/article/detail/46467 一句话：把用户主动留下的非结构化文本（评价、反馈、社媒分享）通过采集、分词、关键词与情感挖掘结构化",
+    "id": "ur-method-methods-toolbox-analysis-text-analysis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "7bae48d940e4273dc2ec4faf869892d216748f4fcd4b5622de292d6dcd1bcc54",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/文本分析.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "文本分析"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "目标群体指数（TGI） 目标群体指数（TGI） 来源：神灯圈子·顾小妍《目标群体指数的浅析与应用》 原文 http://xingyun.jd.com/shendeng/article/detail/46702 本文原作者 Jay，写于 2020.09.30。 一句话：判断某一目标群体在特定研究范围内，对某类特征/行为的",
+    "id": "ur-method-methods-toolbox-analysis-tgi-index",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "ae589e9bf88a33c9e9f3000314737025d6433c2e6529afb2d29e6bdce7e07516",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/目标群体指数（TGI）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "目标群体指数（TGI）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "TURF 分析 TURF 分析 来源：神灯圈子·顾小妍《TURF分析：如何用最少的资源覆盖最大的市场》 原文 http://xingyun.jd.com/shendeng/article/detail/46511 一句话：用最少的资源（渠道/产品）覆盖尽可能多的不重复用户，通过计算备选组合的累积不重复到达率，找出覆盖最",
+    "id": "ur-method-methods-toolbox-analysis-turf-analysis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "0286a9dabb0ce393d333c11ecca93aaeff738fc14e97c0643334665db88b2ee8",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/TURF分析.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "TURF 分析"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "VOC 用户之声分析（Voice of Customer） VOC 用户之声分析（Voice of Customer） 来源：Joyspace《VOC 用户之声分析（Voice of Customer）》 https://joyspace.jd.com/pages/9rm0vAdOqP4JD7UDOo1m 一句话：系统",
+    "id": "ur-method-methods-toolbox-analysis-voc-analysis",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "f564bc76293f3260773812bfc4a0630f67fbe03706b5508381d0c68915cef62b",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/VOC用户之声分析（VoiceofCustomer）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "VOC 用户之声分析（Voice of Customer）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "VOC 产品线/模块分类法（京东 App 体验反馈） VOC 产品线/模块分类法（京东 App 体验反馈） 来源：内部已训练的「VOC 自动分类 Agent」提示词（电商 / O2O 产品体验分类），转录留档为可复用正典。 一句话：把非结构化、口语化的用户反馈，按 封闭枚举 的京东 App 模块词库精确归类为 leve",
+    "id": "ur-method-methods-toolbox-analysis-voc-product-line-classification",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "fad7bf23e4cec593eea3ac831624bb64a7e7e5d383343bed4f0c2a431a2ee258",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/VOC产品线模块分类法（京东App体验反馈）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "VOC 产品线/模块分类法（京东 App 体验反馈）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "无障碍走查 / 无障碍审查（Accessibility Audit） 无障碍走查 / 无障碍审查（Accessibility Audit） 一句话：由 评估员（借助读屏工具） 逐屏、逐流程地检视界面是否满足无障碍规范，找出\"违反了哪条、读屏实际怎么表现\"的无障碍问题，按等级排序、给出 分平台整改方式 ——一种以 专家检",
+    "id": "ur-method-methods-toolbox-collection-accessibility-audit",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "2642ccfebb9b34421ead84347d3fff1e85c7963ecf46d06004bef24c55dadc4f",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/无障碍走查无障碍审查（AccessibilityAudit）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "无障碍走查 / 无障碍审查（Accessibility Audit）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "品牌命名研究与测评 品牌命名研究与测评 来源：神灯圈子·赵真真《品牌符号管理之一：品牌命名的原则、策略与流程》 原文 http://xingyun.jd.com/shendeng/article/detail/46569 一句话：围绕品牌命名展开的研究与测评方法——既给出命名应遵循的原则与策略，更聚焦候选名称如何被验证",
+    "id": "ur-method-methods-toolbox-collection-brand-naming-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "915e8c7877696bccd804d5b052f1d4a9135cb5b12c6d0f4afb05dd0b005bd5fa",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/品牌命名研究与测评.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "品牌命名研究与测评"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "共创工作坊 共创工作坊 来源：神灯圈子·李笑欣《共创工作坊在用户研究项目中的实践应用》 原文 http://xingyun.jd.com/shendeng/article/detail/46592 来源：神灯圈子·顾小妍《敏捷版设计冲刺：如何高效组织一场共创工作坊》 原文 http://xingyun.jd.com/s",
+    "id": "ur-method-methods-toolbox-collection-co-creation-workshop",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "edce6c294d0f05ee3414baaf80807695ba1b6e3dfa5ef13ff3cc925dfdfad986",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/共创工作坊.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "共创工作坊"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "文案内容测试 文案内容测试 来源：神灯圈子·赵真真《基于用户体验的文案内容测试：方法、应用与评价指标》原文 http://xingyun.jd.com/shendeng/article/detail/66894 一句话：通过用户研究的方法，系统性地验证文案的可读性、吸引力、说服力，用用户反馈和可量化数据替代主观审美，避",
+    "id": "ur-method-methods-toolbox-collection-copy-content-testing",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "94b3c9149711911ef2e4928a02b39b8eb58ad01e5536a6f6de157f434893b9db",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/文案内容测试.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "文案内容测试"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "桌面研究 桌面研究 来源：神灯圈子·吉国杰《写给新人看的桌面研究方法》 原文 http://xingyun.jd.com/shendeng/article/detail/46531 （原作者贺兆铎，写于 2021.12.13） 一句话：在不进行实地调研和采集的情况下，直接通过电脑、杂志、书籍、文档、互联网搜索等，对已有",
+    "id": "ur-method-methods-toolbox-collection-desk-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "5dcbf533db7ba6e5515bd782b709241b2017a2f5e0776a55768f7b58bc0c88f5",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/桌面研究.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "桌面研究"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "民族志与田野调查（参与观察） 民族志与田野调查（参与观察） 来源：Joyspace「人类学方法及其商业应用」（原稿留底 joyspace raw/f3 anthropology.md ）。 一句话：通过长期 参与观察 + 深描 ，进入研究对象的「意义之网」，产出带文化脉络的 厚数据 。 落点： methods/tool",
+    "id": "ur-method-methods-toolbox-collection-ethnography-field-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "b473970e915fff8e2ec15d451aba59cc3a80fd21b928f261cdbc950ebdbdb600",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/民族志与田野调查（参与观察）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "民族志与田野调查（参与观察）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "产品体验评测 产品体验评测 来源：神灯圈子·吉国杰《产品体验评测浅析》 原文 http://xingyun.jd.com/shendeng/article/detail/56393 一句话：站在用户视角、还原使用场景，把用户体验量化打分，从而发现并定位产品使用或内容消费过程中的体验问题，推动优化闭环。 落点： meth",
+    "id": "ur-method-methods-toolbox-collection-experience-evaluation-rating",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "9275a9b4c549c2b016b578b6897093d01b9f215843ca38451e211358dbf81ded",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/产品体验评测.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "产品体验评测"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户体验地图 用户体验地图 来源：神灯圈子·刘植嘉《用户体验地图（上篇）：概念介绍与使用价值》原文 http://xingyun.jd.com/shendeng/article/detail/46661 来源：神灯圈子·刘植嘉《用户体验地图（下篇）：构成拆解与流程实操》原文 http://xingyun.jd.com/",
+    "id": "ur-method-methods-toolbox-collection-experience-map",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "2adf7afa4e8da0d93681bb0be506518b71275436ac7382d3fb20530c4f2a90b4",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/用户体验地图.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "用户体验地图"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "眼动研究 眼动研究 来源：神灯圈子·乔露《眼动研究如何助力广告素材设计优化——从理论到实践的方法介绍》 原文 http://xingyun.jd.com/shendeng/article/detail/46589 一句话：通过眼动仪测量用户视线的浏览轨迹、注视点、停留时间等，观测注意力分配，还原用户认知过程，判断视觉关",
+    "id": "ur-method-methods-toolbox-collection-eye-tracking",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "b621166844264cda0fe62e740bc4c935b5d14cc25b354eb40b2d4361655181c6",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/眼动研究.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "眼动研究"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "焦点小组（Focus Group） 焦点小组（Focus Group） 一句话：由受过专业训练的主持人，集中在一个或一类主题，用结构化方式 同时访谈多名用户（一般 6~8 人） ，揭示目标用户的经验、感受、态度与愿望，并努力客观呈现其背后理由的研究方法。 落点： methods/toolbox/collection/ ",
+    "id": "ur-method-methods-toolbox-collection-focus-group",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "dbe023ec02a53c3fd558d78c1cf176b8f6029df74b73cf5a65685f04b249b4f5",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/焦点小组（FocusGroup）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "焦点小组（Focus Group）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "启发式评估 / 体验走查（Heuristic Evaluation） 启发式评估 / 体验走查（Heuristic Evaluation） 一句话：由 少数专家评估员 拿一套公认的可用性准则（默认 尼尔森十大启发式（原链接路径： ../../../models/nielsen heuristics.md ））逐屏、逐流",
+    "id": "ur-method-methods-toolbox-collection-heuristic-evaluation",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "39cbb8a08606662d15e0e5d6d24f8f01776a5343e3cdee8912da229939067dbc",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/启发式评估体验走查（HeuristicEvaluation）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "启发式评估 / 体验走查（Heuristic Evaluation）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "线上在用追踪 / 迭代式研究设计（日记研究 · ESM） 线上在用追踪 / 迭代式研究设计（日记研究 · ESM） 来源：Joyspace《线上在用追踪 / 迭代式研究设计（In product Longitudinal Tracking & Iterative Study Design）》 https://joysp",
+    "id": "ur-method-methods-toolbox-collection-in-product-longitudinal-tracking",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "d88b301e616a1a5ab851204852eb5cc076ed6cc19b1b9a370d070b07048fa633",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/线上在用追踪迭代式研究设计（日记研究ESM）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "线上在用追踪 / 迭代式研究设计（日记研究 · ESM）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "拦访（街头/现场拦截访谈） 拦访（街头/现场拦截访谈） 来源：神灯圈子·吴佳毅《如何高效地通过拦访触达用户》 原文 http://xingyun.jd.com/shendeng/article/detail/46579 本文原作者安艺Aki，写于 2020.9.17 一句话：在人流较大的真实场景中现场拦截空闲路人、就特",
+    "id": "ur-method-methods-toolbox-collection-intercept-interview",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "7bf39eedc41f1b34ec5e65f487bd91ac5d14591e5c0705e3aa71c05e5bf15ed4",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/拦访（街头现场拦截访谈）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "拦访（街头/现场拦截访谈）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "访谈提纲设计 访谈提纲设计 来源：神灯圈子·贺兆铎《用研新人如何准备一份完整的访谈提纲？》（原作者方园，写于 2023.01.17） 原文 http://xingyun.jd.com/shendeng/article/detail/46682 来源：Joyspace「访谈技巧知识库」·孙文佳《AI主持人访谈原则及技巧》",
+    "id": "ur-method-methods-toolbox-collection-interview-guide-design",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "4ffc3b53794cdda7f0b3fa438ef48cd54106499871d49def16f6ac50c014d4d4",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/访谈提纲设计.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "访谈提纲设计"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户深度访谈 用户深度访谈 来源：神灯圈子·顾小妍《用户访谈，哪些原则简单却有效》 原文 http://xingyun.jd.com/shendeng/article/detail/46517 来源：神灯圈子·费婧文《新手用户访谈执行小技巧》 原文 http://xingyun.jd.com/shendeng/arti",
+    "id": "ur-method-methods-toolbox-collection-interviews",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "2aa764d95b66039aae360e4e5bb783ab7bfedd20712a72fd74ec3c259174e49d",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/用户深度访谈.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "用户深度访谈"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "Job Interview 任务访谈 Job Interview 任务访谈 一句话：Anthony Ulwick 发明的 ODI（成果驱动创新）核心访谈方法——通过 结构化提问拆解用户核心任务流程 ，逐阶段挖掘可衡量的\"期待效果\"。 落点： methods/toolbox/collection/ 。本方法 唯一出处 —",
+    "id": "ur-method-methods-toolbox-collection-job-interview",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "6fcb76412482ac534f2d03a46ec249ae67bdcfc457f1f22105fbf51675eb6662",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/JobInterview任务访谈.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "Job Interview 任务访谈"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "情绪板（Mood Board） 情绪板（Mood Board） 一句话：通过\"关键词 → 图片素材 → 用户筛选 → 设计元素提取\"的流程，把抽象的视觉感受 具象化为可被设计师执行的视觉风格方向 的研究方法。 落点： methods/toolbox/collection/ 。method_family 用 视觉风格研究",
+    "id": "ur-method-methods-toolbox-collection-mood-board",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "4751a3c85161452fb6de16634ca45b1bacb009de76d559f31ccb973d5f4ab7b6",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/情绪板（MoodBoard）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "情绪板（Mood Board）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "在线焦点小组 在线焦点小组 来源：神灯圈子·孙文佳《保持社交距离，不如试试在线焦点小组》 原文 http://xingyun.jd.com/shendeng/article/detail/46598 本文原作者赵洋帆，写于 2021.02.02 一句话：用在线会议工具（如腾讯会议）组织一群用户进行视频群体讨论，打破空间",
+    "id": "ur-method-methods-toolbox-collection-online-focus-group",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "e30e74cfe13f4649bcf193a3cfa9c7a3205af9a4cfe2a77493c24af17152abb3",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/在线焦点小组.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "在线焦点小组"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户招募（访谈/调研） 用户招募（访谈/调研） 来源：神灯圈子·贺兆铎《深度访谈中招募用户的经验分享》 原文 http://xingyun.jd.com/shendeng/article/detail/46681 补充来源（利益相关者选样 / toB 约访细节）：Joyspace「访谈技巧知识库」外部文章《用户访谈 T",
+    "id": "ur-method-methods-toolbox-collection-participant-recruitment",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "c4ca4d8918a6ff1809d5aa2e6e4be2085cfaaba1f94c5d3889993f79332d816b",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/用户招募（访谈调研）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "用户招募（访谈/调研）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "人物角色（Persona） 人物角色（Persona） 来源：神灯圈子·焦玉霞《人物角色之一：追本溯源厘清概念》 原文 http://xingyun.jd.com/shendeng/article/detail/46477 来源：神灯圈子·焦玉霞《人物角色之二：循序渐进话创建》 原文 http://xingyun.jd",
+    "id": "ur-method-methods-toolbox-collection-persona",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "2e661163a78c1e6a3827798165326fea7f797d9a868adc23b4aea04ce398e6e8",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/人物角色（Persona）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "人物角色（Persona）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "投射技术在用户访谈中的应用 投射技术在用户访谈中的应用 一句话：源自弗洛伊德的心理投射理论——通过让被试 把自己的特质投射到他人 / 物 / 故事上 ，绕过用户的社会期望和自我审查，挖掘出 意识 / 前意识层面无法直接表达的隐性需求 。 落点： methods/toolbox/collection/ 。本方法 唯一出处",
+    "id": "ur-method-methods-toolbox-collection-projective-techniques",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "054649d8acb93f8e09309fcf7990160a7da606b0bf516d11d2545d75c31f580e",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/投射技术在用户访谈中的应用.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "投射技术在用户访谈中的应用"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "定性问卷 定性问卷 来源：神灯圈子·孙文佳《定性问卷：代替访谈员前瞻探索的利器》 原文 http://xingyun.jd.com/shendeng/article/detail/46600 （本文原作者：肉联二厂老王、孙文佳，写于 2022.01.07） 一句话：用开放填空式长问卷低成本替代访谈员，在短时间、人力有限",
+    "id": "ur-method-methods-toolbox-collection-qualitative-questionnaire",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "30b85a7f3752fe4ace2569addfaa995d4c9df9b0a297c0d620c67e3230e87868",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/定性问卷.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "定性问卷"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "受访者认知偏误与规避 受访者认知偏误与规避 一句话：识别受访者在访谈、问卷等定性研究中无意识或有意产生的认知偏误，理解其成因，并在研究设计与提问中尽力规避，以获得更真实可信的回答。 落点： methods/toolbox/collection/ 。本文是\"受访者偏误\"的唯一出处，访谈/问卷等方法引用而非复制。 来源：神",
+    "id": "ur-method-methods-toolbox-collection-respondent-bias",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "65cfb92672bfad9bac84e7d526d8567caddb6bebaddb861fe8a7f73e99267e10",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/受访者认知偏误与规避.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "受访者认知偏误与规避"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "满意度问卷设计与数据清洗 满意度问卷设计与数据清洗 来源：Joyspace《满意度问卷设计与数据清洗》 https://joyspace.jd.com/pages/0ABrbCeAe0AVQ3kqsk0A 部分内容并入自：Joyspace《NSS介绍：用户满意度下降时如何归因》 https://joyspace.jd.",
+    "id": "ur-method-methods-toolbox-collection-satisfaction-survey",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "3b1254771bef4dc38ab2061f845727d17160cd6ef7cfdba1d6dbb96ead823aae",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/满意度问卷设计与数据清洗.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "满意度问卷设计与数据清洗"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "量表编制（量表设计与分析） 量表编制（量表设计与分析） 来源：神灯圈子·王仰龙《玩转量表：量表设计与分析实战》原文 http://xingyun.jd.com/shendeng/article/detail/46595 一句话：量表是一种由多个项目组成、形成综合分数的测量工具，用于测量难以直接测量的潜在变量（如人格、价",
+    "id": "ur-method-methods-toolbox-collection-scale-development",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "45849416c5a1aa92ff5df74edd6263244549f90a6fcc9739293f1c0520a8373b",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/量表编制（量表设计与分析）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "量表编制（量表设计与分析）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户场景洞察需求 用户场景洞察需求 来源：神灯圈子·刘植嘉《到用户场景中去洞察用户需求》原文 http://xingyun.jd.com/shendeng/article/detail/46634 一句话：通过还原性用户场景（陪访 / 观察 / 示卡）洞察用户深层的需求与诉求的方法。 落点： methods/toolb",
+    "id": "ur-method-methods-toolbox-collection-scenario-based-need-discovery",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "22ae1e4535c6a47389b8529b2010b2774f4c18f7a93146b3cb4fde6e8fb32cf3",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/用户场景洞察需求.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "用户场景洞察需求"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "巡店与场域调研 巡店与场域调研 来源：神灯圈子·孙文佳《如何边逛街边研究——浅谈线下场域巡店调研研究设计》 原文 http://xingyun.jd.com/shendeng/article/detail/46680 一句话：在线下实体场域中以\"巡店\"的方式做研究，是田野调查法（Fieldwork）的一种变式，用观察法",
+    "id": "ur-method-methods-toolbox-collection-store-visit-field-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "95d4987473fd2192faade4787c456cdfa006992d8f07d1a5754dfbd24c300079",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/巡店与场域调研.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "巡店与场域调研"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷调研（Survey） 问卷调研（Survey） 一句话：用标准化的题目大规模收集用户的行为、态度、意见，把结果量化以做统计推断的定量采集方法。 落点： methods/toolbox/collection/ 。本方法 唯一出处 ——scenarios / skills 引用本文件，不复制。 问卷数据的统计分析见 m",
+    "id": "ur-method-methods-toolbox-collection-surveys",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "435a4f6d1954f42d0284d834c22a5ae06ab629c5d4e114fd4dffba27b9126e82",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/问卷调研（Survey）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "问卷调研（Survey）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "Switch Interview 转换访谈 Switch Interview 转换访谈 一句话：源自 JTBD 的访谈方法——还原用户 从旧解决方案切换到新解决方案的完整决策历程 ，从故事中提取推力/拉力/焦虑/惯性\"四力\"，定位真实需求与机会点。 落点： methods/toolbox/collection/ 。本方",
+    "id": "ur-method-methods-toolbox-collection-switch-interview",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "530e0eade439b52fe4e5e869d8305de420f9f07490901f899388ed8c2ebb000c",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/SwitchInterview转换访谈.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "Switch Interview 转换访谈"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "可用性测试 可用性测试 来源：神灯圈子·郭振男《聊聊B端产品体验调研中设计验证怎么做？》（原作者关斯斯，2023.06.09） 原文 http://xingyun.jd.com/shendeng/article/detail/46679 一句话：观察有代表性的用户完成产品中的各项任务，界定并解决可用性问题，让业务、产品",
+    "id": "ur-method-methods-toolbox-collection-usability-testing",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "44d0cdde1ed833206a0e4611f0ee702c255e04626eef11bcedc01d2fd949d8c1",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/可用性测试.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "可用性测试"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "U&A 使用习惯与态度研究 U&A 使用习惯与态度研究 一句话：通过结构化问卷系统测量目标人群对一类产品 / 品牌的 使用习惯（Usage） 和 态度（Attitude） ，输出市场状况、目标消费者、竞争对手三方面的可行动信息。 落点： methods/toolbox/collection/ 。本方法 唯一出处 ——s",
+    "id": "ur-method-methods-toolbox-collection-usage-attitude-research",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "6f553eadd6c9910eb3259ba9c0b41d875a98ecf275d774227af4ebf5adec1bd8",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/U&A使用习惯与态度研究.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "U&A 使用习惯与态度研究"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "共创工作坊（盖房子六步法） 共创工作坊（盖房子六步法） 一句话：借鉴设计冲刺（Design Sprint）方法论，以工作坊形式做 结构化的群体头脑风暴与共创 ——用\"盖房子\"六步框架把多元视角收敛成可执行产出。 落点： methods/toolbox/collection/ 。本方法 唯一出处 ——scenarios ",
+    "id": "ur-method-methods-toolbox-collection-workshop",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "58b928fe7fbe20ef70be5ec396d815000172177645e7cb00ef81c9dd9aa1d3c2",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/方法工具箱/共创工作坊（盖房子六步法）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "methods"
+    ],
+    "task_types": [],
+    "title": "共创工作坊（盖房子六步法）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "5W2H 模型 5W2H 模型 一句话：用 7 个固定提问维度（Who/What/When/Where/Why/How/How much）系统化拆解一个用户行为或需求场景，把\"用户说\"还原成\"用户在什么情境下做什么\"。 落点： models/ 。判据——它 贯穿研究全程 ：问题界定、访谈提纲、行为分析、需求定义、流程优",
+    "id": "ur-method-models-5w2h",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "d8b5bd7441f0ab078656588e7aa53e2be256b97183cd798401a80e00f6fdf404",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/5W2H模型/5W2H模型.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "5W2H 模型"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "人类学视角（厚数据与文化透镜） 人类学视角（厚数据与文化透镜） 来源：Joyspace「人类学方法及其商业应用」（原稿留底 joyspace raw/f3 anthropology.md ）。 一句话：把用户当成有历史、文化、社会关系与世界观的「人」，而非抽离背景的数据点——借由理解「他者」来反观「自我」，用 厚数据 ",
+    "id": "ur-method-models-anthropological-lens",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "ce699275a7c29ab0284e6ca533744f44a046039ba8fbdbc9ad7927fb62213ece",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/人类学视角（厚数据与文化透镜）/人类学视角（厚数据与文化透镜）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "人类学视角（厚数据与文化透镜）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "认知偏见与用户决策 认知偏见与用户决策 来源：神灯圈子·吴佳毅《用例子分享：如何利用认知偏见影响用户决策》 原文 http://xingyun.jd.com/shendeng/article/detail/46747 一句话：这是一组「人在做决策时的系统性思维偏差」透镜，用来看清用户行为背后的心理，并在产品/营销中借助",
+    "id": "ur-method-models-cognitive-biases",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "a9010290175ec757392abe522c52686f0660cd8bbe2a776f0124674087863a05",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/认知偏见与用户决策/认知偏见与用户决策.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "认知偏见与用户决策"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "设计冲刺（Design Sprint） 设计冲刺（Design Sprint） 来源：神灯圈子·吴佳毅《设计冲刺方法论：如何5天高效解决棘手难题》 原文 http://xingyun.jd.com/shendeng/article/detail/46745 （本文原作者：点灯大师，写于 2020.06.23） 一句话：",
+    "id": "ur-method-models-design-sprint",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "5c0958919fc58190c5874faff43a3f1d15eb8102abf1c90bb07b57de041d8561",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/设计冲刺（DesignSprint）/设计冲刺（DesignSprint）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "设计冲刺（Design Sprint）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "期望确认理论（ECT） 期望确认理论（ECT） 来源：Joyspace《期望确认理论（ECT）》 https://joyspace.jd.com/pages/qLN1jFG2l74Dy1cxRMJM 一句话：用\"使用前期望\"与\"使用后感知\"的比较来解释满意度的形成，在迭代上线后逐价值点定位失望点与惊喜点。 落点： mo",
+    "id": "ur-method-models-ect",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "8400fe73df62d48d6e0e9a554ce53aa41d4c7cb9de3dd60b064e50c02ae0c4aa",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/期望确认理论（ECT）/期望确认理论（ECT）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "期望确认理论（ECT）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "四力模型（推力 / 拉力 / 焦虑 / 惯性） 四力模型（推力 / 拉力 / 焦虑 / 惯性） 一句话：用户从旧方案切换到新方案的决策由四种力量博弈决定—— 推力 + 拉力 焦虑 + 惯性 时切换发生，否则用户继续将就 。 落点： models/ 。判据——它是 JTBD 体系下用于解释\"切换决策\"的子模型，且与 Sw",
+    "id": "ur-method-models-four-forces",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "1f0e4400af1030f17b7d737017667875adb3904fb79b24c4795ef73411b366d0",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/四力模型（推力拉力焦虑惯性）/四力模型（推力拉力焦虑惯性）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "四力模型（推力 / 拉力 / 焦虑 / 惯性）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "G7 品牌人群细分模型 G7 品牌人群细分模型 来源：神灯圈子·翁鸿诚《品牌研究的人群细分模型 G7模型》 原文 http://xingyun.jd.com/shendeng/article/detail/46632 本文原作者翁鸿诚，写于 2024.05.10。 一句话：用\"知晓 / 购买 / 考虑 / 首选\"四道关",
+    "id": "ur-method-models-g7-brand-segmentation",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "526cf77ae97f0f7a3b721b97d63dc8e40a6b05930837dfee90a65afe64ea685c",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/G7品牌人群细分模型/G7品牌人群细分模型.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "G7 品牌人群细分模型"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "黄金圈模型（Golden Circle） 黄金圈模型（Golden Circle） 来源：神灯圈子·乔露《用黄金圈模型解构品牌建设的基本逻辑》 原文 http://xingyun.jd.com/shendeng/article/detail/46596 （本文原作者：肉联二厂老王、Jenson，写于 2022.01.0",
+    "id": "ur-method-models-golden-circle",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "4a33100e99a114de7ee5a9824b679c7d6aafae534712c752aaab774dcded736c",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/黄金圈模型（GoldenCircle）/黄金圈模型（GoldenCircle）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "黄金圈模型（Golden Circle）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "访谈认识论（知识建构观） 访谈认识论（知识建构观） 来源：用户研究部·徐凯《重新认识访谈——那些\"隐秘\"的访谈知识》（内部培训稿，2021/7/26）；并参考收录文章《如何做好深度访谈》《做用户访谈不简单，小心被用户带跑偏》（人人都是产品经理）。 一句话：访谈得到的不是\"被发掘出来\"的现成事实，而是访谈者与受访者在会话",
+    "id": "ur-method-models-interview-epistemology",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "bd461cdfdc0832f1daaeebee4ef73f20cdc0e6e3850b1feb92462cf6713f82c2",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/访谈认识论（知识建构观）/访谈认识论（知识建构观）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "访谈认识论（知识建构观）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "Job Map（任务地图，ODI 8 步框架） Job Map（任务地图，ODI 8 步框架） 一句话：Ulwick ODI 体系下用于 结构化拆解任意\"用户核心任务\" 的 8 阶段通用框架——把抽象的 Job 还原成可被逐步深挖痛点和期待效果的流程图。 落点： models/ 。判据——Job Map 是 JTBD/",
+    "id": "ur-method-models-job-map",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "ca8a0ebd68866d09447d8c68b299e510b28107cfcc4c11af9affaba4923c1097",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/JobMap（任务地图，ODI8步框架）/JobMap（任务地图，ODI8步框架）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "Job Map（任务地图，ODI 8 步框架）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "Jobs To Be Done（JTBD） Jobs To Be Done（JTBD） 一句话：\" 用户购买的不是产品，而是雇佣产品来完成某个 Job \"——把研究焦点从\"用户特征 / 产品功能\"转到\"用户在什么情境下要完成什么任务\"。 落点： models/ 。判据——JTBD 贯穿\"问题界定 / 访谈 / 竞品 /",
+    "id": "ur-method-models-jtbd",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "a9a38b5031a731b6394f2302c9f51220b2ba5788b7b1c6cda298dc393452420d",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/JobsToBeDone（JTBD）/JobsToBeDone（JTBD）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "Jobs To Be Done（JTBD）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "KANO 模型 KANO 模型 一句话：把产品/服务的质量特性按\"满足度 × 满意度\"关系分成 5 类 —— 基本型 / 期望型 / 魅力型 / 无差异型 / 反向型 ——用于需求分类和优先级排序。 落点： models/ 。判据——KANO 是用研中 贯穿\"问题定义→采集→分类→优先级决策\"全程的概念透镜 ，拆开任一",
+    "id": "ur-method-models-kano",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "672d66aafe2c8eca6c46be3abd19ef9268d8cfbf32f24ccad4e3245f5f0bdb10",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/KANO模型/KANO模型.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "KANO 模型"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "梯子理论（手段 目的链 / Means End Laddering） 梯子理论（手段 目的链 / Means End Laddering） 来源：访谈技巧知识库·彭玲娇《用户访谈——我以为我会了》、《深度访谈实战指南：告别尬聊与表面信息》（均提出「梯子理论 / 阶梯式追问」并给出 A→C→V 示例链）。理论根源：Gut",
+    "id": "ur-method-models-means-end-laddering",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "d726966272994a8152ceb876a1d4c6ce2e3c2d39a20ce3da9a155c773e8da795",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/梯子理论（手段-目的链Means-EndLaddering）/梯子理论（手段-目的链Means-EndLaddering）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "梯子理论（手段-目的链 / Means-End Laddering）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "尼尔森十大可用性启发式（Nielsen's 10 Usability Heuristics） 尼尔森十大可用性启发式（Nielsen's 10 Usability Heuristics） 一句话：一套通用的交互界面\"好用与否\"的判断准则——10 条经验法则，作为专家检视（启发式评估 / 体验走查）时逐条比对界面的标尺。",
+    "id": "ur-method-models-nielsen-heuristics",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "83ff7c232391ddb858ee77271adc09435213c7d8e07f8accdbb2e33dcf92f13e",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/尼尔森十大可用性启发式（Nielsen's10UsabilityHeuristics）/尼尔森十大可用性启发式（Nielsen's10UsabilityHeuristics）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "尼尔森十大可用性启发式（Nielsen's 10 Usability Heuristics）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "ORID 焦点式呈现法 ORID 焦点式呈现法 来源：神灯圈子·吴佳毅《谈焦点式呈现法在访谈提纲中的应用》 原文 http://xingyun.jd.com/shendeng/article/detail/46746 （本文原作者：张琴，写于 2020.06.23） 一句话：用「客观 Objective → 感受 Re",
+    "id": "ur-method-models-orid",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "a3d23fd75009ad7317181d9ca847c9bfdda424edaa05f98e548c0f8b88286d65",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/ORID焦点式呈现法/ORID焦点式呈现法.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "ORID 焦点式呈现法"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "心理物理学（阈限与信号检测论） 心理物理学（阈限与信号检测论） 来源：神灯圈子·赵真真《心理物理学方法在用户研究中的应用（一）感觉阈限测量篇》 原文 http://xingyun.jd.com/shendeng/article/detail/52441 来源：神灯圈子·赵真真《心理物理学方法在用户研究中的应用（二）信号",
+    "id": "ur-method-models-psychophysics",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "587c2b26302e549902dfe02f18c1b484b10d9569a58d0ce5b5cf58b0d6432cbb",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/心理物理学（阈限与信号检测论）/心理物理学（阈限与信号检测论）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "心理物理学（阈限与信号检测论）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "金字塔原理 金字塔原理 一句话：用一座结论在顶、论据自下而上的\"金字塔\"组织思考与表达——结论先行、以上统下、归类分组、逻辑递进。 落点： models/ 。判据——它 贯穿研究全程 ：界定问题用它（解决问题的逻辑）、思考整理用它（思考的逻辑）、汇报输出用它（表达的逻辑），拆开任一环就讲不通。 边界：models 描述",
+    "id": "ur-method-models-pyramid-principle",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "aaa5c711b07000a58fce5c9668a75f0e7c39b9f19bc635075e03aebd853d55f9",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/金字塔原理/金字塔原理.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "金字塔原理"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户养成运营模型 用户养成运营模型 来源：神灯圈子·邱伟雄《基于\"用户养成\"运营模型实现用户增长》原文 http://xingyun.jd.com/shendeng/article/detail/46574 （本文原作者：电灯大师，写于 2020.12.21） 一句话：以\"用户视角\"为起点，把用户从初次接触到主动分享拆",
+    "id": "ur-method-models-user-cultivation-growth",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "5d33fafe35b8d8aaf01d99031b210b4deda82b83ee6a4925779728ef97d5d09d",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/用户养成运营模型/用户养成运营模型.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "用户养成运营模型"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户洞察（认知与误区） 用户洞察（认知与误区） 来源：神灯圈子·李笑欣《认知篇：如何做好用户洞察？先纠正这三个认知误区》 原文 http://xingyun.jd.com/shendeng/article/detail/54811 一句话：用户洞察不是\"调研\"出来的，而是一套\"逻辑推导分析 + 研究者感受力\"的思维方式",
+    "id": "ur-method-models-user-insight",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "530fa52d2102c65374ca5286a068165a94498c1a6b7bc708d4c5f50b54866222",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/用户洞察（认知与误区）/用户洞察（认知与误区）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "用户洞察（认知与误区）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户需求的本质（三层模型） 用户需求的本质（三层模型） 一句话： 用户需求不是\"用户说了什么\"或\"用户抱怨什么\"，而是在特定场景下，用户为达成目标而必须被满足的任务、动机与结果。 落点： models/ 。判据——这是用研最底层的概念透镜，贯穿\"问题定义→采集→分析→结论\"全程，且与各种采集/分析方法的结论解读绑死，拆",
+    "id": "ur-method-models-user-needs",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "6b0f1748c51c38143a7294cee424e8bcc1d33f755ebbcb3ef1d818bd010785f0",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/用户需求的本质（三层模型）/用户需求的本质（三层模型）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "用户需求的本质（三层模型）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户画像 / 用户分层 / 用户分群（三概念辨析） 用户画像 / 用户分层 / 用户分群（三概念辨析） 一句话：精细化运营的三个紧密关联但各有侧重的概念—— 画像回答\"用户是谁\"，分层回答\"用户处于什么价值阶段\"，分群回答\"同阶段内的行为差异\" 。 落点： models/ 。判据——这是\"用户细分\"工作的概念透镜，贯穿",
+    "id": "ur-method-models-user-personas-segmentation",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "75e9b9d5f11adfd17e835e98bbea515513ad2319ef054fab78cd4b758080d0d3",
+    "source_path": "03-knowledge-知识/方法知识/用户研究/用户画像用户分层用户分群（三概念辨析）/用户画像用户分层用户分群（三概念辨析）.md",
+    "status": "draft",
+    "tags": [
+      "method",
+      "models"
+    ],
+    "task_types": [],
+    "title": "用户画像 / 用户分层 / 用户分群（三概念辨析）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "无障碍走查 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-accessibility-review-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "819c4622f98d55a0c32a43140c6dc17941239f7270f2616ddcf0a0eaafa61e8e",
+    "source_path": "02-skills-技能/用户研究/无障碍审查/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "accessibility-review"
+    ],
+    "title": "无障碍走查 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "满意度诊断 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-analyze-satisfaction-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "f836820793c3821b7d2bc1d63810c28ccacb81a0ba30becd3eeb6e6114c4b812",
+    "source_path": "02-skills-技能/用户研究/满意度诊断/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "analyze-satisfaction"
+    ],
+    "title": "满意度诊断 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "体验度量体系 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-build-experience-metrics-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "1f68cd961c8321852c9784fa10cb4fc41f20d2421f927c9197a422dd22f0e6ab",
+    "source_path": "02-skills-技能/用户研究/体验度量体系/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "build-experience-metrics"
+    ],
+    "title": "体验度量体系 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "短反馈编码 · 输出骨架与模板（结论先行）检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-code-open-feedback-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "fae93f6e657c150243e1f89b9b3c93014c4abbcf5389bd3dc11da3a63fc77700",
+    "source_path": "02-skills-技能/用户研究/VOC反馈编码/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "code-open-feedback"
+    ],
+    "title": "短反馈编码 · 输出骨架与模板（结论先行）检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-competitive-analysis-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "9c9990ae6cb14b33bd039abc755a9af882fa1a16d4302b07e00090ba179d089b",
+    "source_path": "02-skills-技能/用户研究/竞品分析/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "competitive-analysis"
+    ],
+    "title": "竞品分析 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "转化漏斗分析 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-conversion-funnel-analysis-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "48f33a720a28c1542358db83caaefbc37ca0f98b79bb452be5fae8dbf7d08ff2",
+    "source_path": "02-skills-技能/用户研究/转化漏斗分析/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "conversion-funnel-analysis"
+    ],
+    "title": "转化漏斗分析 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "功能采纳诊断 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-feature-adoption-analysis-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "d1ff50e9f862cbf20317c6f12c4ae784308621222236fe2ec6c97d856f556a3f",
+    "source_path": "02-skills-技能/用户研究/功能采纳分析/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "feature-adoption-analysis"
+    ],
+    "title": "功能采纳诊断 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "访谈提纲 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-generate-interview-guide-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "3a4283a51bea8d880f9fc97db464b644f30e64e451b2094d5c0cd3e942592d99",
+    "source_path": "02-skills-技能/用户研究/生成访谈提纲/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "generate-interview-guide"
+    ],
+    "title": "访谈提纲 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "人物角色（Persona）· 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-generate-persona-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "d7e778e75d9561535f93cb24aa88266b3b48f2a86dde3d72ba5c9897befa7b38",
+    "source_path": "02-skills-技能/用户研究/用户画像/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "generate-persona"
+    ],
+    "title": "人物角色（Persona）· 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "研究 brief · 输出骨架与模板（阶段一产出）检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-generate-research-plan-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "28a03c0176dcbfa9e8d37d91c1d4ef8460ee57df2dea6577db2792cc25218e3d",
+    "source_path": "02-skills-技能/用户研究/生成研究方案/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "generate-research-plan"
+    ],
+    "title": "研究 brief · 输出骨架与模板（阶段一产出）检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-generate-survey-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "d15b9fde7e82b2bcdee7a0bb53ca0a1248517ac4335f61955813b375716ebd7d",
+    "source_path": "02-skills-技能/用户研究/生成问卷/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "generate-survey"
+    ],
+    "title": "问卷 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "可用性测试执行包 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-generate-usability-test-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "a7badce893574ba15bf5e1bf59ed87730379340700ec206d7b5f49f66a2f0d76",
+    "source_path": "02-skills-技能/用户研究/可用性测试/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "generate-usability-test"
+    ],
+    "title": "可用性测试执行包 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问题分层与优先级 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-issue-prioritization-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "10ef8e2a742ba16ca71963a8f1ed2cbdf2c082dbf936d8c93e8060795a5e5ae0",
+    "source_path": "02-skills-技能/用户研究/问题分层与优先级/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "issue-prioritization"
+    ],
+    "title": "问题分层与优先级 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "JTBD 需求定义（Jobs To Be Done）· 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-jobs-to-be-done-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "a214e825e9efaee9f5dc21af2919888c487057d140bb5e8c347693af298ad2a4",
+    "source_path": "02-skills-技能/用户研究/需求定义JTBD/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "jobs-to-be-done"
+    ],
+    "title": "JTBD 需求定义（Jobs To Be Done）· 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户体验旅程图 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-journey-map-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "5065648d0eed549bbd2da5282f34b3c511682c1486f94f05367d53d99dbfb224",
+    "source_path": "02-skills-技能/用户研究/体验旅程图/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "journey-map"
+    ],
+    "title": "用户体验旅程图 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "安全与隐私边界检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-research-screenshot-analyzer-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "d2e0acea36b2e76b9578b015f4bee4a0d029f7e5f98e8f4ccafe98d7ebe4bb18",
+    "source_path": "02-skills-技能/用户研究/研究截图采集与分析/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "research-screenshot-analyzer"
+    ],
+    "title": "安全与隐私边界检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "启发式评估 · 输出骨架与模板检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-run-heuristic-evaluation-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "9d35f7daf91a6a56c0c62e0d94007ab14aa8536450b73f43dde47036520950b1",
+    "source_path": "02-skills-技能/用户研究/启发式评估/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "run-heuristic-evaluation"
+    ],
+    "title": "启发式评估 · 输出骨架与模板检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "访谈小结 · 产出骨架与组装规则检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-structure-interview-transcript-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "7e181b51bb6987d8f94ca1f882fb81bc09925688ae0a8601c02676da23b7e892",
+    "source_path": "02-skills-技能/用户研究/单场访谈小结/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "structure-interview-transcript"
+    ],
+    "title": "访谈小结 · 产出骨架与组装规则检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "分析底稿（后置附录）· 主题归纳 + 结构化洞察 + 运行说明骨架检查清单 输入是否包含目标、对象、场景和限制。 是否先读取相关 methods / templates / models。 输出是否区分事实、判断和待验证假设。 是否保留来源与可追溯路径。 是否覆盖原 Skill 中列出的质量要求。",
+    "id": "ur-skill-synthesize-qualitative-insights-checklist",
+    "item_type": "mechanism",
+    "related_items": [],
+    "source_hash": "b61e60d5656f41cfcc90dffdf317ae24ed28a60cd4eb72e8c6f033b20075389f",
+    "source_path": "02-skills-技能/用户研究/定性归纳与洞察/checklist.md",
+    "status": "draft",
+    "tags": [
+      "checklist",
+      "quality"
+    ],
+    "task_types": [
+      "synthesize-qualitative-insights"
+    ],
+    "title": "分析底稿（后置附录）· 主题归纳 + 结构化洞察 + 运行说明骨架检查清单"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "流失用户电话回访话术框架 流失用户电话回访话术框架 来源：神灯圈子·翁鸿诚《流失用户调研第二讲：流失原因挖掘与召回策略》 原文 http://xingyun.jd.com/shendeng/article/detail/54796（Joyspace 镜像 https://joyspace.jd.com/pages/aG",
+    "id": "ur-template-churn-phone-interview-script",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "751c79e85e6071bf88f9d3c2886d1c79337715a0e9dab50183f2129c9cfa7b6b",
+    "source_path": "03-knowledge-知识/模板库/用户研究/流失用户电话回访话术框架.md",
+    "status": "draft",
+    "tags": [
+      "template"
+    ],
+    "task_types": [],
+    "title": "流失用户电话回访话术框架"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "流失用户定量问卷框架 流失用户定量问卷框架 来源：神灯圈子·翁鸿诚《流失用户调研第二讲：流失原因挖掘与召回策略》 原文 http://xingyun.jd.com/shendeng/article/detail/54796（Joyspace 镜像 https://joyspace.jd.com/pages/aGpPQY",
+    "id": "ur-template-churn-survey-framework",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "6c34abcb72a71559f44d8b3c03657b97421dcaca0d06b1f29dea3e762900a9fb",
+    "source_path": "03-knowledge-知识/模板库/用户研究/流失用户定量问卷框架.md",
+    "status": "draft",
+    "tags": [
+      "template"
+    ],
+    "task_types": [],
+    "title": "流失用户定量问卷框架"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "体验问题描述话术模板 体验问题描述话术模板 来源：神灯圈子·肖智文《描述体验问题的实用话术技巧》 原文 http://xingyun.jd.com/shendeng/article/detail/46506 （本文原作者刘天成，写于 2020.05.14） 语言表达是思想镜子：清晰的思想会带来清楚的表达，糊涂的思想结果",
+    "id": "ur-template-experience-issue-description-script",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "3a3aaf5a3b3ffca92debbee724b93970d0b453ff63f665b7e2585850d2aea13b",
+    "source_path": "03-knowledge-知识/模板库/用户研究/体验问题描述话术模板.md",
+    "status": "draft",
+    "tags": [
+      "template"
+    ],
+    "task_types": [],
+    "title": "体验问题描述话术模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "机会 解决方案树（Opportunity Solution Tree, OST） 机会 解决方案树（Opportunity Solution Tree, OST） 来源：Joyspace《持续发现（Continuous Discovery）》 https://joyspace.jd.com/pages/LnnnXeI7",
+    "id": "ur-template-opportunity-solution-tree",
+    "item_type": "template",
+    "related_items": [],
+    "source_hash": "b8539c4ad9473fcdecd89767a16bfb438d47b39ab91b043cb1598f22c59a019c",
+    "source_path": "03-knowledge-知识/模板库/用户研究/机会-解决方案树（OpportunitySolutionTree,OST）.md",
+    "status": "draft",
+    "tags": [
+      "template"
+    ],
+    "task_types": [],
+    "title": "机会-解决方案树（Opportunity Solution Tree, OST）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research",
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "跨场域可复用的体验问题诊断框架，用于页面走查、链路诊断、根因拆解和方案生成。",
+    "id": "ux-method-experience-diagnosis-framework",
+    "item_type": "method",
+    "related_items": [],
+    "source_hash": "25717b7e1c2ad1c41c56c67ad93697beb1632dcc58405508f3f1cc3c3bb9bab7",
+    "source_path": "03-knowledge-知识/方法知识/通用体验/体验问题诊断与走查框架.md",
+    "status": "draft",
+    "tags": [
+      "general-ux",
+      "experience-diagnosis"
+    ],
+    "task_types": [
+      "experience-walkthrough",
+      "root-cause-analysis",
+      "solution-generation",
+      "trend-change-identification"
+    ],
+    "title": "体验问题诊断与走查框架"
+  }
+]
