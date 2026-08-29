@@ -25,6 +25,7 @@ from agentmesh.models import (
     now_utc,
 )
 from agentmesh.routes.deps import create_audit_event, current_user
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiescingError
 from agentmesh.store import BriefConfirmationError, store
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"])
@@ -256,6 +257,8 @@ async def resolve_sdk_tool_approval(
         raise HTTPException(status_code=404, detail=str(error)) from error
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
+    except OrchestrationQuiescingError as error:
+        raise HTTPException(status_code=503, detail={"code": error.code}) from error
     except RuntimeError as error:
         failed_run = store.get_agent_run(run_id)
         current_item = store.get_inbox_item(item.id)

@@ -123,6 +123,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/skill-orchestration/quiesce": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Quiesce Skill Orchestration */
+        post: operations["quiesce_skill_orchestration_api_admin_skill_orchestration_quiesce_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users": {
         parameters: {
             query?: never;
@@ -2286,6 +2303,11 @@ export interface components {
             capabilities?: string[];
         };
         /**
+         * AgentExecutionContractVersion
+         * @enum {string}
+         */
+        AgentExecutionContractVersion: "standard_universal_execution_v1";
+        /**
          * AgentMemoryBinding
          * @description Constrains which memory an Agent can access during search.
          */
@@ -2360,6 +2382,7 @@ export interface components {
             /** @default standard */
             planning_mode: components["schemas"]["AgentPlanningMode"];
             planning_contract_version?: components["schemas"]["AgentPlanningContractVersion"] | null;
+            execution_contract_version?: components["schemas"]["AgentExecutionContractVersion"] | null;
             /** Create Request Hash */
             create_request_hash?: string | null;
             /**
@@ -2856,6 +2879,54 @@ export interface components {
             text: string;
             /** Expected Document Version */
             expected_document_version: number;
+        };
+        /** CandidateIdentityPublicV1 */
+        CandidateIdentityPublicV1: {
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Name */
+            skill_name: string;
+            /** Capability Card */
+            capability_card: {
+                [key: string]: unknown;
+            };
+            /** Match Reason Codes */
+            match_reason_codes?: string[];
+            /** Coverage Witness Scenario Id */
+            coverage_witness_scenario_id?: string | null;
+            /** Covered Requirement Ids */
+            covered_requirement_ids?: string[];
+            /**
+             * Ready At Planning
+             * @default true
+             * @constant
+             */
+            ready_at_planning: true;
+        };
+        /** CandidateSnapshotPublicViewV1 */
+        CandidateSnapshotPublicViewV1: {
+            /**
+             * Schema Version
+             * @default candidate-snapshot-v1
+             * @constant
+             */
+            schema_version: "candidate-snapshot-v1";
+            /** Content Hash */
+            content_hash: string;
+            /** Retrieval Policy Version */
+            retrieval_policy_version: string;
+            /** Required Coverage Atoms */
+            required_coverage_atoms?: {
+                [key: string]: string;
+            }[];
+            /** Plannable Coverage Atom Ids */
+            plannable_coverage_atom_ids?: string[];
+            /** Required Synthesis Output Ids */
+            required_synthesis_output_ids?: string[];
+            /** Coverage Witness Skill Ids */
+            coverage_witness_skill_ids?: string[];
+            /** Candidates */
+            candidates?: components["schemas"]["CandidateIdentityPublicV1"][];
         };
         /** CapabilityGapV1 */
         CapabilityGapV1: {
@@ -5265,6 +5336,17 @@ export interface components {
             /** Data Scope */
             data_scope?: string | null;
         };
+        /** ScenarioAssignmentOptionV1 */
+        ScenarioAssignmentOptionV1: {
+            /** Scenario Id */
+            scenario_id: string;
+            /** Title */
+            title: string;
+            /** Output Ids */
+            output_ids?: string[];
+            /** Output Labels */
+            output_labels?: string[];
+        };
         /** ScenarioOutputAtomV1 */
         ScenarioOutputAtomV1: {
             /**
@@ -5634,6 +5716,8 @@ export interface components {
             findings?: string[];
             /** Recommendations */
             recommendations?: string[];
+            /** Delivered Output Kinds */
+            delivered_output_kinds?: string[] | null;
             /** Scenario Outputs */
             scenario_outputs?: string[];
             /** Completion Criteria Met */
@@ -5682,8 +5766,89 @@ export interface components {
          * @enum {string}
          */
         SkillOrchestrationRequestMode: "auto" | "single";
-        /** SkillPlan */
-        SkillPlan: {
+        /** SkillPlanDetailResponse */
+        SkillPlanDetailResponse: {
+            plan: components["schemas"]["SkillPlanPublicView"];
+            /** Results */
+            results?: components["schemas"]["SkillNodeResult"][];
+            synthesis?: components["schemas"]["SkillSynthesisResult"] | null;
+            /** Scenario Assignment Options */
+            scenario_assignment_options?: {
+                [key: string]: components["schemas"]["ScenarioAssignmentOptionV1"][];
+            };
+        };
+        /** SkillPlanKnowledgeBindings */
+        SkillPlanKnowledgeBindings: {
+            /** Required */
+            required?: string[];
+            /** Optional */
+            optional?: string[];
+            /** Excluded */
+            excluded?: string[];
+        };
+        /** SkillPlanNodePublicV1 */
+        SkillPlanNodePublicV1: {
+            /** Id */
+            id: string;
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Version */
+            skill_version: string;
+            /** Reason */
+            reason: string;
+            /** Task Id */
+            task_id?: string | null;
+            /** Scenario Id */
+            scenario_id?: string | null;
+            /** Skill Registry Id */
+            skill_registry_id?: string | null;
+            /** Skill Status */
+            skill_status?: ("draft" | "reviewed" | "validated") | null;
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
+            /** Depends On */
+            depends_on?: string[];
+            /** Parallel Group */
+            parallel_group?: string | null;
+            /** Condition */
+            condition?: string | null;
+            /** Question Ids */
+            question_ids?: string[];
+            /** Input Bindings */
+            input_bindings?: string[];
+            /** Output Contract */
+            output_contract?: string[];
+            knowledge_bindings?: components["schemas"]["SkillPlanKnowledgeBindings"];
+            /** Required Tool Names */
+            required_tool_names?: string[];
+            /** Completion Criteria */
+            completion_criteria?: string[];
+            /** @default read */
+            side_effect: components["schemas"]["SkillSideEffect"];
+            /** @default pending */
+            status: components["schemas"]["SkillPlanNodeStatus"];
+            /**
+             * Attempt
+             * @default 0
+             */
+            attempt: number;
+            /** Error Code */
+            error_code?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
+        };
+        /**
+         * SkillPlanNodeStatus
+         * @enum {string}
+         */
+        SkillPlanNodeStatus: "pending" | "ready" | "running" | "waiting_tool_approval" | "completed" | "failed" | "skipped" | "cancelled";
+        /** SkillPlanPublicView */
+        SkillPlanPublicView: {
             /** Id */
             id?: string;
             /** Run Id */
@@ -5699,6 +5864,7 @@ export interface components {
             routing_result?: components["schemas"]["TaskRoutingResult"] | null;
             /** Candidate Skill Ids */
             candidate_skill_ids?: string[];
+            candidate_snapshot?: components["schemas"]["CandidateSnapshotPublicViewV1"] | null;
             /** Output Contract */
             output_contract?: string[];
             /** Synthesis Output Contract */
@@ -5708,9 +5874,10 @@ export interface components {
             /** Preferred Order */
             preferred_order?: string[];
             /** Nodes */
-            nodes?: components["schemas"]["SkillPlanNode"][];
+            nodes?: components["schemas"]["SkillPlanNodePublicV1"][];
             /** @default standard */
             planning_mode: components["schemas"]["AgentPlanningMode"];
+            execution_contract_version?: components["schemas"]["AgentExecutionContractVersion"] | null;
             /** Requirement Version Id */
             requirement_version_id?: string | null;
             /** Requirement Content Hash */
@@ -5778,86 +5945,6 @@ export interface components {
              */
             updated_at?: string;
         };
-        /** SkillPlanDetailResponse */
-        SkillPlanDetailResponse: {
-            plan: components["schemas"]["SkillPlan"];
-            /** Results */
-            results?: components["schemas"]["SkillNodeResult"][];
-            synthesis?: components["schemas"]["SkillSynthesisResult"] | null;
-        };
-        /** SkillPlanKnowledgeBindings */
-        SkillPlanKnowledgeBindings: {
-            /** Required */
-            required?: string[];
-            /** Optional */
-            optional?: string[];
-            /** Excluded */
-            excluded?: string[];
-        };
-        /** SkillPlanNode */
-        SkillPlanNode: {
-            /** Id */
-            id?: string;
-            /** Skill Id */
-            skill_id: string;
-            /** Skill Version */
-            skill_version: string;
-            /** Skill Content Hash */
-            skill_content_hash: string;
-            /** Reason */
-            reason: string;
-            /** Task Id */
-            task_id?: string | null;
-            /** Scenario Id */
-            scenario_id?: string | null;
-            /** Skill Registry Id */
-            skill_registry_id?: string | null;
-            /** Skill Status */
-            skill_status?: ("draft" | "reviewed" | "validated") | null;
-            /**
-             * Required
-             * @default true
-             */
-            required: boolean;
-            /** Depends On */
-            depends_on?: string[];
-            /** Parallel Group */
-            parallel_group?: string | null;
-            /** Condition */
-            condition?: string | null;
-            /** Question Ids */
-            question_ids?: string[];
-            /** Input Bindings */
-            input_bindings?: string[];
-            /** Output Contract */
-            output_contract?: string[];
-            knowledge_bindings?: components["schemas"]["SkillPlanKnowledgeBindings"];
-            /** Required Tool Names */
-            required_tool_names?: string[];
-            resource_manifest?: components["schemas"]["SkillResourceManifestV1"] | null;
-            /** Completion Criteria */
-            completion_criteria?: string[];
-            /** @default read */
-            side_effect: components["schemas"]["SkillSideEffect"];
-            /** @default pending */
-            status: components["schemas"]["SkillPlanNodeStatus"];
-            /**
-             * Attempt
-             * @default 0
-             */
-            attempt: number;
-            /** Error Code */
-            error_code?: string | null;
-            /** Started At */
-            started_at?: string | null;
-            /** Completed At */
-            completed_at?: string | null;
-        };
-        /**
-         * SkillPlanNodeStatus
-         * @enum {string}
-         */
-        SkillPlanNodeStatus: "pending" | "ready" | "running" | "waiting_tool_approval" | "completed" | "failed" | "skipped" | "cancelled";
         /**
          * SkillPlanStatus
          * @enum {string}
@@ -5865,8 +5952,12 @@ export interface components {
         SkillPlanStatus: "planning" | "waiting_approval" | "approved" | "running" | "completed" | "partial" | "failed" | "rejected" | "cancelled";
         /** SkillPlanTransitionResponse */
         SkillPlanTransitionResponse: {
-            plan: components["schemas"]["SkillPlan"];
+            plan: components["schemas"]["SkillPlanPublicView"];
             run: components["schemas"]["AgentRun"];
+            /** Scenario Assignment Options */
+            scenario_assignment_options?: {
+                [key: string]: components["schemas"]["ScenarioAssignmentOptionV1"][];
+            };
         };
         /** SkillPlanUpdateRequest */
         SkillPlanUpdateRequest: {
@@ -5876,6 +5967,10 @@ export interface components {
             selected_skill_ids: string[];
             /** Preferred Order */
             preferred_order?: string[];
+            /** Scenario Assignments */
+            scenario_assignments?: {
+                [key: string]: string | null;
+            };
         };
         /** SkillPlanVersionRequest */
         SkillPlanVersionRequest: {
@@ -5942,26 +6037,6 @@ export interface components {
             capability_gaps?: components["schemas"]["CapabilityGapV1"][];
             /** Diagnostics */
             diagnostics?: string[];
-        };
-        /**
-         * SkillResourceManifestV1
-         * @description Immutable allowlist of Skill resources approved for one Plan node.
-         */
-        SkillResourceManifestV1: {
-            /**
-             * Schema Version
-             * @default skill-resource-manifest-v1
-             * @constant
-             */
-            schema_version: "skill-resource-manifest-v1";
-            /** Required Resources */
-            required_resources?: string[];
-            /** Resource Hashes */
-            resource_hashes?: {
-                [key: string]: string;
-            };
-            /** Content Hash */
-            content_hash: string;
         };
         /** SkillResultSource */
         SkillResultSource: {
@@ -6134,10 +6209,24 @@ export interface components {
             content: string;
             /** Thread Id */
             thread_id?: string | null;
+            /**
+             * Planning Mode
+             * @default standard
+             * @enum {string}
+             */
+            planning_mode: "standard" | "deepsearch";
         };
         /** TaskRoutingPreviewResponse */
         TaskRoutingPreviewResponse: {
             routing_result: components["schemas"]["TaskRoutingResult"];
+            /** Planning Contract Version */
+            planning_contract_version: string;
+            /** Execution Contract Version */
+            execution_contract_version?: string | null;
+            /** Catalog Version */
+            catalog_version: string;
+            /** Catalog Hash */
+            catalog_hash: string;
             /** Diagnostics */
             diagnostics?: string[];
         };
@@ -6714,6 +6803,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    quiesce_skill_orchestration_api_admin_skill_orchestration_quiesce_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

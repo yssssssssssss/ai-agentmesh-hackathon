@@ -298,8 +298,13 @@ class TaskRoutingResult(StrictModel):
 class TaskRoutingPreviewRequest(StrictModel):
     content: str = Field(min_length=1, max_length=4000)
     thread_id: str | None = Field(default=None, max_length=120)
+    planning_mode: Literal["standard", "deepsearch"] = "standard"
 
 
 class TaskRoutingPreviewResponse(StrictModel):
     routing_result: TaskRoutingResult
+    planning_contract_version: str
+    execution_contract_version: str | None = None
+    catalog_version: str
+    catalog_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     diagnostics: list[str] = Field(default_factory=list)

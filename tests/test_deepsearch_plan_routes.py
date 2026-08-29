@@ -606,4 +606,6 @@ def test_standard_plan_routes_keep_generic_update_and_approval_behavior(
     assert approved.plan.version == updated.plan.version + 1
     assert approved.plan.status is SkillPlanStatus.APPROVED
     assert approved.run.status is AgentRunStatus.RUNNING
-    assert runtime.started == [approved.plan]
+    assert len(runtime.started) == 1
+    assert runtime.started[0].id == approved.plan.id
+    assert runtime.started[0].version == approved.plan.version

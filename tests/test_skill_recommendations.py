@@ -77,6 +77,46 @@ def test_intent_analyzer_keeps_explicit_skill_selection_user_controlled() -> Non
     model.assert_complete()
 
 
+def test_intent_analyzer_redacts_all_outbound_text(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    async def fake_run(_agent, input_value, **_kwargs):  # noqa: ANN001, ANN202
+        captured["payload"] = input_value
+        return SimpleNamespace(
+            final_output={
+                "goal": "Summarize the request",
+                "primary_stage": "pre_design",
+                "input_kinds": ["design_requirement"],
+                "deliverables": ["design_analysis"],
+                "constraints": {"external_write": False, "project_scope": "current"},
+                "explicit_skill_names": [],
+                "complexity": "direct",
+            }
+        )
+
+    monkeypatch.setattr("agentmesh.skill_runtime.planner.Agent", lambda **_kwargs: object())
+    monkeypatch.setattr("agentmesh.skill_runtime.planner.Runner.run", fake_run)
+    secret = "Bearer planner-secret-token"
+    email = "private@example.com"
+    local_path = "/Users/private/research.md"
+
+    asyncio.run(
+        SkillIntentAnalyzer().analyze(
+            f"Review {secret}",
+            model=object(),  # type: ignore[arg-type]
+            project_summary=f"Contact {email}",
+            thread_summary=f"Read {local_path}",
+        )
+    )
+
+    assert secret not in captured["payload"]
+    assert email not in captured["payload"]
+    assert local_path not in captured["payload"]
+    assert "[REDACTED_CREDENTIAL]" in captured["payload"]
+    assert "[REDACTED_EMAIL]" in captured["payload"]
+    assert "[REDACTED_LOCAL_PATH]" in captured["payload"]
+
+
 def test_planner_receives_the_exact_symbolic_contract_protocol(tmp_path, configure_pilot_wiki) -> None:
     repository, catalog = _catalog(tmp_path, configure_pilot_wiki)
     intent = deterministic_intent("制定研究计划和访谈提纲")

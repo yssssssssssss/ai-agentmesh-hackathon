@@ -19,6 +19,10 @@ from agentmesh.models import (
     ToolDefinition,
 )
 from agentmesh.seed import USER, ensure_base_workspace_data
+from agentmesh.skill_runtime.quiesce import (
+    OrchestrationQuiesceController,
+    OrchestrationQuiescingError,
+)
 from agentmesh.store import SQLiteStore, store
 from agentmesh.tool_runtime.mcp import (
     AgentMeshMCPFactory,
@@ -331,6 +335,63 @@ def test_governed_mcp_withholds_secret_output() -> None:
     assert "withheld" in result.content[0].text
     assert "leaked-provider-token" not in result.model_dump_json()
     assert inner.calls == 1
+    claims, outcomes = store.list_runtime_tool_call_history(context.run_id)
+    assert len(claims) == len(outcomes) == 1
+    assert outcomes[0].outcome == "settled"
+
+
+def test_governed_mcp_quiesce_rejects_before_claim_or_provider_call(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "quiesced-mcp.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+    context = _context().model_copy(
+        update={"thread_id": "thread_quiesced_mcp", "run_id": "run_quiesced_mcp"}
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id=context.run_id,
+            thread_id=context.thread_id,
+            user_id=context.user_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            input_text="invoke MCP",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    definition = repository.save_tool_definition(
+        ToolDefinition(
+            id="tool_quiesced_mcp",
+            name="quiesced_mcp",
+            description="Quiesced MCP test",
+            category="integration",
+            side_effect="external",
+        )
+    )
+    repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_quiesced_mcp",
+            agent_id=USER.personal_agent_id,
+            tool_id=definition.id,
+            granted_by="test",
+        )
+    )
+    controller = OrchestrationQuiesceController()
+    asyncio.run(controller.begin_quiesce())
+    inner = _UnsafeInner()
+    server = GovernedMCPServer(
+        inner,
+        repository=repository,
+        context=context,
+        definition=definition,
+        allowed_tool_names={"lookup"},
+        admission=controller,
+    )
+
+    with pytest.raises(OrchestrationQuiescingError):
+        asyncio.run(server.call_tool("lookup", {}))
+
+    assert inner.calls == 0
+    assert repository.list_runtime_tool_call_history(context.run_id) == ([], [])
 
 
 def test_governed_mcp_rechecks_project_membership_before_call(tmp_path) -> None:

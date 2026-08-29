@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -73,10 +74,13 @@ from agentmesh.models import (
     MemoryLayer,
     MemoryRelation,
     ModelDefinition,
+    OrchestrationQuiesceInventoryV1,
     PermissionPolicyRule,
     Project,
     RetrievalMetrics,
     RiskPolicyRule,
+    RuntimeToolCallClaimV1,
+    RuntimeToolCallOutcomeV1,
     ScheduledAgentTaskDefinition,
     Scope,
     SDKSessionRecord,
@@ -91,6 +95,7 @@ from agentmesh.models import (
     SkillPlanNode,
     SkillPlanNodeStatus,
     SkillPlanStatus,
+    SkillSideEffect,
     SkillStatus,
     Source,
     Task,
@@ -141,6 +146,14 @@ class BriefConfirmationError(RuntimeError):
 
 class ResearchStoreConflict(RuntimeError):
     """A durable research invariant or compare-and-swap precondition failed."""
+
+
+class RuntimeToolCallConflict(RuntimeError):
+    """A durable Runtime Tool-call identity or state invariant failed."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
 
 
 class DeepSearchRequirementConflict(ResearchStoreConflict):
@@ -395,20 +408,78 @@ _FTS_COLLECTION_MODELS: dict[str, type[BaseModel]] = {
 
 
 class SQLiteStore:
-    def __init__(self, db_path: str | Path | None = None):
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        *,
+        enforce_writer_lock: bool = False,
+        initialize_schema: bool = True,
+    ):
         configured_path = db_path or os.getenv("AGENTMESH_DB_PATH") or DEFAULT_DB_PATH
         self.db_path = Path(configured_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._writer_lock_descriptor: int | None = None
+        self._writer_lock_pid: int | None = None
+        if enforce_writer_lock:
+            self._acquire_writer_lock()
         self.vector_index = VectorIndex(self.db_path)
         self._skill_vector_lock = threading.Lock()
         self._skill_vector_thread: threading.Thread | None = None
         self._skill_vector_rescan_requested = False
-        self._init_schema()
-        self._backfill_artifact_projections()
-        self._backfill_fts()
-        self._backfill_vec()
+        try:
+            if initialize_schema:
+                self._init_schema()
+                self._backfill_artifact_projections()
+                self._backfill_fts()
+                self._backfill_vec()
+        except BaseException:
+            self.close()
+            raise
+
+    def _acquire_writer_lock(self) -> None:
+        lock_path = self.db_path.with_suffix(self.db_path.suffix + ".writer.lock")
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            os.close(descriptor)
+            raise RuntimeError("sqlite_writer_lock_unavailable") from error
+        metadata = json.dumps(
+            {
+                "database": str(self.db_path.resolve()),
+                "pid": os.getpid(),
+                "release_id": os.getenv("AGENTMESH_RELEASE_ID", "development"),
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+        os.ftruncate(descriptor, 0)
+        os.write(descriptor, metadata)
+        os.fsync(descriptor)
+        self._writer_lock_descriptor = descriptor
+        self._writer_lock_pid = os.getpid()
+
+    def _verify_writer_process(self) -> None:
+        if self._writer_lock_descriptor is not None and self._writer_lock_pid != os.getpid():
+            raise RuntimeError("sqlite_writer_lock_process_mismatch")
+
+    def writer_lock_diagnostics(self) -> dict[str, object]:
+        return {
+            "enforced": self._writer_lock_descriptor is not None,
+            "pid": self._writer_lock_pid,
+            "database": str(self.db_path.resolve()),
+            "release_id": os.getenv("AGENTMESH_RELEASE_ID", "development"),
+        }
+
+    def close(self) -> None:
+        descriptor = self._writer_lock_descriptor
+        if descriptor is None or self._writer_lock_pid != os.getpid():
+            return
+        self._writer_lock_descriptor = None
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
     def _connect(self) -> sqlite3.Connection:
+        self._verify_writer_process()
         connection = sqlite3.connect(self.db_path, timeout=_SQLITE_BUSY_TIMEOUT_SECONDS)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
@@ -417,6 +488,7 @@ class SQLiteStore:
         return connection
 
     def _read_connect(self) -> sqlite3.Connection:
+        self._verify_writer_process()
         connection = sqlite3.connect(
             f"{self.db_path.resolve().as_uri()}?mode=ro",
             timeout=_SQLITE_BUSY_TIMEOUT_SECONDS,
@@ -501,6 +573,17 @@ class SQLiteStore:
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_records_collection ON records(collection, created_order)"
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_recent
+            ON records(
+                json_extract(payload, '$.thread_id'),
+                json_extract(payload, '$.created_at') DESC,
+                id DESC
+            )
+            WHERE collection = 'chat_messages'
+            """
         )
         connection.execute(
             """
@@ -627,6 +710,16 @@ class SQLiteStore:
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_run_events_created ON agent_run_events(run_id, created_at)"
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_agent_run_events_tool_call
+            ON agent_run_events(json_extract(payload, '$.payload.call_id'), run_id, sequence)
+            WHERE json_extract(payload, '$.event_type') IN (
+                'tool_call_claimed', 'tool_call_settled',
+                'tool_call_abandoned', 'tool_call_outcome_unknown'
+            )
+            """
         )
         connection.execute(
             """
@@ -2492,6 +2585,31 @@ class SQLiteStore:
             return run
         cancelled_at = cancelled_at or now_utc()
         events: list[tuple[str, dict[str, object]]] = []
+        tool_claims, tool_outcomes = self._runtime_tool_call_history_in_transaction(
+            connection,
+            run.id,
+        )
+        terminal_by_call = {outcome.call_id: outcome for outcome in tool_outcomes}
+        unknown_node_ids = {
+            claim.node_id
+            for claim in tool_claims
+            if claim.node_id is not None
+            and claim.side_effect != "read"
+            and (
+                claim.call_id not in terminal_by_call
+                or terminal_by_call[claim.call_id].outcome != "settled"
+            )
+        }
+        unknown_write = bool(unknown_node_ids) or any(
+            claim.node_id is None
+            and claim.side_effect != "read"
+            and (
+                claim.call_id not in terminal_by_call
+                or terminal_by_call[claim.call_id].outcome != "settled"
+            )
+            for claim in tool_claims
+        )
+        partial = False
         plan_row = connection.execute(
             "SELECT payload FROM skill_plans WHERE run_id = ?",
             (run.id,),
@@ -2521,10 +2639,48 @@ class SQLiteStore:
             for node in plan.nodes:
                 if node.status in terminal_nodes:
                     continue
-                node.status = SkillPlanNodeStatus.CANCELLED
+                if node.id in unknown_node_ids:
+                    node.status = SkillPlanNodeStatus.FAILED
+                    node.error_code = "external_outcome_unknown"
+                    event_type = "node_failed"
+                else:
+                    node.status = SkillPlanNodeStatus.CANCELLED
+                    event_type = "node_cancelled"
                 node.completed_at = cancelled_at
-                events.append(("node_cancelled", {"plan_id": plan.id, "node_id": node.id}))
-            plan.status = SkillPlanStatus.CANCELLED
+                events.append(
+                    (
+                        event_type,
+                        {
+                            "plan_id": plan.id,
+                            "node_id": node.id,
+                            "error_code": node.error_code,
+                        },
+                    )
+                )
+            if unknown_write and plan.candidate_snapshot is not None:
+                from agentmesh.skill_runtime.universal_plan import has_valid_partial_delivery
+
+                result_rows = connection.execute(
+                    """
+                    SELECT payload FROM skill_node_results
+                    WHERE plan_id = ? ORDER BY created_at, node_id, attempt
+                    """,
+                    (plan.id,),
+                ).fetchall()
+                partial = has_valid_partial_delivery(
+                    plan=plan,
+                    results=[
+                        SkillNodeResult.model_validate_json(result_row["payload"])
+                        for result_row in result_rows
+                    ],
+                )
+            plan.status = (
+                SkillPlanStatus.PARTIAL
+                if partial
+                else SkillPlanStatus.FAILED
+                if unknown_write
+                else SkillPlanStatus.CANCELLED
+            )
             if deepsearch_plan:
                 from agentmesh.artifacts import ArtifactAccessError, V1VerifiedArtifactStore
 
@@ -2593,12 +2749,20 @@ class SQLiteStore:
             self._write_skill_plan(connection, plan)
         if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
             run.deepsearch_budget = self._close_deepsearch_budget_for_terminal(run)
-        run.status = AgentRunStatus.CANCELLED
+        run.status = (
+            AgentRunStatus.PARTIAL
+            if partial
+            else AgentRunStatus.FAILED
+            if unknown_write
+            else AgentRunStatus.CANCELLED
+        )
         run.paused_state = None
         run.interaction_expires_at = None
         if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
             run.output_text = None
-        run.error_code = error_code
+        run.error_code = (
+            "external_outcome_unknown" if unknown_write else error_code
+        )
         run.updated_at = cancelled_at
         connection.execute(
             "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
@@ -2610,9 +2774,185 @@ class SQLiteStore:
             reason=reason,
             resolved_at=cancelled_at,
         )
-        events.append(("run_cancelled", {"reason": reason}))
+        events.append(
+            (
+                "run_partially_completed"
+                if run.status is AgentRunStatus.PARTIAL
+                else "run_failed"
+                if run.status is AgentRunStatus.FAILED
+                else "run_cancelled",
+                (
+                    {"reason": reason, "error_code": run.error_code}
+                    if run.status is not AgentRunStatus.CANCELLED
+                    else {"reason": reason}
+                ),
+            )
+        )
         self._append_agent_run_events(connection, run.id, events)
         return run
+
+    def create_standard_planning_skeleton(
+        self,
+        *,
+        run_id: str,
+        plan: SkillPlan,
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        if (
+            plan.run_id != run_id
+            or plan.status is not SkillPlanStatus.PLANNING
+            or plan.nodes
+            or plan.candidate_snapshot is None
+            or plan.planning_mode is not AgentPlanningMode.STANDARD
+        ):
+            raise RuntimeError("standard_planning_skeleton_invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            existing_plan = connection.execute(
+                "SELECT id FROM skill_plans WHERE id = ? OR run_id = ?",
+                (plan.id, run_id),
+            ).fetchone()
+            if row is None or existing_plan is not None:
+                return None
+            run = self._decode_agent_run_row(row)
+            if (
+                run.status is not AgentRunStatus.PLANNING
+                or run.plan_id is not None
+                or run.planning_mode is not AgentPlanningMode.STANDARD
+                or run.planning_contract_version
+                is not AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+                or run.execution_contract_version != plan.execution_contract_version
+            ):
+                return None
+            self._write_skill_plan(connection, plan)
+            run.plan_id = plan.id
+            run.updated_at = now_utc()
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "candidate_snapshot_created",
+                        {
+                            "plan_id": plan.id,
+                            "plan_version": plan.version,
+                            "candidate_snapshot_hash": plan.candidate_snapshot.content_hash,
+                            "candidate_count": len(plan.candidate_snapshot.candidates),
+                        },
+                    )
+                ],
+            )
+            return plan, run
+
+    def complete_standard_planning_skeleton(
+        self,
+        *,
+        plan: SkillPlan,
+        expected_version: int,
+        next_run_status: AgentRunStatus,
+        events: list[tuple[str, dict[str, object]]],
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        if (
+            plan.status not in {SkillPlanStatus.WAITING_APPROVAL, SkillPlanStatus.APPROVED}
+            or plan.candidate_snapshot is None
+            or not plan.nodes
+            or next_run_status not in {
+                AgentRunStatus.WAITING_PLAN_APPROVAL,
+                AgentRunStatus.RUNNING,
+            }
+        ):
+            raise RuntimeError("standard_planning_completion_invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            plan_row = connection.execute(
+                "SELECT payload FROM skill_plans WHERE id = ?",
+                (plan.id,),
+            ).fetchone()
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (plan.run_id,),
+            ).fetchone()
+            if plan_row is None or run_row is None:
+                return None
+            current = SkillPlan.model_validate_json(plan_row["payload"])
+            run = self._decode_agent_run_row(run_row)
+            if (
+                current.status is not SkillPlanStatus.PLANNING
+                or current.version != expected_version
+                or current.candidate_snapshot != plan.candidate_snapshot
+                or run.status is not AgentRunStatus.PLANNING
+                or run.plan_id != plan.id
+                or run.planning_contract_version
+                is not AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+                or current.execution_contract_version != run.execution_contract_version
+                or plan.execution_contract_version != current.execution_contract_version
+            ):
+                return None
+            plan.version = expected_version + 1
+            plan.updated_at = now_utc()
+            self._write_skill_plan(connection, plan)
+            run.status = next_run_status
+            run.updated_at = plan.updated_at
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+            )
+            self._append_agent_run_events(connection, run.id, events)
+            return plan, run
+
+    def fail_standard_planning_skeleton(
+        self,
+        *,
+        run_id: str,
+        plan_id: str,
+        error_code: str,
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            plan_row = connection.execute(
+                "SELECT payload FROM skill_plans WHERE id = ?",
+                (plan_id,),
+            ).fetchone()
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if plan_row is None or run_row is None:
+                return None
+            plan = SkillPlan.model_validate_json(plan_row["payload"])
+            run = self._decode_agent_run_row(run_row)
+            if (
+                plan.run_id != run.id
+                or plan.status is not SkillPlanStatus.PLANNING
+                or run.status is not AgentRunStatus.PLANNING
+                or run.plan_id != plan.id
+            ):
+                return None
+            now = now_utc()
+            plan.status = SkillPlanStatus.FAILED
+            plan.degradation = error_code
+            plan.updated_at = now
+            run.status = AgentRunStatus.FAILED
+            run.error_code = error_code
+            run.updated_at = now
+            self._write_skill_plan(connection, plan)
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [("plan_planning_failed", {"plan_id": plan.id, "error_code": error_code})],
+            )
+            return plan, run
 
     def save_skill_plan(self, plan: SkillPlan) -> SkillPlan:
         if plan.planning_mode is AgentPlanningMode.DEEPSEARCH:
@@ -2628,6 +2968,13 @@ class SQLiteStore:
                     raise ResearchStoreConflict("research-v2 runs are historical and read-only")
                 if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
                     raise ResearchStoreConflict("DeepSearch Plans require dedicated persistence methods")
+                if (
+                    run.planning_contract_version
+                    is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+                ) != (plan.candidate_snapshot is not None):
+                    raise ResearchStoreConflict("Standard Plan contract and Candidate Snapshot disagree")
+                if run.execution_contract_version != plan.execution_contract_version:
+                    raise ResearchStoreConflict("Standard execution contract marker disagrees")
             plan.updated_at = now_utc()
             self._write_skill_plan(connection, plan)
         return plan
@@ -2663,6 +3010,8 @@ class SQLiteStore:
                 or current.status != SkillPlanStatus.WAITING_APPROVAL
                 or plan.status != SkillPlanStatus.WAITING_APPROVAL
                 or run.status != AgentRunStatus.WAITING_PLAN_APPROVAL
+                or current.execution_contract_version != plan.execution_contract_version
+                or run.execution_contract_version != plan.execution_contract_version
             ):
                 return False
             plan.version = expected_version + 1
@@ -5142,6 +5491,16 @@ class SQLiteStore:
                 )
             elif plan.planning_mode is AgentPlanningMode.DEEPSEARCH:
                 raise ResearchStoreConflict("DeepSearch execution Plan identity is invalid")
+            elif (
+                run.planning_contract_version
+                is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+                and (
+                    run.execution_contract_version is None
+                    or run.execution_contract_version != plan.execution_contract_version
+                    or plan.candidate_snapshot is None
+                )
+            ):
+                raise ResearchStoreConflict("Universal execution contract is unavailable")
             plan.status = SkillPlanStatus.RUNNING
             plan.updated_at = now_utc()
             self._write_skill_plan(connection, plan)
@@ -5172,6 +5531,15 @@ class SQLiteStore:
                 or run.status != AgentRunStatus.RUNNING
                 or node.status != SkillPlanNodeStatus.READY
                 or node.attempt >= 2
+                or (
+                    run.planning_contract_version
+                    is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+                    and (
+                        run.execution_contract_version is None
+                        or run.execution_contract_version != plan.execution_contract_version
+                        or plan.candidate_snapshot is None
+                    )
+                )
             ):
                 return None
             node.status = SkillPlanNodeStatus.RUNNING
@@ -7127,6 +7495,7 @@ class SQLiteStore:
                 planning_mode=run.planning_mode,
                 retry_of_run_id=run.retry_of_run_id,
                 planning_contract_version=run.planning_contract_version,
+                execution_contract_version=run.execution_contract_version,
             )
         ):
             raise RuntimeError("client_turn_id was already used for another Agent run")
@@ -7386,6 +7755,37 @@ class SQLiteStore:
             )
         return run
 
+    @classmethod
+    def _reconcile_runtime_tool_calls_in_transaction(
+        cls,
+        connection: sqlite3.Connection,
+        run: AgentRun,
+        *,
+        recorded_at: datetime,
+    ) -> bool:
+        claims, outcomes = cls._runtime_tool_call_history_in_transaction(connection, run.id)
+        terminal_ids = {outcome.call_id for outcome in outcomes}
+        events: list[tuple[str, dict[str, object]]] = []
+        for claim in claims:
+            if claim.call_id in terminal_ids:
+                continue
+            is_read = claim.side_effect == "read"
+            outcome = RuntimeToolCallOutcomeV1(
+                call_id=claim.call_id,
+                run_id=claim.run_id,
+                outcome="abandoned" if is_read else "outcome_unknown",
+                error_code="process_restarted" if is_read else "external_outcome_unknown",
+                recorded_at=recorded_at,
+            )
+            events.append(
+                (
+                    "tool_call_abandoned" if is_read else "tool_call_outcome_unknown",
+                    outcome.model_dump(mode="json"),
+                )
+            )
+        cls._append_agent_run_events(connection, run.id, events)
+        return any(claim.side_effect != "read" for claim in claims)
+
     def reconcile_orphaned_agent_runs(self) -> int:
         reconciled = 0
         with self._connect() as connection:
@@ -7398,6 +7798,11 @@ class SQLiteStore:
                 run = AgentRun.model_validate_json(row["payload"])
                 if self._is_retired_research_run(run, row["orchestration_version"]):
                     continue
+                has_non_read_tool_claim = self._reconcile_runtime_tool_calls_in_transaction(
+                    connection,
+                    run,
+                    recorded_at=checked_at,
+                )
                 if run.planning_mode == AgentPlanningMode.DEEPSEARCH:
                     continue
                 if run.status == AgentRunStatus.WAITING_PLAN_APPROVAL:
@@ -7430,24 +7835,71 @@ class SQLiteStore:
                     "SELECT payload FROM skill_plans WHERE run_id = ?",
                     (run.id,),
                 ).fetchone()
+                partial = False
+                unknown_write = False
                 if plan_row is not None:
                     plan = SkillPlan.model_validate_json(plan_row["payload"])
+                    tool_claims, tool_outcomes = self._runtime_tool_call_history_in_transaction(
+                        connection,
+                        run.id,
+                    )
+                    terminal_by_call = {
+                        outcome.call_id: outcome for outcome in tool_outcomes
+                    }
+                    unknown_node_ids = {
+                        claim.node_id
+                        for claim in tool_claims
+                        if claim.node_id is not None
+                        and claim.side_effect != "read"
+                        and (
+                            claim.call_id not in terminal_by_call
+                            or terminal_by_call[claim.call_id].outcome != "settled"
+                        )
+                    }
                     for node in plan.nodes:
-                        if node.status in {SkillPlanNodeStatus.RUNNING, SkillPlanNodeStatus.READY}:
+                        if node.status is SkillPlanNodeStatus.RUNNING:
+                            node_unknown = node.id in unknown_node_ids
                             node.status = SkillPlanNodeStatus.FAILED
-                            node.error_code = "process_restarted"
+                            node.error_code = (
+                                "external_outcome_unknown"
+                                if node_unknown
+                                else "process_restarted"
+                            )
                             node.completed_at = now_utc()
+                            unknown_write = unknown_write or node_unknown
                         elif node.status in {
                             SkillPlanNodeStatus.PENDING,
+                            SkillPlanNodeStatus.READY,
                             SkillPlanNodeStatus.WAITING_TOOL_APPROVAL,
                         }:
                             node.status = SkillPlanNodeStatus.CANCELLED
                             node.completed_at = now_utc()
-                    plan.status = SkillPlanStatus.FAILED
+                    if plan.candidate_snapshot is not None:
+                        from agentmesh.skill_runtime.universal_plan import has_valid_partial_delivery
+
+                        result_rows = connection.execute(
+                            """
+                            SELECT payload FROM skill_node_results
+                            WHERE plan_id = ? ORDER BY created_at, node_id, attempt
+                            """,
+                            (plan.id,),
+                        ).fetchall()
+                        partial = has_valid_partial_delivery(
+                            plan=plan,
+                            results=[
+                                SkillNodeResult.model_validate_json(result_row["payload"])
+                                for result_row in result_rows
+                            ],
+                        )
+                    plan.status = SkillPlanStatus.PARTIAL if partial else SkillPlanStatus.FAILED
                     plan.updated_at = now_utc()
                     self._write_skill_plan(connection, plan)
-                run.status = AgentRunStatus.FAILED
-                run.error_code = "process_restarted"
+                run.status = AgentRunStatus.PARTIAL if partial else AgentRunStatus.FAILED
+                run.error_code = (
+                    "external_outcome_unknown"
+                    if unknown_write or (plan_row is None and has_non_read_tool_claim)
+                    else "process_restarted"
+                )
                 run.updated_at = now_utc()
                 connection.execute(
                     "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
@@ -7460,8 +7912,8 @@ class SQLiteStore:
                 event = AgentRunEvent(
                     run_id=run.id,
                     sequence=sequence,
-                    event_type="run_failed",
-                    payload={"error_code": "process_restarted"},
+                    event_type="run_partially_completed" if partial else "run_failed",
+                    payload={"error_code": run.error_code or "process_restarted"},
                 )
                 connection.execute(
                     "INSERT INTO agent_run_events(run_id, sequence, id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -7469,6 +7921,230 @@ class SQLiteStore:
                 )
                 reconciled += 1
         return reconciled
+
+    @classmethod
+    def _universal_quiesce_inventory_in_transaction(
+        cls,
+        connection: sqlite3.Connection,
+    ) -> OrchestrationQuiesceInventoryV1:
+        terminal_statuses = {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.PARTIAL,
+            AgentRunStatus.FAILED,
+            AgentRunStatus.REJECTED,
+            AgentRunStatus.CANCELLED,
+        }
+        rows = connection.execute(
+            "SELECT id, payload, orchestration_version FROM agent_runs ORDER BY id"
+        ).fetchall()
+        run_ids: set[str] = set()
+        plan_ids: set[str] = set()
+        unresolved_call_ids: set[str] = set()
+        unsafe_no_plan_run_ids: set[str] = set()
+        anomalies: set[str] = set()
+        target_contracts = {
+            AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+            AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
+        }
+        for row in rows:
+            run = cls._decode_agent_run_row(row)
+            claims, outcomes = cls._runtime_tool_call_history_in_transaction(connection, run.id)
+            terminal_call_ids = {outcome.call_id for outcome in outcomes}
+            unresolved = [claim for claim in claims if claim.call_id not in terminal_call_ids]
+            unresolved_call_ids.update(claim.call_id for claim in unresolved)
+            active = run.status not in terminal_statuses
+            plan_row = connection.execute(
+                "SELECT id, payload FROM skill_plans WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()
+            plan = SkillPlan.model_validate_json(plan_row["payload"]) if plan_row is not None else None
+            if active and (run.planning_contract_version in target_contracts or claims):
+                run_ids.add(run.id)
+                if plan is not None:
+                    plan_ids.add(plan.id)
+                elif any(claim.side_effect != "read" for claim in claims):
+                    unsafe_no_plan_run_ids.add(run.id)
+            if (
+                run.planning_contract_version in target_contracts
+                and plan is not None
+                and (
+                    run.plan_id != plan.id
+                    or plan.run_id != run.id
+                    or plan.candidate_snapshot is None
+                )
+            ):
+                anomalies.add(f"planning_contract_shape_mismatch:{run.id}")
+            if plan is not None and plan.candidate_snapshot is not None and run.planning_contract_version not in target_contracts:
+                anomalies.add(f"candidate_snapshot_marker_mismatch:{run.id}")
+        orphan_rows = connection.execute(
+            """
+            SELECT sp.id FROM skill_plans AS sp
+            LEFT JOIN agent_runs AS ar ON ar.id = sp.run_id
+            WHERE ar.id IS NULL
+            ORDER BY sp.id
+            """
+        ).fetchall()
+        anomalies.update(f"orphan_plan:{row['id']}" for row in orphan_rows)
+        body = {
+            "schema_version": "orchestration-quiesce-inventory-v1",
+            "run_ids": sorted(run_ids),
+            "plan_ids": sorted(plan_ids),
+            "unresolved_tool_call_ids": sorted(unresolved_call_ids),
+            "unsafe_no_plan_run_ids": sorted(unsafe_no_plan_run_ids),
+            "anomaly_codes": sorted(anomalies),
+        }
+        return OrchestrationQuiesceInventoryV1(
+            **body,
+            operation_checksum=canonical_json_sha256(body),
+        )
+
+    def universal_quiesce_inventory(self) -> OrchestrationQuiesceInventoryV1:
+        with self._read_connect() as connection:
+            return self._universal_quiesce_inventory_in_transaction(connection)
+
+    def apply_universal_quiesce(
+        self,
+        *,
+        expected_operation_checksum: str,
+    ) -> OrchestrationQuiesceInventoryV1:
+        with self._connect() as connection:
+            connection.execute("BEGIN EXCLUSIVE")
+            inventory = self._universal_quiesce_inventory_in_transaction(connection)
+            if inventory.operation_checksum != expected_operation_checksum:
+                raise RuntimeToolCallConflict("quiesce_operation_checksum_changed")
+            if inventory.anomaly_codes:
+                raise RuntimeToolCallConflict("quiesce_inventory_invalid")
+            checked_at = now_utc()
+            all_claims, all_outcomes = self._all_runtime_tool_call_history(connection)
+            terminal_call_ids = {outcome.call_id for outcome in all_outcomes}
+            unresolved_by_run: dict[str, list[RuntimeToolCallClaimV1]] = {}
+            for claim in all_claims:
+                if claim.call_id not in terminal_call_ids:
+                    unresolved_by_run.setdefault(claim.run_id, []).append(claim)
+            for unresolved_run_id, claims in sorted(unresolved_by_run.items()):
+                claim_events: list[tuple[str, dict[str, object]]] = []
+                for claim in claims:
+                    is_read = claim.side_effect == "read"
+                    outcome = RuntimeToolCallOutcomeV1(
+                        call_id=claim.call_id,
+                        run_id=claim.run_id,
+                        outcome="abandoned" if is_read else "outcome_unknown",
+                        error_code="process_restarted" if is_read else "external_outcome_unknown",
+                        recorded_at=checked_at,
+                    )
+                    claim_events.append(
+                        (
+                            "tool_call_abandoned" if is_read else "tool_call_outcome_unknown",
+                            outcome.model_dump(mode="json"),
+                        )
+                    )
+                self._append_agent_run_events(connection, unresolved_run_id, claim_events)
+            for run_id in inventory.run_ids:
+                row = connection.execute(
+                    "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                    (run_id,),
+                ).fetchone()
+                if row is None:
+                    raise RuntimeToolCallConflict("quiesce_run_disappeared")
+                run = self._decode_agent_run_row(row)
+                run_claims, _run_outcomes = self._runtime_tool_call_history_in_transaction(
+                    connection,
+                    run.id,
+                )
+                has_non_read_claim = any(claim.side_effect != "read" for claim in run_claims)
+                plan_row = connection.execute(
+                    "SELECT payload FROM skill_plans WHERE run_id = ?",
+                    (run.id,),
+                ).fetchone()
+                events: list[tuple[str, dict[str, object]]] = []
+                has_unknown_write = has_non_read_claim
+                partial = False
+                if plan_row is not None:
+                    plan = SkillPlan.model_validate_json(plan_row["payload"])
+                    terminal_nodes = {
+                        SkillPlanNodeStatus.COMPLETED,
+                        SkillPlanNodeStatus.FAILED,
+                        SkillPlanNodeStatus.SKIPPED,
+                        SkillPlanNodeStatus.CANCELLED,
+                    }
+                    for node in plan.nodes:
+                        if node.status in terminal_nodes:
+                            continue
+                        if (
+                            node.status is SkillPlanNodeStatus.RUNNING
+                            and node.side_effect
+                            in {SkillSideEffect.LOCAL_WRITE, SkillSideEffect.EXTERNAL_WRITE}
+                        ):
+                            node.status = SkillPlanNodeStatus.FAILED
+                            node.error_code = "external_outcome_unknown"
+                            has_unknown_write = True
+                        else:
+                            node.status = SkillPlanNodeStatus.CANCELLED
+                            node.error_code = "orchestration_quiesced"
+                        node.completed_at = checked_at
+                        events.append(
+                            (
+                                "node_failed"
+                                if node.error_code == "external_outcome_unknown"
+                                else "node_cancelled",
+                                {
+                                    "plan_id": plan.id,
+                                    "node_id": node.id,
+                                    "error_code": node.error_code,
+                                },
+                            )
+                        )
+                    if plan.candidate_snapshot is not None:
+                        from agentmesh.skill_runtime.universal_plan import has_valid_partial_delivery
+
+                        result_rows = connection.execute(
+                            """
+                            SELECT payload FROM skill_node_results
+                            WHERE plan_id = ? ORDER BY created_at, node_id, attempt
+                            """,
+                            (plan.id,),
+                        ).fetchall()
+                        partial = has_valid_partial_delivery(
+                            plan=plan,
+                            results=[
+                                SkillNodeResult.model_validate_json(result_row["payload"])
+                                for result_row in result_rows
+                            ],
+                        )
+                    plan.status = SkillPlanStatus.PARTIAL if partial else SkillPlanStatus.FAILED
+                    plan.updated_at = checked_at
+                    self._write_skill_plan(connection, plan)
+                run.status = (
+                    AgentRunStatus.PARTIAL
+                    if partial
+                    else AgentRunStatus.FAILED
+                    if plan_row is not None or run_claims
+                    else AgentRunStatus.CANCELLED
+                )
+                run.error_code = (
+                    "external_outcome_unknown"
+                    if has_unknown_write
+                    else "process_restarted"
+                    if plan_row is not None or run_claims
+                    else "orchestration_quiesced"
+                )
+                run.updated_at = checked_at
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), checked_at.isoformat(), run.id),
+                )
+                events.append(
+                    (
+                        "run_partially_completed"
+                        if run.status is AgentRunStatus.PARTIAL
+                        else "run_failed"
+                        if run.status is AgentRunStatus.FAILED
+                        else "run_cancelled",
+                        {"error_code": run.error_code},
+                    )
+                )
+                self._append_agent_run_events(connection, run.id, events)
+            return inventory
 
     def list_active_agent_runs_for_planning_contracts(
         self,
@@ -8065,6 +8741,248 @@ class SQLiteStore:
                 (run_id, sequence, event.id, event.model_dump_json(), event.created_at.isoformat()),
             )
         return event
+
+    def claim_runtime_tool_call(self, claim: RuntimeToolCallClaimV1) -> bool:
+        """Persist a Tool-call claim once; False means an identical claim already exists."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (claim.run_id,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeToolCallConflict("tool_call_run_missing")
+            run = self._decode_agent_run_row(row)
+            if run.status not in {AgentRunStatus.PLANNING, AgentRunStatus.RUNNING}:
+                raise RuntimeToolCallConflict("tool_call_run_not_running")
+            events = connection.execute(
+                """
+                SELECT payload FROM agent_run_events
+                WHERE json_extract(payload, '$.payload.call_id') = ?
+                ORDER BY run_id, sequence
+                """,
+                (claim.call_id,),
+            ).fetchall()
+            if events:
+                parsed = [AgentRunEvent.model_validate_json(event["payload"]) for event in events]
+                claimed = [event for event in parsed if event.event_type == "tool_call_claimed"]
+                if len(claimed) != 1:
+                    raise RuntimeToolCallConflict("tool_call_history_invalid")
+                existing = RuntimeToolCallClaimV1.model_validate(claimed[0].payload)
+                if existing.model_dump(exclude={"claimed_at"}) != claim.model_dump(
+                    exclude={"claimed_at"}
+                ):
+                    raise RuntimeToolCallConflict("tool_call_identity_conflict")
+                return False
+            self._append_agent_run_events(
+                connection,
+                claim.run_id,
+                [("tool_call_claimed", claim.model_dump(mode="json"))],
+            )
+            return True
+
+    def finish_runtime_tool_call(self, outcome: RuntimeToolCallOutcomeV1) -> bool:
+        """Append one immutable settlement/abandonment/unknown outcome."""
+        event_type = {
+            "settled": "tool_call_settled",
+            "abandoned": "tool_call_abandoned",
+            "outcome_unknown": "tool_call_outcome_unknown",
+        }[outcome.outcome]
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """
+                SELECT payload FROM agent_run_events
+                WHERE json_extract(payload, '$.payload.call_id') = ?
+                ORDER BY run_id, sequence
+                """,
+                (outcome.call_id,),
+            ).fetchall()
+            events = [AgentRunEvent.model_validate_json(row["payload"]) for row in rows]
+            claims = [event for event in events if event.event_type == "tool_call_claimed"]
+            if len(claims) != 1:
+                raise RuntimeToolCallConflict("tool_call_claim_missing")
+            claim = RuntimeToolCallClaimV1.model_validate(claims[0].payload)
+            if claim.run_id != outcome.run_id:
+                raise RuntimeToolCallConflict("tool_call_identity_conflict")
+            terminal = [
+                event
+                for event in events
+                if event.event_type
+                in {"tool_call_settled", "tool_call_abandoned", "tool_call_outcome_unknown"}
+            ]
+            if terminal:
+                if len(terminal) != 1:
+                    raise RuntimeToolCallConflict("tool_call_history_invalid")
+                existing = RuntimeToolCallOutcomeV1.model_validate(terminal[0].payload)
+                if existing.model_dump(exclude={"recorded_at"}) != outcome.model_dump(
+                    exclude={"recorded_at"}
+                ):
+                    raise RuntimeToolCallConflict("tool_call_outcome_conflict")
+                return False
+            self._append_agent_run_events(
+                connection,
+                outcome.run_id,
+                [(event_type, outcome.model_dump(mode="json"))],
+            )
+            return True
+
+    @staticmethod
+    def _runtime_tool_call_history_in_transaction(
+        connection: sqlite3.Connection,
+        run_id: str,
+    ) -> tuple[list[RuntimeToolCallClaimV1], list[RuntimeToolCallOutcomeV1]]:
+        rows = connection.execute(
+            """
+            SELECT payload FROM agent_run_events
+            WHERE run_id = ?
+              AND json_extract(payload, '$.event_type') IN (
+                  'tool_call_claimed', 'tool_call_settled',
+                  'tool_call_abandoned', 'tool_call_outcome_unknown'
+              )
+            ORDER BY sequence
+            """,
+            (run_id,),
+        ).fetchall()
+        claims: list[RuntimeToolCallClaimV1] = []
+        outcomes: list[RuntimeToolCallOutcomeV1] = []
+        for row in rows:
+            event = AgentRunEvent.model_validate_json(row["payload"])
+            if event.event_type == "tool_call_claimed":
+                claims.append(RuntimeToolCallClaimV1.model_validate(event.payload))
+            else:
+                outcomes.append(RuntimeToolCallOutcomeV1.model_validate(event.payload))
+        if len({claim.call_id for claim in claims}) != len(claims):
+            raise RuntimeToolCallConflict("tool_call_history_invalid")
+        if len({outcome.call_id for outcome in outcomes}) != len(outcomes):
+            raise RuntimeToolCallConflict("tool_call_history_invalid")
+        if not {outcome.call_id for outcome in outcomes}.issubset(
+            {claim.call_id for claim in claims}
+        ):
+            raise RuntimeToolCallConflict("tool_call_history_invalid")
+        return claims, outcomes
+
+    def list_runtime_tool_call_history(
+        self,
+        run_id: str | None = None,
+    ) -> tuple[list[RuntimeToolCallClaimV1], list[RuntimeToolCallOutcomeV1]]:
+        with self._read_connect() as connection:
+            return self._runtime_tool_call_history_in_transaction(connection, run_id) if run_id else self._all_runtime_tool_call_history(connection)
+
+    @classmethod
+    def _all_runtime_tool_call_history(
+        cls,
+        connection: sqlite3.Connection,
+    ) -> tuple[list[RuntimeToolCallClaimV1], list[RuntimeToolCallOutcomeV1]]:
+        run_rows = connection.execute(
+            """
+            SELECT DISTINCT run_id FROM agent_run_events
+            WHERE json_extract(payload, '$.event_type') IN (
+                'tool_call_claimed', 'tool_call_settled',
+                'tool_call_abandoned', 'tool_call_outcome_unknown'
+            )
+            ORDER BY run_id
+            """
+        ).fetchall()
+        claims: list[RuntimeToolCallClaimV1] = []
+        outcomes: list[RuntimeToolCallOutcomeV1] = []
+        for row in run_rows:
+            run_claims, run_outcomes = cls._runtime_tool_call_history_in_transaction(
+                connection,
+                str(row["run_id"]),
+            )
+            claims.extend(run_claims)
+            outcomes.extend(run_outcomes)
+        return claims, outcomes
+
+    def runtime_tool_run_has_unknown_non_read(self, run_id: str) -> bool:
+        claims, outcomes = self.list_runtime_tool_call_history(run_id)
+        terminal = {outcome.call_id: outcome for outcome in outcomes}
+        return any(
+            claim.side_effect != "read"
+            and (
+                claim.call_id not in terminal
+                or terminal[claim.call_id].outcome != "settled"
+            )
+            for claim in claims
+        )
+
+    def runtime_tool_node_has_unknown_non_read(
+        self,
+        run_id: str,
+        node_id: str,
+    ) -> bool:
+        claims, outcomes = self.list_runtime_tool_call_history(run_id)
+        terminal = {outcome.call_id: outcome for outcome in outcomes}
+        return any(
+            claim.node_id == node_id
+            and claim.side_effect != "read"
+            and (
+                claim.call_id not in terminal
+                or terminal[claim.call_id].outcome != "settled"
+            )
+            for claim in claims
+        )
+
+    def runtime_tool_retry_block_reason(self, run_id: str) -> str | None:
+        run = self.get_agent_run(run_id)
+        if run is not None and run.error_code == "external_outcome_unknown":
+            return "external_outcome_unknown"
+        plan = self.get_skill_plan_for_run(run_id)
+        if plan is not None and any(
+            node.error_code == "external_outcome_unknown" for node in plan.nodes
+        ):
+            return "external_outcome_unknown"
+        claims, outcomes = self.list_runtime_tool_call_history(run_id)
+        terminal = {outcome.call_id: outcome for outcome in outcomes}
+        if any(
+            claim.side_effect != "read"
+            and (
+                claim.call_id not in terminal
+                or terminal[claim.call_id].outcome != "settled"
+            )
+            for claim in claims
+        ):
+            return "external_outcome_unknown"
+        if any(claim.side_effect != "read" for claim in claims):
+            return "completed_write_requires_new_request"
+        return None
+
+    def runtime_tool_retry_blocked(self, run_id: str) -> bool:
+        return self.runtime_tool_retry_block_reason(run_id) is not None
+
+    def list_unresolved_runtime_tool_calls(self) -> list[RuntimeToolCallClaimV1]:
+        claims, outcomes = self.list_runtime_tool_call_history()
+        terminal_ids = {outcome.call_id for outcome in outcomes}
+        return [claim for claim in claims if claim.call_id not in terminal_ids]
+
+    def read_agent_run_event_page(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[AgentRunEvent], AgentRun | None]:
+        if not 1 <= limit <= 100:
+            raise ValueError("agent_run_event_page_limit_invalid")
+        with self._read_connect() as connection:
+            connection.execute("BEGIN")
+            event_rows = connection.execute(
+                """
+                SELECT payload FROM agent_run_events
+                WHERE run_id = ? AND sequence > ?
+                ORDER BY sequence
+                LIMIT ?
+                """,
+                (run_id, after_sequence, limit),
+            ).fetchall()
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        events = [AgentRunEvent.model_validate_json(row["payload"]) for row in event_rows]
+        run = self._decode_agent_run_row(run_row) if run_row is not None else None
+        return events, run
 
     def list_agent_run_events(self, run_id: str, after_sequence: int = 0) -> list[AgentRunEvent]:
         with self._connect() as connection:
@@ -9246,6 +10164,39 @@ class SQLiteStore:
     def list_agent_tool_grants(self, agent_id: str) -> list[AgentToolGrant]:
         return [grant for grant in self.agent_tool_grants if grant.agent_id == agent_id]
 
+    def list_recent_thread_messages(
+        self,
+        thread_id: str,
+        *,
+        limit: int = 6,
+        max_content_bytes: int = 4096,
+    ) -> list[ChatMessage]:
+        if not 1 <= limit <= 100:
+            raise ValueError("recent_message_limit_invalid")
+        if not 1 <= max_content_bytes <= 64 * 1024:
+            raise ValueError("recent_message_byte_limit_invalid")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'chat_messages'
+                  AND json_extract(payload, '$.thread_id') = ?
+                ORDER BY json_extract(payload, '$.created_at') DESC, id DESC
+                LIMIT ?
+                """,
+                (thread_id, limit),
+            ).fetchall()
+        newest_first = [ChatMessage.model_validate_json(row["payload"]) for row in rows]
+        selected: list[ChatMessage] = []
+        consumed = 0
+        for message in newest_first:
+            size = len(message.content.encode("utf-8"))
+            if consumed + size > max_content_bytes:
+                break
+            selected.append(message)
+            consumed += size
+        return list(reversed(selected))
+
     def list_thread_messages(self, thread_id: str) -> list[ChatMessage]:
         items = [message for message in self.chat_messages if message.thread_id == thread_id]
         return sorted(items, key=lambda message: (message.created_at, message.id))
@@ -9848,4 +10799,21 @@ class SQLiteStore:
         return len(memberships) > 0
 
 
-store = SQLiteStore()
+class LazySQLiteStore:
+    """Initialize the process-owned SQLite writer only on first application use."""
+
+    def __init__(self) -> None:
+        self._instance: SQLiteStore | None = None
+        self._lock = threading.Lock()
+
+    def initialize(self) -> SQLiteStore:
+        with self._lock:
+            if self._instance is None:
+                self._instance = SQLiteStore(enforce_writer_lock=True)
+            return self._instance
+
+    def __getattr__(self, name: str):  # noqa: ANN204
+        return getattr(self.initialize(), name)
+
+
+store = LazySQLiteStore()

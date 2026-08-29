@@ -160,6 +160,9 @@ Run the deterministic release gates before moving beyond `preview`:
 .venv/bin/python eval/run_skill_retrieval_eval.py
 .venv/bin/python eval/run_universal_skill_retrieval_eval.py
 .venv/bin/python eval/run_universal_skill_profile_smoke.py --mode fts-only
+# Offline rollback preflight; --apply additionally requires the printed checksum,
+# an integrity-checked backup path, and a two-operator approval file.
+.venv/bin/python scripts/quiesce_skill_orchestration.py --database data/agentmesh.sqlite3
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
 .venv/bin/python -m pytest
 .venv/bin/ruff check agentmesh tests scripts eval

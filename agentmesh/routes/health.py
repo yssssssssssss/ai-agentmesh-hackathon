@@ -25,6 +25,7 @@ from agentmesh.provider_status import ProviderStatus, build_provider_status
 from agentmesh.routes.deps import require_permission
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.skill_runtime.trust import runtime_profile_trust_verifier
+from agentmesh.skill_runtime.universal_execution import universal_standard_execution_available
 from agentmesh.store import store
 from agentmesh.web_research import web_research_provider_status
 
@@ -379,6 +380,7 @@ def _agent_runtime_status(*, deepsearch_recovery_running: bool = False) -> dict[
         "profile_errors": profile_errors,
         "skill_profile_trust": "ready" if profile_trust.available else "unavailable",
         "skill_profile_trust_error": profile_trust.diagnostic,
+        "universal_execution_available": universal_standard_execution_available(),
         "index_health": "ready" if index_ready else "degraded",
         "index_counts": index_counts,
         "planner_health": (
@@ -430,6 +432,23 @@ def _document_parser_status() -> dict[str, object]:
     return payload
 
 
+def _sqlite_writer_status() -> dict[str, object]:
+    diagnostics = store.writer_lock_diagnostics()
+    enforced = bool(diagnostics["enforced"])
+    return {
+        "name": "sqlite_writer",
+        "configured": True,
+        "ready": enforced,
+        "mode": "real",
+        "last_error": None if enforced else "writer_lock_not_enforced",
+        "latency_ms": None,
+        "status": "ready" if enforced else "degraded",
+        "lock_enforced": enforced,
+        "pid": diagnostics["pid"],
+        "release_id": diagnostics["release_id"],
+    }
+
+
 def _provider_health_snapshot(
     *,
     deepsearch_recovery_running: bool = False,
@@ -443,6 +462,7 @@ def _provider_health_snapshot(
         _agent_runtime_status(
             deepsearch_recovery_running=deepsearch_recovery_running
         ),
+        _sqlite_writer_status(),
         _document_parser_status(),
     ]
     all_ready = all(bool(item["ready"]) for item in providers)

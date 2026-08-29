@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections import Counter
 
 from agentmesh.models import (
+    AgentExecutionContractVersion,
     AgentPlanningMode,
+    CandidateSnapshotV1,
     SkillCandidate,
     SkillIntent,
     SkillPlan,
@@ -65,6 +67,7 @@ def validate_draft(
     candidates: list[SkillCandidate],
     *,
     intent: SkillIntent,
+    universal: bool = False,
 ) -> None:
     errors: list[str] = []
     if not draft.nodes:
@@ -94,7 +97,7 @@ def validate_draft(
             errors.append("side_effect_mismatch")
         if not set(node.output_contract).issubset(profile.output_kinds):
             errors.append("unsupported_node_output")
-        if node.scenario_id is not None:
+        if node.scenario_id is not None and not universal:
             if not node.task_id or not node.skill_registry_id or not node.skill_status:
                 errors.append("route_metadata_incomplete")
             if set(node.required_tool_names) != tool_names_for_profile(profile):
@@ -157,15 +160,27 @@ def build_plan(
     draft: SkillPlanDraft,
     status: SkillPlanStatus,
     routing_result: TaskRoutingResult | None = None,
+    candidate_snapshot: CandidateSnapshotV1 | None = None,
+    execution_contract_version: AgentExecutionContractVersion | None = None,
+    plan_id: str | None = None,
+    version: int = 1,
 ) -> SkillPlan:
-    validate_draft(draft, candidates, intent=intent)
+    validate_draft(
+        draft,
+        candidates,
+        intent=intent,
+        universal=candidate_snapshot is not None,
+    )
     return SkillPlan(
-        id=new_id("plan"),
+        id=plan_id or new_id("plan"),
         run_id=run_id,
+        version=version,
         status=status,
         intent=intent,
         routing_result=routing_result,
         candidate_skill_ids=[candidate.skill_id for candidate in candidates[:MAX_CANDIDATES]],
+        candidate_snapshot=candidate_snapshot,
+        execution_contract_version=execution_contract_version,
         output_contract=draft.output_contract,
         synthesis_output_contract=draft.synthesis_output_contract,
         capability_gaps=draft.capability_gaps,
@@ -284,5 +299,6 @@ def adjust_plan(
         draft,
         [candidate_by_id[skill_id] for skill_id in selected],
         intent=plan.intent,
+        universal=plan.candidate_snapshot is not None,
     )
     return adjusted

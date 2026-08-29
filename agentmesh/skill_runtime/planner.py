@@ -9,6 +9,7 @@ from agents.models.interface import Model
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentmesh.agent_runtime.settings import task_scenario_routing_enabled
+from agentmesh.canonical_json import canonical_json_bytes
 from agentmesh.models import (
     SkillCandidate,
     SkillIntent,
@@ -235,9 +236,9 @@ class SkillIntentAnalyzer:
             output_type=SkillIntent,
         )
         payload = {
-            "request": content,
-            "project_summary": project_summary[:2000],
-            "thread_summary": thread_summary[:4000],
+            "request": redact_sensitive_text(content)[:4000],
+            "project_summary": redact_sensitive_text(project_summary)[:2000],
+            "thread_summary": redact_sensitive_text(thread_summary)[:4000],
             "attachment_types": list(attachment_types),
         }
         try:
@@ -538,12 +539,144 @@ def route_skill_draft(
     )
 
 
+class _UniversalPlannerNodeDraft(BaseModel):
+    """Only model-owned choices for a Universal Candidate Snapshot node."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=120)
+    skill_id: str = Field(min_length=1, max_length=160)
+    reason: str = Field(min_length=1, max_length=1000)
+    required: bool = True
+    depends_on: list[str] = Field(default_factory=list, max_length=6)
+    parallel_group: str | None = Field(default=None, max_length=120)
+    input_bindings: list[str] = Field(default_factory=list, max_length=20)
+    output_contract: list[str] = Field(min_length=1, max_length=20)
+
+
+class _UniversalPlannerDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    output_contract: list[str] = Field(default_factory=list, max_length=20)
+    optional_synthesis_outputs: list[str] = Field(default_factory=list, max_length=20)
+    nodes: list[_UniversalPlannerNodeDraft] = Field(min_length=1, max_length=6)
+
+
 class SkillPlanner:
     def __init__(
         self,
         draft_factory: Callable[[SkillIntent, list[SkillCandidate]], Awaitable[SkillPlanDraft]] | None = None,
     ):
         self._draft_factory = draft_factory
+
+    async def create_universal_draft(
+        self,
+        intent: SkillIntent,
+        candidates: list[SkillCandidate],
+        *,
+        candidate_snapshot_public: dict[str, object],
+        required_synthesis_output_ids: tuple[str, ...],
+        model: Model | None,
+        repair_errors: list[str] | None = None,
+    ) -> SkillPlanDraft:
+        if not candidates:
+            raise PlannerUnavailable("No eligible Skill candidates")
+        if self._draft_factory is not None:
+            draft = await self._draft_factory(intent, candidates)
+            return draft.model_copy(
+                update={
+                    "capability_gaps": [],
+                    "synthesis_output_contract": list(
+                        dict.fromkeys(
+                            [
+                                *required_synthesis_output_ids,
+                                *draft.synthesis_output_contract,
+                            ]
+                        )
+                    ),
+                }
+            )
+        if model is None:
+            raise PlannerUnavailable("Planner model is not configured")
+        payload = {
+            "intent": intent.model_dump(mode="json"),
+            "candidate_snapshot": candidate_snapshot_public,
+            "repair_error_codes": repair_errors or [],
+            "contract_rules": {
+                "nodes": "Choose one to six unique skill_id values from candidate_snapshot.candidates.",
+                "input_bindings": [
+                    "user.request",
+                    "user.<intent_input_kind>",
+                    "<dependency_node_id>.<dependency_output_kind>",
+                ],
+                "node_outputs": "Copy exact values from the selected capability_card output_kinds.",
+                "server_owned": [
+                    "skill_version",
+                    "skill_content_hash",
+                    "profile_version",
+                    "profile_content_hash",
+                    "tool identities",
+                    "resources",
+                    "side_effect",
+                    "task_id",
+                    "scenario_id",
+                    "capability_gaps",
+                ],
+            },
+        }
+        encoded = canonical_json_bytes(payload)
+        if len(encoded) > 64 * 1024 or len(encoded) > 24_000:
+            raise PlannerUnavailable("planner_context_budget_exceeded")
+        agent = Agent(
+            name="AgentMesh Universal Skill Planner",
+            instructions=_PLANNER_INSTRUCTIONS,
+            model=model,
+            tools=[],
+            output_type=_UniversalPlannerDraft,
+        )
+        result = await Runner.run(
+            agent,
+            json.dumps(payload, ensure_ascii=False),
+            max_turns=2,
+            run_config=RunConfig(
+                workflow_name="universal_skill_dag_planning",
+                trace_include_sensitive_data=False,
+            ),
+        )
+        proposal = _UniversalPlannerDraft.model_validate(result.final_output)
+        candidate_by_id = {candidate.skill_id: candidate for candidate in candidates}
+        nodes: list[SkillPlanNode] = []
+        for item in proposal.nodes:
+            candidate = candidate_by_id.get(item.skill_id)
+            if candidate is None:
+                raise PlannerUnavailable("planner_selected_unknown_skill")
+            profile = candidate.profile
+            nodes.append(
+                SkillPlanNode(
+                    id=item.id,
+                    skill_id=candidate.skill_id,
+                    skill_version=profile.skill_version,
+                    skill_content_hash=profile.skill_content_hash,
+                    reason=item.reason,
+                    required=item.required,
+                    depends_on=item.depends_on,
+                    parallel_group=item.parallel_group,
+                    input_bindings=item.input_bindings,
+                    output_contract=item.output_contract,
+                    required_tool_names=sorted(tool_names_for_profile(profile)),
+                    side_effect=profile.side_effect,
+                )
+            )
+        return SkillPlanDraft(
+            output_contract=proposal.output_contract,
+            synthesis_output_contract=list(
+                dict.fromkeys(
+                    [*required_synthesis_output_ids, *proposal.optional_synthesis_outputs]
+                )
+            ),
+            capability_gaps=[],
+            nodes=nodes,
+        )
 
     async def create_draft(
         self,

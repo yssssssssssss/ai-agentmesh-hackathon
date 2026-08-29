@@ -393,6 +393,10 @@ def test_user_granted_read_only_web_tool_does_not_require_per_call_approval(tmp_
     assert answer.content == "Research completed without a second approval."
     assert calls == ["current market"]
     assert "approval_requested" not in _core_event_types(repository, answer.run_id or "")
+    claims, outcomes = repository.list_runtime_tool_call_history(answer.run_id or "")
+    assert [claim.call_id for claim in claims] == ["web_read"]
+    assert [outcome.outcome for outcome in outcomes] == ["settled"]
+    assert outcomes[0].result_hash is not None
     assert any(event.action == "sdk_tool_completed" for event in repository.audit_events)
     model.assert_complete()
 

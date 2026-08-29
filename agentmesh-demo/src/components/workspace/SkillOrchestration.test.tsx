@@ -55,7 +55,6 @@ function node(status: SkillPlanNode['status'] = 'pending'): SkillPlanNode {
     id: 'node-1',
     skill_id: skill.id,
     skill_version: '1',
-    skill_content_hash: 'hash',
     reason: '先确认需求是否可落地',
     required: true,
     depends_on: [],
