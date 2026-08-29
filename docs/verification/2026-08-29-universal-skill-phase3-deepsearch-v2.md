@@ -25,7 +25,7 @@
 
 ## Local verification
 
-- Backend: `1669 passed, 6 skipped` (`217.67s`); the slowest gates were the draft-Profile smoke (`36.83s`) and Universal retrieval calibration (`21.70s`).
+- Backend: `1669 passed, 6 skipped` (`222.33s`); the slowest gates were the draft-Profile smoke (`36.90s`) and Universal retrieval calibration (`21.83s`).
 - Frontend: `161 passed`; production build and 500 KiB bundle gate passed.
 - Ruff and `git diff --check`: passed.
 - v1 deterministic snapshot tests remain green alongside routed/unrouted v2 hash and recovery tests.
