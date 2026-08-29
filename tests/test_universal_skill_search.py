@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agentmesh.canonical_json import canonical_json_bytes
+from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.models import (
     AgentToolGrant,
     SkillBinding,
@@ -26,7 +26,10 @@ from agentmesh.skill_runtime.readiness import ToolHealthProbeCoordinator
 from agentmesh.skill_runtime.recommendation import (
     SkillRerankDecision,
     UniversalSkillSearchService,
+    build_candidate_snapshot,
+    candidate_snapshot_public_projection,
     recommend_skill_directory,
+    revalidate_candidate_snapshot,
     skill_capability_card,
 )
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
@@ -515,6 +518,142 @@ def test_universal_search_builds_assignment_aware_coverage_witnesses(tmp_path) -
         "metrics-validation"
     }
     assert not result.capability_gaps
+
+
+def test_candidate_snapshot_freezes_ranked_identity_and_public_projection(tmp_path) -> None:
+    service, skills, _calls = _controlled_universal_service(
+        tmp_path,
+        [
+            ("metrics-candidate", ["experience_metrics"], "approved"),
+            ("measurement-candidate", ["measurement_plan"], "approved"),
+        ],
+    )
+    routing_result, task_catalog = _routing_result_for("metrics-validation")
+    result = service.search(
+        USER,
+        SkillIntent(goal="建立体验指标并制定验证方案", deliverables=["experience_metrics"]),
+        routing_result=routing_result,
+        task_catalog=task_catalog,
+    )
+
+    snapshot = build_candidate_snapshot(result, service._repository)
+    public = candidate_snapshot_public_projection(snapshot)
+
+    assert [candidate.skill_id for candidate in snapshot.candidates] == [
+        candidate.skill_id for candidate in result.selectable_candidates
+    ]
+    assert set(snapshot.coverage_witness_skill_ids) == {skill.id for skill in skills}
+    assert snapshot.content_hash
+    serialized = canonical_json_bytes(public)
+    assert b"evidence_path_witnesses" not in serialized
+    assert b"tool_implementation_id" not in serialized
+    assert b"resource_or_adapter_identity" not in serialized
+    with pytest.raises(ValueError, match="content_hash"):
+        type(snapshot).model_validate(
+            {**snapshot.model_dump(mode="python"), "content_hash": "0" * 64}
+        )
+
+
+def test_candidate_snapshot_freezes_evidence_path_without_exposing_it_publicly(tmp_path) -> None:
+    skill = _profile_skill(
+        tmp_path,
+        {
+            "review_state": "approved",
+            "planner_eligible": True,
+            "required_tools": ["web_research"],
+        },
+        name="evidence-candidate",
+    )
+    repository = SQLiteStore(tmp_path / "evidence-snapshot.sqlite3")
+    ensure_tool_seed_data(repository, granted_by="evidence-snapshot")
+    repository.save_skill_definition(skill, defer_vector=True)
+    repository.save_skill_capability_profile(load_capability_profile_record(skill).profile, defer_vector=True)
+    catalog = SkillCatalogService(repository)
+    catalog._skills = {skill.name: skill}
+    definition = next(tool for tool in repository.tool_definitions if tool.name == "web_research")
+    assert definition.implementation_id is not None
+    health = ToolHealthProbeCoordinator(
+        lambda _name: _HealthDescriptor(
+            definition.implementation_id or "",
+            definition.implementation_version,
+            "healthy",
+        )
+    )
+    service = UniversalSkillSearchService(
+        repository,
+        catalog,
+        profile_trust=lambda _skill, _loaded: True,
+        profile_ranker=lambda queries, _ids: [([], [skill.id], []) for _query in queries],
+        tool_health=health,
+    )
+
+    result = service.search(
+        USER,
+        SkillIntent(
+            goal="Research this topic with external evidence",
+            deliverables=["research_insight"],
+            external_evidence_required=True,
+        ),
+    )
+    snapshot = build_candidate_snapshot(result, repository)
+    public = candidate_snapshot_public_projection(snapshot)
+
+    assert result.outcome_code == "ok"
+    assert snapshot.candidates[0].evidence_path_witnesses
+    serialized = canonical_json_bytes(public)
+    assert b"evidence_path_witnesses" not in serialized
+    assert definition.implementation_id.encode() not in serialized
+
+    revalidated = revalidate_candidate_snapshot(
+        snapshot=snapshot,
+        repository=repository,
+        catalog=catalog,
+        user=USER,
+        intent=SkillIntent(
+            goal="Research this topic with external evidence",
+            deliverables=["research_insight"],
+            external_evidence_required=True,
+        ),
+        profile_trust=lambda _skill, _loaded: True,
+    )
+    assert [candidate.skill_id for candidate in revalidated] == [skill.id]
+    repository.save_tool_definition(
+        definition.model_copy(update={"implementation_version": "2"})
+    )
+    with pytest.raises(ValueError, match="candidate_snapshot_stale"):
+        revalidate_candidate_snapshot(
+            snapshot=snapshot,
+            repository=repository,
+            catalog=catalog,
+            user=USER,
+            intent=SkillIntent(
+                goal="Research this topic with external evidence",
+                deliverables=["research_insight"],
+                external_evidence_required=True,
+            ),
+            profile_trust=lambda _skill, _loaded: True,
+        )
+
+    stale_body = snapshot.model_dump(mode="python", exclude={"content_hash"})
+    stale_body["required_coverage_atoms"] = [
+        atom.model_copy(update={"evidence_policy_version": "stale"})
+        if atom.kind == "evidence"
+        else atom
+        for atom in snapshot.required_coverage_atoms
+    ]
+    stale_policy_snapshot = type(snapshot)(
+        **stale_body,
+        content_hash=canonical_json_sha256(stale_body),
+    )
+    with pytest.raises(ValueError, match="evidence_policy_changed"):
+        revalidate_candidate_snapshot(
+            snapshot=stale_policy_snapshot,
+            repository=repository,
+            catalog=catalog,
+            user=USER,
+            intent=SkillIntent(goal="Research", external_evidence_required=True),
+            profile_trust=lambda _skill, _loaded: True,
+        )
 
 
 def test_universal_search_keeps_blocked_matches_out_of_ready_shortlist_and_builds_gaps(tmp_path) -> None:

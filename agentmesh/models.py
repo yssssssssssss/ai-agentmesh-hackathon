@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agentmesh.canonical_json import canonical_json_sha256
+from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.provider_status import ProviderStatus
 from agentmesh.task_routing.contracts import CompletionCheckResult, TaskRoutingResult
 
@@ -1043,6 +1043,10 @@ class AgentPlanningContractVersion(StrEnum):
         return AgentPlanningMode.DEEPSEARCH
 
 
+class AgentExecutionContractVersion(StrEnum):
+    STANDARD_UNIVERSAL_V1 = "standard_universal_execution_v1"
+
+
 class SkillIntentConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1246,6 +1250,67 @@ class DeepSearchEvidenceItemV1(DeepSearchEvidenceBindingDraft):
 
     id: str = Field(min_length=1, max_length=160)
     node_result_id: str = Field(min_length=1, max_length=160)
+
+
+class RuntimeToolCallClaimV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["runtime-tool-call-claim-v1"] = "runtime-tool-call-claim-v1"
+    call_id: str = Field(min_length=1, max_length=160)
+    run_id: str = Field(min_length=1, max_length=120)
+    plan_id: str | None = Field(default=None, max_length=120)
+    node_id: str | None = Field(default=None, max_length=120)
+    tool_definition_id: str = Field(min_length=1, max_length=160)
+    tool_name: str = Field(min_length=1, max_length=120)
+    implementation_id: str = Field(min_length=1, max_length=240)
+    implementation_version: str = Field(min_length=1, max_length=80)
+    side_effect: Literal["read", "write", "external", "idempotent_write", "non_idempotent_write"]
+    operation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    claimed_at: datetime = Field(default_factory=now_utc)
+
+
+class RuntimeToolCallOutcomeV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["runtime-tool-call-outcome-v1"] = "runtime-tool-call-outcome-v1"
+    call_id: str = Field(min_length=1, max_length=160)
+    run_id: str = Field(min_length=1, max_length=120)
+    outcome: Literal["settled", "abandoned", "outcome_unknown"]
+    result_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    error_code: str | None = Field(default=None, min_length=1, max_length=160)
+    recorded_at: datetime = Field(default_factory=now_utc)
+
+
+class OrchestrationQuiesceInventoryV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["orchestration-quiesce-inventory-v1"] = (
+        "orchestration-quiesce-inventory-v1"
+    )
+    run_ids: tuple[str, ...] = Field(default_factory=tuple)
+    plan_ids: tuple[str, ...] = Field(default_factory=tuple)
+    unresolved_tool_call_ids: tuple[str, ...] = Field(default_factory=tuple)
+    unsafe_no_plan_run_ids: tuple[str, ...] = Field(default_factory=tuple)
+    anomaly_codes: tuple[str, ...] = Field(default_factory=tuple)
+    operation_checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_inventory(self) -> OrchestrationQuiesceInventoryV1:
+        values = (
+            self.run_ids,
+            self.plan_ids,
+            self.unresolved_tool_call_ids,
+            self.unsafe_no_plan_run_ids,
+            self.anomaly_codes,
+        )
+        if any(tuple(sorted(set(items))) != items for items in values):
+            raise ValueError("quiesce inventory values must be uniquely sorted")
+        expected = canonical_json_sha256(
+            self.model_dump(mode="python", exclude={"operation_checksum"})
+        )
+        if self.operation_checksum != expected:
+            raise ValueError("quiesce inventory checksum does not match")
+        return self
 
 
 class DeepSearchToolInvocationV1(BaseModel):
@@ -1598,6 +1663,133 @@ class SkillPlanDraft(BaseModel):
     nodes: list[SkillPlanNode] = Field(default_factory=list, max_length=6)
 
 
+class CandidateEvidencePathWitnessV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    atom_id: Literal["evidence:trusted_external_path"]
+    tool_implementation_id: str = Field(min_length=1, max_length=240)
+    tool_implementation_version: str = Field(min_length=1, max_length=80)
+    resource_or_adapter_identity: str = Field(min_length=1, max_length=500)
+    identity_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_identity_hash(self) -> CandidateEvidencePathWitnessV1:
+        expected = canonical_json_sha256(
+            self.model_dump(mode="python", exclude={"identity_hash"})
+        )
+        if self.identity_hash != expected:
+            raise ValueError("evidence path identity_hash does not match its canonical content")
+        return self
+
+
+class CandidateIdentityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    skill_id: str = Field(min_length=1, max_length=160)
+    skill_name: str = Field(min_length=1, max_length=64)
+    skill_version: str = Field(min_length=1, max_length=40)
+    skill_content_hash: str = Field(min_length=1, max_length=128)
+    profile_version: str = Field(min_length=1, max_length=40)
+    profile_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    capability_card: dict[str, Any]
+    capability_card_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    match_reason_codes: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
+    coverage_witness_scenario_id: str | None = Field(default=None, max_length=120)
+    evidence_path_witnesses: tuple[CandidateEvidencePathWitnessV1, ...] = Field(
+        default_factory=tuple,
+        max_length=24,
+    )
+    covered_requirement_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=24)
+    ready_at_planning: Literal[True] = True
+
+    @model_validator(mode="after")
+    def validate_candidate_identity(self) -> CandidateIdentityV1:
+        if len(canonical_json_bytes(self.capability_card)) > 4 * 1024:
+            raise ValueError("candidate capability card exceeds 4 KiB")
+        if self.capability_card_hash != canonical_json_sha256(self.capability_card):
+            raise ValueError("candidate capability_card_hash does not match")
+        collections = (
+            self.match_reason_codes,
+            self.covered_requirement_ids,
+            tuple(witness.atom_id for witness in self.evidence_path_witnesses),
+        )
+        if any(len(values) != len(set(values)) for values in collections):
+            raise ValueError("candidate snapshot references must be unique")
+        if any(witness.atom_id not in self.covered_requirement_ids for witness in self.evidence_path_witnesses):
+            raise ValueError("evidence witness must reference covered requirement")
+        return self
+
+
+class CandidateSnapshotV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["candidate-snapshot-v1"] = "candidate-snapshot-v1"
+    retrieval_policy_version: str = Field(min_length=1, max_length=120)
+    required_coverage_atoms: tuple[CoverageAtomV1, ...] = Field(default_factory=tuple, max_length=24)
+    plannable_coverage_atom_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=24)
+    required_synthesis_output_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
+    coverage_witness_skill_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=6)
+    candidates: tuple[CandidateIdentityV1, ...] = Field(min_length=1, max_length=12)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_snapshot(self) -> CandidateSnapshotV1:
+        if not self.required_coverage_atoms and not self.required_synthesis_output_ids:
+            raise ValueError("candidate snapshot requires a coverage or synthesis obligation")
+        atom_ids = tuple(atom.id for atom in self.required_coverage_atoms)
+        candidate_ids = tuple(candidate.skill_id for candidate in self.candidates)
+        collections = (
+            atom_ids,
+            self.plannable_coverage_atom_ids,
+            self.required_synthesis_output_ids,
+            self.coverage_witness_skill_ids,
+            candidate_ids,
+        )
+        if any(len(values) != len(set(values)) for values in collections):
+            raise ValueError("candidate snapshot ordered collections must be unique")
+        if tuple(atom_id for atom_id in atom_ids if atom_id in self.plannable_coverage_atom_ids) != (
+            self.plannable_coverage_atom_ids
+        ):
+            raise ValueError("plannable atoms must be an ordered subset of required atoms")
+        if not set(self.coverage_witness_skill_ids).issubset(candidate_ids):
+            raise ValueError("coverage witnesses must be Candidate Snapshot members")
+        plannable = set(self.plannable_coverage_atom_ids)
+        evidence_atoms = {
+            atom.id for atom in self.required_coverage_atoms if isinstance(atom, EvidenceAtomV1)
+        }
+        covered_by_witnesses: set[str] = set()
+        for candidate in self.candidates:
+            if not set(candidate.covered_requirement_ids).issubset(plannable):
+                raise ValueError("candidate coverage must be a subset of plannable atoms")
+            covered_evidence = set(candidate.covered_requirement_ids).intersection(evidence_atoms)
+            witnessed_evidence = {witness.atom_id for witness in candidate.evidence_path_witnesses}
+            if covered_evidence != witnessed_evidence:
+                raise ValueError("evidence coverage requires an exact path witness")
+            if candidate.skill_id in self.coverage_witness_skill_ids:
+                covered_by_witnesses.update(candidate.covered_requirement_ids)
+        if covered_by_witnesses != plannable:
+            raise ValueError("coverage witnesses must cover every plannable atom")
+        public_cards = [
+            {
+                "skill_id": candidate.skill_id,
+                "capability_card": candidate.capability_card,
+                "match_reason_codes": candidate.match_reason_codes,
+                "coverage_witness_scenario_id": candidate.coverage_witness_scenario_id,
+                "covered_requirement_ids": candidate.covered_requirement_ids,
+            }
+            for candidate in self.candidates
+        ]
+        if len(canonical_json_bytes(public_cards)) > 32 * 1024:
+            raise ValueError("candidate snapshot public projection exceeds 32 KiB")
+        canonical_payload = self.model_dump(mode="python", exclude={"content_hash"})
+        if len(canonical_json_bytes(canonical_payload)) > 32 * 1024:
+            raise ValueError("candidate snapshot exceeds 32 KiB")
+        expected = canonical_json_sha256(canonical_payload)
+        if self.content_hash != expected:
+            raise ValueError("candidate snapshot content_hash does not match")
+        return self
+
+
 class SkillPlan(BaseModel):
     id: str = Field(default_factory=lambda: new_id("plan"))
     run_id: str
@@ -1606,12 +1798,14 @@ class SkillPlan(BaseModel):
     intent: SkillIntent
     routing_result: TaskRoutingResult | None = None
     candidate_skill_ids: list[str] = Field(default_factory=list, max_length=12)
+    candidate_snapshot: CandidateSnapshotV1 | None = None
     output_contract: list[str] = Field(default_factory=list, max_length=20)
     synthesis_output_contract: list[str] = Field(default_factory=list, max_length=20)
     capability_gaps: list[str] = Field(default_factory=list, max_length=100)
     preferred_order: list[str] = Field(default_factory=list, max_length=6)
     nodes: list[SkillPlanNode] = Field(default_factory=list, max_length=6)
     planning_mode: AgentPlanningMode = AgentPlanningMode.STANDARD
+    execution_contract_version: AgentExecutionContractVersion | None = None
     requirement_version_id: str | None = Field(default=None, max_length=120)
     requirement_content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     problem_graph: dict[str, Any] | None = None
@@ -1644,6 +1838,18 @@ class SkillPlan(BaseModel):
 
     @model_validator(mode="after")
     def validate_finalization_state(self) -> SkillPlan:
+        if self.candidate_snapshot is not None and self.candidate_skill_ids != [
+            candidate.skill_id for candidate in self.candidate_snapshot.candidates
+        ]:
+            raise ValueError("candidate_skill_ids must match Candidate Snapshot order")
+        if self.candidate_snapshot is None and self.execution_contract_version is not None:
+            raise ValueError("execution contract requires a Candidate Snapshot")
+        if (
+            self.candidate_snapshot is not None
+            and self.planning_mode is not AgentPlanningMode.STANDARD
+            and self.execution_contract_version is not None
+        ):
+            raise ValueError("DeepSearch Candidate Snapshot cannot use Standard execution contract")
         expected_revisions = list(range(len(self.deepsearch_syntheses)))
         if [item.revision_count for item in self.deepsearch_syntheses] != expected_revisions:
             raise ValueError("DeepSearch syntheses must contain contiguous append-only revisions")
@@ -1688,12 +1894,123 @@ class SkillPlan(BaseModel):
         return self
 
 
+class CandidateIdentityPublicV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    skill_id: str
+    skill_name: str
+    capability_card: dict[str, Any]
+    match_reason_codes: tuple[str, ...] = Field(default_factory=tuple)
+    coverage_witness_scenario_id: str | None = None
+    covered_requirement_ids: tuple[str, ...] = Field(default_factory=tuple)
+    ready_at_planning: Literal[True] = True
+
+
+class CandidateSnapshotPublicViewV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["candidate-snapshot-v1"] = "candidate-snapshot-v1"
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    retrieval_policy_version: str
+    required_coverage_atoms: tuple[dict[str, str], ...] = Field(default_factory=tuple)
+    plannable_coverage_atom_ids: tuple[str, ...] = Field(default_factory=tuple)
+    required_synthesis_output_ids: tuple[str, ...] = Field(default_factory=tuple)
+    coverage_witness_skill_ids: tuple[str, ...] = Field(default_factory=tuple)
+    candidates: tuple[CandidateIdentityPublicV1, ...] = Field(default_factory=tuple)
+
+    @classmethod
+    def from_snapshot(cls, snapshot: CandidateSnapshotV1) -> CandidateSnapshotPublicViewV1:
+        return cls(
+            content_hash=snapshot.content_hash,
+            retrieval_policy_version=snapshot.retrieval_policy_version,
+            required_coverage_atoms=tuple(
+                {"id": atom.id, "label": atom.label, "kind": atom.kind}
+                for atom in snapshot.required_coverage_atoms
+            ),
+            plannable_coverage_atom_ids=snapshot.plannable_coverage_atom_ids,
+            required_synthesis_output_ids=snapshot.required_synthesis_output_ids,
+            coverage_witness_skill_ids=snapshot.coverage_witness_skill_ids,
+            candidates=tuple(
+                CandidateIdentityPublicV1(
+                    skill_id=candidate.skill_id,
+                    skill_name=candidate.skill_name,
+                    capability_card=candidate.capability_card,
+                    match_reason_codes=candidate.match_reason_codes,
+                    coverage_witness_scenario_id=candidate.coverage_witness_scenario_id,
+                    covered_requirement_ids=candidate.covered_requirement_ids,
+                )
+                for candidate in snapshot.candidates
+            ),
+        )
+
+
+class SkillPlanNodePublicV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    skill_id: str
+    skill_version: str
+    reason: str
+    task_id: str | None = None
+    scenario_id: str | None = None
+    skill_registry_id: str | None = None
+    skill_status: Literal["draft", "reviewed", "validated"] | None = None
+    required: bool = True
+    depends_on: list[str] = Field(default_factory=list)
+    parallel_group: str | None = None
+    condition: str | None = None
+    question_ids: list[str] = Field(default_factory=list)
+    input_bindings: list[str] = Field(default_factory=list)
+    output_contract: list[str] = Field(default_factory=list)
+    knowledge_bindings: SkillPlanKnowledgeBindings = Field(default_factory=SkillPlanKnowledgeBindings)
+    required_tool_names: list[str] = Field(default_factory=list)
+    completion_criteria: list[str] = Field(default_factory=list)
+    side_effect: SkillSideEffect = SkillSideEffect.READ
+    status: SkillPlanNodeStatus = SkillPlanNodeStatus.PENDING
+    attempt: int = 0
+    error_code: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    @classmethod
+    def from_node(cls, node: SkillPlanNode) -> SkillPlanNodePublicV1:
+        return cls.model_validate(
+            node.model_dump(
+                mode="python",
+                exclude={"skill_content_hash", "resource_manifest"},
+            )
+        )
+
+
+class SkillPlanPublicView(SkillPlan):
+    candidate_snapshot: CandidateSnapshotPublicViewV1 | None = None
+    nodes: list[SkillPlanNodePublicV1] = Field(default_factory=list)
+
+    @classmethod
+    def from_plan(cls, plan: SkillPlan) -> SkillPlanPublicView:
+        return cls.model_validate(
+            {
+                **plan.model_dump(
+                    mode="python",
+                    exclude={"candidate_snapshot", "nodes"},
+                ),
+                "candidate_snapshot": (
+                    CandidateSnapshotPublicViewV1.from_snapshot(plan.candidate_snapshot)
+                    if plan.candidate_snapshot is not None
+                    else None
+                ),
+                "nodes": [SkillPlanNodePublicV1.from_node(node) for node in plan.nodes],
+            }
+        )
+
+
 class SkillPlanUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_version: int = Field(ge=1)
     selected_skill_ids: list[str] = Field(min_length=1, max_length=6)
     preferred_order: list[str] = Field(default_factory=list, max_length=6)
+    scenario_assignments: dict[str, str | None] = Field(default_factory=dict, max_length=6)
 
 
 class SkillPlanVersionRequest(BaseModel):
@@ -1723,6 +2040,7 @@ class SkillNodeResult(BaseModel):
     deliverable_markdown: str = Field(default="", max_length=60_000)
     findings: list[str] = Field(default_factory=list, max_length=100)
     recommendations: list[str] = Field(default_factory=list, max_length=100)
+    delivered_output_kinds: list[str] | None = Field(default=None, max_length=20)
     scenario_outputs: list[str] = Field(default_factory=list, max_length=100)
     completion_criteria_met: list[str] = Field(default_factory=list, max_length=100)
     sources: list[SkillResultSource] = Field(default_factory=list, max_length=100)
@@ -1740,6 +2058,10 @@ class SkillNodeResult(BaseModel):
     @model_validator(mode="after")
     def validate_evidence_items(self) -> SkillNodeResult:
         evidence_item_ids = [item.id for item in self.evidence_items]
+        if self.delivered_output_kinds is not None and len(self.delivered_output_kinds) != len(
+            set(self.delivered_output_kinds)
+        ):
+            raise ValueError("delivered output kinds must be unique")
         if len(evidence_item_ids) != len(set(evidence_item_ids)):
             raise ValueError("evidence item IDs must be unique")
         if any(item.node_result_id != self.id for item in self.evidence_items):
@@ -1766,10 +2088,22 @@ class SkillSynthesisResult(BaseModel):
     artifact_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
+class ScenarioAssignmentOptionV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scenario_id: str
+    title: str
+    output_ids: tuple[str, ...] = Field(default_factory=tuple)
+    output_labels: tuple[str, ...] = Field(default_factory=tuple)
+
+
 class SkillPlanDetailResponse(BaseModel):
-    plan: SkillPlan
+    plan: SkillPlanPublicView
     results: list[SkillNodeResult] = Field(default_factory=list)
     synthesis: SkillSynthesisResult | None = None
+    scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
+        default_factory=dict
+    )
 
 
 class SkillOrchestrationRequestMode(StrEnum):
@@ -2277,6 +2611,7 @@ class AgentRun(BaseModel):
     retry_of_run_id: str | None = Field(default=None, max_length=120)
     planning_mode: AgentPlanningMode = AgentPlanningMode.STANDARD
     planning_contract_version: AgentPlanningContractVersion | None = None
+    execution_contract_version: AgentExecutionContractVersion | None = None
     create_request_hash: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     orchestration_version: Literal["v1", "research-v2", "research-v3"] = "v1"
     orchestration_mode: Literal["off", "preview", "execute"] = "off"
@@ -2302,12 +2637,21 @@ class AgentRun(BaseModel):
             and self.planning_contract_version.planning_mode is not self.planning_mode
         ):
             raise ValueError("planning_contract_version is incompatible with planning_mode")
+        if self.execution_contract_version is not None and (
+            self.planning_mode is not AgentPlanningMode.STANDARD
+            or self.planning_contract_version
+            is not AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+        ):
+            raise ValueError("execution_contract_version requires Standard Universal planning")
         return self
 
 
 class SkillPlanTransitionResponse(BaseModel):
-    plan: SkillPlan
+    plan: SkillPlanPublicView
     run: AgentRun
+    scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
+        default_factory=dict
+    )
 
 
 class AgentRunEvent(BaseModel):

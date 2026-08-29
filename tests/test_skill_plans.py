@@ -1014,7 +1014,7 @@ def test_orchestration_rechecks_project_access_after_intent(tmp_path) -> None:
     assert repository.get_skill_plan_for_run(run.id) is None
 
 
-def test_plan_approval_cancels_waiting_run_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
+def test_plan_approval_is_rejected_without_mutation_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
     repository = SQLiteStore(tmp_path / "approval-off.sqlite3")
     run, plan, candidate = _approval_plan(repository, suffix="off")
     monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "off")
@@ -1031,8 +1031,27 @@ def test_plan_approval_cancels_waiting_run_when_orchestration_is_off(tmp_path, m
         )
 
     assert error.value.status_code == 409
-    assert repository.get_agent_run(run.id).status == AgentRunStatus.CANCELLED  # type: ignore[union-attr]
-    assert repository.get_skill_plan(plan.id).status == SkillPlanStatus.CANCELLED  # type: ignore[union-attr]
+    assert error.value.detail == {"code": "skill_orchestration_disabled"}
+    assert repository.get_agent_run(run.id).status == AgentRunStatus.WAITING_PLAN_APPROVAL  # type: ignore[union-attr]
+    assert repository.get_skill_plan(plan.id).status == SkillPlanStatus.WAITING_APPROVAL  # type: ignore[union-attr]
+
+
+def test_plan_rejection_is_rejected_without_mutation_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
+    repository = SQLiteStore(tmp_path / "rejection-off.sqlite3")
+    run, plan, _candidate = _approval_plan(repository, suffix="reject_off")
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "off")
+    monkeypatch.setattr(agent_run_routes, "store", repository)
+
+    with pytest.raises(HTTPException) as error:
+        agent_run_routes.reject_agent_run_plan(
+            run.id,
+            SkillPlanVersionRequest(expected_version=plan.version),
+            user=USER,
+        )
+
+    assert error.value.detail == {"code": "skill_orchestration_disabled"}
+    assert repository.get_agent_run(run.id).status == AgentRunStatus.WAITING_PLAN_APPROVAL  # type: ignore[union-attr]
+    assert repository.get_skill_plan(plan.id).status == SkillPlanStatus.WAITING_APPROVAL  # type: ignore[union-attr]
 
 
 def test_plan_approval_cancels_waiting_run_when_runtime_is_disabled(tmp_path, monkeypatch) -> None:

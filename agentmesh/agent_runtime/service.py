@@ -77,6 +77,8 @@ from agentmesh.deepsearch.service import (
 from agentmesh.deepsearch.tool_policy import DEEPSEARCH_V1_TOOL_NAMES
 from agentmesh.llm import llm_chat_timeout_seconds, research_skill_timeout_seconds
 from agentmesh.models import (
+    AgentExecutionContractVersion,
+    AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
@@ -95,6 +97,8 @@ from agentmesh.models import (
     Scope,
     SkillCandidate,
     SkillDefinition,
+    SkillIntent,
+    SkillIntentComplexity,
     SkillMemoryWritePolicy,
     SkillNodeResult,
     SkillNodeUsage,
@@ -112,6 +116,7 @@ from agentmesh.models import (
     new_id,
     now_utc,
 )
+from agentmesh.runtime_admission import current_orchestration_admission
 from agentmesh.skill_runtime.activation import build_skill_activation_tool
 from agentmesh.skill_runtime.executor import (
     BoundedDAGExecutor,
@@ -130,6 +135,12 @@ from agentmesh.skill_runtime.planner import (
     single_skill_draft,
 )
 from agentmesh.skill_runtime.profiles import is_pilot_orchestration_skill, profile_matches_skill
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
+from agentmesh.skill_runtime.recommendation import (
+    UniversalSkillSearchService,
+    build_candidate_snapshot,
+    candidate_snapshot_public_projection,
+)
 from agentmesh.skill_runtime.resources import (
     approved_skill_wiki_root,
     build_skill_resource_manifest_snapshot,
@@ -140,8 +151,24 @@ from agentmesh.skill_runtime.resources import (
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever, tool_names_for_profile
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.skill_runtime.synthesis import SkillSynthesisService, render_synthesis
+from agentmesh.skill_runtime.trust import ProfileTrustVerifier, runtime_profile_trust_verifier
+from agentmesh.skill_runtime.universal_execution import (
+    universal_standard_execution_allowed,
+    universal_standard_execution_available,
+    universal_standard_execution_contract,
+)
+from agentmesh.skill_runtime.universal_plan import (
+    materialize_universal_draft,
+    scenario_assignment_options,
+    validate_universal_plan,
+)
 from agentmesh.store import DeepSearchBudgetConflict, ResearchStoreConflict, SQLiteStore
-from agentmesh.task_routing.catalog import load_default_task_catalog
+from agentmesh.task_routing.catalog import (
+    TaskCatalogV2,
+    load_default_task_catalog,
+    load_task_catalog_by_identity,
+    load_universal_task_catalog,
+)
 from agentmesh.task_routing.contracts import InputDecision, TaskRoutingResult
 from agentmesh.task_routing.router import TaskScenarioRouter
 from agentmesh.tool_runtime.deepsearch import (
@@ -493,6 +520,7 @@ class _StandardSkillNodeResultDraft(BaseModel):
     deliverable_markdown: str = Field(default="", max_length=60_000)
     findings: list[str] = Field(default_factory=list, max_length=100)
     recommendations: list[str] = Field(default_factory=list, max_length=100)
+    delivered_output_kinds: list[str] = Field(default_factory=list, max_length=20)
     scenario_outputs: list[str] = Field(default_factory=list, max_length=100)
     completion_criteria_met: list[str] = Field(default_factory=list, max_length=100)
     sources: list[SkillResultSource] = Field(default_factory=list, max_length=100)
@@ -943,14 +971,43 @@ class AgentRuntimeService:
         skill_planner: SkillPlanner | None = None,
         task_router: TaskScenarioRouter | None = None,
         deepsearch_planning_service: DeepSearchPlanningService | None = None,
+        admission: OrchestrationQuiesceController | None = None,
+        profile_trust: ProfileTrustVerifier | None = None,
+        universal_search: UniversalSkillSearchService | None = None,
+        universal_task_catalog: TaskCatalogV2 | None = None,
+        universal_preview_enabled: bool | None = None,
     ):
         self.repository = repository
         self._model = model
         self._enabled_override = enabled
+        self.admission = admission or current_orchestration_admission()
         self.model_factory = model_factory or AgentMeshModelFactory(repository)
-        self.tool_factory = tool_factory or AgentMeshToolFactory(repository)
-        self.mcp_factory = mcp_factory or AgentMeshMCPFactory(repository)
+        self.tool_factory = tool_factory or AgentMeshToolFactory(repository, admission=self.admission)
+        if tool_factory is not None:
+            set_admission = getattr(tool_factory, "set_admission_controller", None)
+            if callable(set_admission):
+                set_admission(self.admission)
+        self.mcp_factory = mcp_factory or AgentMeshMCPFactory(
+            repository,
+            admission=self.admission,
+        )
+        if mcp_factory is not None:
+            set_mcp_admission = getattr(mcp_factory, "set_admission_controller", None)
+            if callable(set_mcp_admission):
+                set_mcp_admission(self.admission)
         self.skill_catalog = skill_catalog or SkillCatalogService(repository)
+        self.profile_trust = profile_trust or runtime_profile_trust_verifier()
+        self.universal_preview_enabled = (
+            self.profile_trust.available
+            if universal_preview_enabled is None
+            else universal_preview_enabled
+        )
+        self.universal_task_catalog = universal_task_catalog or load_universal_task_catalog()
+        self.universal_search = universal_search or UniversalSkillSearchService(
+            repository,
+            self.skill_catalog,
+            profile_trust=self.profile_trust,
+        )
         self.intent_analyzer = intent_analyzer or SkillIntentAnalyzer()
         self.skill_planner = skill_planner or SkillPlanner()
         self.task_catalog = load_default_task_catalog()
@@ -962,10 +1019,20 @@ class AgentRuntimeService:
         self.synthesis_service = SkillSynthesisService()
         self.deepsearch_synthesis_service = DeepSearchSynthesisService()
         self.deepsearch_review_service = DeepSearchReviewService()
-        self.hooks = AgentMeshRunHooks(repository)
+        self.hooks = AgentMeshRunHooks(repository, admission=self.admission)
         self._tasks: dict[str, asyncio.Task] = {}
         self._plan_semaphore = asyncio.Semaphore(4)
         configure_agentmesh_tracing(repository)
+
+    def set_admission_controller(self, admission: OrchestrationQuiesceController) -> None:
+        self.admission = admission
+        set_admission = getattr(self.tool_factory, "set_admission_controller", None)
+        if callable(set_admission):
+            set_admission(admission)
+        self.hooks.admission = admission
+        set_mcp_admission = getattr(self.mcp_factory, "set_admission_controller", None)
+        if callable(set_mcp_admission):
+            set_mcp_admission(admission)
 
     @property
     def enabled(self) -> bool:
@@ -981,6 +1048,28 @@ class AgentRuntimeService:
 
     def select_model(self, user: User) -> SelectedSDKModel | None:
         return self._select_model(user)
+
+    def planning_contract_for(
+        self,
+        *,
+        planning_mode: AgentPlanningMode,
+        planned: bool,
+    ) -> AgentPlanningContractVersion | None:
+        if not planned:
+            return None
+        if planning_mode is AgentPlanningMode.DEEPSEARCH:
+            return AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V1
+        if self.universal_preview_enabled:
+            return AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+        return AgentPlanningContractVersion.STANDARD_LEGACY_V1
+
+    @staticmethod
+    def execution_contract_for(
+        planning_contract: AgentPlanningContractVersion | None,
+    ) -> AgentExecutionContractVersion | None:
+        if planning_contract is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1:
+            return universal_standard_execution_contract()
+        return None
 
     def _deepsearch_tool_definition(self, reference: str) -> ToolDefinition | None:
         return next(
@@ -1034,6 +1123,7 @@ class AgentRuntimeService:
                 and skill_orchestration_mode() is SkillOrchestrationMode.EXECUTE
             ),
             planning_pipeline=pipeline,
+            admission=self.admission,
         )
 
     @staticmethod
@@ -1208,12 +1298,14 @@ Follow the activated Skill for this request, subject to the platform rules above
         orchestration_mode: SkillOrchestrationMode = SkillOrchestrationMode.OFF,
         requested_orchestration_mode: SkillOrchestrationRequestMode | None = None,
         planning_mode: AgentPlanningMode = AgentPlanningMode.STANDARD,
+        planning_contract_version: AgentPlanningContractVersion | None = None,
+        execution_contract_version: AgentExecutionContractVersion | None = None,
         create_request_hash: str | None = None,
         project_id: str | None = None,
         retry_of_run_id: str | None = None,
     ) -> tuple[AgentRun, bool]:
-        if client_turn_id is not None and create_request_hash is None:
-            create_request_hash = agent_run_create_request_hash(
+        if client_turn_id is not None:
+            expected_create_request_hash = agent_run_create_request_hash(
                 user_id=user.id,
                 thread_id=thread_id,
                 client_turn_id=client_turn_id,
@@ -1222,7 +1314,24 @@ Follow the activated Skill for this request, subject to the platform rules above
                 orchestration_mode=requested_orchestration_mode,
                 planning_mode=planning_mode,
                 retry_of_run_id=retry_of_run_id,
+                planning_contract_version=planning_contract_version,
+                execution_contract_version=execution_contract_version,
             )
+            if create_request_hash is not None and create_request_hash != expected_create_request_hash:
+                legacy_hash = agent_run_create_request_hash(
+                    user_id=user.id,
+                    thread_id=thread_id,
+                    client_turn_id=client_turn_id,
+                    content=content,
+                    skill_name=skill.name if skill else None,
+                    orchestration_mode=requested_orchestration_mode,
+                    planning_mode=planning_mode,
+                    retry_of_run_id=retry_of_run_id,
+                    planning_contract_version=None,
+                )
+                if create_request_hash != legacy_hash:
+                    raise RuntimeError("Agent run create_request_hash does not match its request identity")
+            create_request_hash = expected_create_request_hash
         created_at = now_utc()
         is_deepsearch = planning_mode is AgentPlanningMode.DEEPSEARCH
         run = AgentRun(
@@ -1239,6 +1348,8 @@ Follow the activated Skill for this request, subject to the platform rules above
             plan_id=None,
             retry_of_run_id=retry_of_run_id,
             planning_mode=planning_mode,
+            planning_contract_version=planning_contract_version,
+            execution_contract_version=execution_contract_version,
             create_request_hash=create_request_hash,
             orchestration_version="v1",
             orchestration_mode=orchestration_mode.value,
@@ -1253,9 +1364,14 @@ Follow the activated Skill for this request, subject to the platform rules above
             created_at=created_at,
             updated_at=created_at,
         )
-        run, created = self.repository.claim_new_agent_run(run)
-        if created:
-            self.repository.append_agent_run_event(run.id, "run_started", {"skill_name": run.skill_name or ""})
+        with self.admission.permit():
+            run, created = self.repository.claim_new_agent_run(run)
+            if created:
+                self.repository.append_agent_run_event(
+                    run.id,
+                    "run_started",
+                    {"skill_name": run.skill_name or ""},
+                )
         return run, created
 
     @staticmethod
@@ -1598,6 +1714,7 @@ Follow the activated Skill for this request, subject to the platform rules above
             orchestration_mode=mode,
             requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
             planning_mode=AgentPlanningMode.DEEPSEARCH,
+            planning_contract_version=AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V1,
             create_request_hash=create_request_hash,
             project_id=project_id,
             retry_of_run_id=retry_of_run_id,
@@ -1659,6 +1776,16 @@ Follow the activated Skill for this request, subject to the platform rules above
         selected = self._select_model(user)
         if selected is None:
             raise RuntimeError("Agent model is not configured")
+        if (
+            self.universal_preview_enabled
+            and mode is SkillOrchestrationMode.EXECUTE
+            and not universal_standard_execution_available()
+        ):
+            raise RuntimeError("universal_execution_not_available")
+        planning_contract = self.planning_contract_for(
+            planning_mode=AgentPlanningMode.STANDARD,
+            planned=True,
+        )
         run, created = self._new_run(
             content,
             user,
@@ -1669,6 +1796,8 @@ Follow the activated Skill for this request, subject to the platform rules above
             status=AgentRunStatus.PLANNING,
             orchestration_mode=mode,
             requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            planning_contract_version=planning_contract,
+            execution_contract_version=self.execution_contract_for(planning_contract),
             project_id=project_id,
             retry_of_run_id=retry_of_run_id,
         )
@@ -1701,6 +1830,7 @@ Follow the activated Skill for this request, subject to the platform rules above
         user: User,
         client_turn_id: str,
         mode: SkillOrchestrationMode,
+        history: list[ChatMessage] | None = None,
     ) -> AgentRun:
         """Create a new, revalidated Plan and reuse only side-effect-free completed results."""
         if mode == SkillOrchestrationMode.OFF:
@@ -1709,6 +1839,34 @@ Follow the activated Skill for this request, subject to the platform rules above
             raise RuntimeError("Agent model is not configured")
         if prior_plan.run_id != prior_run.id:
             raise RuntimeError("Retry Plan does not belong to the prior Run")
+        retry_block_reason = self.repository.runtime_tool_retry_block_reason(prior_run.id)
+        if retry_block_reason is not None:
+            raise RuntimeError(retry_block_reason)
+        if (
+            self.universal_preview_enabled
+            and mode is SkillOrchestrationMode.EXECUTE
+            and not universal_standard_execution_available()
+        ):
+            raise RuntimeError("universal_execution_not_available")
+        planning_contract = self.planning_contract_for(
+            planning_mode=AgentPlanningMode.STANDARD,
+            planned=True,
+        )
+        if planning_contract is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1:
+            return await self.start_orchestrated(
+                content=prior_run.input_text,
+                user=user,
+                thread_id=prior_run.thread_id,
+                history=(
+                    history
+                    if history is not None
+                    else self.repository.list_recent_thread_messages(prior_run.thread_id)
+                ),
+                client_turn_id=client_turn_id,
+                mode=mode,
+                project_id=prior_run.project_id,
+                retry_of_run_id=prior_run.id,
+            )
         existing = self.repository.get_agent_run_by_client_turn(user.id, client_turn_id)
         if existing is not None:
             if (
@@ -1786,6 +1944,7 @@ Follow the activated Skill for this request, subject to the platform rules above
             status=AgentRunStatus.PLANNING,
             orchestration_mode=mode,
             requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            planning_contract_version=planning_contract,
             project_id=prior_run.project_id,
             retry_of_run_id=prior_run.id,
         )
@@ -1867,6 +2026,221 @@ Follow the activated Skill for this request, subject to the platform rules above
             return run
         await self.start_approved_skill_plan(plan.id, user=user)
         return run
+
+    async def _prepare_universal_orchestration(
+        self,
+        *,
+        run: AgentRun,
+        selected: SelectedSDKModel,
+        intent: SkillIntent,
+        user: User,
+        routing_result: TaskRoutingResult | None,
+        retrieval_started: float,
+    ) -> RuntimeAnswer:
+        universal_routing = (
+            routing_result.model_copy(
+                update={
+                    "catalog_version": self.universal_task_catalog.manifest.catalog_version,
+                    "catalog_hash": self.universal_task_catalog.manifest.catalog_hash,
+                },
+                deep=True,
+            )
+            if routing_result is not None
+            else None
+        )
+        search_result = self.universal_search.search(
+            user=user,
+            intent=intent,
+            routing_result=universal_routing,
+            task_catalog=self.universal_task_catalog if universal_routing is not None else None,
+        )
+        self.repository.append_agent_run_event(
+            run.id,
+            "skill_search_completed",
+            {
+                "retrieval_policy_version": search_result.retrieval_policy_version,
+                "outcome_code": search_result.outcome_code,
+                "searchable_count": search_result.searchable_count,
+                "selectable_count": len(search_result.selectable_candidates),
+                "blocked_match_count": len(search_result.blocked_matches),
+                "latency_ms": round((monotonic() - retrieval_started) * 1000, 3),
+                "candidate_ids": [
+                    candidate.skill_id for candidate in search_result.selectable_candidates
+                ],
+            },
+        )
+        if search_result.outcome_code != "ok" or not search_result.selectable_candidates:
+            raise PlannerUnavailable(search_result.outcome_code)
+        snapshot = build_candidate_snapshot(search_result, self.repository)
+        skeleton = SkillPlan(
+            id=new_id("plan"),
+            run_id=run.id,
+            status=SkillPlanStatus.PLANNING,
+            intent=intent,
+            routing_result=universal_routing,
+            candidate_skill_ids=[candidate.skill_id for candidate in snapshot.candidates],
+            candidate_snapshot=snapshot,
+            execution_contract_version=run.execution_contract_version,
+            synthesis_output_contract=list(snapshot.required_synthesis_output_ids),
+            capability_gaps=[gap.requirement_id for gap in search_result.capability_gaps],
+            nodes=[],
+            planning_mode=AgentPlanningMode.STANDARD,
+        )
+        with self.admission.permit():
+            created = self.repository.create_standard_planning_skeleton(
+                run_id=run.id,
+                plan=skeleton,
+            )
+        if created is None:
+            raise RuntimeError("standard_planning_skeleton_conflict")
+        candidates = list(search_result.selectable_candidates)
+        try:
+            direct_candidate = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if intent.complexity is SkillIntentComplexity.DIRECT
+                    and bool(snapshot.plannable_coverage_atom_ids)
+                    and set(snapshot.plannable_coverage_atom_ids).issubset(
+                        candidate.covered_requirement_ids
+                    )
+                ),
+                None,
+            )
+            if direct_candidate is not None and universal_routing is not None:
+                direct_probe = single_skill_draft(intent, direct_candidate).nodes[0]
+                if len(
+                    scenario_assignment_options(
+                        node=direct_probe,
+                        routing=universal_routing,
+                        catalog=self.universal_task_catalog,
+                    )
+                ) > 1:
+                    direct_candidate = None
+            if direct_candidate is not None:
+                proposed_draft = single_skill_draft(intent, direct_candidate)
+                proposed_draft.synthesis_output_contract = list(snapshot.required_synthesis_output_ids)
+                draft = materialize_universal_draft(
+                    draft=proposed_draft,
+                    intent=intent,
+                    candidates=candidates,
+                    snapshot=snapshot,
+                    routing=universal_routing,
+                    catalog=self.universal_task_catalog,
+                    skill_lookup=self.repository.get_skill_definition,
+                )
+            else:
+                public_snapshot = candidate_snapshot_public_projection(snapshot)
+                try:
+                    async with asyncio.timeout(self._remaining_run_seconds(run)):
+                        proposed_draft = await self.skill_planner.create_universal_draft(
+                            intent,
+                            candidates,
+                            candidate_snapshot_public=public_snapshot,
+                            required_synthesis_output_ids=snapshot.required_synthesis_output_ids,
+                            model=selected.model,
+                        )
+                    draft = materialize_universal_draft(
+                        draft=proposed_draft,
+                        intent=intent,
+                        candidates=candidates,
+                        snapshot=snapshot,
+                        routing=universal_routing,
+                        catalog=self.universal_task_catalog,
+                        skill_lookup=self.repository.get_skill_definition,
+                    )
+                except TimeoutError as timeout_error:
+                    raise PlannerUnavailable("planner_timeout") from timeout_error
+                except Exception as first_error:
+                    repair_errors = (
+                        first_error.codes
+                        if isinstance(first_error, PlanValidationError)
+                        else [str(first_error) or "planner_schema_invalid"]
+                    )
+                    async with asyncio.timeout(self._remaining_run_seconds(run)):
+                        proposed_draft = await self.skill_planner.create_universal_draft(
+                            intent,
+                            candidates,
+                            candidate_snapshot_public=public_snapshot,
+                            required_synthesis_output_ids=snapshot.required_synthesis_output_ids,
+                            model=selected.model,
+                            repair_errors=repair_errors,
+                        )
+                    draft = materialize_universal_draft(
+                        draft=proposed_draft,
+                        intent=intent,
+                        candidates=candidates,
+                        snapshot=snapshot,
+                        routing=universal_routing,
+                        catalog=self.universal_task_catalog,
+                        skill_lookup=self.repository.get_skill_definition,
+                    )
+            plan = build_plan(
+                run_id=run.id,
+                intent=intent,
+                candidates=candidates,
+                draft=draft,
+                status=SkillPlanStatus.WAITING_APPROVAL,
+                routing_result=universal_routing,
+                candidate_snapshot=snapshot,
+                execution_contract_version=run.execution_contract_version,
+                plan_id=skeleton.id,
+                version=skeleton.version,
+            )
+            validate_universal_plan(
+                plan=plan,
+                candidates=candidates,
+                catalog=self.universal_task_catalog,
+                require_concrete_assignments=False,
+            )
+            with self.admission.permit():
+                completed = self.repository.complete_standard_planning_skeleton(
+                    plan=plan,
+                    expected_version=skeleton.version,
+                    next_run_status=AgentRunStatus.WAITING_PLAN_APPROVAL,
+                    events=[
+                        (
+                            "plan_created",
+                            {
+                                "plan_id": plan.id,
+                                "version": plan.version + 1,
+                                "node_count": len(plan.nodes),
+                                "candidate_snapshot_hash": snapshot.content_hash,
+                            },
+                        )
+                    ],
+                )
+            if completed is None:
+                raise RuntimeError("standard_planning_completion_conflict")
+            persisted_plan, _persisted_run = completed
+            self.repository.append_agent_run_event(
+                run.id,
+                "plan_waiting_approval",
+                {"plan_id": persisted_plan.id, "version": persisted_plan.version},
+            )
+            return RuntimeAnswer(
+                content="已生成 Universal Skill 计划预览，等待确认；当前版本禁止执行。",
+                llm_used=True,
+                requested_model=selected.requested_model,
+                actual_model=selected.actual_model,
+                run_id=run.id,
+            )
+        except Exception as error:
+            with self.admission.permit():
+                self.repository.fail_standard_planning_skeleton(
+                    run_id=run.id,
+                    plan_id=skeleton.id,
+                    error_code=(
+                        "planner_timeout"
+                        if isinstance(error, TimeoutError) or str(error) == "planner_timeout"
+                        else "planner_context_budget_exceeded"
+                        if str(error) == "planner_context_budget_exceeded"
+                        else "planner_coverage_unresolved"
+                        if isinstance(error, PlanValidationError)
+                        else "planner_schema_invalid"
+                    ),
+                )
+            raise
 
     async def _prepare_orchestration(
         self,
@@ -1952,6 +2326,18 @@ Follow the activated Skill for this request, subject to the platform rules above
                 },
             )
             retrieval_started = monotonic()
+            if (
+                run.planning_contract_version
+                is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+            ):
+                return await self._prepare_universal_orchestration(
+                    run=run,
+                    selected=selected,
+                    intent=intent,
+                    user=user,
+                    routing_result=routing_result,
+                    retrieval_started=retrieval_started,
+                )
             retriever = SkillCandidateRetriever(self.repository, self.skill_catalog)
             if routing_result is None:
                 candidates, retrieval_diagnostics = retriever.recommend(user, intent)
@@ -2118,6 +2504,20 @@ Follow the activated Skill for this request, subject to the platform rules above
             raise
         except Exception as error:
             current = self.repository.get_agent_run(run.id)
+            if (
+                current is not None
+                and current.planning_contract_version
+                is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+                and current.status is AgentRunStatus.PLANNING
+                and current.plan_id is not None
+            ):
+                with self.admission.permit():
+                    self.repository.fail_standard_planning_skeleton(
+                        run_id=current.id,
+                        plan_id=current.plan_id,
+                        error_code=(current.error_code or type(error).__name__),
+                    )
+                raise
             if current is not None and current.status not in {
                 AgentRunStatus.COMPLETED,
                 AgentRunStatus.PARTIAL,
@@ -2125,7 +2525,22 @@ Follow the activated Skill for this request, subject to the platform rules above
                 AgentRunStatus.CANCELLED,
             }:
                 current.status = AgentRunStatus.FAILED
-                current.error_code = type(error).__name__
+                current.error_code = (
+                    str(error)
+                    if isinstance(error, PlannerUnavailable)
+                    and str(error)
+                    in {
+                        "unsupported_requirement",
+                        "requirement_budget_exceeded",
+                        "no_matching_skill",
+                        "no_executable_skill",
+                        "readiness_probe_budget_exceeded",
+                        "coverage_search_exhausted",
+                        "planner_context_budget_exceeded",
+                        "planner_coverage_unresolved",
+                    }
+                    else type(error).__name__
+                )
                 if isinstance(error, PlannerUnavailable):
                     current.output_text = (
                         "当前无法生成可靠的多 Skill 执行计划。能力缺口："
@@ -2154,6 +2569,15 @@ Follow the activated Skill for this request, subject to the platform rules above
         run = self.repository.get_agent_run(plan.run_id)
         if run is None:
             raise LookupError("Agent run not found")
+        if (
+            run.planning_contract_version
+            is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+            and not universal_standard_execution_allowed(
+                run_contract=run.execution_contract_version,
+                plan_contract=plan.execution_contract_version,
+            )
+        ):
+            raise RuntimeError("universal_execution_not_available")
         if (
             run.user_id != user.id
             or run.workspace_id != user.workspace_id
@@ -2438,12 +2862,14 @@ Follow the activated Skill for this request, subject to the platform rules above
                     review_runner=deepsearch_review_runner,
                     recover_unsettled=resume,
                 ),
+                admission=self.admission,
             )
             if deepsearch
             else BoundedDAGExecutor(
                 self.repository,
                 node_runner=node_runner,
                 synthesis_runner=synthesis_runner,
+                admission=self.admission,
             )
         )
         try:
@@ -3134,6 +3560,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                         "reused_from_run_id",
                         "reused_from_result_id",
                         "evidence_items",
+                        "delivered_output_kinds",
                         "created_at",
                     },
                 )
@@ -3150,13 +3577,47 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     "evidence_items": [],
                 }
             )
+        universal_result = run.planning_contract_version in {
+            AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+            AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
+        }
+        if universal_result:
+            delivered = node_result.delivered_output_kinds or []
+            if (
+                not delivered
+                or not set(delivered).issubset(node.output_contract)
+                or (not node_result.deliverable_markdown.strip() and not node_result.artifact_ids)
+            ):
+                raise ValueError("node_result_delivered_output_invalid")
+        else:
+            node_result.delivered_output_kinds = None
         if node_result.node_id != node.id or node_result.skill_id != skill.id:
             raise ValueError("node_result_identity_mismatch")
         if node.scenario_id is not None:
-            scenario = self.task_catalog.get_scenario(node.scenario_id)
+            if universal_result:
+                if plan.routing_result is None:
+                    raise ValueError("node_result_scenario_unknown")
+                try:
+                    catalog = load_task_catalog_by_identity(
+                        plan.routing_result.catalog_version,
+                        plan.routing_result.catalog_hash,
+                    )
+                except Exception as error:
+                    raise ValueError("node_result_scenario_unknown") from error
+                if not isinstance(catalog, TaskCatalogV2):
+                    raise ValueError("node_result_scenario_unknown")
+                scenario = catalog.get_scenario(node.scenario_id)
+                allowed_scenario_outputs = (
+                    {output.id for output in scenario.outputs}
+                    if scenario is not None
+                    else set()
+                )
+            else:
+                scenario = self.task_catalog.get_scenario(node.scenario_id)
+                allowed_scenario_outputs = set(scenario.outputs) if scenario is not None else set()
             if scenario is None:
                 raise ValueError("node_result_scenario_unknown")
-            if not set(node_result.scenario_outputs).issubset(scenario.outputs):
+            if not set(node_result.scenario_outputs).issubset(allowed_scenario_outputs):
                 raise ValueError("node_result_scenario_output_invalid")
             if not set(node_result.completion_criteria_met).issubset(node.completion_criteria):
                 raise ValueError("node_result_completion_criterion_invalid")
@@ -3346,23 +3807,32 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         except asyncio.CancelledError:
             current = self.repository.get_agent_run(run.id)
             if current is not None and current.status == AgentRunStatus.RUNNING:
-                current.status = AgentRunStatus.CANCELLED
+                unknown_write = self.repository.runtime_tool_run_has_unknown_non_read(run.id)
+                current.status = (
+                    AgentRunStatus.FAILED if unknown_write else AgentRunStatus.CANCELLED
+                )
+                current.error_code = (
+                    "external_outcome_unknown" if unknown_write else None
+                )
                 self.repository.save_agent_run_with_event(
                     current,
-                    "run_cancelled",
-                    {},
+                    "run_failed" if unknown_write else "run_cancelled",
+                    {"error_code": current.error_code} if unknown_write else {},
                     expected_statuses={AgentRunStatus.RUNNING},
                 )
             raise
         except Exception as error:
             current = self.repository.get_agent_run(run.id) or run
             if current.status == AgentRunStatus.RUNNING:
+                unknown_write = self.repository.runtime_tool_run_has_unknown_non_read(run.id)
                 current.status = AgentRunStatus.FAILED
-                current.error_code = type(error).__name__
+                current.error_code = (
+                    "external_outcome_unknown" if unknown_write else type(error).__name__
+                )
                 self.repository.save_agent_run_with_event(
                     current,
                     "run_failed",
-                    {"error_code": type(error).__name__},
+                    {"error_code": current.error_code},
                     expected_statuses={AgentRunStatus.RUNNING},
                 )
             raise
@@ -3646,12 +4116,13 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         decisions: dict[str, bool],
     ) -> RuntimeAnswer:
         error_code = "planned_tool_grant_revoked"
-        claimed = self.repository.claim_agent_run_for_resume(
-            run.id,
-            user.id,
-            inbox_id=f"inbox_tool_approval_{run.id}",
-            call_ids=set(decisions),
-        )
+        with self.admission.permit():
+            claimed = self.repository.claim_agent_run_for_resume(
+                run.id,
+                user.id,
+                inbox_id=f"inbox_tool_approval_{run.id}",
+                call_ids=set(decisions),
+            )
         if claimed is None:
             raise ApprovalConflict("Agent run approval is expired or was already claimed")
         failed_node = node.model_copy(
@@ -3856,12 +4327,13 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 pending = {self._interruption_payload(item)["call_id"]: item for item in interruptions}
                 if not decisions or not set(decisions).issubset(pending):
                     raise ApprovalConflict("Approval decisions must identify pending call IDs")
-                claimed = self.repository.claim_agent_run_for_resume(
-                    existing.id,
-                    user.id,
-                    inbox_id=f"inbox_tool_approval_{existing.id}",
-                    call_ids=set(decisions),
-                )
+                with self.admission.permit():
+                    claimed = self.repository.claim_agent_run_for_resume(
+                        existing.id,
+                        user.id,
+                        inbox_id=f"inbox_tool_approval_{existing.id}",
+                        call_ids=set(decisions),
+                    )
                 if claimed is None:
                     raise ApprovalConflict("Agent run approval is expired or was already claimed")
                 run = claimed
@@ -4046,7 +4518,6 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             raise RuntimeError("deepsearch_recovery_state_invalid")
         if paused_kind == "skill_plan_node":
             if not self.enabled or skill_orchestration_mode() != SkillOrchestrationMode.EXECUTE:
-                self.repository.cancel_agent_run_tree(existing.id, user_id=user.id)
                 raise RuntimeError("Skill orchestration execution is disabled")
             return await self._resume_skill_plan_node(existing, user=user, decisions=decisions)
         skill = self.repository.get_skill_definition(existing.skill_id) if existing.skill_id else None
@@ -4087,12 +4558,13 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 pending = {self._interruption_payload(item)["call_id"]: item for item in interruptions}
                 if not decisions or not set(decisions).issubset(pending):
                     raise ApprovalConflict("Approval decisions must identify pending call IDs")
-                claimed = self.repository.claim_agent_run_for_resume(
-                    run_id,
-                    user.id,
-                    inbox_id=f"inbox_tool_approval_{run_id}",
-                    call_ids=set(decisions),
-                )
+                with self.admission.permit():
+                    claimed = self.repository.claim_agent_run_for_resume(
+                        run_id,
+                        user.id,
+                        inbox_id=f"inbox_tool_approval_{run_id}",
+                        call_ids=set(decisions),
+                    )
                 if claimed is None:
                     raise ApprovalConflict("Agent run approval is expired or was already claimed")
                 run = claimed
@@ -4121,19 +4593,38 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     if self._tasks.get(run.id) is active_task:
                         self._tasks.pop(run.id, None)
         except asyncio.CancelledError:
-            self.repository.cancel_agent_run_tree(run.id, user_id=user.id)
+            current = self.repository.get_agent_run(run.id)
+            if (
+                current is not None
+                and current.status is AgentRunStatus.RUNNING
+                and self.repository.runtime_tool_run_has_unknown_non_read(run.id)
+            ):
+                current.status = AgentRunStatus.FAILED
+                current.error_code = "external_outcome_unknown"
+                self.repository.save_agent_run_with_event(
+                    current,
+                    "run_failed",
+                    {"error_code": current.error_code},
+                    expected_statuses={AgentRunStatus.RUNNING},
+                )
+            else:
+                self.repository.cancel_agent_run_tree(run.id, user_id=user.id)
             raise
         except ApprovalConflict:
             raise
         except Exception as error:
             if run.status == AgentRunStatus.RUNNING:
+                unknown_write = self.repository.runtime_tool_run_has_unknown_non_read(run.id)
+                error_code = (
+                    "external_outcome_unknown" if unknown_write else type(error).__name__
+                )
                 failed = run.model_copy(
-                    update={"status": AgentRunStatus.FAILED, "error_code": type(error).__name__}
+                    update={"status": AgentRunStatus.FAILED, "error_code": error_code}
                 )
                 self.repository.save_agent_run_with_event(
                     failed,
                     "run_failed",
-                    {"error_code": type(error).__name__},
+                    {"error_code": error_code},
                     expected_statuses={AgentRunStatus.RUNNING},
                 )
             raise

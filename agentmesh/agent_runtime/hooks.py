@@ -4,14 +4,20 @@ from agents.lifecycle import RunHooksBase
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.models import AgentPlanningMode
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
 from agentmesh.store import SQLiteStore
 
 
 class AgentMeshRunHooks(RunHooksBase[AgentMeshRunContext, object]):
     """Metadata-only lifecycle projection; model and tool payloads are intentionally omitted."""
 
-    def __init__(self, repository: SQLiteStore):
+    def __init__(
+        self,
+        repository: SQLiteStore,
+        admission: OrchestrationQuiesceController | None = None,
+    ):
         self.repository = repository
+        self.admission = admission or OrchestrationQuiesceController()
 
     @staticmethod
     def _run_id(context) -> str | None:  # noqa: ANN001
@@ -51,7 +57,8 @@ class AgentMeshRunHooks(RunHooksBase[AgentMeshRunContext, object]):
         if isinstance(run_context, AgentMeshRunContext):
             run = self.repository.get_agent_run(run_context.run_id)
             if run is None or run.planning_mode is not AgentPlanningMode.DEEPSEARCH:
-                count = self.repository.consume_agent_run_tool_call(run_context.run_id)
+                with self.admission.permit():
+                    count = self.repository.consume_agent_run_tool_call(run_context.run_id)
                 if count is None:
                     raise RuntimeError("Agent run exceeded the 24 tool-call limit")
                 run_context.tool_call_count = count

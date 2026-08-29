@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from agentmesh.harness.skill_packages import SkillPackageError, SkillPackageService
 from agentmesh.models import (
+    AgentPlanningContractVersion,
+    AgentPlanningMode,
     ItemsResponse,
     SkillBinding,
     SkillBindingUpdateRequest,
@@ -34,6 +36,7 @@ from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.skill_runtime.trust import runtime_profile_trust_verifier
 from agentmesh.store import store
+from agentmesh.task_routing.catalog import load_universal_task_catalog
 from agentmesh.task_routing.contracts import TaskRoutingPreviewRequest, TaskRoutingPreviewResponse
 from agentmesh.task_routing.router import TaskScenarioRouter
 
@@ -163,14 +166,56 @@ def preview_task_routing(
             or thread.project_id != user.default_project_id
         ):
             raise HTTPException(status_code=404, detail="Chat thread not found")
-        thread_summary = "\n".join(message.content[:500] for message in store.list_thread_messages(thread.id)[-6:])
+        thread_summary = "\n".join(
+            message.content[:500]
+            for message in store.list_recent_thread_messages(thread.id)
+        )
     routing_result, diagnostics = _task_router.route(
         request.content,
         project_summary=project.goal,
         thread_summary=thread_summary,
     )
+    from agentmesh.routes.chat import agent
+
+    runtime = agent.agent_runtime
+    planning_mode = AgentPlanningMode(request.planning_mode)
+    selector = getattr(runtime, "planning_contract_for", None)
+    contract = (
+        selector(planning_mode=planning_mode, planned=True)
+        if callable(selector)
+        else AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V1
+        if planning_mode is AgentPlanningMode.DEEPSEARCH
+        else AgentPlanningContractVersion.STANDARD_LEGACY_V1
+    )
+    if contract in {
+        AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+        AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
+    }:
+        universal_catalog = load_universal_task_catalog()
+        routing_result = routing_result.model_copy(
+            update={
+                "catalog_version": universal_catalog.manifest.catalog_version,
+                "catalog_hash": universal_catalog.manifest.catalog_hash,
+            },
+            deep=True,
+        )
+    execution_selector = getattr(runtime, "execution_contract_for", None)
+    execution_contract = (
+        execution_selector(contract)
+        if callable(execution_selector)
+        else None
+    )
     require_default_project(user, store)
-    return TaskRoutingPreviewResponse(routing_result=routing_result, diagnostics=diagnostics)
+    return TaskRoutingPreviewResponse(
+        routing_result=routing_result,
+        planning_contract_version=contract.value,
+        execution_contract_version=(
+            execution_contract.value if execution_contract is not None else None
+        ),
+        catalog_version=routing_result.catalog_version,
+        catalog_hash=routing_result.catalog_hash,
+        diagnostics=diagnostics,
+    )
 
 
 @router.post("/recommendations", response_model=SkillRecommendationResponse)
@@ -191,7 +236,10 @@ async def recommend_skills(
             or thread.project_id != user.default_project_id
         ):
             raise HTTPException(status_code=404, detail="Chat thread not found")
-        thread_summary = "\n".join(message.content[:500] for message in store.list_thread_messages(thread.id)[-6:])
+        thread_summary = "\n".join(
+            message.content[:500]
+            for message in store.list_recent_thread_messages(thread.id)
+        )
     selected = None
     runtime = agent.agent_runtime
     if runtime is not None and runtime.enabled:

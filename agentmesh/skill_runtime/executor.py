@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from agentmesh.llm import llm_chat_timeout_seconds, research_skill_timeout_seconds
 from agentmesh.models import (
+    AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
@@ -17,6 +18,7 @@ from agentmesh.models import (
     SkillSideEffect,
     now_utc,
 )
+from agentmesh.runtime_admission import current_orchestration_admission
 from agentmesh.skill_runtime.finalization import (
     NodePause,
     PlanExecutionOutcome,
@@ -24,6 +26,8 @@ from agentmesh.skill_runtime.finalization import (
     StandardPlanFinalizer,
     SynthesisRunner,
 )
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
+from agentmesh.skill_runtime.universal_execution import universal_standard_execution_allowed
 from agentmesh.store import SQLiteStore
 from agentmesh.tool_runtime.guardrails import redact_sensitive_text
 
@@ -103,6 +107,7 @@ class BoundedDAGExecutor:
         node_runner: NodeRunner,
         synthesis_runner: SynthesisRunner | None = None,
         finalization_strategy: PlanFinalizationStrategy | None = None,
+        admission: OrchestrationQuiesceController | None = None,
     ):
         if synthesis_runner is not None and finalization_strategy is not None:
             raise ValueError("synthesis_runner and finalization_strategy are mutually exclusive")
@@ -110,6 +115,7 @@ class BoundedDAGExecutor:
             raise ValueError("a finalization strategy or synthesis runner is required")
         self.repository = repository
         self.node_runner = node_runner
+        self.admission = admission or current_orchestration_admission()
         if finalization_strategy is None:
             assert synthesis_runner is not None
             finalization_strategy = StandardPlanFinalizer(
@@ -159,7 +165,8 @@ class BoundedDAGExecutor:
         node: SkillPlanNode,
         results: list[SkillNodeResult],
     ) -> tuple[SkillPlanNode, NodeExecutionOutcome | None, Exception | None]:
-        claimed = self.repository.claim_skill_plan_node(plan.id, node.id)
+        with self.admission.permit():
+            claimed = self.repository.claim_skill_plan_node(plan.id, node.id)
         if claimed is None:
             return node, None, RuntimeError("node_claim_conflict")
         self._replace_node(plan, claimed)
@@ -180,6 +187,15 @@ class BoundedDAGExecutor:
             return claimed, None, error
 
     async def run(self, plan: SkillPlan, run: AgentRun, *, resume: bool = False) -> PlanExecutionOutcome:
+        if (
+            run.planning_contract_version
+            is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+            and not universal_standard_execution_allowed(
+                run_contract=run.execution_contract_version,
+                plan_contract=plan.execution_contract_version,
+            )
+        ):
+            raise PlanExecutionConflict("universal_execution_not_available")
         if resume:
             persisted_plan = self.repository.get_skill_plan(plan.id)
             persisted_run = self.repository.get_agent_run(run.id)
@@ -195,7 +211,8 @@ class BoundedDAGExecutor:
             run = persisted_run
             self.repository.append_agent_run_event(run.id, "plan_execution_resumed", {"plan_id": plan.id})
         else:
-            claimed = self.repository.claim_skill_plan_for_execution(plan.id, run.id)
+            with self.admission.permit():
+                claimed = self.repository.claim_skill_plan_for_execution(plan.id, run.id)
             if claimed is None:
                 raise PlanExecutionConflict("plan_execution_claim_conflict")
             plan = claimed
@@ -311,7 +328,19 @@ class BoundedDAGExecutor:
                     if error is not None:
                         if claimed.status != SkillPlanNodeStatus.RUNNING:
                             raise error
-                        error_code = _error_code(error)
+                        external_outcome_unknown = (
+                            claimed.side_effect
+                            in {SkillSideEffect.LOCAL_WRITE, SkillSideEffect.EXTERNAL_WRITE}
+                            and self.repository.runtime_tool_node_has_unknown_non_read(
+                                run.id,
+                                claimed.id,
+                            )
+                        )
+                        error_code = (
+                            "external_outcome_unknown"
+                            if external_outcome_unknown
+                            else _error_code(error)
+                        )
                         retryable = (
                             claimed.side_effect in {SkillSideEffect.READ, SkillSideEffect.DRAFT}
                             and claimed.attempt < 2
@@ -429,25 +458,71 @@ class BoundedDAGExecutor:
                 # transition and must remain recoverable; startup recovery will
                 # mark any abandoned RUNNING node external_outcome_unknown.
                 raise
-            for node in plan.nodes:
-                if node.status not in {
-                    SkillPlanNodeStatus.COMPLETED,
-                    SkillPlanNodeStatus.FAILED,
-                    SkillPlanNodeStatus.SKIPPED,
+            if current_run.status != AgentRunStatus.RUNNING:
+                raise
+            unknown_write = False
+            for node in current_plan.nodes:
+                if node.status is SkillPlanNodeStatus.RUNNING:
+                    node_unknown = (
+                        node.side_effect
+                        in {SkillSideEffect.LOCAL_WRITE, SkillSideEffect.EXTERNAL_WRITE}
+                        and self.repository.runtime_tool_node_has_unknown_non_read(
+                            current_run.id,
+                            node.id,
+                        )
+                    )
+                    node.status = (
+                        SkillPlanNodeStatus.FAILED
+                        if node_unknown
+                        else SkillPlanNodeStatus.CANCELLED
+                    )
+                    node.error_code = (
+                        "external_outcome_unknown" if node_unknown else None
+                    )
+                    node.completed_at = now_utc()
+                    unknown_write = unknown_write or node_unknown
+                elif node.status in {
+                    SkillPlanNodeStatus.PENDING,
+                    SkillPlanNodeStatus.READY,
+                    SkillPlanNodeStatus.WAITING_TOOL_APPROVAL,
                 }:
                     node.status = SkillPlanNodeStatus.CANCELLED
                     node.completed_at = now_utc()
-            plan.status = SkillPlanStatus.CANCELLED
-            if current_run.status == AgentRunStatus.RUNNING:
+            if current_plan.candidate_snapshot is not None or unknown_write:
+                partial = False
+                if current_plan.candidate_snapshot is not None:
+                    from agentmesh.skill_runtime.universal_plan import has_valid_partial_delivery
+
+                    partial = has_valid_partial_delivery(
+                        plan=current_plan,
+                        results=self.repository.list_skill_node_results(current_plan.id),
+                    )
+                current_plan.status = SkillPlanStatus.PARTIAL if partial else SkillPlanStatus.FAILED
+                current_run.status = AgentRunStatus.PARTIAL if partial else AgentRunStatus.FAILED
+                current_run.error_code = (
+                    "external_outcome_unknown" if unknown_write else "process_restarted"
+                )
+                event_type = "run_partially_completed" if partial else "run_failed"
+            else:
+                current_plan.status = SkillPlanStatus.CANCELLED
                 current_run.status = AgentRunStatus.CANCELLED
                 current_run.error_code = None
-                transition = self.repository.finish_skill_plan_and_run(
-                    plan=plan,
-                    run=current_run,
-                    expected_plan_statuses={SkillPlanStatus.RUNNING},
-                    expected_run_statuses={AgentRunStatus.RUNNING},
-                    events=[("run_cancelled", {"plan_id": plan.id})],
-                )
-                if transition is None:
-                    raise RuntimeError("plan_cancel_transition_conflict") from None
+                event_type = "run_cancelled"
+            transition = self.repository.finish_skill_plan_and_run(
+                plan=current_plan,
+                run=current_run,
+                expected_plan_statuses={SkillPlanStatus.RUNNING},
+                expected_run_statuses={AgentRunStatus.RUNNING},
+                events=[
+                    (
+                        event_type,
+                        {
+                            "plan_id": current_plan.id,
+                            "error_code": current_run.error_code or "cancelled",
+                        },
+                    )
+                ],
+            )
+            if transition is None:
+                raise RuntimeError("plan_cancel_transition_conflict") from None
             raise

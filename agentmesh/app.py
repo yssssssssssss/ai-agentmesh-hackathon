@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from agentmesh.agent_runtime.settings import skill_orchestration_mode
@@ -20,9 +20,11 @@ from agentmesh.marketplace import (
 )
 from agentmesh.model_registry import ensure_model_seed_data
 from agentmesh.permissions import ensure_permission_policy_seed_data
+from agentmesh.request_limits import RequestBodyLimitMiddleware
 from agentmesh.research_orchestration.v2_artifact_history import V2ArtifactHistoryReader
 from agentmesh.research_orchestration.v2_history import V2HistoryAdapter
 from agentmesh.risk import ensure_risk_policy_seed_data
+from agentmesh.routes.admin_orchestration import router as admin_orchestration_router
 from agentmesh.routes.agent_runs import router as agent_runs_router
 from agentmesh.routes.agents import router as agents_router
 from agentmesh.routes.artifacts import router as artifacts_router
@@ -50,6 +52,7 @@ from agentmesh.routes.risk import router as risk_router
 from agentmesh.routes.skills import router as skills_router
 from agentmesh.routes.users import router as users_router
 from agentmesh.routes.workspace import router as workspace_router
+from agentmesh.runtime_admission import install_orchestration_admission
 from agentmesh.seed import (
     demo_mode_enabled,
     ensure_base_workspace_data,
@@ -58,7 +61,7 @@ from agentmesh.seed import (
     ensure_graph_demo_data,
     ensure_initial_blackboard_data,
 )
-from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController, OrchestrationQuiescingError
 from agentmesh.skill_runtime.service import ensure_skill_catalog
 from agentmesh.store import SQLiteStore, store
 from agentmesh.tools import ensure_tool_seed_data
@@ -87,11 +90,16 @@ def initialize_application_data(repository: SQLiteStore) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    store.initialize()
     initialize_application_data(store)
     research_v2_history_reader = V2HistoryAdapter(store, V2ArtifactHistoryReader(store))
     app.state.research_v2_history_reader = research_v2_history_reader
     runtime = chat_agent.agent_runtime
-    orchestration_admission = OrchestrationQuiesceController()
+    orchestration_admission = install_orchestration_admission(
+        OrchestrationQuiesceController()
+    )
+    if runtime is not None:
+        runtime.set_admission_controller(orchestration_admission)
     app.state.orchestration_quiesce_controller = orchestration_admission
     deepsearch_recovery = (
         DeepSearchRecoveryCoordinator(
@@ -135,14 +143,29 @@ async def lifespan(app: FastAPI):
                 is orchestration_admission
             ):
                 del app.state.orchestration_quiesce_controller
+            replacement_admission = install_orchestration_admission(
+                OrchestrationQuiesceController()
+            )
+            if runtime is not None:
+                runtime.set_admission_controller(replacement_admission)
             await asyncio.to_thread(ingestion_service.shutdown)
 
 
 app = FastAPI(title="AgentMesh", version="0.1.0", lifespan=lifespan)
+app.add_middleware(RequestBodyLimitMiddleware)
+
+
+@app.exception_handler(OrchestrationQuiescingError)
+async def orchestration_quiescing_handler(_request, _error):  # noqa: ANN001
+    return JSONResponse(
+        status_code=503,
+        content={"detail": {"code": OrchestrationQuiescingError.code}},
+    )
 
 
 # 注册路由模块
 app.include_router(auth_router)
+app.include_router(admin_orchestration_router)
 app.include_router(users_router)
 app.include_router(agent_runs_router)
 app.include_router(deepsearch_router)

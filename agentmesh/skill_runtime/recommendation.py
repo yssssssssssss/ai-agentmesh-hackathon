@@ -13,8 +13,12 @@ from agents.models.interface import Model
 from openai import APITimeoutError
 from pydantic import BaseModel, Field
 
+from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.llm import skill_match_llm_timeout_seconds
 from agentmesh.models import (
+    CandidateEvidencePathWitnessV1,
+    CandidateIdentityV1,
+    CandidateSnapshotV1,
     CapabilityGapV1,
     CoverageAtomV1,
     DeliverableAtomV1,
@@ -663,6 +667,187 @@ def _select_coverage_witnesses(
         selected_skills.add(chosen.skill_id)
         remaining.difference_update(newly_covered)
     return selected, tuple(atom_id for atom_id in atom_ids if atom_id in remaining)
+
+
+def build_candidate_snapshot(
+    result: UniversalSkillSearchResult,
+    repository: SQLiteStore,
+) -> CandidateSnapshotV1:
+    if result.outcome_code != "ok" or not result.selectable_candidates:
+        raise ValueError("candidate_snapshot_requires_successful_search")
+    identities: list[CandidateIdentityV1] = []
+    for candidate in result.selectable_candidates:
+        skill = repository.get_skill_definition(candidate.skill_id)
+        if skill is None or not profile_matches_skill(candidate.profile, skill):
+            raise ValueError("candidate_snapshot_skill_missing")
+        card = skill_capability_card(skill, candidate.profile)
+        evidence_witnesses: list[CandidateEvidencePathWitnessV1] = []
+        if "evidence:trusted_external_path" in candidate.covered_requirement_ids:
+            definition = _tool_definition(repository, "web_research")
+            if definition is None or not definition.implementation_id:
+                raise ValueError("candidate_snapshot_evidence_path_missing")
+            witness_body = {
+                "atom_id": "evidence:trusted_external_path",
+                "tool_implementation_id": definition.implementation_id,
+                "tool_implementation_version": definition.implementation_version,
+                "resource_or_adapter_identity": f"tool:{definition.id}",
+            }
+            evidence_witnesses.append(
+                CandidateEvidencePathWitnessV1(
+                    **witness_body,
+                    identity_hash=canonical_json_sha256(witness_body),
+                )
+            )
+        identities.append(
+            CandidateIdentityV1(
+                skill_id=skill.id,
+                skill_name=skill.name,
+                skill_version=skill.version,
+                skill_content_hash=skill.content_hash,
+                profile_version=candidate.profile.profile_version,
+                profile_content_hash=candidate.profile.profile_content_hash,
+                capability_card=card,
+                capability_card_hash=canonical_json_sha256(card),
+                match_reason_codes=tuple(candidate.match_reason_codes),
+                coverage_witness_scenario_id=candidate.coverage_witness_scenario_id,
+                evidence_path_witnesses=tuple(evidence_witnesses),
+                covered_requirement_ids=tuple(candidate.covered_requirement_ids),
+            )
+        )
+    body = {
+        "schema_version": "candidate-snapshot-v1",
+        "retrieval_policy_version": result.retrieval_policy_version,
+        "required_coverage_atoms": [
+            atom.model_dump(mode="json") for atom in result.required_coverage_atoms
+        ],
+        "plannable_coverage_atom_ids": list(result.plannable_coverage_atom_ids),
+        "required_synthesis_output_ids": list(result.required_synthesis_output_ids),
+        "coverage_witness_skill_ids": list(result.coverage_witness_skill_ids),
+        "candidates": [candidate.model_dump(mode="json") for candidate in identities],
+    }
+    return CandidateSnapshotV1(
+        **body,
+        content_hash=canonical_json_sha256(body),
+    )
+
+
+def revalidate_candidate_snapshot(
+    *,
+    snapshot: CandidateSnapshotV1,
+    repository: SQLiteStore,
+    catalog: SkillCatalogService,
+    user: User,
+    intent: SkillIntent,
+    profile_trust: Callable[[SkillDefinition, LoadedCapabilityProfile], bool],
+) -> list[SkillCandidate]:
+    current_evidence_policy = EvidenceAtomV1()
+    for atom in snapshot.required_coverage_atoms:
+        if isinstance(atom, EvidenceAtomV1) and (
+            atom.evidence_policy_id != current_evidence_policy.evidence_policy_id
+            or atom.evidence_policy_version != current_evidence_policy.evidence_policy_version
+            or atom.evidence_policy_hash != current_evidence_policy.evidence_policy_hash
+        ):
+            raise ValueError("evidence_policy_changed")
+    visible = {
+        skill.id: (skill, runtime_enabled)
+        for skill, runtime_enabled in catalog.list_for_agent(user.personal_agent_id)
+    }
+    candidates: list[SkillCandidate] = []
+    for identity in snapshot.candidates:
+        current = visible.get(identity.skill_id)
+        if current is None:
+            raise ValueError("candidate_snapshot_stale")
+        skill, runtime_enabled = current
+        try:
+            loaded = load_capability_profile_record(skill)
+            card = skill_capability_card(skill, loaded.profile)
+        except (ProfileError, ValueError) as error:
+            raise ValueError("candidate_snapshot_stale") from error
+        if (
+            skill.name != identity.skill_name
+            or skill.version != identity.skill_version
+            or skill.content_hash != identity.skill_content_hash
+            or loaded.profile.profile_version != identity.profile_version
+            or loaded.profile.profile_content_hash != identity.profile_content_hash
+            or canonical_json_sha256(card) != identity.capability_card_hash
+            or card != identity.capability_card
+            or not profile_trust(skill, loaded)
+        ):
+            raise ValueError("candidate_snapshot_stale")
+        for witness in identity.evidence_path_witnesses:
+            definition = _tool_definition(repository, "web_research")
+            witness_body = (
+                {
+                    "atom_id": witness.atom_id,
+                    "tool_implementation_id": definition.implementation_id,
+                    "tool_implementation_version": definition.implementation_version,
+                    "resource_or_adapter_identity": f"tool:{definition.id}",
+                }
+                if definition is not None and definition.implementation_id
+                else None
+            )
+            if (
+                witness_body is None
+                or witness.tool_implementation_id != witness_body["tool_implementation_id"]
+                or witness.tool_implementation_version != witness_body["tool_implementation_version"]
+                or witness.resource_or_adapter_identity
+                != witness_body["resource_or_adapter_identity"]
+                or witness.identity_hash != canonical_json_sha256(witness_body)
+            ):
+                raise ValueError("candidate_snapshot_stale")
+        readiness = _universal_readiness_diagnostics(
+            repository,
+            user,
+            skill,
+            loaded,
+            intent,
+            runtime_enabled=runtime_enabled,
+            profile_trusted=True,
+        )
+        if readiness:
+            raise ValueError(readiness[0])
+        candidates.append(
+            SkillCandidate(
+                skill_id=skill.id,
+                skill_name=skill.name,
+                title=skill.title,
+                description=skill.description,
+                profile=loaded.profile,
+                score=SkillCandidateScore(),
+                reason=";".join(identity.match_reason_codes),
+                match_reason_codes=list(identity.match_reason_codes),
+                coverage_witness_scenario_id=identity.coverage_witness_scenario_id,
+                covered_requirement_ids=list(identity.covered_requirement_ids),
+            )
+        )
+    return candidates
+
+
+def candidate_snapshot_public_projection(snapshot: CandidateSnapshotV1) -> dict[str, object]:
+    return {
+        "schema_version": snapshot.schema_version,
+        "content_hash": snapshot.content_hash,
+        "retrieval_policy_version": snapshot.retrieval_policy_version,
+        "required_coverage_atoms": [
+            {"id": atom.id, "label": atom.label, "kind": atom.kind}
+            for atom in snapshot.required_coverage_atoms
+        ],
+        "plannable_coverage_atom_ids": list(snapshot.plannable_coverage_atom_ids),
+        "required_synthesis_output_ids": list(snapshot.required_synthesis_output_ids),
+        "coverage_witness_skill_ids": list(snapshot.coverage_witness_skill_ids),
+        "candidates": [
+            {
+                "skill_id": candidate.skill_id,
+                "skill_name": candidate.skill_name,
+                "capability_card": candidate.capability_card,
+                "match_reason_codes": list(candidate.match_reason_codes),
+                "coverage_witness_scenario_id": candidate.coverage_witness_scenario_id,
+                "covered_requirement_ids": list(candidate.covered_requirement_ids),
+                "ready_at_planning": candidate.ready_at_planning,
+            }
+            for candidate in snapshot.candidates
+        ],
+    }
 
 
 def _profile_terms(text: str) -> set[str]:
