@@ -16,6 +16,7 @@ from agentmesh.models import (
     SkillPlanNodeStatus,
     SkillPlanStatus,
     SkillSideEffect,
+    SkillSynthesisResult,
     now_utc,
 )
 from agentmesh.runtime_admission import current_orchestration_admission
@@ -491,11 +492,20 @@ class BoundedDAGExecutor:
             if current_plan.candidate_snapshot is not None or unknown_write:
                 partial = False
                 if current_plan.candidate_snapshot is not None:
-                    from agentmesh.skill_runtime.universal_plan import has_valid_partial_delivery
+                    from agentmesh.skill_runtime.universal_plan import (
+                        persisted_universal_partial_delivery,
+                    )
 
-                    partial = has_valid_partial_delivery(
+                    synthesis = (
+                        SkillSynthesisResult.model_validate(current_plan.synthesis)
+                        if current_plan.synthesis is not None
+                        else self.repository.get_universal_synthesis_for_plan(current_plan)
+                    )
+                    partial = persisted_universal_partial_delivery(
                         plan=current_plan,
                         results=self.repository.list_skill_node_results(current_plan.id),
+                        synthesis=synthesis,
+                        artifact_lookup=self.repository.get_artifact,
                     )
                 current_plan.status = SkillPlanStatus.PARTIAL if partial else SkillPlanStatus.FAILED
                 current_run.status = AgentRunStatus.PARTIAL if partial else AgentRunStatus.FAILED

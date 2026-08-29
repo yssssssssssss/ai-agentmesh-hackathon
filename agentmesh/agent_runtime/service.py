@@ -83,6 +83,7 @@ from agentmesh.models import (
     AgentRun,
     AgentRunStatus,
     Artifact,
+    ArtifactVerificationState,
     ChatMessage,
     ChatRole,
     ChatWorkflowTrace,
@@ -105,11 +106,13 @@ from agentmesh.models import (
     SkillOrchestrationRequestMode,
     SkillPlan,
     SkillPlanDraft,
+    SkillPlanKnowledgeBindings,
     SkillPlanNode,
     SkillPlanNodeStatus,
     SkillPlanStatus,
     SkillResultSource,
     SkillSideEffect,
+    SkillSynthesisResult,
     ToolDefinition,
     User,
     UserMemoryItem,
@@ -140,6 +143,7 @@ from agentmesh.skill_runtime.recommendation import (
     UniversalSkillSearchService,
     build_candidate_snapshot,
     candidate_snapshot_public_projection,
+    revalidate_candidate_snapshot,
 )
 from agentmesh.skill_runtime.resources import (
     approved_skill_wiki_root,
@@ -159,6 +163,7 @@ from agentmesh.skill_runtime.universal_execution import (
 )
 from agentmesh.skill_runtime.universal_plan import (
     materialize_universal_draft,
+    persisted_universal_partial_delivery,
     scenario_assignment_options,
     validate_universal_plan,
 )
@@ -2768,6 +2773,11 @@ Follow the activated Skill for this request, subject to the platform rules above
                 results=results,
                 degradation=current_plan.degradation,
                 routing_result=current_plan.routing_result,
+                required_presentation_outputs=(
+                    current_plan.synthesis_output_contract
+                    if current_plan.candidate_snapshot is not None
+                    else None
+                ),
                 completion_check=current_plan.completion_check,
                 plan_nodes=current_plan.nodes,
             )
@@ -2898,15 +2908,41 @@ Follow the activated Skill for this request, subject to the platform rules above
                         error_code="deepsearch_delivery_unavailable",
                     )
                     raise
-                current_plan.status = SkillPlanStatus.FAILED
-                current_run.status = AgentRunStatus.FAILED
-                current_run.error_code = type(error).__name__
+                partial = False
+                if current_plan.candidate_snapshot is not None:
+                    synthesis = (
+                        SkillSynthesisResult.model_validate(current_plan.synthesis)
+                        if current_plan.synthesis is not None
+                        else self.repository.get_universal_synthesis_for_plan(current_plan)
+                    )
+                    partial = persisted_universal_partial_delivery(
+                        plan=current_plan,
+                        results=self.repository.list_skill_node_results(current_plan.id),
+                        synthesis=synthesis,
+                        artifact_lookup=self.repository.get_artifact,
+                    )
+                current_plan.status = (
+                    SkillPlanStatus.PARTIAL if partial else SkillPlanStatus.FAILED
+                )
+                current_run.status = (
+                    AgentRunStatus.PARTIAL if partial else AgentRunStatus.FAILED
+                )
+                current_run.error_code = (
+                    "external_outcome_unknown"
+                    if self.repository.runtime_tool_run_has_unknown_non_read(current_run.id)
+                    else type(error).__name__
+                )
                 self.repository.finish_skill_plan_and_run(
                     plan=current_plan,
                     run=current_run,
                     expected_plan_statuses={SkillPlanStatus.APPROVED, SkillPlanStatus.RUNNING},
                     expected_run_statuses={AgentRunStatus.RUNNING},
-                    events=[("run_failed", {"error_code": current_run.error_code})],
+                    events=[
+                        (
+                            "run_partially_completed" if partial else "run_failed",
+                            {"error_code": current_run.error_code},
+                        )
+                    ],
                 )
             raise
         if outcome.pause is not None and outcome.paused_node_id is not None:
@@ -2958,6 +2994,10 @@ Follow the activated Skill for this request, subject to the platform rules above
             user,
             {AgentRunStatus.RUNNING, AgentRunStatus.WAITING_APPROVAL},
         )
+        universal = (
+            run.planning_contract_version
+            is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+        )
         skill = self.repository.get_skill_definition(node.skill_id)
         profile = self.repository.get_skill_capability_profile(node.skill_id)
         enabled_ids = {
@@ -2967,7 +3007,36 @@ Follow the activated Skill for this request, subject to the platform rules above
         }
         if skill is None or profile is None:
             raise RuntimeError("planned_skill_changed")
-        if not is_pilot_orchestration_skill(skill) or not profile.planner_eligible:
+        if universal:
+            if not universal_standard_execution_allowed(
+                run_contract=run.execution_contract_version,
+                plan_contract=plan.execution_contract_version,
+            ) or plan.candidate_snapshot is None:
+                raise RuntimeError("universal_execution_not_available")
+            try:
+                current_candidates = revalidate_candidate_snapshot(
+                    snapshot=plan.candidate_snapshot,
+                    repository=self.repository,
+                    catalog=self.skill_catalog,
+                    user=user,
+                    intent=plan.intent,
+                    profile_trust=self.profile_trust,
+                )
+            except ValueError as error:
+                raise RuntimeError(str(error)) from error
+            candidate = next(
+                (item for item in current_candidates if item.skill_id == node.skill_id),
+                None,
+            )
+            if candidate is None:
+                raise RuntimeError("candidate_snapshot_stale")
+            profile = candidate.profile
+            if profile.side_effect in {
+                SkillSideEffect.LOCAL_WRITE,
+                SkillSideEffect.EXTERNAL_WRITE,
+            }:
+                raise RuntimeError("write_execution_not_released")
+        elif not is_pilot_orchestration_skill(skill) or not profile.planner_eligible:
             raise RuntimeError("planned_skill_outside_pilot_scope")
         if (
             skill.id not in enabled_ids
@@ -2976,8 +3045,11 @@ Follow the activated Skill for this request, subject to the platform rules above
             or skill.content_hash != node.skill_content_hash
         ):
             raise RuntimeError("planned_skill_changed")
-        if plan.planning_mode is AgentPlanningMode.DEEPSEARCH:
-            if run.planning_mode is not AgentPlanningMode.DEEPSEARCH or node.resource_manifest is None:
+        if plan.planning_mode is AgentPlanningMode.DEEPSEARCH or universal:
+            if (
+                (plan.planning_mode is AgentPlanningMode.DEEPSEARCH and run.planning_mode is not AgentPlanningMode.DEEPSEARCH)
+                or node.resource_manifest is None
+            ):
                 raise RuntimeError("planned_resource_changed")
             try:
                 current_resource_manifest = build_skill_resource_manifest_snapshot(skill, profile)
@@ -2992,30 +3064,57 @@ Follow the activated Skill for this request, subject to the platform rules above
             resource_manifest_frozen = False
         if node.scenario_id is not None:
             routing = plan.routing_result
-            if routing is None or routing.catalog_hash != self.task_catalog.manifest.catalog_hash:
-                raise RuntimeError("planned_route_changed")
-            scenario = self.task_catalog.get_scenario(node.scenario_id)
-            mapping = self.task_catalog.get_mapping(node.scenario_id)
-            registry_skill = (
-                self.task_catalog.get_skill(node.skill_registry_id)
-                if node.skill_registry_id is not None
-                else None
-            )
-            if (
-                scenario is None
-                or mapping is None
-                or registry_skill is None
-                or node.task_id != scenario.parent_task
-                or registry_skill.runtime_skill_name != skill.name
-                or node.skill_status != registry_skill.status.value
-                or node.skill_registry_id not in {*mapping.default_skill_ids, *mapping.optional_skill_ids}
-                or tuple(node.completion_criteria) != scenario.completion_criteria
-                or set(node.knowledge_bindings.required)
-                != {*mapping.required_knowledge_ids, *mapping.required_knowledge_descriptors}
-                or set(node.knowledge_bindings.optional)
-                != {*mapping.optional_knowledge_ids, *mapping.optional_knowledge_descriptors}
-            ):
-                raise RuntimeError("planned_route_node_changed")
+            if universal:
+                if (
+                    routing is None
+                    or routing.catalog_version
+                    != self.universal_task_catalog.manifest.catalog_version
+                    or routing.catalog_hash
+                    != self.universal_task_catalog.manifest.catalog_hash
+                ):
+                    raise RuntimeError("planned_route_changed")
+                scenario = self.universal_task_catalog.get_scenario(node.scenario_id)
+                if (
+                    scenario is None
+                    or node.task_id != scenario.parent_task
+                    or node.skill_registry_id is not None
+                    or node.skill_status is not None
+                    or node.knowledge_bindings != SkillPlanKnowledgeBindings()
+                    or tuple(node.completion_criteria) != scenario.completion_criteria
+                ):
+                    raise RuntimeError("planned_route_node_changed")
+            else:
+                if routing is None or routing.catalog_hash != self.task_catalog.manifest.catalog_hash:
+                    raise RuntimeError("planned_route_changed")
+                scenario = self.task_catalog.get_scenario(node.scenario_id)
+                mapping = self.task_catalog.get_mapping(node.scenario_id)
+                registry_skill = (
+                    self.task_catalog.get_skill(node.skill_registry_id)
+                    if node.skill_registry_id is not None
+                    else None
+                )
+                if (
+                    scenario is None
+                    or mapping is None
+                    or registry_skill is None
+                    or node.task_id != scenario.parent_task
+                    or registry_skill.runtime_skill_name != skill.name
+                    or node.skill_status != registry_skill.status.value
+                    or node.skill_registry_id
+                    not in {*mapping.default_skill_ids, *mapping.optional_skill_ids}
+                    or tuple(node.completion_criteria) != scenario.completion_criteria
+                    or set(node.knowledge_bindings.required)
+                    != {
+                        *mapping.required_knowledge_ids,
+                        *mapping.required_knowledge_descriptors,
+                    }
+                    or set(node.knowledge_bindings.optional)
+                    != {
+                        *mapping.optional_knowledge_ids,
+                        *mapping.optional_knowledge_descriptors,
+                    }
+                ):
+                    raise RuntimeError("planned_route_node_changed")
         allowed_tool_names = tool_names_for_profile(profile)
         if (
             plan.planning_mode is AgentPlanningMode.DEEPSEARCH
@@ -3023,7 +3122,7 @@ Follow the activated Skill for this request, subject to the platform rules above
         ):
             raise RuntimeError("deepsearch_tool_policy_violation")
         if (
-            (plan.planning_mode is AgentPlanningMode.DEEPSEARCH or node.scenario_id is not None)
+            (plan.planning_mode is AgentPlanningMode.DEEPSEARCH or universal or node.scenario_id is not None)
             and set(node.required_tool_names) != allowed_tool_names
         ):
             raise RuntimeError("planned_tool_contract_changed")
@@ -3045,6 +3144,30 @@ Follow the activated Skill for this request, subject to the platform rules above
                 granted_tools[definition.name] = (definition.id, grant.id)
         if not allowed_tool_names.issubset(granted_tools):
             raise RuntimeError("planned_tool_grant_revoked")
+        if universal:
+            for tool_name in sorted(allowed_tool_names):
+                definition = next(
+                    (
+                        item
+                        for item in self.repository.tool_definitions
+                        if item.enabled and item.name == tool_name
+                    ),
+                    None,
+                )
+                describe = getattr(self.tool_factory.gateway, "describe", None)
+                descriptor = describe(tool_name) if callable(describe) else None
+                if (
+                    definition is None
+                    or definition.side_effect != "read"
+                    or descriptor is None
+                    or descriptor.execution_mode != "real"
+                    or descriptor.health_state != "healthy"
+                    or descriptor.implementation_id
+                    != (definition.implementation_id or f"builtin:{definition.name}")
+                    or descriptor.implementation_version
+                    != definition.implementation_version
+                ):
+                    raise RuntimeError("planned_tool_runtime_changed")
         grant_snapshot_ids = tuple(sorted(granted_tools[name][1] for name in allowed_tool_names))
         return (
             skill,
@@ -3161,6 +3284,10 @@ Follow the activated Skill for this request, subject to the platform rules above
         selected: SelectedSDKModel,
     ) -> NodeExecutionOutcome:
         deepsearch = run.planning_mode is AgentPlanningMode.DEEPSEARCH
+        universal = (
+            run.planning_contract_version
+            is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+        )
         (
             skill,
             allowed_tool_names,
@@ -3195,14 +3322,22 @@ Follow the activated Skill for this request, subject to the platform rules above
             else (set(), set(), [])
         )
         knowledge_context = self._knowledge_context(skill=skill, node=node)
-        scenario = self.task_catalog.get_scenario(node.scenario_id) if node.scenario_id else None
+        scenario_catalog = self.universal_task_catalog if universal else self.task_catalog
+        scenario = scenario_catalog.get_scenario(node.scenario_id) if node.scenario_id else None
+        expected_scenario_outputs = (
+            [{"id": output.id, "label": output.label} for output in scenario.outputs]
+            if universal and scenario is not None
+            else list(scenario.outputs)
+            if scenario is not None
+            else []
+        )
         node_prompt = {
             "goal": plan.intent.goal,
             "node_id": node.id,
             "skill_id": skill.id,
             "input_bindings": node.input_bindings,
             "output_contract": node.output_contract,
-            "expected_scenario_outputs": list(scenario.outputs) if scenario is not None else [],
+            "expected_scenario_outputs": expected_scenario_outputs,
             "completion_criteria": node.completion_criteria,
             "problem_questions": problem_questions,
             "allowed_evidence_question_ids": sorted(node_question_ids),
@@ -3506,6 +3641,10 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         runtime_context: AgentMeshRunContext | None = None,
     ) -> SkillNodeResult:
         deepsearch = run.planning_mode is AgentPlanningMode.DEEPSEARCH
+        universal_result = run.planning_contract_version in {
+            AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+            AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
+        }
         if deepsearch:
             raw_output = (
                 output.model_dump(mode="python")
@@ -3550,19 +3689,21 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 result_source_ids={source.id for source in node_result.sources},
             )
         else:
+            excluded_fields = {
+                "id",
+                "attempt",
+                "usage",
+                "reused_from_run_id",
+                "reused_from_result_id",
+                "evidence_items",
+                "created_at",
+            }
+            if not universal_result:
+                excluded_fields.add("delivered_output_kinds")
             raw_output = (
                 output.model_dump(
                     mode="python",
-                    exclude={
-                        "id",
-                        "attempt",
-                        "usage",
-                        "reused_from_run_id",
-                        "reused_from_result_id",
-                        "evidence_items",
-                        "delivered_output_kinds",
-                        "created_at",
-                    },
+                    exclude=excluded_fields,
                 )
                 if isinstance(output, BaseModel)
                 else output
@@ -3577,10 +3718,6 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     "evidence_items": [],
                 }
             )
-        universal_result = run.planning_contract_version in {
-            AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
-            AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
-        }
         if universal_result:
             delivered = node_result.delivered_output_kinds or []
             if (
@@ -3589,6 +3726,91 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 or (not node_result.deliverable_markdown.strip() and not node_result.artifact_ids)
             ):
                 raise ValueError("node_result_delivered_output_invalid")
+            if not deepsearch and runtime_context is not None:
+                for artifact_id in runtime_context.artifact_ids:
+                    artifact = self.repository.get_artifact(artifact_id)
+                    if (
+                        artifact is None
+                        or artifact.artifact_type != "universal_tool_evidence"
+                        or artifact.schema_version != "universal-tool-evidence-v1"
+                        or artifact.verification_state is not ArtifactVerificationState.SEALED
+                    ):
+                        continue
+                    try:
+                        envelope = TrustedEvidenceEnvelopeV1.model_validate(
+                            DeepSearchArtifactSchemaRegistry.parse(
+                                artifact.artifact_type,
+                                artifact.schema_version,
+                                artifact.content,
+                            )
+                        )
+                    except (ArtifactAccessError, TypeError, ValueError) as error:
+                        raise ValueError("universal_evidence_artifact_invalid") from error
+                    if envelope.run_id != run.id or envelope.plan_id != plan.id:
+                        raise ValueError("universal_evidence_lineage_invalid")
+                    result_source_ids = {source.id for source in node_result.sources}
+                    if envelope.node_id != node.id:
+                        continue
+                    if (
+                        envelope.source_id not in allowed_source_ids
+                        or envelope.source_id not in result_source_ids
+                    ):
+                        continue
+                    identity = next(
+                        (
+                            candidate
+                            for candidate in plan.candidate_snapshot.candidates
+                            if candidate.skill_id == node.skill_id
+                        ),
+                        None,
+                    )
+                    witness = (
+                        next(
+                            (
+                                item
+                                for item in identity.evidence_path_witnesses
+                                if item.atom_id == "evidence:trusted_external_path"
+                            ),
+                            None,
+                        )
+                        if identity is not None
+                        else None
+                    )
+                    definition = next(
+                        (
+                            item
+                            for item in self.repository.tool_definitions
+                            if item.name == envelope.tool_name and item.enabled
+                        ),
+                        None,
+                    )
+                    if (
+                        witness is None
+                        or definition is None
+                        or envelope.tool_implementation_id
+                        != witness.tool_implementation_id
+                        or envelope.tool_implementation_version
+                        != witness.tool_implementation_version
+                        or witness.resource_or_adapter_identity != f"tool:{definition.id}"
+                    ):
+                        raise ValueError("universal_evidence_witness_mismatch")
+                    node_result.artifact_ids = list(
+                        dict.fromkeys([*node_result.artifact_ids, artifact.id])
+                    )
+                    node_result.evidence_items.append(
+                        DeepSearchEvidenceItemV1(
+                            id="evidence_item_"
+                            + canonical_json_sha256(
+                                {
+                                    "node_result_id": node_result.id,
+                                    "artifact_id": artifact.id,
+                                }
+                            )[:24],
+                            node_result_id=node_result.id,
+                            source_id=envelope.source_id,
+                            evidence_artifact_id=artifact.id,
+                        )
+                    )
         else:
             node_result.delivered_output_kinds = None
         if node_result.node_id != node.id or node_result.skill_id != skill.id:

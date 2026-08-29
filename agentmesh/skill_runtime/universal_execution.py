@@ -6,9 +6,11 @@ from typing import Literal
 
 from agentmesh.models import AgentExecutionContractVersion
 
-# Phase 2A is preview-only. Phase 2B changes this constant in a dedicated,
-# reviewed release after execution and rollback gates pass.
-STANDARD_UNIVERSAL_EXECUTION_CONTRACT: Literal["standard_universal_execution_v1"] | None = None
+# Phase 2B recognizes the immutable execution contract. Production creation is
+# still gated by verified Profile provenance and the release marker.
+STANDARD_UNIVERSAL_EXECUTION_CONTRACT: Literal["standard_universal_execution_v1"] | None = (
+    "standard_universal_execution_v1"
+)
 
 
 def universal_standard_execution_contract() -> AgentExecutionContractVersion | None:

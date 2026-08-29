@@ -10,18 +10,22 @@ from agents.strict_schema import ensure_strict_json_schema
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.agent_runtime.settings import strict_tools_enabled
-from agentmesh.canonical_json import canonical_json_sha256
+from agentmesh.artifacts import TrustedEvidenceEnvelopeV1, V1VerifiedArtifactStore
+from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.deepsearch.artifact_budget import save_runtime_artifact
 from agentmesh.models import (
+    AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRunStatus,
     Artifact,
+    ArtifactVerificationState,
     AuditEvent,
     RuntimeToolCallClaimV1,
     RuntimeToolCallOutcomeV1,
     SkillDefinition,
     ToolDefinition,
     User,
+    now_utc,
 )
 from agentmesh.risk import RiskDecision, assess_tool_request
 from agentmesh.runtime_admission import current_orchestration_admission
@@ -146,6 +150,142 @@ class AgentMeshToolFactory:
                 allowed.append(source_id)
         return allowed
 
+    def _save_universal_tool_evidence(
+        self,
+        *,
+        context: AgentMeshRunContext,
+        definition: ToolDefinition,
+        claim: RuntimeToolCallClaimV1,
+        arguments: dict[str, Any],
+        output: str,
+        source_ids: list[str],
+    ) -> list[str]:
+        run = self.repository.get_agent_run(context.run_id)
+        plan = (
+            self.repository.get_skill_plan(context.plan_id)
+            if context.plan_id is not None
+            else None
+        )
+        if (
+            run is None
+            or plan is None
+            or run.planning_contract_version
+            is not AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+            or plan.candidate_snapshot is None
+            or definition.name != "web_research"
+            or context.node_id is None
+        ):
+            return []
+        node = next((item for item in plan.nodes if item.id == context.node_id), None)
+        identity = next(
+            (
+                item
+                for item in plan.candidate_snapshot.candidates
+                if item.skill_id == context.skill_id
+            ),
+            None,
+        )
+        witness = (
+            next(
+                (
+                    item
+                    for item in identity.evidence_path_witnesses
+                    if item.atom_id == "evidence:trusted_external_path"
+                ),
+                None,
+            )
+            if identity is not None
+            else None
+        )
+        descriptor = self.gateway.describe(definition.name)
+        if (
+            node is None
+            or node.attempt < 1
+            or witness is None
+            or witness.tool_implementation_id != claim.implementation_id
+            or witness.tool_implementation_version != claim.implementation_version
+            or witness.resource_or_adapter_identity != f"tool:{definition.id}"
+            or descriptor is None
+            or descriptor.execution_mode != "real"
+        ):
+            return []
+        excerpt_bytes = output.encode("utf-8")[:8192]
+        while excerpt_bytes:
+            try:
+                excerpt = excerpt_bytes.decode("utf-8")
+                break
+            except UnicodeDecodeError:
+                excerpt_bytes = excerpt_bytes[:-1]
+        else:
+            excerpt = ""
+        if not excerpt:
+            return []
+        requirement_version_id = "candidate_snapshot:" + plan.candidate_snapshot.content_hash[:64]
+        request_hash = canonical_json_sha256(arguments)
+        evidence_ids: list[str] = []
+        for ordinal, source_id in enumerate(source_ids[:60]):
+            source = self.repository.get_source(source_id)
+            if source is None:
+                continue
+            envelope = TrustedEvidenceEnvelopeV1(
+                schema_version="universal-tool-evidence-v1",
+                origin_type="tool",
+                run_id=run.id,
+                requirement_version_id=requirement_version_id,
+                plan_id=plan.id,
+                plan_version=plan.version,
+                node_id=node.id,
+                attempt=node.attempt,
+                tool_name=definition.name,
+                tool_implementation_id=claim.implementation_id,
+                tool_implementation_version=claim.implementation_version,
+                execution_mode="real",
+                tool_call_id=claim.call_id,
+                operation_key=claim.operation_identity,
+                request_hash=request_hash,
+                source_id=source.id,
+                source_ordinal=ordinal,
+                normalized_reference=source.reference or source.id,
+                retrieved_at=now_utc(),
+                excerpt=excerpt,
+                content_hash=hashlib.sha256(excerpt.encode()).hexdigest(),
+                size_bytes=len(excerpt.encode()),
+            )
+            content = canonical_json_bytes(envelope.model_dump(mode="json")).decode()
+            content_bytes = content.encode()
+            artifact_id = "artifact_universal_evidence_" + canonical_json_sha256(
+                {
+                    "call_id": claim.call_id,
+                    "source_id": source.id,
+                    "content_hash": hashlib.sha256(content_bytes).hexdigest(),
+                }
+            )[:24]
+            artifact = Artifact(
+                id=artifact_id,
+                run_id=run.id,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                user_id=run.user_id,
+                artifact_type="universal_tool_evidence",
+                content_type="application/json",
+                content=content,
+                verification_state=ArtifactVerificationState.SEALED,
+                schema_version="universal-tool-evidence-v1",
+                content_hash=hashlib.sha256(content_bytes).hexdigest(),
+                size_bytes=len(content_bytes),
+                requirement_version_id=requirement_version_id,
+                plan_version_id=f"{plan.id}:v{plan.version}",
+                attempt_id=f"{node.id}:attempt:{node.attempt}",
+                step_number=next(
+                    index
+                    for index, candidate in enumerate(plan.nodes, start=1)
+                    if candidate.id == node.id
+                ),
+            )
+            V1VerifiedArtifactStore(self.repository).insert_sealed(artifact)
+            evidence_ids.append(artifact.id)
+        return evidence_ids
+
     def build(
         self,
         user: User,
@@ -265,8 +405,9 @@ class AgentMeshToolFactory:
                     )
                 else:
                     value = await asyncio.to_thread(handler, ctx.context, arguments)
+                new_source_ids = self._registered_source_ids(value, ctx.context)
                 ctx.context.source_ids = list(
-                    dict.fromkeys([*ctx.context.source_ids, *self._registered_source_ids(value, ctx.context)])
+                    dict.fromkeys([*ctx.context.source_ids, *new_source_ids])
                 )
                 output = encode_tool_output(value)
                 if len(output.encode("utf-8")) > _MAX_PROVIDER_OUTPUT_BYTES:
@@ -291,6 +432,20 @@ class AgentMeshToolFactory:
                     visible = "Tool output was withheld by AgentMesh policy."
                     artifact_id = None
                 else:
+                    evidence_artifact_ids = self._save_universal_tool_evidence(
+                        context=ctx.context,
+                        definition=definition,
+                        claim=claim,
+                        arguments=arguments,
+                        output=output,
+                        source_ids=new_source_ids,
+                    )
+                    if evidence_artifact_ids:
+                        ctx.context.artifact_ids = list(
+                            dict.fromkeys(
+                                [*ctx.context.artifact_ids, *evidence_artifact_ids]
+                            )
+                        )
                     visible, artifact_id = self._bounded_output(
                         ctx.context,
                         definition,
