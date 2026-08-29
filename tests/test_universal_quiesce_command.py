@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -8,10 +9,12 @@ import pytest
 from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.models import (
     AgentPlanningContractVersion,
+    AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
     CandidateIdentityV1,
     CandidateSnapshotV1,
+    DeepSearchBudgetV1,
     DeliverableAtomV1,
     RuntimeToolCallClaimV1,
     SkillIntent,
@@ -91,6 +94,25 @@ def test_quiesce_command_dry_run_and_apply_are_checksum_bound(tmp_path: Path, ca
             contract=AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
         )
     )
+    deepsearch_v2 = repository.save_agent_run(
+        AgentRun(
+            id="run_deepsearch_v2_quiesce",
+            thread_id="thread_deepsearch_v2_quiesce",
+            user_id="usr_test",
+            workspace_id="ws_test",
+            project_id="prj_test",
+            input_text="pending DeepSearch v2 planning",
+            status=AgentRunStatus.PLANNING,
+            planning_mode=AgentPlanningMode.DEEPSEARCH,
+            planning_contract_version=AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
+            orchestration_mode="execute",
+            requested_orchestration_mode="auto",
+            absolute_expires_at=universal.created_at + timedelta(days=7),
+            deepsearch_budget=DeepSearchBudgetV1(),
+            created_at=universal.created_at,
+            updated_at=universal.created_at,
+        )
+    )
     direct = repository.save_agent_run(_run("run_direct_write"))
     claim_body = {
         "run_id": direct.id,
@@ -111,7 +133,7 @@ def test_quiesce_command_dry_run_and_apply_are_checksum_bound(tmp_path: Path, ca
         )
     )
     inventory = repository.universal_quiesce_inventory()
-    assert inventory.run_ids == (direct.id, universal.id)
+    assert inventory.run_ids == (deepsearch_v2.id, direct.id, universal.id)
     assert inventory.unresolved_tool_call_ids == ("call_direct_write",)
 
     assert main(["--database", str(database)]) == 0
@@ -150,8 +172,10 @@ def test_quiesce_command_dry_run_and_apply_are_checksum_bound(tmp_path: Path, ca
     assert applied["backup_sha256"]
     assert repository.universal_quiesce_inventory().run_ids == ()
     stored_universal = repository.get_agent_run(universal.id)
+    stored_deepsearch_v2 = repository.get_agent_run(deepsearch_v2.id)
     stored_direct = repository.get_agent_run(direct.id)
     assert stored_universal is not None and stored_universal.status is AgentRunStatus.CANCELLED
+    assert stored_deepsearch_v2 is not None and stored_deepsearch_v2.status is AgentRunStatus.CANCELLED
     assert stored_direct is not None and stored_direct.status is AgentRunStatus.FAILED
     assert stored_direct.error_code == "external_outcome_unknown"
 

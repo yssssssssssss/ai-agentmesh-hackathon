@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.models import (
     AgentRun,
+    CandidateSnapshotPublicViewV1,
     DeepSearchEvidenceCoverageV1,
     DeepSearchFinalizationStage,
     DeepSearchReviewOutcomeV1,
@@ -870,6 +871,7 @@ class DeepSearchPlanViewV1(_FrozenContract):
     intent: SkillIntent
     routing_result: TaskRoutingResult | None = None
     candidate_skill_ids: list[str]
+    candidate_snapshot: CandidateSnapshotPublicViewV1 | None = None
     output_contract: list[str]
     synthesis_output_contract: list[str]
     capability_gaps: list[str]
@@ -893,8 +895,16 @@ class DeepSearchPlanViewV1(_FrozenContract):
 
     @classmethod
     def from_plan(cls, plan: SkillPlan) -> DeepSearchPlanViewV1:
-        payload = plan.model_dump(mode="python", include=set(cls.model_fields) - {"nodes"})
+        payload = plan.model_dump(
+            mode="python",
+            include=set(cls.model_fields) - {"nodes", "candidate_snapshot"},
+        )
         payload["nodes"] = [DeepSearchPlanNodeViewV1.from_plan_node(node) for node in plan.nodes]
+        payload["candidate_snapshot"] = (
+            CandidateSnapshotPublicViewV1.from_snapshot(plan.candidate_snapshot)
+            if plan.candidate_snapshot is not None
+            else None
+        )
         return cls.model_validate(payload)
 
 

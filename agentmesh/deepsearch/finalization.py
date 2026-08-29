@@ -14,6 +14,7 @@ from typing import Protocol, TypeVar
 from agentmesh.artifacts import (
     ArtifactAccessError,
     DeepSearchEvidenceManifestV1,
+    DeepSearchReportSectionV1,
     DeepSearchReportV1,
     V1VerifiedArtifactStore,
 )
@@ -56,6 +57,7 @@ from agentmesh.models import (
     now_utc,
 )
 from agentmesh.skill_runtime.finalization import PlanExecutionOutcome
+from agentmesh.skill_runtime.universal_plan import covered_result_atom_ids
 
 _TERMINAL_NODE_STATUSES = frozenset(
     {
@@ -342,6 +344,131 @@ def terminate_deepsearch_without_report(
         raise RuntimeError("deepsearch_finalization_state_conflict")
     terminal_plan, terminal_run = terminal
     return PlanExecutionOutcome(plan=terminal_plan, run=terminal_run)
+
+
+_DEEPSEARCH_REPORT_SYNTHESIS_LABELS = {
+    "design_analysis": "设计分析",
+    "executive_summary": "执行摘要",
+    "summary": "总结",
+    "synthesis": "综合结论",
+    "report": "综合报告",
+    "strategy_map": "策略地图",
+    "mental_model": "用户心智模型",
+    "design_principles": "设计原则",
+    "opportunity_list": "机会点",
+    "prioritized_actions": "P0/P1/P2 行动",
+    "roadmap": "实施路径",
+    "metrics_plan": "指标与验证计划",
+    "comparison_table": "对比结论",
+}
+
+
+def _with_required_synthesis_sections(
+    *,
+    plan: SkillPlan,
+    report: DeepSearchReportV1,
+) -> DeepSearchReportV1:
+    snapshot = plan.candidate_snapshot
+    if snapshot is None or not snapshot.required_synthesis_output_ids:
+        return report
+    claim_ids = [claim.id for claim in report.claims]
+    claim_text = {claim.id: claim.text for claim in report.claims}
+    sections = list(report.sections)
+    rendered_parts: list[str] = []
+    existing_ids = {section.section_id for section in sections}
+    for output_id in snapshot.required_synthesis_output_ids:
+        label = _DEEPSEARCH_REPORT_SYNTHESIS_LABELS.get(output_id)
+        if label is None or not claim_ids:
+            continue
+        section_id = f"synthesis_output:{output_id}"
+        if section_id not in existing_ids:
+            sections.append(
+                DeepSearchReportSectionV1(
+                    section_id=section_id,
+                    server_heading=label,
+                    claim_ids=claim_ids,
+                )
+            )
+            existing_ids.add(section_id)
+        rendered_parts.append(
+            f"## {label}\n\n"
+            + "\n\n".join(claim_text[claim_id] for claim_id in claim_ids)
+        )
+    rendered_text = report.rendered_text
+    if rendered_parts:
+        rendered_text = rendered_text.rstrip() + "\n\n" + "\n\n".join(rendered_parts)
+    return DeepSearchReportV1.model_validate(
+        {
+            **report.model_dump(mode="python"),
+            "sections": sections,
+            "rendered_text": rendered_text,
+        }
+    )
+
+
+def _universal_deepsearch_obligations_complete(
+    *,
+    plan: SkillPlan,
+    results: list[SkillNodeResult],
+    coverage: DeepSearchEvidenceCoverageV1,
+    evidence_artifacts: Mapping[str, Artifact],
+    synthesis: DeepSearchSynthesisV1,
+    graph: ProblemGraphV1,
+) -> bool:
+    snapshot = plan.candidate_snapshot
+    if snapshot is None:
+        return True
+    valid_artifact_ids = {
+        artifact.id
+        for artifact in evidence_artifacts.values()
+        if artifact.verification_state is ArtifactVerificationState.SEALED
+    }
+    covered = set(
+        covered_result_atom_ids(
+            plan=plan,
+            results=results,
+            evidence_artifact_valid=lambda artifact_id: artifact_id
+            in valid_artifact_ids,
+        )
+    )
+    required_atom_ids = {atom.id for atom in snapshot.required_coverage_atoms}
+    if not required_atom_ids.issubset(covered):
+        return False
+    result_node_ids = {result.node_id for result in results}
+    if any(
+        criterion not in result.completion_criteria_met
+        for node in plan.nodes
+        if node.status is SkillPlanNodeStatus.COMPLETED
+        for criterion in node.completion_criteria
+        for result in results
+        if result.node_id == node.id
+    ):
+        return False
+    if any(
+        node.required
+        and (
+            node.status is not SkillPlanNodeStatus.COMPLETED
+            or node.id not in result_node_ids
+        )
+        for node in plan.nodes
+    ):
+        return False
+    if plan.capability_gaps:
+        return False
+    required_synthesis = set(snapshot.required_synthesis_output_ids)
+    if required_synthesis and (
+        not required_synthesis.issubset(_DEEPSEARCH_REPORT_SYNTHESIS_LABELS)
+        or not synthesis.claims
+        or not graph.questions
+    ):
+        return False
+    evidence_required = any(
+        atom.id == "evidence:trusted_external_path"
+        for atom in snapshot.required_coverage_atoms
+    )
+    return not evidence_required or (
+        coverage.passed and coverage.external_evidence_is_real
+    )
 
 
 class DeepSearchFinalizer:
@@ -793,7 +920,7 @@ class DeepSearchFinalizer:
         review_outcome: DeepSearchReviewOutcomeV1,
         complete_candidate: bool,
     ) -> DeepSearchReportV1:
-        return build_deepsearch_report(
+        report = build_deepsearch_report(
             run=run,
             plan=plan,
             requirement=requirement,
@@ -808,6 +935,7 @@ class DeepSearchFinalizer:
             review_outcome=review_outcome,
             report_status="complete" if complete_candidate else "partial",
         )
+        return _with_required_synthesis_sections(plan=plan, report=report)
 
     def _commit_terminal_report_attempt(
         self,
@@ -972,6 +1100,14 @@ class DeepSearchFinalizer:
             and coverage.passed
             and review_outcome.outcome == "pass"
             and synthesis.synthesis_mode == "model"
+            and _universal_deepsearch_obligations_complete(
+                plan=plan,
+                results=results,
+                coverage=coverage,
+                evidence_artifacts=evidence_artifacts,
+                synthesis=synthesis,
+                graph=graph,
+            )
         )
         operation_identity = {
             "synthesis_hash": coverage.synthesis_content_hash,

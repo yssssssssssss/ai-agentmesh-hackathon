@@ -14,7 +14,10 @@ from typing import Protocol
 from agentmesh.artifacts import (
     DeepSearchFrozenPlanNodeV1,
     DeepSearchFrozenPlanV1,
+    DeepSearchFrozenPlanV2,
     DeepSearchPlanSnapshotV1,
+    DeepSearchPlanSnapshotV2,
+    RoutingCatalogIdentityV1,
 )
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.deepsearch.contracts import (
@@ -28,10 +31,12 @@ from agentmesh.deepsearch.contracts import (
 )
 from agentmesh.deepsearch.tool_policy import DEEPSEARCH_V1_TOOL_NAMES
 from agentmesh.models import (
+    AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRun,
     Artifact,
     ArtifactVerificationState,
+    CandidateSnapshotV1,
     SkillCandidate,
     SkillDefinition,
     SkillIntent,
@@ -45,6 +50,8 @@ from agentmesh.models import (
 from agentmesh.skill_runtime.plan_validation import PlanValidationError, build_plan, validate_draft
 from agentmesh.skill_runtime.resources import build_skill_resource_manifest_snapshot
 from agentmesh.skill_runtime.retrieval import tool_names_for_profile
+from agentmesh.skill_runtime.universal_plan import validate_universal_plan
+from agentmesh.task_routing.catalog import TaskCatalogV2
 from agentmesh.task_routing.contracts import TaskRoutingResult
 
 
@@ -165,17 +172,19 @@ def freeze_deepsearch_plan_resources(
     return plan.model_copy(update={"nodes": frozen_nodes})
 
 
-def deepsearch_frozen_plan(plan: SkillPlan) -> DeepSearchFrozenPlanV1:
-    """Return the sole immutable projection used by snapshots and Plan hashing."""
-
-    if (
-        plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
-        or plan.requirement_version_id is None
-        or plan.requirement_content_hash is None
-        or plan.problem_graph_hash is None
-    ):
-        raise ValueError("DeepSearch Plan lineage is incomplete")
+def _deepsearch_node_projection(plan: SkillPlan) -> list[DeepSearchFrozenPlanNodeV1]:
     node_fields = set(DeepSearchFrozenPlanNodeV1.model_fields)
+    return [
+        DeepSearchFrozenPlanNodeV1.model_validate(
+            node.model_dump(mode="python", include=node_fields)
+        )
+        for node in plan.nodes
+    ]
+
+
+def deepsearch_frozen_plan_v1(plan: SkillPlan) -> DeepSearchFrozenPlanV1:
+    if plan.candidate_snapshot is not None:
+        raise ValueError("DeepSearch FrozenPlan v1 cannot carry a Candidate Snapshot")
     return DeepSearchFrozenPlanV1(
         requirement_version_id=plan.requirement_version_id,
         requirement_content_hash=plan.requirement_content_hash,
@@ -187,13 +196,51 @@ def deepsearch_frozen_plan(plan: SkillPlan) -> DeepSearchFrozenPlanV1:
         synthesis_output_contract=plan.synthesis_output_contract,
         capability_gaps=plan.capability_gaps,
         preferred_order=plan.preferred_order,
-        nodes=[
-            DeepSearchFrozenPlanNodeV1.model_validate(
-                node.model_dump(mode="python", include=node_fields)
-            )
-            for node in plan.nodes
-        ],
+        nodes=_deepsearch_node_projection(plan),
     )
+
+
+def deepsearch_frozen_plan_v2(plan: SkillPlan) -> DeepSearchFrozenPlanV2:
+    if plan.candidate_snapshot is None:
+        raise ValueError("DeepSearch FrozenPlan v2 requires a Candidate Snapshot")
+    routing_identity = (
+        RoutingCatalogIdentityV1(
+            catalog_version=plan.routing_result.catalog_version,
+            catalog_hash=plan.routing_result.catalog_hash,
+        )
+        if plan.routing_result is not None
+        else None
+    )
+    return DeepSearchFrozenPlanV2(
+        requirement_version_id=plan.requirement_version_id,
+        requirement_content_hash=plan.requirement_content_hash,
+        problem_graph_hash=plan.problem_graph_hash,
+        intent=plan.intent,
+        routing_result=plan.routing_result,
+        routing_catalog_identity=routing_identity,
+        candidate_skill_ids=plan.candidate_skill_ids,
+        candidate_snapshot=plan.candidate_snapshot,
+        output_contract=plan.output_contract,
+        synthesis_output_contract=plan.synthesis_output_contract,
+        capability_gaps=plan.capability_gaps,
+        preferred_order=plan.preferred_order,
+        nodes=_deepsearch_node_projection(plan),
+    )
+
+
+def deepsearch_frozen_plan(plan: SkillPlan) -> DeepSearchFrozenPlanV1 | DeepSearchFrozenPlanV2:
+    """Return the immutable projection selected by persisted Plan shape."""
+
+    if (
+        plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+        or plan.requirement_version_id is None
+        or plan.requirement_content_hash is None
+        or plan.problem_graph_hash is None
+    ):
+        raise ValueError("DeepSearch Plan lineage is incomplete")
+    if plan.candidate_snapshot is not None:
+        return deepsearch_frozen_plan_v2(plan)
+    return deepsearch_frozen_plan_v1(plan)
 
 
 def plan_content_hash(plan: SkillPlan) -> str:
@@ -220,29 +267,50 @@ def build_deepsearch_plan_snapshot(
         raise ValueError("DeepSearch Run and Plan lineage do not match")
 
     frozen_plan = deepsearch_frozen_plan(plan)
+    v2 = run.planning_contract_version is AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+    if v2 != isinstance(frozen_plan, DeepSearchFrozenPlanV2):
+        raise ValueError("DeepSearch planning contract and FrozenPlan version disagree")
     expected_plan_hash = canonical_json_sha256(frozen_plan.model_dump(mode="python"))
     if plan.plan_content_hash != expected_plan_hash:
         raise ValueError("DeepSearch Plan content hash is invalid")
 
-    snapshot = DeepSearchPlanSnapshotV1(
-        schema_version="deepsearch-plan-snapshot-v1",
-        run_id=run.id,
-        requirement_version_id=frozen_plan.requirement_version_id,
-        requirement_content_hash=frozen_plan.requirement_content_hash,
-        plan_id=plan.id,
-        plan_version=plan.version,
-        plan_content_hash=expected_plan_hash,
-        frozen_plan=frozen_plan,
+    snapshot = (
+        DeepSearchPlanSnapshotV2(
+            schema_version="deepsearch-plan-snapshot-v2",
+            run_id=run.id,
+            requirement_version_id=frozen_plan.requirement_version_id,
+            requirement_content_hash=frozen_plan.requirement_content_hash,
+            plan_id=plan.id,
+            plan_version=plan.version,
+            plan_content_hash=expected_plan_hash,
+            frozen_plan=frozen_plan,
+        )
+        if isinstance(frozen_plan, DeepSearchFrozenPlanV2)
+        else DeepSearchPlanSnapshotV1(
+            schema_version="deepsearch-plan-snapshot-v1",
+            run_id=run.id,
+            requirement_version_id=frozen_plan.requirement_version_id,
+            requirement_content_hash=frozen_plan.requirement_content_hash,
+            plan_id=plan.id,
+            plan_version=plan.version,
+            plan_content_hash=expected_plan_hash,
+            frozen_plan=frozen_plan,
+        )
     )
     content_bytes = canonical_json_bytes(snapshot.model_dump(mode="python"))
-    artifact_id_hash = canonical_json_sha256(
-        {
-            "kind": "deepsearch_plan_snapshot",
-            "run_id": run.id,
-            "plan_id": plan.id,
-            "plan_version": plan.version,
-        }
-    )
+    artifact_identity = {
+        "kind": (
+            "deepsearch_plan_snapshot_v2"
+            if isinstance(snapshot, DeepSearchPlanSnapshotV2)
+            else "deepsearch_plan_snapshot"
+        ),
+        "run_id": run.id,
+        "plan_id": plan.id,
+        "plan_version": plan.version,
+    }
+    if isinstance(snapshot, DeepSearchPlanSnapshotV2):
+        artifact_identity["plan_content_hash"] = expected_plan_hash
+    artifact_id_hash = canonical_json_sha256(artifact_identity)
     return Artifact(
         id=f"artifact_{artifact_id_hash}",
         run_id=run.id,
@@ -253,7 +321,7 @@ def build_deepsearch_plan_snapshot(
         content_type="application/json",
         content=content_bytes.decode("utf-8"),
         verification_state=ArtifactVerificationState.SEALED,
-        schema_version="deepsearch-plan-snapshot-v1",
+        schema_version=snapshot.schema_version,
         content_hash=canonical_json_sha256(snapshot.model_dump(mode="python")),
         size_bytes=len(content_bytes),
         requirement_version_id=frozen_plan.requirement_version_id,
@@ -285,6 +353,8 @@ class DeepSearchPlanCompiler:
         routing_result: TaskRoutingResult | None,
         candidates: list[SkillCandidate],
         draft: SkillPlanDraft,
+        candidate_snapshot: CandidateSnapshotV1 | None = None,
+        universal_catalog: TaskCatalogV2 | None = None,
     ) -> SkillPlan:
         if run_id != requirement.run_id:
             raise PlanValidationError(["requirement_run_mismatch"])
@@ -294,7 +364,12 @@ class DeepSearchPlanCompiler:
         except ValueError as error:
             raise PlanValidationError(["problem_graph_invalid"]) from error
 
-        validate_draft(draft, candidates, intent=intent)
+        validate_draft(
+            draft,
+            candidates,
+            intent=intent,
+            universal=candidate_snapshot is not None,
+        )
         self._validate_deepsearch_nodes(draft=draft, candidates=candidates)
         plan = build_plan(
             run_id=run_id,
@@ -303,6 +378,7 @@ class DeepSearchPlanCompiler:
             draft=draft,
             status=SkillPlanStatus.WAITING_APPROVAL,
             routing_result=routing_result,
+            candidate_snapshot=candidate_snapshot,
         ).model_copy(
             update={
                 "planning_mode": AgentPlanningMode.DEEPSEARCH,
@@ -317,6 +393,15 @@ class DeepSearchPlanCompiler:
             candidates=candidates,
             skill_definition_lookup=self._skill_definition_lookup,
         )
+        if candidate_snapshot is not None:
+            if universal_catalog is None:
+                raise PlanValidationError(["task_catalog_snapshot_unavailable"])
+            validate_universal_plan(
+                plan=plan,
+                candidates=candidates,
+                catalog=universal_catalog,
+                require_concrete_assignments=False,
+            )
         plan.plan_content_hash = plan_content_hash(plan)
         return plan
 

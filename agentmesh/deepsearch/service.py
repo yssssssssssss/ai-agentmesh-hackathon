@@ -35,7 +35,16 @@ from agentmesh.deepsearch.planning import (
     RequirementRefiner,
     plan_content_hash,
 )
-from agentmesh.models import AgentPlanningMode, AgentRun, AgentRunStatus, SkillPlan, new_id, now_utc
+from agentmesh.models import (
+    AgentPlanningContractVersion,
+    AgentPlanningMode,
+    AgentRun,
+    AgentRunStatus,
+    SkillPlan,
+    SkillPlanStatus,
+    new_id,
+    now_utc,
+)
 from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
 from agentmesh.store import ResearchStoreConflict, SQLiteStore
 
@@ -143,8 +152,22 @@ class DeepSearchPlanningService:
         ):
             raise DeepSearchRequirementIntegrityError("DeepSearch Run ownership changed")
         run = snapshot.run
-        if (snapshot.plan is None) != (run.plan_id is None) or (
-            snapshot.plan is not None and snapshot.plan.id != run.plan_id
+        planning_skeleton = bool(
+            snapshot.plan is not None
+            and run.status is AgentRunStatus.PLANNING
+            and run.planning_contract_version
+            is AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+            and snapshot.plan.status is SkillPlanStatus.PLANNING
+            and snapshot.plan.candidate_snapshot is not None
+            and not snapshot.plan.nodes
+            and run.plan_id == snapshot.plan.id
+        )
+        if (
+            not planning_skeleton
+            and (
+                (snapshot.plan is None) != (run.plan_id is None)
+                or (snapshot.plan is not None and snapshot.plan.id != run.plan_id)
+            )
         ):
             raise DeepSearchRequirementIntegrityError(
                 "DeepSearch Run and Plan identity do not match"
@@ -155,7 +178,19 @@ class DeepSearchPlanningService:
                 if snapshot.requirement is not None
                 else None
             )
-            problem_graph = _verified_problem_graph(requirement, snapshot.plan)
+            if planning_skeleton:
+                assert snapshot.plan is not None
+                if requirement is None:
+                    raise ValueError("DeepSearch planning skeleton requires Requirement")
+                problem_graph = ProblemGraphV1.model_validate(snapshot.plan.problem_graph)
+                validate_problem_graph_against_requirement(
+                    graph=problem_graph,
+                    requirement=requirement,
+                )
+                if snapshot.plan.problem_graph_hash != problem_graph.content_hash:
+                    raise ValueError("DeepSearch planning skeleton graph hash is invalid")
+            else:
+                problem_graph = _verified_problem_graph(requirement, snapshot.plan)
         except ValidationError as error:
             raise DeepSearchRequirementIntegrityError(
                 "DeepSearch Requirement failed integrity verification"
@@ -197,15 +232,19 @@ class DeepSearchPlanningService:
             problem_graph=problem_graph,
             plan=(
                 DeepSearchPlanViewV1.from_plan(snapshot.plan)
-                if snapshot.plan is not None
+                if snapshot.plan is not None and not planning_skeleton
                 else None
             ),
             evidence_coverage=(
-                snapshot.plan.evidence_coverage if snapshot.plan is not None else None
+                snapshot.plan.evidence_coverage
+                if snapshot.plan is not None and not planning_skeleton
+                else None
             ),
             report_review=(
                 DeepSearchReviewViewV1.from_outcome(snapshot.plan.review_outcomes[-1])
-                if snapshot.plan is not None and snapshot.plan.review_outcomes
+                if snapshot.plan is not None
+                and not planning_skeleton
+                and snapshot.plan.review_outcomes
                 else None
             ),
             retry_disposition=deepsearch_retry_disposition(run),

@@ -137,7 +137,7 @@ def test_planning_contract_selection_is_mode_specific_and_direct_runs_stay_unmar
     assert universal.planning_contract_for(
         planning_mode=AgentPlanningMode.DEEPSEARCH,
         planned=True,
-    ) is AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V1
+    ) is AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
     assert universal.planning_contract_for(
         planning_mode=AgentPlanningMode.STANDARD,
         planned=False,

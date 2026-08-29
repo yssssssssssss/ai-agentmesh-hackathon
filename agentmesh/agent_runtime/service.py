@@ -10,6 +10,7 @@ from typing import Any
 
 from agents import (
     Agent,
+    ModelBehaviorError,
     ModelRetryBackoffSettings,
     ModelRetrySettings,
     ModelSettings,
@@ -60,7 +61,9 @@ from agentmesh.deepsearch.contracts import (
     RequirementRefinementDraftV1,
     RequirementVersionV1,
     build_problem_graph,
+    canonical_planning_input,
     problem_question_id,
+    validate_problem_graph_against_requirement,
 )
 from agentmesh.deepsearch.finalization import DeepSearchFinalizer, terminate_deepsearch_without_report
 from agentmesh.deepsearch.modeling import DeepSearchReviewService, DeepSearchSynthesisService
@@ -68,6 +71,8 @@ from agentmesh.deepsearch.planning import (
     DeepSearchPlanCompiler,
     DeepSearchPlanningPipeline,
     UnavailableRequirementRefiner,
+    build_deepsearch_plan_snapshot,
+    plan_content_hash,
 )
 from agentmesh.deepsearch.service import (
     DeepSearchExecutionUnavailable,
@@ -929,6 +934,28 @@ class _RuntimeDraftPlanner:
         )
 
 
+class _RuntimeUniversalDeepSearchPipeline:
+    def __init__(self, runtime: AgentRuntimeService, selected: SelectedSDKModel) -> None:
+        self._runtime = runtime
+        self._selected = selected
+
+    async def create_plan(
+        self,
+        *,
+        run: AgentRun,
+        requirement: RequirementVersionV1,
+        user: User,
+        created_at: datetime,
+    ) -> tuple[SkillPlan, Artifact]:
+        return await self._runtime._create_universal_deepsearch_plan(
+            run=run,
+            requirement=requirement,
+            user=user,
+            selected=self._selected,
+            created_at=created_at,
+        )
+
+
 class _RuntimeDeepSearchPlanningService:
     """Stable Runtime-owned facade; provider-bound pipelines are built per operation."""
 
@@ -1063,7 +1090,11 @@ class AgentRuntimeService:
         if not planned:
             return None
         if planning_mode is AgentPlanningMode.DEEPSEARCH:
-            return AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V1
+            return (
+                AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+                if self.universal_preview_enabled
+                else AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V1
+            )
         if self.universal_preview_enabled:
             return AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
         return AgentPlanningContractVersion.STANDARD_LEGACY_V1
@@ -1099,27 +1130,33 @@ class AgentRuntimeService:
         selected = self._select_model(user)
         if selected is None:
             raise DeepSearchExecutionUnavailable("DeepSearch model is unavailable")
-        retriever = SkillCandidateRetriever(self.repository, self.skill_catalog)
-        pipeline = DeepSearchPlanningPipeline(
-            task_router=self.task_router,
-            intent_analyzer=_RuntimeIntentAnalyzer(
-                self.intent_analyzer,
-                self.repository,
-                run.id,
-            ),
-            problem_graph_planner=_ModelProblemGraphPlanner(self.repository, run.id),
-            candidate_retriever=_RuntimeCandidateRetriever(retriever, self.task_catalog),
-            draft_planner=_RuntimeDraftPlanner(
-                self.skill_planner,
-                self.repository,
-                run.id,
-            ),
-            compiler=DeepSearchPlanCompiler(
-                tool_definition_lookup=self._deepsearch_tool_definition,
-                skill_definition_lookup=self.repository.get_skill_definition,
-            ),
-            model=selected.model,
-        )
+        if (
+            run.planning_contract_version
+            is AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+        ):
+            pipeline = _RuntimeUniversalDeepSearchPipeline(self, selected)
+        else:
+            retriever = SkillCandidateRetriever(self.repository, self.skill_catalog)
+            pipeline = DeepSearchPlanningPipeline(
+                task_router=self.task_router,
+                intent_analyzer=_RuntimeIntentAnalyzer(
+                    self.intent_analyzer,
+                    self.repository,
+                    run.id,
+                ),
+                problem_graph_planner=_ModelProblemGraphPlanner(self.repository, run.id),
+                candidate_retriever=_RuntimeCandidateRetriever(retriever, self.task_catalog),
+                draft_planner=_RuntimeDraftPlanner(
+                    self.skill_planner,
+                    self.repository,
+                    run.id,
+                ),
+                compiler=DeepSearchPlanCompiler(
+                    tool_definition_lookup=self._deepsearch_tool_definition,
+                    skill_definition_lookup=self.repository.get_skill_definition,
+                ),
+                model=selected.model,
+            )
         return DeepSearchPlanningService(
             self.repository,
             _ModelRequirementRefiner(selected.model, self.repository, run.id),
@@ -1130,6 +1167,262 @@ class AgentRuntimeService:
             planning_pipeline=pipeline,
             admission=self.admission,
         )
+
+    async def _create_universal_deepsearch_plan(
+        self,
+        *,
+        run: AgentRun,
+        requirement: RequirementVersionV1,
+        user: User,
+        selected: SelectedSDKModel,
+        created_at: datetime,
+    ) -> tuple[SkillPlan, Artifact]:
+        if (
+            run.planning_contract_version
+            is not AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+        ):
+            raise PlanValidationError(["deepsearch_planning_contract_mismatch"])
+        if run.plan_id is not None:
+            skeleton = self.repository.get_skill_plan(run.plan_id)
+            if (
+                skeleton is None
+                or skeleton.run_id != run.id
+                or skeleton.status is not SkillPlanStatus.PLANNING
+                or skeleton.candidate_snapshot is None
+                or skeleton.nodes
+                or skeleton.requirement_version_id != requirement.id
+                or skeleton.requirement_content_hash != requirement.content_hash
+            ):
+                raise PlanValidationError(["deepsearch_planning_skeleton_invalid"])
+            try:
+                graph = ProblemGraphV1.model_validate(skeleton.problem_graph)
+                validate_problem_graph_against_requirement(
+                    graph=graph,
+                    requirement=requirement,
+                )
+                candidates = revalidate_candidate_snapshot(
+                    snapshot=skeleton.candidate_snapshot,
+                    repository=self.repository,
+                    catalog=self.skill_catalog,
+                    user=user,
+                    intent=skeleton.intent,
+                    profile_trust=self.profile_trust,
+                )
+            except (TypeError, ValueError) as error:
+                raise PlanValidationError(["deepsearch_planning_skeleton_invalid"]) from error
+            return await self._complete_universal_deepsearch_skeleton(
+                run=run,
+                requirement=requirement,
+                user=user,
+                selected=selected,
+                created_at=created_at,
+                skeleton=skeleton,
+                graph=graph,
+                candidates=candidates,
+            )
+        planning_input = canonical_planning_input(requirement)
+        routing_result, _routing_diagnostics = self.task_router.route(
+            planning_input,
+            project_summary="",
+            thread_summary="",
+        )
+        routing_result = TaskRoutingResult.model_validate(routing_result).model_copy(
+            update={
+                "catalog_version": self.universal_task_catalog.manifest.catalog_version,
+                "catalog_hash": self.universal_task_catalog.manifest.catalog_hash,
+            },
+            deep=True,
+        )
+        intent, _intent_diagnostics = await _RuntimeIntentAnalyzer(
+            self.intent_analyzer,
+            self.repository,
+            run.id,
+        ).analyze(
+            planning_input,
+            model=selected.model,
+            project_summary="",
+            thread_summary="",
+        )
+        graph = ProblemGraphV1.model_validate(
+            await _ModelProblemGraphPlanner(self.repository, run.id).build(
+                requirement=requirement,
+                planning_input=planning_input,
+                model=selected.model,
+            )
+        )
+        validate_problem_graph_against_requirement(graph=graph, requirement=requirement)
+        search_result = self.universal_search.search(
+            user=user,
+            intent=intent,
+            routing_result=routing_result,
+            task_catalog=self.universal_task_catalog,
+        )
+        if search_result.outcome_code != "ok" or not search_result.selectable_candidates:
+            raise PlanValidationError([search_result.outcome_code])
+        candidate_snapshot = build_candidate_snapshot(search_result, self.repository)
+        candidates = list(search_result.selectable_candidates)
+        skeleton = SkillPlan(
+            id=new_id("plan"),
+            run_id=run.id,
+            status=SkillPlanStatus.PLANNING,
+            intent=intent,
+            routing_result=routing_result,
+            candidate_skill_ids=[
+                candidate.skill_id for candidate in candidate_snapshot.candidates
+            ],
+            candidate_snapshot=candidate_snapshot,
+            synthesis_output_contract=list(
+                candidate_snapshot.required_synthesis_output_ids
+            ),
+            capability_gaps=[
+                gap.requirement_id for gap in search_result.capability_gaps
+            ],
+            nodes=[],
+            planning_mode=AgentPlanningMode.DEEPSEARCH,
+            requirement_version_id=requirement.id,
+            requirement_content_hash=requirement.content_hash,
+            problem_graph=graph.model_dump(mode="json"),
+            problem_graph_hash=graph.content_hash,
+        )
+        with self.admission.permit():
+            created = self.repository.create_deepsearch_planning_skeleton(
+                run_id=run.id,
+                requirement_version=requirement.version,
+                plan=skeleton,
+            )
+        if created is None:
+            raise RuntimeError("deepsearch_planning_skeleton_conflict")
+
+        return await self._complete_universal_deepsearch_skeleton(
+            run=run,
+            requirement=requirement,
+            user=user,
+            selected=selected,
+            created_at=created_at,
+            skeleton=skeleton,
+            graph=graph,
+            candidates=candidates,
+        )
+
+    async def _complete_universal_deepsearch_skeleton(
+        self,
+        *,
+        run: AgentRun,
+        requirement: RequirementVersionV1,
+        user: User,
+        selected: SelectedSDKModel,
+        created_at: datetime,
+        skeleton: SkillPlan,
+        graph: ProblemGraphV1,
+        candidates: list[SkillCandidate],
+    ) -> tuple[SkillPlan, Artifact]:
+        del user
+        candidate_snapshot = skeleton.candidate_snapshot
+        if candidate_snapshot is None:
+            raise PlanValidationError(["candidate_snapshot_missing"])
+        routing_result = skeleton.routing_result
+        planner_model = _budgeted_planning_model(
+            repository=self.repository,
+            run_id=run.id,
+            model=selected.model,
+            stage="skill_plan_v2",
+            identity={
+                "requirement_content_hash": requirement.content_hash,
+                "problem_graph_hash": graph.content_hash,
+                "routing_catalog_identity": (
+                    {
+                        "catalog_version": routing_result.catalog_version,
+                        "catalog_hash": routing_result.catalog_hash,
+                    }
+                    if routing_result is not None
+                    else None
+                ),
+                "candidate_snapshot_hash": candidate_snapshot.content_hash,
+            },
+        )
+        async def compile_attempt(
+            repair_errors: list[str] | None,
+        ) -> SkillPlan:
+            proposed = await self.skill_planner.create_universal_draft(
+                skeleton.intent,
+                candidates,
+                candidate_snapshot_public=candidate_snapshot_public_projection(
+                    candidate_snapshot
+                ),
+                required_synthesis_output_ids=(
+                    candidate_snapshot.required_synthesis_output_ids
+                ),
+                model=planner_model,
+                repair_errors=repair_errors,
+            )
+            materialized = materialize_universal_draft(
+                draft=proposed,
+                intent=skeleton.intent,
+                candidates=candidates,
+                snapshot=candidate_snapshot,
+                routing=routing_result,
+                catalog=self.universal_task_catalog,
+                skill_lookup=self.repository.get_skill_definition,
+            )
+            materialized = _assign_problem_questions(
+                requirement=requirement,
+                graph=graph,
+                draft=materialized,
+                candidates=candidates,
+            )
+            return DeepSearchPlanCompiler(
+                tool_definition_lookup=self._deepsearch_tool_definition,
+                skill_definition_lookup=self.repository.get_skill_definition,
+            ).compile(
+                run_id=run.id,
+                requirement=requirement,
+                graph=graph,
+                intent=skeleton.intent,
+                routing_result=routing_result,
+                candidates=candidates,
+                draft=materialized,
+                candidate_snapshot=candidate_snapshot,
+                universal_catalog=self.universal_task_catalog,
+            ).model_copy(update={"id": skeleton.id, "version": skeleton.version})
+
+        async def repair(repair_errors: list[str]) -> SkillPlan:
+            try:
+                return await compile_attempt(repair_errors)
+            except ModelBehaviorError as second_error:
+                raise PlanValidationError(["planner_schema_invalid"]) from second_error
+            except PlannerUnavailable as second_error:
+                if str(second_error) != "planner_selected_unknown_skill":
+                    raise
+                raise PlanValidationError(
+                    ["planner_coverage_unresolved"]
+                ) from second_error
+            except (PlanValidationError, TypeError, ValueError) as second_error:
+                raise PlanValidationError(
+                    ["planner_coverage_unresolved"]
+                ) from second_error
+
+        try:
+            plan = await compile_attempt(None)
+        except ModelBehaviorError:
+            plan = await repair(["planner_schema_invalid"])
+        except PlannerUnavailable as first_error:
+            if str(first_error) != "planner_selected_unknown_skill":
+                raise
+            plan = await repair([str(first_error)])
+        except (PlanValidationError, TypeError, ValueError) as first_error:
+            repair_errors = (
+                first_error.codes
+                if isinstance(first_error, PlanValidationError)
+                else [str(first_error) or "planner_schema_invalid"]
+            )
+            plan = await repair(repair_errors)
+        plan.plan_content_hash = plan_content_hash(plan)
+        snapshot = build_deepsearch_plan_snapshot(
+            run=run,
+            plan=plan,
+            created_at=created_at,
+        )
+        return plan, snapshot
 
     @staticmethod
     def _resources(skill: SkillDefinition) -> list[str]:
@@ -1612,6 +1905,25 @@ Follow the activated Skill for this request, subject to the platform rules above
             }:
                 return error.code
             return "deepsearch_planning_transient"
+        stable_planning_codes = {
+            "unsupported_requirement",
+            "requirement_budget_exceeded",
+            "no_matching_skill",
+            "no_executable_skill",
+            "readiness_probe_budget_exceeded",
+            "coverage_search_exhausted",
+            "planner_context_budget_exceeded",
+            "planner_schema_invalid",
+            "planner_coverage_unresolved",
+        }
+        if (
+            isinstance(error, PlanValidationError)
+            and len(error.codes) == 1
+            and error.codes[0] in stable_planning_codes
+        ):
+            return error.codes[0]
+        if isinstance(error, PlannerUnavailable) and str(error) in stable_planning_codes:
+            return str(error)
         if isinstance(
             error,
             (
@@ -1699,7 +2011,7 @@ Follow the activated Skill for this request, subject to the platform rules above
         project_id: str | None = None,
         retry_of_run_id: str | None = None,
     ) -> AgentRun:
-        """Create one v1 DeepSearch Run and advance its Requirement/Plan synchronously."""
+        """Create one versioned DeepSearch Run and advance its Requirement/Plan synchronously."""
 
         del history
         if mode is not SkillOrchestrationMode.EXECUTE:
@@ -1719,7 +2031,10 @@ Follow the activated Skill for this request, subject to the platform rules above
             orchestration_mode=mode,
             requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
             planning_mode=AgentPlanningMode.DEEPSEARCH,
-            planning_contract_version=AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V1,
+            planning_contract_version=self.planning_contract_for(
+                planning_mode=AgentPlanningMode.DEEPSEARCH,
+                planned=True,
+            ),
             create_request_hash=create_request_hash,
             project_id=project_id,
             retry_of_run_id=retry_of_run_id,
@@ -2994,10 +3309,10 @@ Follow the activated Skill for this request, subject to the platform rules above
             user,
             {AgentRunStatus.RUNNING, AgentRunStatus.WAITING_APPROVAL},
         )
-        universal = (
-            run.planning_contract_version
-            is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
-        )
+        universal = run.planning_contract_version in {
+            AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+            AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
+        }
         skill = self.repository.get_skill_definition(node.skill_id)
         profile = self.repository.get_skill_capability_profile(node.skill_id)
         enabled_ids = {
@@ -3008,10 +3323,16 @@ Follow the activated Skill for this request, subject to the platform rules above
         if skill is None or profile is None:
             raise RuntimeError("planned_skill_changed")
         if universal:
-            if not universal_standard_execution_allowed(
-                run_contract=run.execution_contract_version,
-                plan_contract=plan.execution_contract_version,
-            ) or plan.candidate_snapshot is None:
+            if plan.candidate_snapshot is None:
+                raise RuntimeError("candidate_snapshot_missing")
+            if (
+                run.planning_contract_version
+                is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+                and not universal_standard_execution_allowed(
+                    run_contract=run.execution_contract_version,
+                    plan_contract=plan.execution_contract_version,
+                )
+            ):
                 raise RuntimeError("universal_execution_not_available")
             try:
                 current_candidates = revalidate_candidate_snapshot(
@@ -3284,10 +3605,10 @@ Follow the activated Skill for this request, subject to the platform rules above
         selected: SelectedSDKModel,
     ) -> NodeExecutionOutcome:
         deepsearch = run.planning_mode is AgentPlanningMode.DEEPSEARCH
-        universal = (
-            run.planning_contract_version
-            is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
-        )
+        universal = run.planning_contract_version in {
+            AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+            AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
+        }
         (
             skill,
             allowed_tool_names,
