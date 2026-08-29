@@ -17,6 +17,7 @@ from agentmesh.models import (
     AgentRun,
     Artifact,
     ArtifactVerificationState,
+    CandidateSnapshotV1,
     SkillIntent,
     SkillPlanKnowledgeBindings,
     SkillResourceManifestV1,
@@ -100,6 +101,74 @@ class DeepSearchPlanSnapshotV1(BaseModel):
 
     @model_validator(mode="after")
     def validate_frozen_plan(self) -> DeepSearchPlanSnapshotV1:
+        if self.requirement_version_id != self.frozen_plan.requirement_version_id:
+            raise ValueError("requirement_version_id does not match frozen_plan")
+        if self.requirement_content_hash != self.frozen_plan.requirement_content_hash:
+            raise ValueError("requirement_content_hash does not match frozen_plan")
+        expected_hash = canonical_json_sha256(self.frozen_plan.model_dump(mode="python"))
+        if self.plan_content_hash != expected_hash:
+            raise ValueError("plan_content_hash does not match frozen_plan")
+        return self
+
+
+class RoutingCatalogIdentityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    catalog_version: str = Field(min_length=1, max_length=120)
+    catalog_hash: str = Field(pattern=_HASH_PATTERN)
+
+
+class DeepSearchFrozenPlanV2(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["deepsearch-plan-v2"] = "deepsearch-plan-v2"
+    requirement_version_id: str = Field(min_length=1, max_length=120)
+    requirement_content_hash: str = Field(pattern=_HASH_PATTERN)
+    problem_graph_hash: str = Field(pattern=_HASH_PATTERN)
+    intent: SkillIntent
+    routing_result: TaskRoutingResult | None = None
+    routing_catalog_identity: RoutingCatalogIdentityV1 | None = None
+    candidate_skill_ids: list[str] = Field(default_factory=list, max_length=12)
+    candidate_snapshot: CandidateSnapshotV1
+    output_contract: list[str] = Field(default_factory=list, max_length=20)
+    synthesis_output_contract: list[str] = Field(default_factory=list, max_length=20)
+    capability_gaps: list[str] = Field(default_factory=list, max_length=100)
+    preferred_order: list[str] = Field(default_factory=list, max_length=6)
+    nodes: list[DeepSearchFrozenPlanNodeV1] = Field(default_factory=list, max_length=6)
+
+    @model_validator(mode="after")
+    def validate_snapshot_and_routing(self) -> DeepSearchFrozenPlanV2:
+        if self.candidate_skill_ids != [
+            candidate.skill_id for candidate in self.candidate_snapshot.candidates
+        ]:
+            raise ValueError("candidate_skill_ids do not match Candidate Snapshot")
+        expected_identity = (
+            RoutingCatalogIdentityV1(
+                catalog_version=self.routing_result.catalog_version,
+                catalog_hash=self.routing_result.catalog_hash,
+            )
+            if self.routing_result is not None
+            else None
+        )
+        if self.routing_catalog_identity != expected_identity:
+            raise ValueError("routing_catalog_identity does not match routing_result")
+        return self
+
+
+class DeepSearchPlanSnapshotV2(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["deepsearch-plan-snapshot-v2"]
+    run_id: str = Field(min_length=1, max_length=120)
+    requirement_version_id: str = Field(min_length=1, max_length=120)
+    requirement_content_hash: str = Field(pattern=_HASH_PATTERN)
+    plan_id: str = Field(min_length=1, max_length=120)
+    plan_version: int = Field(ge=1)
+    plan_content_hash: str = Field(pattern=_HASH_PATTERN)
+    frozen_plan: DeepSearchFrozenPlanV2
+
+    @model_validator(mode="after")
+    def validate_frozen_plan(self) -> DeepSearchPlanSnapshotV2:
         if self.requirement_version_id != self.frozen_plan.requirement_version_id:
             raise ValueError("requirement_version_id does not match frozen_plan")
         if self.requirement_content_hash != self.frozen_plan.requirement_content_hash:
@@ -365,6 +434,7 @@ class DeepSearchArtifactSchemaRegistry:
 
     _schemas: dict[tuple[str, str], type[BaseModel]] = {
         ("deepsearch_plan_snapshot", "deepsearch-plan-snapshot-v1"): DeepSearchPlanSnapshotV1,
+        ("deepsearch_plan_snapshot", "deepsearch-plan-snapshot-v2"): DeepSearchPlanSnapshotV2,
         ("deepsearch_tool_evidence", "deepsearch-tool-evidence-v1"): TrustedEvidenceEnvelopeV1,
         ("deepsearch_user_evidence", "deepsearch-user-evidence-v1"): TrustedEvidenceEnvelopeV1,
         ("deepsearch_knowledge_evidence", "deepsearch-knowledge-evidence-v1"): TrustedEvidenceEnvelopeV1,

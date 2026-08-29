@@ -20,7 +20,12 @@ from agentmesh.skill_runtime.quiesce import (
 
 
 class DeepSearchRecoveryRepository(Protocol):
-    def list_recoverable_deepsearch_runs(self) -> list[AgentRun]: ...
+    def list_recoverable_deepsearch_runs(
+        self,
+        *,
+        limit: int = 50,
+        after: tuple[str, str] | None = None,
+    ) -> list[AgentRun]: ...
 
     def expire_deepsearch_run_if_needed(
         self,
@@ -85,6 +90,8 @@ class DeepSearchRecoveryCoordinator:
         self._scan_lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._run_tasks: dict[str, asyncio.Task[AgentRun | None]] = {}
+        self._cursor: tuple[str, str] | None = None
+        self._max_recovery_workers = 2
 
     @property
     def running(self) -> bool:
@@ -106,16 +113,26 @@ class DeepSearchRecoveryCoordinator:
         async with self._scan_lock:
             if not self._recovery_allowed():
                 return scheduled
+            available_workers = self._max_recovery_workers - sum(
+                1 for task in self._run_tasks.values() if not task.done()
+            )
             runs = await asyncio.to_thread(
-                self._repository.list_recoverable_deepsearch_runs
+                self._repository.list_recoverable_deepsearch_runs,
+                limit=50,
+                after=self._cursor,
             )
             checked_at = self._clock()
+            next_cursor = self._cursor
+            cursor_blocked = False
             for candidate in runs:
+                candidate_cursor = (candidate.updated_at.isoformat(), candidate.id)
                 if (
                     candidate.orchestration_version != "v1"
                     or candidate.planning_mode is not AgentPlanningMode.DEEPSEARCH
                     or candidate.status in _TERMINAL_STATUSES
                 ):
+                    if not cursor_blocked:
+                        next_cursor = candidate_cursor
                     continue
                 try:
                     run = await asyncio.to_thread(
@@ -124,18 +141,27 @@ class DeepSearchRecoveryCoordinator:
                         user_id=candidate.user_id,
                         checked_at=checked_at,
                     )
-                    if run is None or run.status in _TERMINAL_STATUSES:
-                        continue
-                    if run.status in _WAITING_STATUSES:
-                        continue
-                    if run.orchestration_mode != "execute":
+                    if (
+                        run is None
+                        or run.status in _TERMINAL_STATUSES
+                        or run.status in _WAITING_STATUSES
+                        or run.orchestration_mode != "execute"
+                    ):
+                        if not cursor_blocked:
+                            next_cursor = candidate_cursor
                         continue
                     existing = self._run_tasks.get(run.id)
                     if existing is not None and not existing.done():
+                        if not cursor_blocked:
+                            next_cursor = candidate_cursor
+                        continue
+                    if available_workers <= 0:
+                        cursor_blocked = True
                         continue
                     try:
                         with self._admission.permit():
                             if self._mode_provider() is SkillOrchestrationMode.OFF:
+                                cursor_blocked = True
                                 continue
                             task = asyncio.create_task(
                                 self._runtime.recover_deepsearch_run(run.id),
@@ -149,15 +175,18 @@ class DeepSearchRecoveryCoordinator:
                                 )
                             )
                     except OrchestrationQuiescingError:
+                        cursor_blocked = True
                         continue
                     scheduled += 1
+                    available_workers -= 1
+                    if not cursor_blocked:
+                        next_cursor = candidate_cursor
                 except asyncio.CancelledError:
                     raise
                 except Exception:
-                    # A malformed candidate must not prevent other Runs from being
-                    # considered. The next periodic scan retries repository-level
-                    # transient failures; Runtime failures wake the loop below.
+                    cursor_blocked = True
                     continue
+            self._cursor = next_cursor
         return scheduled
 
     async def start(self) -> None:
@@ -220,8 +249,9 @@ class DeepSearchRecoveryCoordinator:
         except asyncio.CancelledError:
             return
         if error is not None and not self._stop.is_set():
-            # One managed task failed abnormally. Wake the sole scan loop instead
-            # of spawning a second scheduler or recursively retrying here.
+            # Retry from the beginning only after an abnormal managed task;
+            # successful/isolated records keep the stable forward cursor.
+            self._cursor = None
             self._wake.set()
 
     async def _run(self) -> None:

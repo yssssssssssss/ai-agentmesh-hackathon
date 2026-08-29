@@ -3568,6 +3568,7 @@ export interface components {
             routing_result?: components["schemas"]["TaskRoutingResult"] | null;
             /** Candidate Skill Ids */
             candidate_skill_ids: string[];
+            candidate_snapshot?: components["schemas"]["CandidateSnapshotPublicViewV1"] | null;
             /** Output Contract */
             output_contract: string[];
             /** Synthesis Output Contract */

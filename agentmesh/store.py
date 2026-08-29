@@ -6306,7 +6306,10 @@ class SQLiteStore:
             SkillSideEffect,
         )
         from agentmesh.skill_runtime.plan_validation import validate_draft
-        from agentmesh.skill_runtime.profiles import profile_matches_skill
+        from agentmesh.skill_runtime.profiles import (
+            profile_matches_skill,
+            skill_capability_card,
+        )
         from agentmesh.skill_runtime.resources import (
             build_skill_resource_manifest_snapshot,
             skill_wiki_corpus_ready,
@@ -6333,6 +6336,11 @@ class SQLiteStore:
             or plan.requirement_content_hash != requirement.content_hash
             or plan.problem_graph_hash != graph.content_hash
             or plan.plan_content_hash != expected_plan_hash
+            or (
+                run.planning_contract_version
+                is AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+            )
+            != (plan.candidate_snapshot is not None)
             or len(plan.candidate_skill_ids) != len(set(plan.candidate_skill_ids))
             or any(node.side_effect not in {SkillSideEffect.READ, SkillSideEffect.DRAFT} for node in plan.nodes)
             or any(
@@ -6386,6 +6394,39 @@ class SQLiteStore:
             }
 
         current_candidates: list[SkillCandidate] = []
+        if plan.candidate_snapshot is not None:
+            for identity in plan.candidate_snapshot.candidates:
+                skill_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("skill_definitions", identity.skill_id),
+                ).fetchone()
+                profile_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("skill_capability_profiles", identity.skill_id),
+                ).fetchone()
+                if skill_row is None or profile_row is None:
+                    raise ResearchStoreConflict("DeepSearch Candidate Snapshot is stale")
+                try:
+                    snapshot_skill = SkillDefinition.model_validate_json(skill_row["payload"])
+                    snapshot_profile = SkillCapabilityProfile.model_validate_json(
+                        profile_row["payload"]
+                    )
+                    card = skill_capability_card(snapshot_skill, snapshot_profile)
+                except (TypeError, ValueError) as error:
+                    raise ResearchStoreConflict(
+                        "DeepSearch Candidate Snapshot is stale"
+                    ) from error
+                if (
+                    snapshot_skill.name != identity.skill_name
+                    or snapshot_skill.version != identity.skill_version
+                    or snapshot_skill.content_hash != identity.skill_content_hash
+                    or snapshot_profile.profile_version != identity.profile_version
+                    or snapshot_profile.profile_content_hash
+                    != identity.profile_content_hash
+                    or card != identity.capability_card
+                    or canonical_json_sha256(card) != identity.capability_card_hash
+                ):
+                    raise ResearchStoreConflict("DeepSearch Candidate Snapshot is stale")
         for node in plan.nodes:
             skill_row = connection.execute(
                 "SELECT payload FROM records WHERE collection = ? AND id = ?",
@@ -6421,7 +6462,9 @@ class SQLiteStore:
                 or not skill.enabled
                 or node.skill_version != skill.version
                 or node.skill_content_hash != skill.content_hash
-                or not profile.planner_eligible
+                or (
+                    plan.candidate_snapshot is None and not profile.planner_eligible
+                )
                 or not profile_matches_skill(profile, skill)
                 or node.resource_manifest != resource_manifest
                 or node.side_effect is not profile.side_effect
@@ -6466,7 +6509,35 @@ class SQLiteStore:
                 ),
                 current_candidates,
                 intent=plan.intent,
+                universal=plan.candidate_snapshot is not None,
             )
+            if plan.candidate_snapshot is not None:
+                from agentmesh.skill_runtime.universal_plan import validate_universal_plan
+                from agentmesh.task_routing.catalog import (
+                    TaskCatalogV2,
+                    load_task_catalog_by_identity,
+                    load_universal_task_catalog,
+                )
+
+                if plan.routing_result is None:
+                    universal_catalog = load_universal_task_catalog()
+                    catalog = load_task_catalog_by_identity(
+                        universal_catalog.manifest.catalog_version,
+                        universal_catalog.manifest.catalog_hash,
+                    )
+                else:
+                    catalog = load_task_catalog_by_identity(
+                        plan.routing_result.catalog_version,
+                        plan.routing_result.catalog_hash,
+                    )
+                if not isinstance(catalog, TaskCatalogV2):
+                    raise ValueError("DeepSearch v2 requires Task Catalog v2")
+                validate_universal_plan(
+                    plan=plan,
+                    candidates=current_candidates,
+                    catalog=catalog,
+                    require_concrete_assignments=False,
+                )
         except (TypeError, ValueError) as error:
             raise ResearchStoreConflict("DeepSearch Plan integrity is invalid") from error
         return plan, expected_plan_hash
@@ -6639,6 +6710,80 @@ class SQLiteStore:
             expected_plan_hash=expected_plan_hash,
         )
 
+    def create_deepsearch_planning_skeleton(
+        self,
+        *,
+        run_id: str,
+        requirement_version: int,
+        plan: SkillPlan,
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        if (
+            plan.run_id != run_id
+            or plan.status is not SkillPlanStatus.PLANNING
+            or plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            or plan.candidate_snapshot is None
+            or plan.nodes
+            or plan.requirement_version_id is None
+            or plan.requirement_content_hash is None
+            or plan.problem_graph_hash is None
+        ):
+            raise RuntimeError("deepsearch_planning_skeleton_invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            requirement_row = connection.execute(
+                """
+                SELECT * FROM deepsearch_requirement_versions
+                WHERE run_id = ? ORDER BY version DESC LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+            existing_plan = connection.execute(
+                "SELECT id FROM skill_plans WHERE id = ? OR run_id = ?",
+                (plan.id, run_id),
+            ).fetchone()
+            if run_row is None or requirement_row is None or existing_plan is not None:
+                return None
+            run = self._decode_agent_run_row(run_row)
+            requirement_payload = self._decode_deepsearch_requirement_row(requirement_row)
+            if (
+                run.status is not AgentRunStatus.PLANNING
+                or run.plan_id is not None
+                or run.planning_contract_version
+                is not AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+                or int(requirement_row["version"]) != requirement_version
+                or requirement_payload.get("id") != plan.requirement_version_id
+                or requirement_payload.get("content_hash") != plan.requirement_content_hash
+            ):
+                return None
+            self._write_skill_plan(connection, plan)
+            run.plan_id = plan.id
+            run.updated_at = now_utc()
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "candidate_snapshot_created",
+                        {
+                            "plan_id": plan.id,
+                            "plan_version": plan.version,
+                            "candidate_snapshot_hash": plan.candidate_snapshot.content_hash,
+                            "candidate_count": len(plan.candidate_snapshot.candidates),
+                            "planning_contract_version": run.planning_contract_version.value,
+                        },
+                    )
+                ],
+            )
+            return plan, run
+
     def save_deepsearch_plan_and_transition(
         self,
         *,
@@ -6700,15 +6845,37 @@ class SQLiteStore:
                     current_requirement_version=current_requirement_version,
                 )
             else:
-                existing_plan = connection.execute(
-                    "SELECT 1 FROM skill_plans WHERE id = ? OR run_id = ? LIMIT 1",
+                existing_plan_row = connection.execute(
+                    "SELECT payload FROM skill_plans WHERE id = ? OR run_id = ? LIMIT 1",
                     (plan.id, run.id),
                 ).fetchone()
-                if (
-                    run.status is not AgentRunStatus.PLANNING
-                    or run.plan_id is not None
-                    or existing_plan is not None
-                ):
+                v2 = (
+                    run.planning_contract_version
+                    is AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+                )
+                if v2:
+                    existing_plan = (
+                        SkillPlan.model_validate_json(existing_plan_row["payload"])
+                        if existing_plan_row is not None
+                        else None
+                    )
+                    valid_initial_state = bool(
+                        run.status is AgentRunStatus.PLANNING
+                        and run.plan_id == plan.id
+                        and existing_plan is not None
+                        and existing_plan.id == plan.id
+                        and existing_plan.status is SkillPlanStatus.PLANNING
+                        and existing_plan.version == plan.version
+                        and existing_plan.nodes == []
+                        and existing_plan.candidate_snapshot == plan.candidate_snapshot
+                    )
+                else:
+                    valid_initial_state = bool(
+                        run.status is AgentRunStatus.PLANNING
+                        and run.plan_id is None
+                        and existing_plan_row is None
+                    )
+                if not valid_initial_state:
                     raise ResearchStoreConflict("DeepSearch initial Plan state is invalid")
                 if requirement_row is None or current_requirement_version != expected_requirement_version:
                     raise DeepSearchRequirementConflict(
@@ -7199,7 +7366,7 @@ class SQLiteStore:
         error_code: str,
         checked_at: datetime | None = None,
     ) -> AgentRun | None:
-        """Atomically fail a pre-Plan DeepSearch Run without using generic writers."""
+        """Atomically fail a DeepSearch planning Run and any persisted v2 skeleton."""
 
         if not error_code or len(error_code) > 120:
             raise ValueError("error_code must contain at most 120 characters")
@@ -7223,19 +7390,40 @@ class SQLiteStore:
                 or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
             ):
                 raise ResearchStoreConflict("Run is not a v1 DeepSearch Run")
+            plan_row = connection.execute(
+                "SELECT payload FROM skill_plans WHERE run_id = ? LIMIT 1",
+                (run.id,),
+            ).fetchone()
+            plan = (
+                SkillPlan.model_validate_json(plan_row["payload"])
+                if plan_row is not None
+                else None
+            )
+            valid_v2_skeleton = bool(
+                run.planning_contract_version
+                is AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+                and run.plan_id is not None
+                and plan is not None
+                and plan.id == run.plan_id
+                and plan.status is SkillPlanStatus.PLANNING
+                and plan.candidate_snapshot is not None
+                and not plan.nodes
+            )
             if (
-                run.status not in {
+                run.status
+                not in {
                     AgentRunStatus.PLANNING,
                     AgentRunStatus.WAITING_CLARIFICATION,
                 }
-                or run.plan_id is not None
-                or connection.execute(
-                    "SELECT 1 FROM skill_plans WHERE run_id = ? LIMIT 1",
-                    (run.id,),
-                ).fetchone()
-                is not None
+                or (plan is not None and not valid_v2_skeleton)
+                or (run.plan_id is not None and not valid_v2_skeleton)
             ):
                 return None
+            if plan is not None:
+                plan.status = SkillPlanStatus.FAILED
+                plan.degradation = error_code
+                plan.updated_at = now
+                self._write_skill_plan(connection, plan)
             run.deepsearch_budget = self._close_deepsearch_budget_for_terminal(run)
             run.status = AgentRunStatus.FAILED
             run.error_code = error_code
@@ -8292,22 +8480,51 @@ class SQLiteStore:
             runs.append(run)
         return runs
 
-    def list_recoverable_deepsearch_runs(self) -> list[AgentRun]:
-        """Return persisted non-terminal v1 DeepSearch runs for the coordinator."""
+    def list_recoverable_deepsearch_runs(
+        self,
+        *,
+        limit: int = 50,
+        after: tuple[str, str] | None = None,
+    ) -> list[AgentRun]:
+        """Return one stable cursor page of non-terminal v1 DeepSearch runs."""
 
-        terminal_statuses = {
-            AgentRunStatus.COMPLETED,
-            AgentRunStatus.PARTIAL,
-            AgentRunStatus.FAILED,
-            AgentRunStatus.REJECTED,
-            AgentRunStatus.CANCELLED,
-        }
+        if not 1 <= limit <= 50:
+            raise ValueError("deepsearch_recovery_page_limit_invalid")
+        terminal_statuses = sorted(
+            status.value
+            for status in {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED,
+                AgentRunStatus.CANCELLED,
+            }
+        )
+        terminal_placeholders = ", ".join("?" for _ in terminal_statuses)
+        cursor_clause = (
+            "AND (updated_at > ? OR (updated_at = ? AND id > ?))"
+            if after is not None
+            else ""
+        )
+        cursor_parameters: tuple[object, ...] = (
+            (after[0], after[0], after[1]) if after is not None else ()
+        )
         with self._read_connect() as connection:
             rows = connection.execute(
-                """SELECT id, payload, orchestration_version
+                f"""SELECT id, payload, orchestration_version, updated_at
                 FROM agent_runs
                 WHERE orchestration_version = 'v1'
-                ORDER BY updated_at, id"""
+                  AND json_extract(payload, '$.planning_mode') = ?
+                  AND json_extract(payload, '$.status') NOT IN ({terminal_placeholders})
+                  {cursor_clause}
+                ORDER BY updated_at, id
+                LIMIT ?""",
+                (
+                    AgentPlanningMode.DEEPSEARCH.value,
+                    *terminal_statuses,
+                    *cursor_parameters,
+                    limit,
+                ),
             ).fetchall()
         runs: list[AgentRun] = []
         for row in rows:
@@ -8319,7 +8536,8 @@ class SQLiteStore:
                 run.id == row["id"]
                 and run.orchestration_version == row["orchestration_version"]
                 and run.planning_mode is AgentPlanningMode.DEEPSEARCH
-                and run.status not in terminal_statuses
+                and run.status.value not in terminal_statuses
+                and run.updated_at.isoformat() == row["updated_at"]
             ):
                 runs.append(run)
         return runs

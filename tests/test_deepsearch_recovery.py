@@ -50,9 +50,15 @@ class _Repository:
         self.expiry_calls: list[str] = []
         self.list_calls = 0
 
-    def list_recoverable_deepsearch_runs(self) -> list[AgentRun]:
+    def list_recoverable_deepsearch_runs(
+        self,
+        *,
+        limit: int = 50,
+        after: tuple[str, str] | None = None,
+    ) -> list[AgentRun]:
+        del after
         self.list_calls += 1
-        return [run.model_copy(deep=True) for run in self.runs]
+        return [run.model_copy(deep=True) for run in self.runs[:limit]]
 
     def expire_deepsearch_run_if_needed(
         self,
@@ -407,13 +413,51 @@ def test_quiesce_before_scan_prevents_repository_enumeration() -> None:
     assert runtime.calls == []
 
 
+def test_recovery_cursor_does_not_skip_transient_repository_failure() -> None:
+    class TransientRepository(_Repository):
+        def __init__(self):
+            super().__init__([_run("transient", AgentRunStatus.RUNNING)])
+            self.fail_once = True
+
+        def expire_deepsearch_run_if_needed(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+            if self.fail_once:
+                self.fail_once = False
+                raise RuntimeError("temporary database failure")
+            return super().expire_deepsearch_run_if_needed(*args, **kwargs)
+
+    repository = TransientRepository()
+    runtime = _Runtime()
+    coordinator = DeepSearchRecoveryCoordinator(
+        repository,
+        runtime,
+        clock=lambda: NOW,
+    )
+
+    async def exercise() -> tuple[int, int]:
+        first = await coordinator.recover_once()
+        second = await coordinator.recover_once()
+        await asyncio.sleep(0)
+        return first, second
+
+    assert asyncio.run(exercise()) == (0, 1)
+    assert runtime.calls == ["transient"]
+
+
 def test_quiesce_after_scan_prevents_every_recovery_schedule() -> None:
     listed = Event()
     release_list = Event()
 
     class BlockingRepository(_Repository):
-        def list_recoverable_deepsearch_runs(self) -> list[AgentRun]:
-            result = super().list_recoverable_deepsearch_runs()
+        def list_recoverable_deepsearch_runs(
+            self,
+            *,
+            limit: int = 50,
+            after: tuple[str, str] | None = None,
+        ) -> list[AgentRun]:
+            result = super().list_recoverable_deepsearch_runs(
+                limit=limit,
+                after=after,
+            )
             listed.set()
             assert release_list.wait(timeout=2)
             return result
