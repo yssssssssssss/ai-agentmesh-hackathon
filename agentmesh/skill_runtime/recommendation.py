@@ -15,12 +15,19 @@ from pydantic import BaseModel, Field
 
 from agentmesh.llm import skill_match_llm_timeout_seconds
 from agentmesh.models import (
+    CapabilityGapV1,
+    CoverageAtomV1,
+    DeliverableAtomV1,
+    EvidenceAtomV1,
+    ScenarioOutputAtomV1,
     SkillCandidate,
     SkillCandidateScore,
+    SkillCapabilityProfile,
     SkillDefinition,
     SkillIntent,
     SkillSideEffect,
     SkillSourceScope,
+    ToolDefinition,
     User,
 )
 from agentmesh.skill_runtime.matching import (
@@ -39,9 +46,13 @@ from agentmesh.skill_runtime.profiles import (
     skill_capability_card,
     tool_names_for_profile,
 )
-from agentmesh.skill_runtime.resources import skill_wiki_corpus_ready
+from agentmesh.skill_runtime.readiness import ToolHealthProbeCoordinator, ToolProbeRequest
+from agentmesh.skill_runtime.resources import build_skill_resource_manifest_snapshot, skill_wiki_corpus_ready
 from agentmesh.skill_runtime.service import SkillCatalogService
+from agentmesh.skill_runtime.universal_policy import universal_retrieval_policy
 from agentmesh.store import SQLiteStore
+from agentmesh.task_routing.catalog import TaskCatalogV2
+from agentmesh.task_routing.contracts import TaskRoutingResult
 from agentmesh.tool_runtime.guardrails import redact_sensitive_text
 
 SkillMatchMode = Literal["lexical", "hybrid", "llm_reranked", "fallback"]
@@ -100,9 +111,9 @@ RerankCallable = Callable[
     [str, list[dict[str, object]], int, Model],
     Awaitable[SkillRerankDecision],
 ]
-ProfileRanker = Callable[
-    [str, set[str]],
-    tuple[list[str], list[str], list[str]],
+ProfileBatchRanker = Callable[
+    [list[str], set[str]],
+    list[tuple[list[str], list[str], list[str]]],
 ]
 
 
@@ -402,67 +413,255 @@ async def recommend_skill_directory(
 
 # Universal orchestration retrieval is deliberately separate from the legacy
 # ten-Skill planner path until Phase 2A switches Agent Run creation.
-UNIVERSAL_RETRIEVAL_POLICY_VERSION = "universal-profile-rrf-v1"
-_MAX_UNIVERSAL_MATCHES = 12
-_MAX_BLOCKED_MATCHES = 5
-_MIN_UNIVERSAL_RELEVANCE_SCORE = 0.6
-_MIN_UNIVERSAL_QUERY_COVERAGE = 0.05
-_UNIVERSAL_FTS_RRF_WEIGHT = 40
-_UNIVERSAL_VECTOR_RRF_WEIGHT = 40
-_UNIVERSAL_LEXICAL_WEIGHT = 8
-_UNIVERSAL_EXAMPLE_WEIGHT = 4
-_UNIVERSAL_NEGATIVE_WEIGHT = 10
-_GENERIC_ACTION_PHRASES = (
-    "generate a",
-    "generate",
-    "create a",
-    "create",
-    "analyze",
-    "report",
-    "帮我生成一份",
-    "帮我",
-    "给我",
-    "生成一份",
-    "生成",
-    "创建",
-    "输出",
-    "分析",
-    "查询",
-    "推荐",
-    "预测",
-)
-_GENERIC_QUERY_KINDS = frozenset(
-    {
-        "design_requirement",
-        "design_analysis",
-        "executive_summary",
-        "request",
-        "report",
-        "summary",
-        "synthesis",
-    }
-)
+_UNIVERSAL_POLICY = universal_retrieval_policy()
+UNIVERSAL_RETRIEVAL_POLICY_VERSION = _UNIVERSAL_POLICY.retrieval_policy_version
+_MAX_UNIVERSAL_MATCHES = _UNIVERSAL_POLICY.max_selectable_candidates
+_MAX_BLOCKED_MATCHES = _UNIVERSAL_POLICY.max_blocked_matches
+_MAX_COVERAGE_ATOMS = _UNIVERSAL_POLICY.max_coverage_atoms
+_MAX_COVERAGE_WITNESSES = _UNIVERSAL_POLICY.max_coverage_witnesses
+_MIN_UNIVERSAL_RELEVANCE_SCORE = _UNIVERSAL_POLICY.minimum_relevance_millis / 1000
+_MIN_UNIVERSAL_QUERY_COVERAGE = _UNIVERSAL_POLICY.minimum_query_coverage_millis / 1000
+_UNIVERSAL_FTS_RRF_WEIGHT = _UNIVERSAL_POLICY.fts_rrf_weight
+_UNIVERSAL_VECTOR_RRF_WEIGHT = _UNIVERSAL_POLICY.vector_rrf_weight
+_UNIVERSAL_LEXICAL_WEIGHT = _UNIVERSAL_POLICY.lexical_weight
+_UNIVERSAL_EXAMPLE_WEIGHT = _UNIVERSAL_POLICY.positive_example_weight
+_UNIVERSAL_NEGATIVE_WEIGHT = _UNIVERSAL_POLICY.negative_example_weight
+_GENERIC_ACTION_PHRASES = _UNIVERSAL_POLICY.generic_action_phrases
+_GENERIC_QUERY_KINDS = frozenset(_UNIVERSAL_POLICY.generic_query_kinds)
+_FIXED_SYNTHESIS_OUTPUTS = frozenset(_UNIVERSAL_POLICY.fixed_synthesis_outputs)
 
 
 @dataclass(frozen=True, slots=True)
 class UniversalSkillSearchResult:
     retrieval_policy_version: str
     query_atoms: tuple[str, ...]
+    required_coverage_atoms: tuple[CoverageAtomV1, ...]
+    plannable_coverage_atom_ids: tuple[str, ...]
+    required_synthesis_output_ids: tuple[str, ...]
+    coverage_witness_skill_ids: tuple[str, ...]
     ranked_matches: tuple[SkillCandidate, ...]
+    selectable_candidates: tuple[SkillCandidate, ...]
+    blocked_matches: tuple[SkillCandidate, ...]
+    capability_gaps: tuple[CapabilityGapV1, ...]
+    outcome_code: Literal[
+        "ok",
+        "unsupported_requirement",
+        "requirement_budget_exceeded",
+        "no_matching_skill",
+        "no_executable_skill",
+        "readiness_probe_budget_exceeded",
+        "coverage_search_exhausted",
+    ]
     corpus_count: int
     searchable_count: int
     security_filtered_count: int
     diagnostics: tuple[str, ...]
 
-    @property
-    def selectable_candidates(self) -> tuple[SkillCandidate, ...]:
-        return tuple(candidate for candidate in self.ranked_matches if candidate.ready)
 
-    @property
-    def blocked_matches(self) -> tuple[SkillCandidate, ...]:
-        return tuple(candidate for candidate in self.ranked_matches if not candidate.ready)[
-            :_MAX_BLOCKED_MATCHES
+@dataclass(frozen=True, slots=True)
+class _RequirementSet:
+    query_atoms: tuple[str, ...]
+    coverage_atoms: tuple[CoverageAtomV1, ...]
+    synthesis_output_ids: tuple[str, ...]
+    error_code: Literal["unsupported_requirement", "requirement_budget_exceeded"] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _CoverageVariant:
+    skill_id: str
+    scenario_id: str | None
+    covered_requirement_ids: tuple[str, ...]
+    score: float
+
+
+def _ordered_unique(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(value for value in values if value))
+
+
+def _build_universal_requirements(
+    intent: SkillIntent,
+    profiles: Iterable[LoadedCapabilityProfile],
+    *,
+    routing_result: TaskRoutingResult | None,
+    task_catalog: TaskCatalogV2 | None,
+) -> _RequirementSet:
+    known_output_kinds = {
+        output_kind
+        for loaded in profiles
+        for output_kind in loaded.profile.output_kinds
+    }
+    coverage_atoms: list[CoverageAtomV1] = []
+    synthesis_outputs: list[str] = []
+    seen_atom_ids: set[str] = set()
+    for deliverable in intent.deliverables:
+        normalized = deliverable.strip().casefold().replace("-", "_")
+        if normalized in _FIXED_SYNTHESIS_OUTPUTS:
+            if normalized not in synthesis_outputs:
+                synthesis_outputs.append(normalized)
+            continue
+        if normalized not in known_output_kinds:
+            return _RequirementSet((), (), (), "unsupported_requirement")
+        atom = DeliverableAtomV1(
+            id=f"deliverable:{normalized}",
+            label=normalized,
+            output_kind=normalized,
+        )
+        if atom.id not in seen_atom_ids:
+            seen_atom_ids.add(atom.id)
+            coverage_atoms.append(atom)
+
+    if routing_result is not None:
+        if (
+            task_catalog is None
+            or task_catalog.manifest.catalog_hash != _UNIVERSAL_POLICY.task_catalog_v2_hash
+            or routing_result.catalog_version != task_catalog.manifest.catalog_version
+            or routing_result.catalog_hash != task_catalog.manifest.catalog_hash
+        ):
+            return _RequirementSet((), (), (), "unsupported_requirement")
+        scenario_ids = _ordered_unique(
+            [routing_result.scenario.scenario_id, *routing_result.scenario.supporting_scenarios]
+        )
+        for scenario_id in scenario_ids:
+            scenario = task_catalog.get_scenario(scenario_id)
+            if scenario is None:
+                return _RequirementSet((), (), (), "unsupported_requirement")
+            for output in scenario.outputs:
+                atom = ScenarioOutputAtomV1(
+                    id=f"scenario:{scenario.id}:output:{output.id}",
+                    label=output.label,
+                    scenario_id=scenario.id,
+                    output_id=output.id,
+                    compatible_output_kinds=output.compatible_output_kinds,
+                )
+                if atom.id not in seen_atom_ids:
+                    seen_atom_ids.add(atom.id)
+                    coverage_atoms.append(atom)
+
+    if intent.external_evidence_required:
+        atom = EvidenceAtomV1()
+        if atom.id not in seen_atom_ids:
+            coverage_atoms.append(atom)
+
+    if len(coverage_atoms) > _MAX_COVERAGE_ATOMS:
+        return _RequirementSet((), (), (), "requirement_budget_exceeded")
+    if not coverage_atoms and not synthesis_outputs:
+        return _RequirementSet((), (), (), "unsupported_requirement")
+
+    context = " ".join(
+        [
+            intent.goal,
+            *(value for value in intent.input_kinds if value not in _GENERIC_QUERY_KINDS),
+            *intent.analysis_requirements,
+            *intent.presentation_requirements,
+            *synthesis_outputs,
         ]
+    )
+    query_atoms = [redact_sensitive_text(context.strip())[:2000]]
+    for atom in coverage_atoms:
+        if isinstance(atom, DeliverableAtomV1):
+            value = f"{atom.label} {atom.output_kind}"
+        elif isinstance(atom, ScenarioOutputAtomV1):
+            value = f"{atom.label} {' '.join(atom.compatible_output_kinds)}"
+        else:
+            value = "trusted external research evidence web research"
+        value = redact_sensitive_text(value)[:2000]
+        if value and value not in query_atoms:
+            query_atoms.append(value)
+    return _RequirementSet(
+        tuple(query_atoms[: _UNIVERSAL_POLICY.max_query_atoms]),
+        tuple(coverage_atoms),
+        tuple(synthesis_outputs),
+    )
+
+
+def _profile_can_cover_evidence(profile: SkillCapabilityProfile) -> bool:
+    return "web_research" in tool_names_for_profile(profile)
+
+
+def _coverage_variants(candidate: SkillCandidate, atoms: tuple[CoverageAtomV1, ...]) -> tuple[_CoverageVariant, ...]:
+    output_kinds = set(candidate.profile.output_kinds)
+    generic_ids = [
+        atom.id
+        for atom in atoms
+        if (
+            isinstance(atom, DeliverableAtomV1)
+            and atom.output_kind in output_kinds
+        )
+        or (
+            isinstance(atom, EvidenceAtomV1)
+            and _profile_can_cover_evidence(candidate.profile)
+        )
+    ]
+    scenario_ids = _ordered_unique(
+        atom.scenario_id
+        for atom in atoms
+        if isinstance(atom, ScenarioOutputAtomV1)
+        and output_kinds.intersection(atom.compatible_output_kinds)
+    )
+    variants = [
+        _CoverageVariant(
+            skill_id=candidate.skill_id,
+            scenario_id=None,
+            covered_requirement_ids=tuple(generic_ids),
+            score=candidate.score.total,
+        )
+    ]
+    for scenario_id in scenario_ids:
+        covered = [*generic_ids]
+        covered.extend(
+            atom.id
+            for atom in atoms
+            if isinstance(atom, ScenarioOutputAtomV1)
+            and atom.scenario_id == scenario_id
+            and output_kinds.intersection(atom.compatible_output_kinds)
+        )
+        variants.append(
+            _CoverageVariant(
+                skill_id=candidate.skill_id,
+                scenario_id=scenario_id,
+                covered_requirement_ids=_ordered_unique(covered),
+                score=candidate.score.total,
+            )
+        )
+    return tuple(variants)
+
+
+def _select_coverage_witnesses(
+    candidates: list[SkillCandidate],
+    atoms: tuple[CoverageAtomV1, ...],
+    atom_ids: tuple[str, ...],
+) -> tuple[list[_CoverageVariant], tuple[str, ...]]:
+    remaining = set(atom_ids)
+    selected: list[_CoverageVariant] = []
+    selected_skills: set[str] = set()
+    variants = [
+        variant
+        for candidate in candidates
+        for variant in _coverage_variants(candidate, atoms)
+    ]
+    while remaining and len(selected) < _MAX_COVERAGE_WITNESSES:
+        eligible = [
+            (variant, set(variant.covered_requirement_ids).intersection(remaining))
+            for variant in variants
+            if variant.skill_id not in selected_skills
+        ]
+        eligible = [(variant, newly_covered) for variant, newly_covered in eligible if newly_covered]
+        if not eligible:
+            break
+        eligible.sort(
+            key=lambda item: (
+                -len(item[1]),
+                -item[0].score,
+                item[0].skill_id,
+                item[0].scenario_id is not None,
+                item[0].scenario_id or "",
+            )
+        )
+        chosen, newly_covered = eligible[0]
+        selected.append(chosen)
+        selected_skills.add(chosen.skill_id)
+        remaining.difference_update(newly_covered)
+    return selected, tuple(atom_id for atom_id in atom_ids if atom_id in remaining)
 
 
 def _profile_terms(text: str) -> set[str]:
@@ -491,27 +690,8 @@ def _profile_overlap(query: set[str], text: str) -> float:
     return weighted / max(1, sum(min(len(term), 4) for term in query))
 
 
-def _universal_query_atoms(intent: SkillIntent) -> tuple[str, ...]:
-    raw_atoms = [intent.goal]
-    context = " ".join(
-        [
-            *(value for value in intent.input_kinds if value not in _GENERIC_QUERY_KINDS),
-            *intent.analysis_requirements,
-            *intent.presentation_requirements,
-        ]
-    ).strip()
-    if context:
-        raw_atoms.append(context)
-    atoms: list[str] = []
-    for value in raw_atoms:
-        normalized = redact_sensitive_text(value.strip())[:2000]
-        if normalized and normalized not in atoms:
-            atoms.append(normalized)
-    return tuple(atoms[:25])
-
-
-def _tool_granted(repository: SQLiteStore, user: User, reference: str) -> bool:
-    tool = next(
+def _tool_definition(repository: SQLiteStore, reference: str) -> ToolDefinition | None:
+    return next(
         (
             item
             for item in repository.tool_definitions
@@ -519,6 +699,10 @@ def _tool_granted(repository: SQLiteStore, user: User, reference: str) -> bool:
         ),
         None,
     )
+
+
+def _tool_granted(repository: SQLiteStore, user: User, reference: str) -> bool:
+    tool = _tool_definition(repository, reference)
     if tool is None:
         return False
     return any(
@@ -560,6 +744,11 @@ def _universal_readiness_diagnostics(
         for capability in profile.required_capabilities
     ):
         diagnostics.append("public_resource_unavailable")
+    if profile.required_resources:
+        try:
+            build_skill_resource_manifest_snapshot(skill, profile)
+        except ValueError:
+            diagnostics.append("public_resource_unavailable")
     required_tools = sorted({*tool_names_for_profile(profile), *skill.requested_tools})
     supported_names = {
         identifier
@@ -585,28 +774,80 @@ class UniversalSkillSearchService:
         catalog: SkillCatalogService,
         *,
         profile_trust: Callable[[SkillDefinition, LoadedCapabilityProfile], bool] | None = None,
-        profile_ranker: ProfileRanker | None = None,
+        profile_ranker: ProfileBatchRanker | None = None,
+        tool_health: ToolHealthProbeCoordinator | None = None,
     ) -> None:
         self._repository = repository
         self._catalog = catalog
         self._profile_trust = profile_trust or (lambda _skill, _loaded: False)
-        self._profile_ranker = profile_ranker or repository.rank_skill_profiles
+        self._profile_ranker = profile_ranker or repository.rank_skill_profiles_batch
+        if tool_health is None:
+            gateways = []
+
+            def describe(tool_name: str):  # noqa: ANN202
+                if not gateways:
+                    from agentmesh.tool_runtime.gateway import ToolGateway
+
+                    gateways.append(ToolGateway(repository))
+                return gateways[0].describe(tool_name)
+
+            tool_health = ToolHealthProbeCoordinator(describe)
+        self._tool_health = tool_health
 
     def search(
         self,
         user: User,
         intent: SkillIntent,
+        *,
+        routing_result: TaskRoutingResult | None = None,
+        task_catalog: TaskCatalogV2 | None = None,
     ) -> UniversalSkillSearchResult:
-        return self._search(user, intent, include_unreviewed=False)
+        return self._search(
+            user,
+            intent,
+            include_unreviewed=False,
+            assume_unreviewed_ready=False,
+            routing_result=routing_result,
+            task_catalog=task_catalog,
+        )
 
     def search_for_evaluation(
         self,
         user: User,
         intent: SkillIntent,
+        *,
+        routing_result: TaskRoutingResult | None = None,
+        task_catalog: TaskCatalogV2 | None = None,
     ) -> UniversalSkillSearchResult:
         """Include untrusted drafts as blocked matches for offline calibration only."""
 
-        return self._search(user, intent, include_unreviewed=True)
+        return self._search(
+            user,
+            intent,
+            include_unreviewed=True,
+            assume_unreviewed_ready=False,
+            routing_result=routing_result,
+            task_catalog=task_catalog,
+        )
+
+    def search_for_coverage_evaluation(
+        self,
+        user: User,
+        intent: SkillIntent,
+        *,
+        routing_result: TaskRoutingResult | None = None,
+        task_catalog: TaskCatalogV2 | None = None,
+    ) -> UniversalSkillSearchResult:
+        """Treat drafts as trusted only inside deterministic offline coverage evaluation."""
+
+        return self._search(
+            user,
+            intent,
+            include_unreviewed=True,
+            assume_unreviewed_ready=True,
+            routing_result=routing_result,
+            task_catalog=task_catalog,
+        )
 
     def _search(
         self,
@@ -614,8 +855,10 @@ class UniversalSkillSearchService:
         intent: SkillIntent,
         *,
         include_unreviewed: bool,
+        assume_unreviewed_ready: bool,
+        routing_result: TaskRoutingResult | None,
+        task_catalog: TaskCatalogV2 | None,
     ) -> UniversalSkillSearchResult:
-        query_atoms = _universal_query_atoms(intent)
         corpus: list[tuple[SkillDefinition, LoadedCapabilityProfile, bool, bool]] = []
         searchable_count = 0
         security_filtered_count = 0
@@ -650,11 +893,44 @@ class UniversalSkillSearchService:
                 continue
             corpus.append((skill, loaded, runtime_enabled, trusted))
 
+        requirements = _build_universal_requirements(
+            intent,
+            (loaded for _skill, loaded, _runtime_enabled, _trusted in corpus),
+            routing_result=routing_result,
+            task_catalog=task_catalog,
+        )
+        query_atoms = requirements.query_atoms
+        if requirements.error_code is not None:
+            return UniversalSkillSearchResult(
+                retrieval_policy_version=UNIVERSAL_RETRIEVAL_POLICY_VERSION,
+                query_atoms=(),
+                required_coverage_atoms=(),
+                plannable_coverage_atom_ids=(),
+                required_synthesis_output_ids=(),
+                coverage_witness_skill_ids=(),
+                ranked_matches=(),
+                selectable_candidates=(),
+                blocked_matches=(),
+                capability_gaps=(),
+                outcome_code=requirements.error_code,
+                corpus_count=len(corpus),
+                searchable_count=searchable_count,
+                security_filtered_count=security_filtered_count,
+                diagnostics=(requirements.error_code,),
+            )
         if not corpus or not query_atoms:
             return UniversalSkillSearchResult(
                 retrieval_policy_version=UNIVERSAL_RETRIEVAL_POLICY_VERSION,
                 query_atoms=query_atoms,
+                required_coverage_atoms=requirements.coverage_atoms,
+                plannable_coverage_atom_ids=(),
+                required_synthesis_output_ids=requirements.synthesis_output_ids,
+                coverage_witness_skill_ids=(),
                 ranked_matches=(),
+                selectable_candidates=(),
+                blocked_matches=(),
+                capability_gaps=(),
+                outcome_code="no_matching_skill",
                 corpus_count=len(corpus),
                 searchable_count=searchable_count,
                 security_filtered_count=security_filtered_count,
@@ -667,18 +943,24 @@ class UniversalSkillSearchService:
         fts_scores: dict[str, float] = {}
         vector_scores: dict[str, float] = {}
         matched_atoms: dict[str, set[int]] = {}
+        retrieval_pool_ids: set[str] = set()
         diagnostics: list[str] = []
-        for atom_index, atom in enumerate(query_atoms):
-            fts_ids, vector_ids, search_diagnostics = self._profile_ranker(
-                atom,
-                allowed_ids,
-            )
+        ranking_batches = self._profile_ranker(list(query_atoms), allowed_ids)
+        if len(ranking_batches) != len(query_atoms):
+            ranking_batches = [([], [], ["embedding_batch_invalid"])] * len(query_atoms)
+        for atom_index, (fts_ids, vector_ids, search_diagnostics) in enumerate(ranking_batches):
             diagnostics.extend(search_diagnostics)
-            for rank, skill_id in enumerate(fts_ids[:12], start=1):
-                fts_scores[skill_id] = fts_scores.get(skill_id, 0.0) + 1 / (_RRF_K + rank)
+            for rank, skill_id in enumerate(fts_ids[: _UNIVERSAL_POLICY.fts_top_k_per_atom], start=1):
+                retrieval_pool_ids.add(skill_id)
+                fts_scores[skill_id] = fts_scores.get(skill_id, 0.0) + 1 / (
+                    _UNIVERSAL_POLICY.rrf_k + rank
+                )
                 matched_atoms.setdefault(skill_id, set()).add(atom_index)
-            for rank, skill_id in enumerate(vector_ids[:12], start=1):
-                vector_scores[skill_id] = vector_scores.get(skill_id, 0.0) + 1 / (_RRF_K + rank)
+            for rank, skill_id in enumerate(vector_ids[: _UNIVERSAL_POLICY.vector_top_k_per_atom], start=1):
+                retrieval_pool_ids.add(skill_id)
+                vector_scores[skill_id] = vector_scores.get(skill_id, 0.0) + 1 / (
+                    _UNIVERSAL_POLICY.rrf_k + rank
+                )
                 matched_atoms.setdefault(skill_id, set()).add(atom_index)
 
         query_terms = profile_query_terms(" ".join(query_atoms))
@@ -742,6 +1024,23 @@ class UniversalSkillSearchService:
                 runtime_enabled=runtime_enabled,
                 profile_trusted=profile_trusted,
             )
+            if assume_unreviewed_ready:
+                readiness = [
+                    code
+                    for code in readiness
+                    if code
+                    not in {
+                        "profile_review_missing",
+                        "profile_unapproved",
+                        "skill_profile_trust_unavailable",
+                        "planner_ineligible",
+                        "public_resource_unavailable",
+                        "required_tool_unavailable",
+                        "required_tool_unhealthy",
+                        "tool_grant_missing",
+                        "tool_health_timeout",
+                    }
+                ]
             reason_codes = []
             if skill.id in fts_scores:
                 reason_codes.append("profile_fts")
@@ -758,6 +1057,7 @@ class UniversalSkillSearchService:
                     profile=profile,
                     score=score,
                     reason=";".join(reason_codes) or "profile_lexical_match",
+                    match_reason_codes=reason_codes or ["profile_lexical_match"],
                     ready=not readiness,
                     diagnostics=readiness,
                 )
@@ -769,12 +1069,229 @@ class UniversalSkillSearchService:
                 candidate.skill_id,
             )
         )
+        skills_by_id = {
+            skill.id: skill for skill, _loaded, _runtime_enabled, _trusted in corpus
+        }
+        remote_keys_by_skill: dict[str, list[tuple[str, str, str]]] = {}
+        local_ready_without_remote: list[SkillCandidate] = []
+        for candidate in ranked:
+            if not candidate.ready:
+                continue
+            skill = skills_by_id[candidate.skill_id]
+            remote_keys: list[tuple[str, str, str]] = []
+            for tool_name in sorted({*tool_names_for_profile(candidate.profile), *skill.requested_tools}):
+                definition = _tool_definition(self._repository, tool_name)
+                if definition is not None and definition.implementation_id:
+                    remote_keys.append(
+                        (
+                            definition.name,
+                            definition.implementation_id,
+                            definition.implementation_version,
+                        )
+                    )
+            if remote_keys:
+                remote_keys_by_skill[candidate.skill_id] = remote_keys
+            else:
+                local_ready_without_remote.append(candidate)
+
+        covered_without_probe = {
+            requirement_id
+            for candidate in local_ready_without_remote
+            for variant in _coverage_variants(candidate, requirements.coverage_atoms)
+            for requirement_id in variant.covered_requirement_ids
+        }
+        probe_requests: list[ToolProbeRequest] = []
+        unprobed_skill_ids: set[str] = set()
+        for rank, candidate in enumerate(ranked):
+            remote_keys = remote_keys_by_skill.get(candidate.skill_id, [])
+            if not candidate.ready or not remote_keys:
+                continue
+            candidate_coverage = {
+                requirement_id
+                for variant in _coverage_variants(candidate, requirements.coverage_atoms)
+                for requirement_id in variant.covered_requirement_ids
+            }
+            if candidate.skill_id not in retrieval_pool_ids:
+                unprobed_skill_ids.add(candidate.skill_id)
+                continue
+            coverage_priority = 0 if candidate_coverage - covered_without_probe else 1
+            first_ready_priority = 0 if not local_ready_without_remote else 1
+            for tool_name, implementation_id, implementation_version in remote_keys:
+                probe_requests.append(
+                    ToolProbeRequest(
+                        tool_name=tool_name,
+                        implementation_id=implementation_id,
+                        implementation_version=implementation_version,
+                        priority=(
+                            coverage_priority,
+                            first_ready_priority,
+                            rank,
+                            tool_name,
+                            implementation_id,
+                            implementation_version,
+                        ),
+                    )
+                )
+        probe_result = self._tool_health.probe(probe_requests)
+        health_checked: list[SkillCandidate] = []
+        for candidate in ranked:
+            remote_keys = remote_keys_by_skill.get(candidate.skill_id, [])
+            if not candidate.ready or not remote_keys:
+                health_checked.append(candidate)
+                continue
+            health_diagnostics: list[str] = []
+            for key in remote_keys:
+                state = probe_result.states.get(key, "unprobed")
+                if state == "unprobed":
+                    unprobed_skill_ids.add(candidate.skill_id)
+                elif state == "timeout":
+                    health_diagnostics.append("tool_health_timeout")
+                elif state == "unhealthy":
+                    health_diagnostics.append("required_tool_unhealthy")
+                elif state == "unavailable":
+                    health_diagnostics.append("required_tool_unavailable")
+            if candidate.skill_id in unprobed_skill_ids:
+                health_diagnostics.append("readiness_unprobed")
+            if health_diagnostics:
+                candidate = candidate.model_copy(
+                    update={
+                        "ready": False,
+                        "diagnostics": list(
+                            dict.fromkeys([*candidate.diagnostics, *health_diagnostics])
+                        ),
+                    }
+                )
+            health_checked.append(candidate)
+        ranked = health_checked
+        ready_ranked = [candidate for candidate in ranked if candidate.ready]
+        blocked_ranked = [
+            candidate
+            for candidate in ranked
+            if not candidate.ready and candidate.skill_id not in unprobed_skill_ids
+        ]
+        required_atom_ids = tuple(atom.id for atom in requirements.coverage_atoms)
+        ready_coverage_ids = {
+            requirement_id
+            for candidate in ready_ranked
+            for variant in _coverage_variants(candidate, requirements.coverage_atoms)
+            for requirement_id in variant.covered_requirement_ids
+        }
+        unprobed_ranked = [candidate for candidate in ranked if candidate.skill_id in unprobed_skill_ids]
+        uncertain_coverage_ids = {
+            requirement_id
+            for candidate in unprobed_ranked
+            for variant in _coverage_variants(candidate, requirements.coverage_atoms)
+            for requirement_id in variant.covered_requirement_ids
+        } - ready_coverage_ids
+        plannable_atom_ids = tuple(
+            atom_id for atom_id in required_atom_ids if atom_id in ready_coverage_ids
+        )
+        blocking_atom_ids = tuple(
+            atom_id
+            for atom_id in required_atom_ids
+            if atom_id not in ready_coverage_ids and atom_id not in uncertain_coverage_ids
+        )
+        atom_by_id = {atom.id: atom for atom in requirements.coverage_atoms}
+        capability_gaps: list[CapabilityGapV1] = []
+        for atom_id in blocking_atom_ids:
+            related_blocked = [
+                candidate
+                for candidate in blocked_ranked
+                if any(
+                    atom_id in variant.covered_requirement_ids
+                    for variant in _coverage_variants(candidate, requirements.coverage_atoms)
+                )
+            ]
+            gap_diagnostics = _ordered_unique(
+                diagnostic
+                for candidate in related_blocked
+                for diagnostic in candidate.diagnostics
+            ) or ("no_ready_skill",)
+            capability_gaps.append(
+                CapabilityGapV1(
+                    requirement_id=atom_id,
+                    label=atom_by_id[atom_id].label,
+                    diagnostics=gap_diagnostics,
+                )
+            )
+
+        witnesses, uncovered = _select_coverage_witnesses(
+            ready_ranked,
+            requirements.coverage_atoms,
+            plannable_atom_ids,
+        )
+        witness_by_skill = {witness.skill_id: witness for witness in witnesses}
+        shortlist_ids = list(dict.fromkeys([*[item.skill_id for item in witnesses], *[item.skill_id for item in ready_ranked]]))[
+            :_MAX_UNIVERSAL_MATCHES
+        ]
+        shortlist_id_set = set(shortlist_ids)
+        selectable: list[SkillCandidate] = []
+        decorated_by_id: dict[str, SkillCandidate] = {}
+        for candidate in ready_ranked:
+            if candidate.skill_id not in shortlist_id_set:
+                continue
+            variant = witness_by_skill.get(candidate.skill_id)
+            if variant is None:
+                variants = sorted(
+                    _coverage_variants(candidate, requirements.coverage_atoms),
+                    key=lambda item: (
+                        -len(item.covered_requirement_ids),
+                        item.scenario_id is not None,
+                        item.scenario_id or "",
+                    ),
+                )
+                variant = variants[0]
+            decorated = candidate.model_copy(
+                update={
+                    "coverage_witness_scenario_id": variant.scenario_id,
+                    "covered_requirement_ids": list(variant.covered_requirement_ids),
+                }
+            )
+            selectable.append(decorated)
+            decorated_by_id[candidate.skill_id] = decorated
+        ranked_projection = tuple(
+            decorated_by_id.get(candidate.skill_id, candidate)
+            for candidate in ranked[: _MAX_UNIVERSAL_MATCHES + _MAX_BLOCKED_MATCHES]
+            if candidate.skill_id not in unprobed_skill_ids
+        )
+        probe_budget_required = bool(unprobed_skill_ids) and (
+            not ready_ranked or bool(uncertain_coverage_ids)
+        )
+        if probe_budget_required:
+            outcome_code = "readiness_probe_budget_exceeded"
+        elif not ranked_projection:
+            outcome_code = "no_matching_skill"
+        elif not ready_ranked:
+            outcome_code = "no_executable_skill"
+        elif uncovered:
+            outcome_code = "coverage_search_exhausted"
+        else:
+            outcome_code = "ok"
+        result_diagnostics = list(dict.fromkeys(diagnostics))
+        if probe_budget_required:
+            result_diagnostics.append("readiness_probe_budget_exceeded")
+            result_diagnostics.extend(
+                f"unprobed_requirement:{atom_id}"
+                for atom_id in required_atom_ids
+                if atom_id in uncertain_coverage_ids
+            )
+        if uncovered:
+            result_diagnostics.append("coverage_search_exhausted")
+            result_diagnostics.extend(f"uncovered_requirement:{atom_id}" for atom_id in uncovered)
         return UniversalSkillSearchResult(
             retrieval_policy_version=UNIVERSAL_RETRIEVAL_POLICY_VERSION,
             query_atoms=query_atoms,
-            ranked_matches=tuple(ranked[:_MAX_UNIVERSAL_MATCHES]),
+            required_coverage_atoms=requirements.coverage_atoms,
+            plannable_coverage_atom_ids=plannable_atom_ids,
+            required_synthesis_output_ids=requirements.synthesis_output_ids,
+            coverage_witness_skill_ids=tuple(item.skill_id for item in witnesses),
+            ranked_matches=ranked_projection,
+            selectable_candidates=tuple(selectable),
+            blocked_matches=tuple(blocked_ranked[:_MAX_BLOCKED_MATCHES]),
+            capability_gaps=tuple(capability_gaps),
+            outcome_code=outcome_code,
             corpus_count=len(corpus),
             searchable_count=searchable_count,
             security_filtered_count=security_filtered_count,
-            diagnostics=tuple(dict.fromkeys(diagnostics)),
+            diagnostics=tuple(result_diagnostics),
         )

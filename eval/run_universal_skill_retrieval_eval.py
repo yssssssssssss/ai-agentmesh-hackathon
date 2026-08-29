@@ -24,8 +24,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from agentmesh.models import AgentToolGrant, ToolDefinition  # noqa: E402
 from agentmesh.seed import USER  # noqa: E402
 from agentmesh.skill_runtime.planner import deterministic_intent  # noqa: E402
+from agentmesh.skill_runtime.profiles import tool_names_for_profile  # noqa: E402
+from agentmesh.skill_runtime.readiness import ToolHealthProbeCoordinator  # noqa: E402
 from agentmesh.skill_runtime.recommendation import (  # noqa: E402
     UNIVERSAL_RETRIEVAL_POLICY_VERSION,
     UniversalSkillSearchService,
@@ -38,7 +41,7 @@ from agentmesh.store import (  # noqa: E402
 )
 from agentmesh.tools import ensure_tool_seed_data  # noqa: E402
 
-DEFAULT_DATASET = ROOT / "eval" / "universal_skill_retrieval_calibration_v1.json"
+DEFAULT_DATASET = ROOT / "eval" / "universal_skill_retrieval_calibration_v2.json"
 EXPECTED_SINGLE_CASES = 60
 EXPECTED_COMPOUND_CASES = 6
 EXPECTED_BOUNDARY_CASES = 6
@@ -54,6 +57,9 @@ class CalibrationCase:
     id: str
     request: str
     expected_skills: tuple[str, ...]
+    required_deliverables: tuple[str, ...]
+    expected_blocked_skills: tuple[str, ...]
+    expected_outcome: str | None
     family: str
     language: str
     kind: Literal["single", "compound", "boundary"] = "single"
@@ -63,6 +69,8 @@ class CalibrationCase:
 class CalibrationResult:
     case: CalibrationCase
     candidates: tuple[str, ...]
+    coverage_witnesses: tuple[str, ...]
+    outcome_code: str
     latency_ms: float
 
     @property
@@ -73,6 +81,21 @@ class CalibrationResult:
 
     def has_any_expected_at(self, limit: int) -> bool:
         return bool(set(self.case.expected_skills) & set(self.candidates[:limit]))
+
+    @property
+    def compound_covered(self) -> bool:
+        return set(self.case.expected_skills) <= set(self.coverage_witnesses)
+
+    @property
+    def boundary_rejected(self) -> bool:
+        return not self.candidates and self.outcome_code == self.case.expected_outcome
+
+
+@dataclass(frozen=True, slots=True)
+class _EvaluationToolDescriptor:
+    implementation_id: str
+    implementation_version: str
+    health_state: str = "healthy"
 
 
 def _percentile(values: Sequence[float], percentile: float) -> float:
@@ -99,7 +122,7 @@ def load_cases(path: Path = DEFAULT_DATASET) -> list[CalibrationCase]:
     if (
         not isinstance(document, dict)
         or set(document) != required_root
-        or document["schema_version"] != "universal-skill-retrieval-dataset-v1"
+        or document["schema_version"] != "universal-skill-retrieval-dataset-v2"
         or document["partition"] != "calibration"
     ):
         raise ValueError("dataset_document_invalid")
@@ -114,7 +137,12 @@ def load_cases(path: Path = DEFAULT_DATASET) -> list[CalibrationCase]:
             raise ValueError(f"dataset_{kind}_case_count_invalid")
         for index, item in enumerate(raw_cases):
             required_fields = {"id", "request", "expected_skills", "family", "language"}
-            if not isinstance(item, dict) or set(item) != required_fields:
+            optional_fields = {"required_deliverables", "expected_blocked_skills", "expected_outcome"}
+            if (
+                not isinstance(item, dict)
+                or not required_fields.issubset(item)
+                or set(item) - required_fields - optional_fields
+            ):
                 raise ValueError(f"dataset_case_invalid:{kind}:{index}")
             expected = item["expected_skills"]
             if (
@@ -125,10 +153,28 @@ def load_cases(path: Path = DEFAULT_DATASET) -> list[CalibrationCase]:
                 or (kind == "boundary" and expected)
             ):
                 raise ValueError(f"dataset_case_invalid:{kind}:{index}")
+            required_deliverables = item.get("required_deliverables", [])
+            expected_blocked = item.get("expected_blocked_skills", [])
+            expected_outcome = item.get("expected_outcome")
+            if (
+                not isinstance(required_deliverables, list)
+                or len(required_deliverables) != len(set(required_deliverables))
+                or not all(isinstance(value, str) and value for value in required_deliverables)
+                or (kind == "compound" and not required_deliverables)
+                or not isinstance(expected_blocked, list)
+                or len(expected_blocked) != len(set(expected_blocked))
+                or not all(isinstance(value, str) and value for value in expected_blocked)
+                or (expected_outcome is not None and not isinstance(expected_outcome, str))
+                or (kind == "boundary" and expected_outcome != "no_matching_skill")
+            ):
+                raise ValueError(f"dataset_case_invalid:{kind}:{index}")
             case = CalibrationCase(
                 id=str(item["id"]).strip(),
                 request=str(item["request"]).strip(),
                 expected_skills=tuple(expected),
+                required_deliverables=tuple(required_deliverables),
+                expected_blocked_skills=tuple(expected_blocked),
+                expected_outcome=expected_outcome,
                 family=str(item["family"]).strip(),
                 language=str(item["language"]).strip(),
                 kind=kind,
@@ -202,30 +248,81 @@ class _FakeVectorRanker:
 
     def __call__(
         self,
-        query: str,
+        queries: list[str],
         allowed_skill_ids: set[str],
-    ) -> tuple[list[str], list[str], list[str]]:
-        fts_ids, _vector_ids, diagnostics = self._repository.rank_skill_profiles(
-            query,
-            allowed_skill_ids,
-        )
-        scores: list[tuple[float, str]] = []
-        for profile in self._repository.skill_capability_profiles:
-            if profile.skill_id not in allowed_skill_ids:
-                continue
-            skill = self._repository.get_skill_definition(profile.skill_id)
-            if skill is None:
-                continue
-            score = _stable_fake_similarity(
-                query,
-                profile.search_text(),
+    ) -> list[tuple[list[str], list[str], list[str]]]:
+        fts_batches = self._repository.rank_skill_profiles_batch(queries, allowed_skill_ids)
+        results: list[tuple[list[str], list[str], list[str]]] = []
+        for query, (fts_ids, _vector_ids, diagnostics) in zip(queries, fts_batches, strict=True):
+            scores: list[tuple[float, str]] = []
+            for profile in self._repository.skill_capability_profiles:
+                if profile.skill_id not in allowed_skill_ids:
+                    continue
+                skill = self._repository.get_skill_definition(profile.skill_id)
+                if skill is None:
+                    continue
+                score = _stable_fake_similarity(
+                    query,
+                    profile.search_text(),
+                )
+                if score >= SKILL_PROFILE_VECTOR_SIMILARITY_THRESHOLD:
+                    scores.append((score, profile.skill_id))
+            scores.sort(key=lambda item: (-item[0], item[1]))
+            safe_diagnostics = [item for item in diagnostics if item != "embedding_unavailable"]
+            safe_diagnostics.append("fake_vector")
+            results.append(
+                (fts_ids, [skill_id for _score, skill_id in scores[:12]], safe_diagnostics)
             )
-            if score >= SKILL_PROFILE_VECTOR_SIMILARITY_THRESHOLD:
-                scores.append((score, profile.skill_id))
-        scores.sort(key=lambda item: (-item[0], item[1]))
-        safe_diagnostics = [item for item in diagnostics if item != "embedding_unavailable"]
-        safe_diagnostics.append("fake_vector")
-        return fts_ids, [skill_id for _score, skill_id in scores[:12]], safe_diagnostics
+        return results
+
+
+def _prepare_evaluation_tools(repository: SQLiteStore) -> ToolHealthProbeCoordinator:
+    known = {
+        identifier: definition
+        for definition in repository.tool_definitions
+        for identifier in (definition.id, definition.name, definition.external_name)
+        if identifier
+    }
+    for profile in repository.skill_capability_profiles:
+        for tool_name in sorted(tool_names_for_profile(profile)):
+            definition = known.get(tool_name)
+            if definition is None:
+                definition = repository.save_tool_definition(
+                    ToolDefinition(
+                        id=f"tool_eval_{tool_name}",
+                        name=tool_name,
+                        description="Offline calibration Tool fixture",
+                        category="evaluation",
+                        implementation_id=f"agentmesh.eval.{tool_name}",
+                        implementation_version="1",
+                    )
+                )
+                known[tool_name] = definition
+            if not any(
+                grant.agent_id == USER.personal_agent_id
+                and grant.tool_id == definition.id
+                and grant.enabled
+                for grant in repository.agent_tool_grants
+            ):
+                repository.save_agent_tool_grant(
+                    AgentToolGrant(
+                        id=f"grant_eval_{tool_name}",
+                        agent_id=USER.personal_agent_id,
+                        tool_id=definition.id,
+                        granted_by="universal-calibration",
+                    )
+                )
+
+    def probe(tool_name: str) -> _EvaluationToolDescriptor | None:
+        definition = known.get(tool_name)
+        if definition is None or definition.implementation_id is None:
+            return None
+        return _EvaluationToolDescriptor(
+            implementation_id=definition.implementation_id,
+            implementation_version=definition.implementation_version,
+        )
+
+    return ToolHealthProbeCoordinator(probe)
 
 
 def evaluate(
@@ -244,20 +341,34 @@ def evaluate(
             repository,
             catalog,
             profile_ranker=_FakeVectorRanker(repository) if fake_vector else None,
+            tool_health=_prepare_evaluation_tools(repository),
         )
         results: list[CalibrationResult] = []
         for case in cases:
             started = time.perf_counter()
-            outcome = search.search_for_evaluation(
+            intent = deterministic_intent(case.request)
+            if case.required_deliverables:
+                intent = intent.model_copy(update={"deliverables": list(case.required_deliverables)})
+            outcome = search.search_for_coverage_evaluation(
                 USER,
-                deterministic_intent(case.request),
+                intent,
             )
+            names_by_id = {
+                candidate.skill_id: candidate.skill_name
+                for candidate in outcome.selectable_candidates
+            }
             results.append(
                 CalibrationResult(
                     case=case,
                     candidates=tuple(
                         candidate.skill_name for candidate in outcome.ranked_matches
                     ),
+                    coverage_witnesses=tuple(
+                        names_by_id[skill_id]
+                        for skill_id in outcome.coverage_witness_skill_ids
+                        if skill_id in names_by_id
+                    ),
+                    outcome_code=outcome.outcome_code,
                     latency_ms=(time.perf_counter() - started) * 1000,
                 )
             )
@@ -281,10 +392,10 @@ def render_report(
     single_recall = sum(result.recalled_at_5 for result in single_results) / max(
         1, len(single_results)
     )
-    compound_coverage = sum(result.recalled_at_5 for result in compound_results) / max(
+    compound_coverage = sum(result.compound_covered for result in compound_results) / max(
         1, len(compound_results)
     )
-    boundary_rejection = sum(result.recalled_at_5 for result in boundary_results) / max(
+    boundary_rejection = sum(result.boundary_rejected for result in boundary_results) / max(
         1, len(boundary_results)
     )
     p95 = _percentile([result.latency_ms for result in results], 0.95)
@@ -338,7 +449,7 @@ def render_report(
         f"single_top_3: {single_top3:.1%} (gate >= {TOP_3_RECALL_MIN:.0%})",
         f"single_recall_at_5: {single_recall:.1%} (gate >= {RECALL_AT_5_MIN:.0%})",
         f"compound_cases: {len(compound_results)}",
-        f"compound_coverage_at_5: {compound_coverage:.1%} (gate >= {RECALL_AT_5_MIN:.0%})",
+        f"compound_witness_coverage: {compound_coverage:.1%} (gate >= {RECALL_AT_5_MIN:.0%})",
         f"boundary_cases: {len(boundary_results)}",
         f"boundary_rejection: {boundary_rejection:.1%} (gate = 100%)",
         f"p95_ms: {p95:.3f} (gate <= {P95_LATENCY_MAX_MS:.0f})",
@@ -352,11 +463,20 @@ def render_report(
             f"language[{language}]: {hits_by_language[language]}/{total_by_language[language]}"
         )
     for result in results:
-        if not result.recalled_at_5:
+        failed = (
+            not result.recalled_at_5
+            if result.case.kind == "single"
+            else not result.compound_covered
+            if result.case.kind == "compound"
+            else not result.boundary_rejected
+        )
+        if failed:
             lines.append(
                 f"MISS kind={result.case.kind} id={result.case.id} "
                 f"expected={list(result.case.expected_skills)} "
-                f"top5={list(result.candidates[:5])}"
+                f"top5={list(result.candidates[:5])} "
+                f"witnesses={list(result.coverage_witnesses)} "
+                f"outcome={result.outcome_code}"
             )
     if failed_skills:
         lines.append(f"FAILED_SKILLS={failed_skills}")
