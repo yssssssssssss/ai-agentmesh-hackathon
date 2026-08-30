@@ -15,7 +15,6 @@ interface SkillPlanPreviewProps {
   detail: PlanDetailResponse
   candidates: Skill[]
   orchestrationMode: 'preview' | 'execute'
-  blockApprovalForCapabilityGaps?: boolean
   pendingAction: 'update' | 'approve' | 'reject' | null
   error: string | null
   onUpdate: (request: SkillPlanUpdateRequest) => void
@@ -27,7 +26,6 @@ export function SkillPlanPreview({
   detail,
   candidates,
   orchestrationMode,
-  blockApprovalForCapabilityGaps = false,
   pendingAction,
   error,
   onUpdate,
@@ -86,9 +84,7 @@ export function SkillPlanPreview({
     || selected.size !== originalSelected.length
     || scenarioDirty
   const busy = pendingAction !== null
-  const approvalBlocked = (
-    blockApprovalForCapabilityGaps && (detail.plan.capability_gaps ?? []).length > 0
-  ) || unresolvedScenarioAssignments.length > 0
+  const approvalBlocked = unresolvedScenarioAssignments.length > 0
   const planNotice = detail.plan.degradation ? degradationCopy(detail.plan.degradation) : null
 
   const toggle = (skillId: string) => {
@@ -290,13 +286,9 @@ export function SkillPlanPreview({
         </section>
       ) : null}
       {error ? <p role="alert" className="mt-4 text-sm text-rose">{error}</p> : null}
-      {unresolvedScenarioAssignments.length > 0 ? (
+      {approvalBlocked ? (
         <p className="mt-4 text-xs leading-5 text-rose">
           请选择所有多义节点的场景归属，保存后才能批准计划。
-        </p>
-      ) : approvalBlocked ? (
-        <p className="mt-4 text-xs leading-5 text-rose">
-          必需能力尚未满足，当前计划不能批准。请先处理上方能力缺口。
         </p>
       ) : null}
 
