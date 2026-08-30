@@ -22,6 +22,7 @@ from agentmesh.models import (
     AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRunStatus,
+    CapabilityGapV1,
     SkillDefinition,
     SkillIntent,
     SkillIntentComplexity,
@@ -296,6 +297,13 @@ def test_all_blocked_universal_run_projects_safe_match_diagnostics(
         baseline,
         selectable_candidates=(),
         blocked_matches=(blocked,),
+        capability_gaps=(
+            CapabilityGapV1(
+                requirement_id="deliverable:research_plan",
+                label="Research plan",
+                diagnostics=("tool_grant_missing",),
+            ),
+        ),
         outcome_code="no_executable_skill",
     )
     universal_search.search = lambda *_args, **_kwargs: failed_search  # type: ignore[method-assign]
@@ -330,6 +338,8 @@ def test_all_blocked_universal_run_projects_safe_match_diagnostics(
     assert failed.error_code == "no_executable_skill"
     assert "Universal Preview Skill" in (failed.output_text or "")
     assert "tool_grant_missing" in (failed.output_text or "")
+    assert "Research plan" in (failed.output_text or "")
+    assert "deliverable:research_plan" in (failed.output_text or "")
 
 
 def test_routed_universal_preview_accepts_server_owned_scenario_assignment(tmp_path, monkeypatch) -> None:
