@@ -1358,6 +1358,35 @@ class AgentRuntimeService:
             routing_result=routing_result,
             task_catalog=self.universal_task_catalog,
         )
+        blocked_matches = tuple(
+            BlockedSkillMatchPublicV1(
+                skill_id=candidate.skill_id,
+                skill_name=candidate.skill_name,
+                title=candidate.title,
+                reason_codes=tuple(candidate.diagnostics),
+            )
+            for candidate in search_result.blocked_matches
+        )
+        self.repository.append_agent_run_event(
+            run.id,
+            "skill_search_completed",
+            {
+                "retrieval_policy_version": search_result.retrieval_policy_version,
+                "outcome_code": search_result.outcome_code,
+                "searchable_count": search_result.searchable_count,
+                "selectable_count": len(search_result.selectable_candidates),
+                "blocked_match_count": len(blocked_matches),
+                "blocked_matches": [
+                    blocked.model_dump(mode="json")
+                    for blocked in blocked_matches
+                ],
+                "candidate_ids": [
+                    candidate.skill_id
+                    for candidate in search_result.selectable_candidates
+                ],
+                "planning_mode": AgentPlanningMode.DEEPSEARCH.value,
+            },
+        )
         if search_result.outcome_code != "ok" or not search_result.selectable_candidates:
             raise PlanValidationError([search_result.outcome_code])
         candidate_snapshot = build_candidate_snapshot(search_result, self.repository)

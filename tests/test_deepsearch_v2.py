@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -292,7 +293,16 @@ def test_deepsearch_v2_persists_snapshot_before_planner_and_publishes_v2_artifac
         @staticmethod
         def search(**_kwargs):
             search_calls.append("search")
-            return search_result
+            blocked = candidate.model_copy(
+                update={
+                    "skill_id": "skill_blocked_deepsearch",
+                    "skill_name": "blocked-deepsearch",
+                    "title": "Blocked DeepSearch Skill",
+                    "ready": False,
+                    "diagnostics": ["tool_grant_missing"],
+                }
+            )
+            return replace(search_result, blocked_matches=(blocked,))
 
     draft_calls: list[list[str]] = []
 
@@ -372,6 +382,19 @@ def test_deepsearch_v2_persists_snapshot_before_planner_and_publishes_v2_artifac
     recovered = asyncio.run(runtime.recover_deepsearch_run(run.id))
     assert recovered is not None
     assert search_calls == ["search"]
+    search_event = next(
+        event
+        for event in repository.list_agent_run_events(run.id)
+        if event.event_type == "skill_search_completed"
+    )
+    assert search_event.payload["blocked_matches"] == [
+        {
+            "skill_id": "skill_blocked_deepsearch",
+            "skill_name": "blocked-deepsearch",
+            "title": "Blocked DeepSearch Skill",
+            "reason_codes": ["tool_grant_missing"],
+        }
+    ]
     assert len(draft_calls) == 3
     persisted_plan = repository.get_skill_plan_for_run(run.id)
     persisted_artifact = repository.get_artifact(artifact.id)
