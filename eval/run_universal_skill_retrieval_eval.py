@@ -245,6 +245,11 @@ def _stable_fake_similarity(left: str, right: str) -> float:
 class _FakeVectorRanker:
     def __init__(self, repository: SQLiteStore) -> None:
         self._repository = repository
+        self._profile_corpus = tuple(
+            (profile.skill_id, profile.search_text())
+            for profile in repository.skill_capability_profiles
+            if repository.get_skill_definition(profile.skill_id) is not None
+        )
 
     def __call__(
         self,
@@ -255,18 +260,15 @@ class _FakeVectorRanker:
         results: list[tuple[list[str], list[str], list[str]]] = []
         for query, (fts_ids, _vector_ids, diagnostics) in zip(queries, fts_batches, strict=True):
             scores: list[tuple[float, str]] = []
-            for profile in self._repository.skill_capability_profiles:
-                if profile.skill_id not in allowed_skill_ids:
-                    continue
-                skill = self._repository.get_skill_definition(profile.skill_id)
-                if skill is None:
+            for skill_id, search_text in self._profile_corpus:
+                if skill_id not in allowed_skill_ids:
                     continue
                 score = _stable_fake_similarity(
                     query,
-                    profile.search_text(),
+                    search_text,
                 )
                 if score >= SKILL_PROFILE_VECTOR_SIMILARITY_THRESHOLD:
-                    scores.append((score, profile.skill_id))
+                    scores.append((score, skill_id))
             scores.sort(key=lambda item: (-item[0], item[1]))
             safe_diagnostics = [item for item in diagnostics if item != "embedding_unavailable"]
             safe_diagnostics.append("fake_vector")

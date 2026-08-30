@@ -3,15 +3,56 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 from difflib import SequenceMatcher
+from types import SimpleNamespace
 
 import yaml
 
 from eval.run_universal_skill_retrieval_eval import (
     DEFAULT_DATASET,
+    _FakeVectorRanker,
     evaluate,
     load_cases,
     render_report,
 )
+
+
+def test_fake_vector_ranker_caches_profile_corpus_between_query_batches() -> None:
+    class CountingRepository:
+        def __init__(self) -> None:
+            self.profile_reads = 0
+            self.skill_reads = 0
+            self._profiles = [
+                SimpleNamespace(
+                    skill_id="skill_alpha",
+                    search_text=lambda: "market research analysis",
+                ),
+                SimpleNamespace(
+                    skill_id="skill_beta",
+                    search_text=lambda: "usability review findings",
+                ),
+            ]
+
+        @property
+        def skill_capability_profiles(self):  # noqa: ANN201
+            self.profile_reads += 1
+            return self._profiles
+
+        def get_skill_definition(self, _skill_id: str):  # noqa: ANN201
+            self.skill_reads += 1
+            return object()
+
+        @staticmethod
+        def rank_skill_profiles_batch(queries, _allowed_skill_ids):  # noqa: ANN001, ANN201
+            return [([], [], []) for _query in queries]
+
+    repository = CountingRepository()
+    ranker = _FakeVectorRanker(repository)  # type: ignore[arg-type]
+
+    ranker(["market analysis"], {"skill_alpha", "skill_beta"})
+    ranker(["usability findings"], {"skill_alpha", "skill_beta"})
+
+    assert repository.profile_reads == 1
+    assert repository.skill_reads == 2
 
 
 def test_phase1a_calibration_manifest_has_five_independent_cases_per_skill() -> None:
