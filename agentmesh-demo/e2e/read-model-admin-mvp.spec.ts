@@ -107,6 +107,7 @@ test('Team Lead can use granted Agent module but is denied unrelated Admin APIs'
   await page.goto('/admin')
   await expect(page.getByRole('heading', { name: '管理控制台' })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Agent 配置' })).toBeVisible()
+  await page.getByRole('button', { name: /^research_agent 公共/ }).click()
   await expect(page.getByRole('heading', { name: 'research_agent', exact: true })).toBeVisible()
   await expect(page.getByRole('tab', { name: '用户管理' })).toHaveCount(0)
   await expect(page.getByRole('tab', { name: 'Provider 与 O2' })).toHaveCount(0)
