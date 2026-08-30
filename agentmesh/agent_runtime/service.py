@@ -4935,9 +4935,13 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     # checkpoint recovery path. Its terminal/waiting result is
                     # observed and settled by a later pump pass above.
                     continue
+                configured_mode = skill_orchestration_mode()
                 if (
-                    receipt.operation_kind in {"standard_plan", "approved_plan"}
-                    and skill_orchestration_mode() is not SkillOrchestrationMode.EXECUTE
+                    receipt.operation_kind == "standard_plan"
+                    and configured_mode is SkillOrchestrationMode.OFF
+                ) or (
+                    receipt.operation_kind == "approved_plan"
+                    and configured_mode is not SkillOrchestrationMode.EXECUTE
                 ):
                     continue
                 user = self.repository.get_user(run.user_id)
@@ -4982,7 +4986,11 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                         content=run.input_text,
                         user=user,
                         history=history,
-                        mode=SkillOrchestrationMode(run.orchestration_mode),
+                        mode=(
+                            SkillOrchestrationMode.PREVIEW
+                            if configured_mode is SkillOrchestrationMode.PREVIEW
+                            else SkillOrchestrationMode(run.orchestration_mode)
+                        ),
                     )
                 elif receipt.operation_kind == "approved_plan":
                     plan = self.repository.get_skill_plan_for_run(run.id)

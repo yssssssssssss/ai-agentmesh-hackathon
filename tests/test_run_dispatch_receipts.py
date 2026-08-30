@@ -499,6 +499,61 @@ def test_pending_planned_dispatch_is_not_claimed_while_orchestration_is_off(
     assert stored is not None and stored.state is RunDispatchState.PENDING
 
 
+def test_pending_standard_plan_dispatch_recovers_in_preview_mode(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    repository = SQLiteStore(tmp_path / "dispatch-preview.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+    run = _run().model_copy(
+        update={
+            "user_id": USER.id,
+            "workspace_id": USER.workspace_id,
+            "project_id": USER.default_project_id,
+            "orchestration_mode": SkillOrchestrationMode.PREVIEW.value,
+        }
+    )
+    receipt = _receipt(run.id)
+    repository.claim_new_agent_run(run, dispatch=receipt)
+    runtime = AgentRuntimeService(
+        repository=repository,
+        model=ScriptedModel([]),
+        enabled=True,
+    )
+    monkeypatch.setattr(
+        runtime_service_module,
+        "skill_orchestration_mode",
+        lambda: SkillOrchestrationMode.PREVIEW,
+    )
+
+    async def complete_preview_plan(**kwargs):  # noqa: ANN003, ANN202
+        current = repository.get_agent_run(kwargs["run"].id)
+        assert current is not None
+        current.status = AgentRunStatus.WAITING_PLAN_APPROVAL
+        saved = repository.save_agent_run_with_event(
+            current,
+            "plan_waiting_approval",
+            {"recovered": True},
+            expected_statuses={AgentRunStatus.PLANNING},
+        )
+        assert saved is not None
+
+    runtime._prepare_orchestration = complete_preview_plan  # type: ignore[method-assign]
+
+    async def scenario() -> int:
+        scheduled = await runtime.recover_pending_dispatches()
+        await asyncio.gather(*runtime._tasks.values())
+        await asyncio.sleep(0)
+        return scheduled
+
+    assert asyncio.run(scenario()) == 1
+    stored = repository.get_run_dispatch(receipt.operation_key)
+    assert stored is not None and stored.state is RunDispatchState.SETTLED
+    recovered = repository.get_agent_run(run.id)
+    assert recovered is not None and recovered.status is AgentRunStatus.WAITING_PLAN_APPROVAL
+
+
 def test_dispatch_pump_drains_backlog_after_capacity_releases(tmp_path) -> None:
     repository = SQLiteStore(tmp_path / "dispatch-pump.sqlite3")
     ensure_base_workspace_data(repository)
