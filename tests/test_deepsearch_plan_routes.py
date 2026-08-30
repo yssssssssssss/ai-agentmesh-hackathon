@@ -383,6 +383,47 @@ def test_deepsearch_state_projects_scenario_assignment_options(
     assert projected.scenario_assignment_options == options
 
 
+def test_deepsearch_state_projects_blocked_matches_without_a_plan(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = SQLiteStore(tmp_path / "deepsearch-state-blocked.sqlite3")
+    run, _plan, candidates = _prepare_deepsearch_plan(repository, suffix="blocked")
+    _install_route_dependencies(monkeypatch, repository, candidates)
+    monkeypatch.setattr(deepsearch_routes, "store", repository)
+    repository.append_agent_run_event(
+        run.id,
+        "skill_search_completed",
+        {
+            "blocked_matches": [
+                {
+                    "skill_id": "skill_blocked",
+                    "skill_name": "blocked-skill",
+                    "title": "Blocked Skill",
+                    "reason_codes": ["tool_grant_missing"],
+                }
+            ]
+        },
+    )
+    state = DeepSearchStateResponse(
+        run=run.model_copy(
+            update={
+                "status": AgentRunStatus.FAILED,
+                "error_code": "no_executable_skill",
+            }
+        ),
+        active_requirement=None,
+        plan=None,
+    )
+
+    projected = deepsearch_routes._with_scenario_assignment_options(state)
+
+    assert [item.skill_id for item in projected.blocked_matches] == [
+        "skill_blocked"
+    ]
+    assert projected.blocked_matches[0].reason_codes == ("tool_grant_missing",)
+
+
 def test_deepsearch_plan_patch_writes_authoritative_next_snapshot_and_renews_ttl(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

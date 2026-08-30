@@ -127,20 +127,22 @@ def _conflict(error: DeepSearchRequirementConflict) -> HTTPException:
 def _with_scenario_assignment_options(
     state: DeepSearchStateResponse,
 ) -> DeepSearchStateResponse:
-    if state.plan is None:
-        return state
-    plan = store.get_skill_plan(state.plan.id)
-    if plan is None:
-        return state
     from agentmesh.routes.agent_runs import (
         _blocked_matches_view,
         _scenario_assignment_options_view,
     )
 
+    blocked_matches = _blocked_matches_view(state.run.id)
+    if state.plan is None:
+        return state.model_copy(update={"blocked_matches": blocked_matches})
+    plan = store.get_skill_plan(state.plan.id)
+    if plan is None:
+        return state.model_copy(update={"blocked_matches": blocked_matches})
+
     return state.model_copy(
         update={
             "scenario_assignment_options": _scenario_assignment_options_view(plan),
-            "blocked_matches": _blocked_matches_view(state.run.id),
+            "blocked_matches": blocked_matches,
         }
     )
 

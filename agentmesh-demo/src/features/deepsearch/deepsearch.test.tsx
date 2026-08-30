@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { deepSearchApi } from './api'
 import { DeepSearchReportView } from './DeepSearchEvidenceReport'
+import { DeepSearchWorkspace } from './DeepSearchWorkspace'
 import { activeDeepSearchStage, deepSearchAvailabilityMessage } from './presentation'
 import type { DeepSearchReport, DeepSearchState } from './types'
 
@@ -56,6 +57,59 @@ describe('DeepSearch presentation', () => {
       core_ready: true,
       reason_code: 'execution_unavailable',
     })).toContain('执行模式')
+  })
+
+  it('renders blocked matches when DeepSearch fails before creating a plan', () => {
+    const state = {
+      run: {
+        id: 'run-blocked',
+        status: 'failed',
+        input_text: 'Need unavailable research',
+        error_code: 'no_executable_skill',
+      },
+      active_requirement: null,
+      problem_graph: null,
+      plan: null,
+      evidence_coverage: null,
+      report_review: null,
+      retry_disposition: 'none',
+      blocked_matches: [{
+        skill_id: 'skill-blocked',
+        skill_name: 'blocked-skill',
+        title: 'Blocked research Skill',
+        reason_codes: ['tool_grant_missing'],
+      }],
+    } as DeepSearchState
+
+    const html = renderToStaticMarkup(
+      <DeepSearchWorkspace
+        state={state}
+        loading={false}
+        error={null}
+        skills={[]}
+        planPendingAction={null}
+        planError={null}
+        clarificationPending={false}
+        clarificationError={null}
+        report={undefined}
+        reportLoading={false}
+        reportError={null}
+        cancelling={false}
+        retrying={false}
+        onClarify={vi.fn()}
+        onUpdatePlan={vi.fn()}
+        onApprovePlan={vi.fn()}
+        onRejectPlan={vi.fn()}
+        onCancel={vi.fn()}
+        onRetry={vi.fn()}
+        onReviseGoal={vi.fn()}
+        onOpenToolApproval={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('相关能力当前不可执行')
+    expect(html).toContain('Blocked research Skill')
+    expect(html).toContain('缺少工具授权')
   })
 
   it('renders only the sealed report projection with partial and review labels', () => {

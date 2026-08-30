@@ -2,6 +2,7 @@ import { BrainCircuit, RotateCcw, Square, TriangleAlert } from 'lucide-react'
 
 import { SkillPlanPreview } from '../../components/workspace/SkillPlanPreview'
 import { SkillPlanProgress } from '../../components/workspace/SkillPlanProgress'
+import { blockedMatchReason } from '../../components/workspace/skillPlanPresentation'
 import { Button } from '../../components/ui/Button'
 import type {
   DeepSearchPlanDetailResponse,
@@ -149,6 +150,7 @@ export function DeepSearchWorkspace({
   const terminal = TERMINAL_STATUSES.has(run.status)
   const activeStage = activeDeepSearchStage(state)
   const mergedPlanDetail = planDetailFromAggregate(state)
+  const blockedMatches = state.blocked_matches ?? []
   const skillsById = new Map(skills.map((skill) => [skill.id, skill]))
   const finalizationStarted = state.plan?.finalization_stage !== undefined
     && state.plan.finalization_stage !== 'none'
@@ -191,6 +193,20 @@ export function DeepSearchWorkspace({
         <div className="mt-3 flex justify-end">
           <Button variant="danger" size="sm" loading={cancelling} onClick={onCancel}>取消 DeepSearch</Button>
         </div>
+      ) : null}
+
+      {!state.plan && blockedMatches.length > 0 ? (
+        <section aria-label="暂不可用的候选能力" className="mt-4 rounded-soft border border-white/[0.06] bg-surface-1 px-5 py-4 shadow-card">
+          <h2 className="text-sm font-semibold text-slate-200">相关能力当前不可执行</h2>
+          <ul className="mt-2 space-y-1.5">
+            {blockedMatches.map((candidate) => (
+              <li key={candidate.skill_id} className="text-xs leading-5 text-slate-400">
+                <span className="font-medium text-slate-200">{candidate.title}</span>
+                <span>：{blockedMatchReason(candidate.reason_codes ?? [])}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       <ProblemGraphSummary state={state} />
