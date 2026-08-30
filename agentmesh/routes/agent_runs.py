@@ -385,6 +385,20 @@ def _current_plan_candidates(
     return selected
 
 
+def _scenario_assignments_for_update(
+    plan,
+    request: SkillPlanUpdateRequest,
+) -> dict[str, str | None]:  # noqa: ANN001
+    selected_skill_ids = set(request.selected_skill_ids)
+    assignments = {
+        node.skill_id: node.scenario_id
+        for node in plan.nodes
+        if node.skill_id in selected_skill_ids and node.scenario_id is not None
+    }
+    assignments.update(request.scenario_assignments)
+    return assignments
+
+
 def _blocked_matches_view(run_id: str) -> list[BlockedSkillMatchPublicV1]:
     for event in reversed(store.list_agent_run_events(run_id)):
         if event.event_type != "skill_search_completed":
@@ -781,12 +795,7 @@ def update_agent_run_plan(
         )
         adjusted = adjust_plan(plan, request, candidates)
         if plan.candidate_snapshot is not None:
-            assignments = {
-                node.skill_id: node.scenario_id
-                for node in plan.nodes
-                if node.scenario_id is not None
-            }
-            assignments.update(request.scenario_assignments)
+            assignments = _scenario_assignments_for_update(plan, request)
             materialized = materialize_universal_draft(
                 draft=SkillPlanDraft(
                     output_contract=adjusted.output_contract,

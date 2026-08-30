@@ -35,6 +35,7 @@ from agentmesh.models import (
     SkillPlanNode,
     SkillPlanNodeStatus,
     SkillPlanStatus,
+    SkillPlanUpdateRequest,
     SkillPlanVersionRequest,
     SkillSideEffect,
     now_utc,
@@ -1012,6 +1013,46 @@ def test_orchestration_rechecks_project_access_after_intent(tmp_path) -> None:
     assert intent_calls == 1
     assert persisted is not None and persisted.status == AgentRunStatus.FAILED
     assert repository.get_skill_plan_for_run(run.id) is None
+
+
+def test_plan_update_drops_carried_assignment_for_removed_optional_node() -> None:
+    plan = SkillPlan(
+        id="plan_remove_assigned_optional",
+        run_id="run_remove_assigned_optional",
+        status=SkillPlanStatus.WAITING_APPROVAL,
+        intent=SkillIntent(goal="Keep only the required analysis"),
+        candidate_skill_ids=["skill_required", "skill_optional"],
+        preferred_order=["skill_required", "skill_optional"],
+        nodes=[
+            SkillPlanNode(
+                id="node_required",
+                skill_id="skill_required",
+                skill_version="1",
+                skill_content_hash="a" * 64,
+                reason="required",
+                required=True,
+                scenario_id="scenario-required",
+            ),
+            SkillPlanNode(
+                id="node_optional",
+                skill_id="skill_optional",
+                skill_version="1",
+                skill_content_hash="b" * 64,
+                reason="optional",
+                required=False,
+                scenario_id="scenario-optional",
+            ),
+        ],
+    )
+    request = SkillPlanUpdateRequest(
+        expected_version=plan.version,
+        selected_skill_ids=["skill_required"],
+        preferred_order=["skill_required"],
+    )
+
+    assignments = agent_run_routes._scenario_assignments_for_update(plan, request)
+
+    assert assignments == {"skill_required": "scenario-required"}
 
 
 def test_plan_approval_is_rejected_without_mutation_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
