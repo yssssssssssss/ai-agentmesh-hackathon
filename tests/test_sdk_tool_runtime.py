@@ -167,6 +167,108 @@ def test_ungranted_tool_is_hidden_and_never_executes(tmp_path) -> None:
     assert "web_research" not in {tool.name for tool in first_call.tools}
 
 
+def test_wiki_imported_skill_tools_are_fail_closed_without_mappable_declarations(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    factory = AgentMeshToolFactory(repository)
+    imported = SkillDefinition(
+        id="skill_wiki_import_tools",
+        name="wiki-import-tools",
+        title="Wiki import tools",
+        description="Imported Skill tool policy",
+        instructions="Use only explicitly mapped AgentMesh tools.",
+        source_path="tests/wiki-import-tools/SKILL.md",
+        source_scope=SkillSourceScope.BUILTIN,
+        content_hash="wiki-import-tools-hash",
+        metadata={"agentmesh-wiki-import": "True"},
+    )
+
+    assert factory.build(USER, imported) == []
+    assert {tool.name for tool in factory.build(
+        USER,
+        imported.model_copy(update={"requested_tools": ["data_query"]}),
+    )} == {"data_query"}
+    assert factory.build(
+        USER,
+        imported.model_copy(update={"requested_tools": ["Bash"]}),
+    ) == []
+    assert factory.build(
+        USER,
+        imported.model_copy(update={"requested_tools": ["web_research"]}),
+    ) == []
+
+    ordinary = imported.model_copy(update={"id": "skill_ordinary_tools", "metadata": {}})
+    assert {tool.name for tool in factory.build(USER, ordinary)} == {"data_query", "memory_search"}
+
+
+def test_user_granted_read_only_web_tool_does_not_require_per_call_approval(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_read_only_web",
+            agent_id=USER.personal_agent_id,
+            tool_id="tool_web_research",
+            granted_by=USER.id,
+        )
+    )
+    calls: list[str] = []
+
+    class GatewayStub:
+        @staticmethod
+        def handlers():
+            def web_research(_context, arguments):  # noqa: ANN001, ANN202
+                calls.append(str(arguments["query"]))
+                return {
+                    "title": "Research result",
+                    "content": "Verified evidence",
+                    "sources": [],
+                    "source_evidence": [],
+                    "provider_calls": [],
+                    "permission": "public",
+                    "metadata": {},
+                }
+
+            return {"web_research": web_research}
+
+    skill = SkillDefinition(
+        id="skill_granted_read",
+        name="granted-read",
+        title="Granted read",
+        description="Uses a user-granted read-only tool",
+        instructions="Use web_research, then summarize the result.",
+        source_path="tests/granted-read/SKILL.md",
+        source_scope=SkillSourceScope.BUILTIN,
+        content_hash="granted-read-hash",
+        requested_tools=["web_research"],
+    )
+    model = ScriptedModel(
+        [
+            [function_call("web_research", {"query": "current market"}, call_id="web_read")],
+            [assistant_message("Research completed without a second approval.")],
+        ]
+    )
+    runtime = AgentRuntimeService(
+        repository,
+        model=model,
+        enabled=True,
+        tool_factory=AgentMeshToolFactory(repository, gateway=GatewayStub()),  # type: ignore[arg-type]
+    )
+
+    answer = runtime.run_sync(
+        content="Research the current market",
+        user=USER,
+        thread_id="thread_granted_read_tool",
+        history=[],
+        skill=skill,
+    )
+
+    assert answer.waiting_approval is False
+    assert answer.content == "Research completed without a second approval."
+    assert calls == ["current market"]
+    assert "approval_requested" not in _core_event_types(repository, answer.run_id or "")
+    assert any(event.action == "sdk_tool_completed" for event in repository.audit_events)
+    model.assert_complete()
+
+
 def test_rejected_approval_resumes_without_executing_tool(tmp_path) -> None:
     repository = _repository(tmp_path)
     repository.save_agent_tool_grant(

@@ -19,7 +19,8 @@ from agentmesh.marketplace import (
 )
 from agentmesh.model_registry import ensure_model_seed_data
 from agentmesh.permissions import ensure_permission_policy_seed_data
-from agentmesh.research_orchestration.runtime import build_research_runtime
+from agentmesh.research_orchestration.v2_artifact_history import V2ArtifactHistoryReader
+from agentmesh.research_orchestration.v2_history import V2HistoryAdapter
 from agentmesh.research_orchestration.v3.composition import ResearchV3PreviewComposition
 from agentmesh.risk import ensure_risk_policy_seed_data
 from agentmesh.routes.agent_runs import router as agent_runs_router
@@ -55,7 +56,7 @@ from agentmesh.seed import (
     ensure_graph_demo_data,
     ensure_initial_blackboard_data,
 )
-from agentmesh.skill_runtime.service import catalog_service, ensure_skill_catalog
+from agentmesh.skill_runtime.service import ensure_skill_catalog
 from agentmesh.store import SQLiteStore, store
 from agentmesh.tools import ensure_tool_seed_data
 
@@ -84,10 +85,9 @@ def initialize_application_data(repository: SQLiteStore) -> None:
 async def lifespan(app: FastAPI):
     initialize_application_data(store)
     research_preview_allowlist()
-    research_runtime = build_research_runtime(store, catalog_service())
+    research_v2_history_reader = V2HistoryAdapter(store, V2ArtifactHistoryReader(store))
     research_v3_preview = ResearchV3PreviewComposition(store)
-    await research_runtime.start()
-    app.state.research_runtime = research_runtime
+    app.state.research_v2_history_reader = research_v2_history_reader
     app.state.research_v3_preview = research_v3_preview
     try:
         await start_auto_post_worker()
@@ -104,14 +104,11 @@ async def lifespan(app: FastAPI):
             await stop_daily_memory_worker()
             await stop_auto_post_worker()
         finally:
-            try:
-                await research_runtime.shutdown()
-            finally:
-                if getattr(app.state, "research_runtime", None) is research_runtime:
-                    del app.state.research_runtime
-                if getattr(app.state, "research_v3_preview", None) is research_v3_preview:
-                    del app.state.research_v3_preview
-                await asyncio.to_thread(ingestion_service.shutdown)
+            if getattr(app.state, "research_v2_history_reader", None) is research_v2_history_reader:
+                del app.state.research_v2_history_reader
+            if getattr(app.state, "research_v3_preview", None) is research_v3_preview:
+                del app.state.research_v3_preview
+            await asyncio.to_thread(ingestion_service.shutdown)
 
 
 app = FastAPI(title="AgentMesh", version="0.1.0", lifespan=lifespan)

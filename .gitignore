@@ -28,6 +28,10 @@ agentmesh-demo/openapi.json
 .worktrees/
 .superpowers/
 
+# Local source corpora; normalized Skill snapshots live under agentmesh/builtin_skills.
+/2C-DesignWiki/
+/wiki/
+
 # React frontend dependencies and build artifacts
 agentmesh-demo/node_modules/
 agentmesh-demo/dist/

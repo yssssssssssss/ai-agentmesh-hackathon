@@ -1,4 +1,4 @@
-export type WorkspaceToolId = 'aesthetic-quant' | 'experience-model'
+export type WorkspaceToolId = 'skill-recommender' | 'aesthetic-quant' | 'experience-model'
 
 export type AestheticProfile = 'balanced' | 'readability_first' | 'marketing_impact'
 export type AestheticDepth = 'lite' | 'standard' | 'deep'

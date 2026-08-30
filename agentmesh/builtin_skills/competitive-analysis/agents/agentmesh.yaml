@@ -2,6 +2,7 @@ skill_id: auto
 skill_version: "1"
 skill_content_hash: 4fc52941c57f92f8f869ca846c469b18b1dc91c43ee91071933e0a6c26778e1a
 profile_version: "1"
+display_description: 分析竞品或同行怎么做，结合竞品素材与我方定位比较策略、体验差异和威胁，输出跟进判断与行动建议。
 primary_stage: pre_design
 lifecycle_tags: [pre_design, during_design]
 capability_type: research

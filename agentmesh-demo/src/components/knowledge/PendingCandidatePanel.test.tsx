@@ -54,12 +54,12 @@ describe('PendingCandidatePanel tool approvals', () => {
       { callId: 'call-b', name: 'save_draft', argumentKeys: ['content', 'title'] },
     ]))
 
-    expect(html).toContain('非 Plan Approval')
-    expect(html).toContain('不是 Plan Approval')
+    expect(html).toContain('单次工具确认')
+    expect(html).toContain('Skill 内已获用户授权的常规只读工具不会重复询问')
     expect(html).toContain('data-tool-call-id="call-a"')
     expect(html).toContain('data-tool-call-id="call-b"')
-    expect(html.match(/批准此调用/g)).toHaveLength(2)
-    expect(html.match(/拒绝此调用/g)).toHaveLength(2)
+    expect(html.match(/允许本次操作/g)).toHaveLength(2)
+    expect(html.match(/拒绝本次操作/g)).toHaveLength(2)
     expect(html).not.toContain('稍后处理整组调用')
     expect(html).not.toContain('标记已解决')
   })
@@ -68,7 +68,7 @@ describe('PendingCandidatePanel tool approvals', () => {
     const html = render(toolApprovalItem([]))
 
     expect(html).toContain('审批详情缺少可用的 call_id，无法安全处理')
-    expect(html).not.toContain('批准此调用')
-    expect(html).not.toContain('拒绝此调用')
+    expect(html).not.toContain('允许本次操作')
+    expect(html).not.toContain('拒绝本次操作')
   })
 })

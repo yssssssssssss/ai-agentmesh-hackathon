@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agentmesh.models import Intent, MemorySearchScope
+from agentmesh.models import (
+    Intent,
+    MemorySearchScope,
+    SkillActivationPolicy,
+    SkillCapabilityType,
+    SkillLifecycleStage,
+    SkillSourceScope,
+)
 
 
 @dataclass(frozen=True)
@@ -20,7 +27,9 @@ class ChatSkillSpec:
     memory_search_scope: MemorySearchScope | None = None
 
     def to_public_dict(self) -> dict[str, object]:
+        stable_name = self.command.removeprefix("$").replace(".", "-")
         return {
+            "id": f"legacy-{stable_name}",
             "command": self.command,
             "title": self.title,
             "description": self.description,
@@ -28,6 +37,20 @@ class ChatSkillSpec:
             "placeholder": self.placeholder,
             "aliases": list(self.aliases),
             "requires_input": self.requires_input,
+            "source": SkillSourceScope.BUILTIN.value,
+            "version": "1",
+            "activation_policy": SkillActivationPolicy.EXPLICIT_ONLY.value,
+            "enabled": True,
+            "binding_enabled": True,
+            "planner_eligible": False,
+            "readiness": "ready",
+            "execution_readiness": "complete",
+            "missing_tools": [],
+            "primary_stage": SkillLifecycleStage.PLATFORM.value,
+            "capability_type": SkillCapabilityType.PLATFORM.value,
+            "input_kinds": [],
+            "output_kinds": [],
+            "side_effect": None,
             "memory_search_scope": self.memory_search_scope.value if self.memory_search_scope else None,
         }
 
@@ -167,4 +190,3 @@ def parse_chat_skill_invocation(content: str) -> ChatSkillInvocation | None:
     command, _, argument = text.partition(" ")
     spec = _SKILL_BY_COMMAND.get(command)
     return ChatSkillInvocation(command=command, argument=argument.strip(), spec=spec)
-

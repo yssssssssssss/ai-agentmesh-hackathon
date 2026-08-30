@@ -9,9 +9,10 @@ AGENTMESH_SKILL_ORCHESTRATION=off
 AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST=
 research_writer_control.active_generation=research-v2
 research_writer_control.generation_epoch=1
+research_writer_control.lifecycle_state=retired
 ```
 
-Do not change the production `research_writer_control` row. Gate 2 does not authorize production research-v3 Runs, real Provider calls, research-v2 retirement, deployment, or cutover.
+Do not change the production `research_writer_control` row. Gate 2 does not authorize production research-v3 Runs, real Provider calls, deployment, or cutover. Research-v2 is already retired and remains readable only through its history adapter.
 
 ## What preview can do
 
@@ -55,7 +56,6 @@ Start the isolated backend:
 ```bash
 AGENTMESH_DB_PATH="$GATE2_DB" \
 AGENTMESH_DEMO_MODE=1 \
-AGENTMESH_AGENT_RUNTIME=v2 \
 AGENTMESH_SKILL_ORCHESTRATION=preview \
 AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST=usr_current_designer \
 .venv/bin/python -m uvicorn agentmesh.app:app --port 8022
@@ -111,7 +111,6 @@ Stop the isolated backend and restart it with:
 ```bash
 AGENTMESH_DB_PATH="$GATE2_DB" \
 AGENTMESH_DEMO_MODE=1 \
-AGENTMESH_AGENT_RUNTIME=v2 \
 AGENTMESH_SKILL_ORCHESTRATION=off \
 AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST= \
 .venv/bin/python -m uvicorn agentmesh.app:app --port 8022
@@ -133,7 +132,7 @@ rm -f "$GATE2_DB" "$GATE2_DB-wal" "$GATE2_DB-shm"
 
 ## Stale-writer fence
 
-The SQLite `research_writer_generation_fence` trigger rejects a stale research-v2 process that attempts to insert a new research-v2 AgentRun after the control row has advanced to research-v3. Application code also checks generation and epoch inside the creation transaction. Client-turn replay is checked first and continues returning the original persisted version.
+The SQLite `research_writer_admission_fence_v2` trigger rejects a stale process that attempts to insert a new research AgentRun unless lifecycle, generation, and epoch all match the active control row. Application code repeats the lifecycle, generation, and epoch checks inside the creation transaction. Client-turn replay is checked first and may return an existing historical v2 record, but no v2 continuation path exists.
 
 ## Failure interpretation
 

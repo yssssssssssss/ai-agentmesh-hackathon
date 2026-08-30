@@ -111,7 +111,13 @@ class SkillCandidateRetriever:
         for tool_reference in profile.required_tools:
             if not self._tool_granted(user, tool_reference):
                 diagnostics.append(f"{tool_reference}_not_granted")
-        return diagnostics
+        supported_tools = self.catalog.supported_tool_names()
+        for tool_reference in skill.requested_tools:
+            if tool_reference not in supported_tools:
+                diagnostics.append(f"{tool_reference}_unavailable")
+            elif not self._tool_granted(user, tool_reference):
+                diagnostics.append(f"{tool_reference}_not_granted")
+        return list(dict.fromkeys(diagnostics))
 
     def eligible(self, user: User, intent: SkillIntent) -> tuple[list[EligibleSkill], list[str]]:
         diagnostics: list[str] = []

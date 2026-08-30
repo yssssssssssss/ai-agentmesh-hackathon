@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any, Literal
@@ -16,8 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agentmesh.research_orchestration.contracts import (
     ExecutionPlanVersion,
     ProblemContract,
-    RequirementVersion,
-    ResearchTaskV2,
     Sha256Hex,
     canonical_json_bytes,
     canonical_sha256,
@@ -222,29 +220,6 @@ class CompetitiveCapabilitySnapshot(BaseModel):
         return self
 
 
-def tool_actor_output_schema(skill_input_schema: dict[str, Any]) -> dict[str, Any]:
-    evidence_inputs = skill_input_schema.get("properties", {}).get("evidence_inputs")
-    if not isinstance(evidence_inputs, dict):
-        raise ValueError("Skill input schema does not define evidence_inputs")
-    return {
-        "type": "object",
-        "required": ["evidence_inputs", "evidence_manifest_ref"],
-        "properties": {
-            "evidence_inputs": copy.deepcopy(evidence_inputs),
-            "evidence_manifest_ref": {
-                "type": "object",
-                "required": ["artifact_id", "content_hash"],
-                "properties": {
-                    "artifact_id": {"type": "string", "minLength": 1, "maxLength": 120},
-                    "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-                },
-                "additionalProperties": False,
-            },
-        },
-        "additionalProperties": False,
-    }
-
-
 class PlanActorType(StrEnum):
     TOOL = "tool"
     SKILL = "skill"
@@ -329,37 +304,6 @@ class ExecutionPlanBody(BaseModel):
         ):
             raise ValueError("step schema hashes differ from the frozen actors")
         return self
-
-
-def _build_step(**payload: Any) -> PlanStepContract:
-    return PlanStepContract(**payload, contract_hash=canonical_sha256(payload))
-
-
-def _build_research_query(task: ResearchTaskV2) -> str:
-    parts = [task.research_goal.strip()]
-    if task.competitor_scope and task.competitor_scope not in task.research_goal:
-        parts.append(f"竞品范围：{task.competitor_scope}")
-    if task.analysis_dimensions:
-        parts.append(f"分析维度：{'、'.join(task.analysis_dimensions)}")
-    return "\n".join(parts)[:4000]
-
-
-def _build_question_queries(task: ResearchTaskV2) -> list[dict[str, object]]:
-    scope = (task.competitor_scope or task.research_goal).strip()
-    if not task.analysis_dimensions:
-        return [
-            {
-                "query": f"{scope} 官方文档 产品能力 适用场景 局限 来源"[:4000],
-                "question_ids": ["q_evidence_comparison", "q_scenarios"],
-            }
-        ]
-    return [
-        {
-            "query": f"{scope} {dimension} 官方文档 功能 支持 限制"[:4000],
-            "question_ids": ["q_evidence_comparison", "q_scenarios"],
-        }
-        for dimension in task.analysis_dimensions[:3]
-    ]
 
 
 def _schema_error(document: FrozenDocument) -> bool:
@@ -474,170 +418,6 @@ def _plan_contract_errors(body: ExecutionPlanBody) -> list[str]:
     return list(dict.fromkeys(errors))
 
 
-class CompetitivePlanCompiler:
-    def compile(
-        self,
-        requirement: RequirementVersion,
-        snapshot: CompetitiveCapabilitySnapshot,
-        *,
-        plan_version: int,
-        now: datetime | None = None,
-    ) -> ExecutionPlanVersion:
-        effective_now = now or datetime.now(UTC)
-        errors = self._eligibility_errors(requirement, snapshot, now=effective_now)
-        if errors:
-            raise PlanCompileError(*errors)
-        task = ResearchTaskV2.model_validate(requirement.payload["requirement"])
-        problem_contract = ProblemContract.model_validate(requirement.payload["problem_contract"])
-        tool_step = _build_step(
-            step_number=1,
-            name="Research external evidence",
-            actor_type=PlanActorType.TOOL,
-            actor_id=snapshot.tool.tool_id,
-            question_ids=["q_evidence_comparison", "q_scenarios"],
-            depends_on=[],
-            initial_input={
-                "query": _build_research_query(task),
-                "question_queries": _build_question_queries(task),
-            },
-            input_bindings=[],
-            expected_outputs=["sealed_evidence_manifest"],
-            acceptance_criteria=[
-                "Provider payload matches the frozen raw Tool schema",
-                "host publishes only verified EvidenceSource Artifact references",
-            ],
-            required=True,
-            approval_required=snapshot.tool.approval_required,
-            timeout_seconds=snapshot.tool.timeout_seconds,
-            max_sends=2,
-            invocation_semantics="read_replayable",
-            actor_snapshot_hash=canonical_sha256(snapshot.tool),
-            input_schema_hash=snapshot.tool.input_schema.content_hash,
-            output_schema_hash=snapshot.tool.published_output_schema.content_hash,
-        )
-        skill_step = _build_step(
-            step_number=2,
-            name="Build competitive analysis",
-            actor_type=PlanActorType.SKILL,
-            actor_id=snapshot.skill.skill_id,
-            question_ids=[question.id for question in problem_contract.questions],
-            depends_on=[1],
-            initial_input={
-                "research_goal": task.research_goal,
-                "competitor_scope": task.competitor_scope,
-                "own_product_context": None,
-                "analysis_dimensions": task.analysis_dimensions,
-            },
-            input_bindings=[
-                PlanInputBinding(
-                    source_step=1,
-                    source_pointer="/evidence_inputs",
-                    target_pointer="/evidence_inputs",
-                )
-            ],
-            expected_outputs=["competitive_analysis_draft"],
-            acceptance_criteria=[
-                "output matches the frozen Skill schema",
-                "factual statements cite only supplied evidence IDs",
-            ],
-            required=True,
-            approval_required=False,
-            timeout_seconds=120,
-            max_sends=1,
-            invocation_semantics="skill_once",
-            actor_snapshot_hash=canonical_sha256(snapshot.skill),
-            input_schema_hash=snapshot.skill.input_schema.content_hash,
-            output_schema_hash=snapshot.skill.output_schema.content_hash,
-        )
-        body = ExecutionPlanBody(
-            requirement_version_id=requirement.id,
-            requirement_content_hash=requirement.content_hash,
-            problem_contract=problem_contract,
-            steps=[tool_step, skill_step],
-            control_snapshot=snapshot,
-        )
-        contract_errors = _plan_contract_errors(body)
-        if contract_errors:
-            raise PlanCompileError(*contract_errors)
-        payload = body.model_dump(mode="json")
-        return ExecutionPlanVersion(
-            run_id=requirement.run_id,
-            requirement_version_id=requirement.id,
-            version=plan_version,
-            schema_version=body.schema_version,
-            plan_hash=canonical_sha256(payload),
-            payload=payload,
-        )
-
-    @staticmethod
-    def _eligibility_errors(
-        requirement: RequirementVersion,
-        snapshot: CompetitiveCapabilitySnapshot,
-        *,
-        now: datetime,
-    ) -> list[str]:
-        errors: list[str] = []
-        if now.tzinfo is None or now.utcoffset() is None:
-            return ["clock_not_timezone_aware"]
-        if canonical_sha256(requirement.payload) != requirement.content_hash:
-            return ["requirement_hash_mismatch"]
-        try:
-            task = ResearchTaskV2.model_validate(requirement.payload["requirement"])
-            problem_contract = ProblemContract.model_validate(requirement.payload["problem_contract"])
-        except (KeyError, ValueError, TypeError):
-            return ["requirement_contract_invalid"]
-        criterion_ids = [criterion.id for criterion in task.success_criteria]
-        if criterion_ids != problem_contract.success_criterion_ids:
-            errors.append("requirement_problem_contract_mismatch")
-        if any(item.blocking for item in task.ambiguities):
-            errors.append("requirement_blocked")
-        skill = snapshot.skill
-        if not skill.enabled or not skill.binding_enabled or not skill.planner_eligible:
-            errors.append("skill_not_eligible")
-        if task.task_type not in skill.task_types or task.task_archetype not in skill.archetypes:
-            errors.append("skill_task_mismatch")
-        if snapshot.tool.tool_id not in skill.required_tools:
-            errors.append("required_tool_not_frozen")
-        if "wiki.corpus" not in skill.required_resources:
-            errors.append("required_resource_not_frozen")
-        if not skill.produces_factual_claims or skill.report_policy != "default":
-            errors.append("skill_policy_mismatch")
-        errors.extend(_profile_snapshot_errors(skill))
-        if any(
-            _schema_error(document)
-            for document in (skill.input_schema, skill.output_schema, snapshot.deliverable_contract)
-        ):
-            errors.append("skill_control_document_invalid")
-
-        model_policy = getattr(snapshot, "model_policy", None)
-        if model_policy is None or not model_policy.requested_model_id.strip():
-            errors.append("model_policy_not_frozen")
-        elif not model_policy.adapter_compatibility_id.strip():
-            errors.append("model_adapter_compatibility_not_frozen")
-
-        tool = snapshot.tool
-        if not tool.enabled or not tool.granted:
-            errors.append("tool_not_authorized")
-        if tool.execution_mode != "real":
-            errors.append("tool_not_real")
-        if tool.health_state != "healthy":
-            errors.append("tool_unhealthy")
-        checked_at = tool.health_checked_at.astimezone(UTC)
-        current = now.astimezone(UTC)
-        if checked_at - current > timedelta(seconds=5):
-            errors.append("tool_health_from_future")
-        elif current - checked_at > timedelta(seconds=tool.health_ttl_seconds):
-            errors.append("tool_health_stale")
-        if tool.side_effect != "read" or tool.evidence_class != "provider_summary":
-            errors.append("tool_manifest_mismatch")
-        if any(
-            _schema_error(document)
-            for document in (tool.input_schema, tool.output_schema, tool.published_output_schema)
-        ):
-            errors.append("tool_schema_invalid")
-        return list(dict.fromkeys(errors))
-
-
 def validate_execution_plan_version(plan: ExecutionPlanVersion) -> ExecutionPlanBody:
     if canonical_sha256(plan.payload) != plan.plan_hash:
         raise PlanCompileError("plan_hash_mismatch")
@@ -649,7 +429,3 @@ def validate_execution_plan_version(plan: ExecutionPlanVersion) -> ExecutionPlan
     if errors:
         raise PlanCompileError(*errors)
     return body
-
-
-def recompute_plan_hash(plan: ExecutionPlanVersion) -> str:
-    return canonical_sha256(plan.payload)

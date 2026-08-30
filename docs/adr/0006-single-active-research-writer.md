@@ -4,6 +4,8 @@
 
 Accepted on 2026-08-21 by interim owner `@heyunshen` for **Gate 0, isolated Slice 1, and dormant Gate 2 preview composition only**. Gate 2 may install additive generation fencing, stored-version dispatch, and provider-free preview code while production remains `off` with research-v2 as the control-row generation. This acceptance does not authorize production v3 traffic, a control-row change, allowlist population, Provider calls, research-v2 retirement, merge, push, or deployment. Production cutover remains blocked on a separate decision by distinct `AM-ARCH` and `AM-RELEASE-QA` individuals.
 
+Amended on 2026-08-25 for completed v2 retirement: the durable Writer lifecycle is `retired`. The executable research-v2 writer and every continuation path have been removed; existing v2 Runs are available only through the frozen read adapter. This amendment does not activate research-v3 or delete historical data.
+
 ## Context
 
 AgentMesh currently persists `v1` and `research-v2` Runs. The proposed ai-x parity mainline will eventually persist a distinct current-generation value, `research-v3`, without changing the meaning of existing payloads. A migration design that lets cohorts create new v2 and v3 research Runs at the same time would leave two production research writers and make fallback, catalog identity, and rollback ambiguous.
@@ -18,7 +20,7 @@ The terms in this decision are intentionally narrow:
 - **reader**: an owner-scoped projector/decoder that never schedules work;
 - **purger**: the owner-authorized tombstone path that removes retained content while preserving required audit facts.
 
-Readers, purgers, narrow settlement, and bounded continuations are not new-Run writers. They still require explicit version dispatch and least authority.
+Readers, purgers, narrow settlement, and bounded continuations are not new-Run writers. They still require explicit version dispatch and least authority. In the completed `research-v2 / retired` state, only the reader remains installed; v2 purge, settlement, and continuation mutations are unavailable.
 
 ## Decision
 
@@ -45,11 +47,21 @@ Production has at most one active research writer generation globally. This cano
 
 Replay by `client_turn_id` precedes live routing and always returns the persisted version. Slice 1 enables only Competitive Text research, not all five future task types. An allowlist controls preview versus execution, never v2 versus v3. `off` means no new versioned research Workflow or research claims; routing an ordinary request to v1 does not make v1 the current research writer.
 
-The Slice 1 implementation was validated in isolation while production continued to route eligible research to v2. Gate 2 adds a dormant composition only: `research_writer_control` remains seeded to research-v2 epoch 1, the preview allowlist remains empty, and no production request can create a v3 Run under the approved defaults. Production changes only through a **separate, jointly approved atomic cutover**. At that cutover, all new eligible Competitive Runs switch together: after cutover v2 cannot create a new Run.
+The singleton control row also carries a lifecycle independent of the generation name:
+
+| Lifecycle | New research Run | Existing Run continuation |
+| --- | --- | --- |
+| `active` | allowed for the matching generation and epoch | allowed |
+| `draining` | fenced | allowed so old work can reach a safe terminal state |
+| `retired` | fenced | disabled; historical Runs and Artifacts are read-only |
+
+Lifecycle transitions are durable compare-and-swap updates. The current default and migration target is `research-v2 / retired`; no environment variable or compatibility test can reopen admission. Moving to research-v3 is a separate generation transition and atomically establishes its own `active` lifecycle.
+
+The Slice 1 implementation was validated in isolation while production continued to route eligible research to v2. Gate 2 added a dormant composition only, with the preview allowlist empty and no production request able to create a v3 Run. The completed 2026-08-25 retirement advanced the control row to `research-v2 / retired / epoch 2`; moving to research-v3 still requires a **separate, jointly approved atomic cutover**.
 
 ### Immutable routing and durable fencing
 
-The client-turn receipt, immutable orchestration version, active-writer generation, and Run creation must be checked and persisted in one SQLite transaction. A stale process cannot create a Run for a retired generation. Continuation and read dispatch use the Run's stored version, not the current routing mode.
+The client-turn receipt, immutable orchestration version, active-writer generation, lifecycle, epoch, and Run creation must be checked and persisted in one SQLite transaction. A SQLite trigger independently rejects a new research Run unless all three control values match and the lifecycle is `active`. Before retirement, existing Run IDs were excluded from that insert fence so a bounded drain could finish. In the retired state no v2 continuation or settlement mutation remains; historical reads dispatch by the Run's stored version.
 
 A selected writer failure is explicit. Missing Runtime, catalog, core Tool, contract, or active-generation agreement must fail closed; it must not silently fall back to v2, v1, a mock Tool, or a different Provider. `off` routing to v1 is an explicit server policy, not an error fallback.
 
@@ -75,14 +87,14 @@ The ai-x names `research-task-v2` / `ResearchTaskV2`, `current-execution-plan` /
 
 Decoder dispatch starts with the Run's stored orchestration version and then requires the exact matching schema discriminator. A `research-v2` Run rejects either v3 identity; a `research-v3` Run rejects either v2 identity. Dispatch by payload shape is forbidden. `RequirementVersion.schema_version`, `ExecutionPlanVersion.schema_version`, payload discriminators, registry keys, and JSON Schema `$id` values must agree with their generation. Existing v2 rows, payloads, hashes, fixtures, and Artifact contents are never rewritten.
 
-During the bounded drain, a v2 continuation may act only on a persisted v2 Run and only within the pre-approved old command semantics. After drain, v2 is historical-only: no new Run, Plan, Attempt, claim, send, approval, retry, or recovery work may be created. The remaining mutation exceptions are honest terminal settlement for already-SENT calls, integrity/audit bookkeeping, and owner-authorized tombstone purge.
+During the bounded drain, a v2 continuation could act only on a persisted v2 Run and only within the pre-approved old command semantics. The drain is complete. V2 is now historical-only: no new Run, Plan, Attempt, claim, send, approval, retry, recovery, settlement, repair, or purge mutation is available. Physical deletion requires a separate explicit authorization and implementation.
 
 A `V2HistoryAdapter` must preserve the decoder and verified Artifact dependency closure required for:
 
 - Requirement, Workflow, Plan, Attempt, Step, Invocation, and model/tool receipts;
 - frozen Skill, Tool, model, resource, Evidence Policy, rubric, and template snapshots;
 - Evidence, Claim Ledger, Deliverable, Review, Report, and v2 events;
-- owner/project/workspace scoping, hash verification, corruption handling, restart reads, and purge.
+- owner/project/workspace scoping, hash verification, corruption handling, and restart reads.
 
 "Retire" means removal from the new-Run writer path. It does not authorize deleting contracts, Store rows, projections, or Artifact readers required by history.
 
@@ -98,15 +110,15 @@ The combined historical set is exactly those thirteen identities. The current se
 
 ### Runtime ownership
 
-FastAPI continues to own one lifespan-scoped `ResearchRuntime`; SQLite remains authoritative. The future composition root separates authorities conceptually:
+FastAPI no longer constructs a research-v2 `ResearchRuntime`; SQLite remains authoritative. The current composition root separates authorities as follows:
 
 ```text
-active_writer: ResearchWriter | None
-continuations: {stored_version -> ExistingRunContinuation}
-readers: {stored_version -> ResearchProjectionReader}
+active_writer: None
+continuations: {}
+readers: {research-v2 -> V2HistoryAdapter}
 ```
 
-This is not permission to add a second Runtime or a module global. GET and SSE remain pure reads. Runtime background Tasks remain disposable mechanisms reconstructed from durable state.
+This is not permission to add a second Runtime or a module global. Historical GET projections remain pure reads, and no v2 background Task is reconstructed.
 
 ### Safe deletion gate
 
@@ -119,7 +131,7 @@ v2 writer code may be deleted only when all of the following are attested:
 - no v2 Runtime background Task;
 - no STAGING v2 Artifact or unsettled model/tool receipt;
 - a frozen historical database fixture decodes without importing writer services;
-- owner hiding, integrity failure, restart read, purge/tombstone, and `off` rollback compatibility tests pass;
+- owner hiding, integrity failure, restart read, mutation rejection, and `off` rollback compatibility tests pass;
 - the v2 history renderer mounts no mutation controls;
 - retention, audit, architecture, and release owners approve deletion.
 
@@ -134,9 +146,9 @@ Gate records use the following accountable owner IDs. The user approved one temp
 | `AX-SOURCE` | `@heyunshen` | immutable source identity, source approval, source quality, durable retention, source visual-fixture provenance |
 | `AM-ARCH` | `@heyunshen` | ADR, schema namespace, owner registry, single-writer and cutover decision |
 | `AM-CONTRACTS-HISTORY` | `@heyunshen` | v3 contracts, source adapter, immutable v2 decoder and historical database fixture |
-| `AM-RUNTIME-STORE` | `@heyunshen` | atomic writer fence, v2 continuation, drain and retirement checks |
+| `AM-RUNTIME-STORE` | `@heyunshen` | atomic writer fence, completed drain and retirement checks |
 | `AM-WEB` | `@heyunshen` | source baselines and stored-version-specific renderers |
-| `AM-SECURITY-RETENTION` | `@heyunshen` | owner scope, integrity failure, retention, purge and tombstone behavior |
+| `AM-SECURITY-RETENTION` | `@heyunshen` | owner scope, integrity failure, retention and retired mutation rejection |
 | `AM-RELEASE-QA` | `@heyunshen` | verifier, target characterization, zero-diff validation and Gate handoff |
 | `AM-PRODUCT-RESEARCH` | `@heyunshen` | Slice 1 scope and rollout acceptance policy |
 
@@ -148,7 +160,7 @@ The migration cannot use simultaneous v2/v3 cohort writing. This reduces rollout
 
 The v2 decoder/projector dependency closure will outlive its writer. Some apparent duplication between immutable v2 contracts and current contracts is deliberate compatibility, not a refactoring defect.
 
-`off` means no new research work and no new claims. It does not permit falsifying or abandoning accounting for a call already SENT, and it does not disable owner-authorized purge.
+`off` means no new research work and no new claims. Historical accounting remains readable, but retired v2 exposes no settlement, repair, or owner-authorized purge mutation.
 
 Gate 0 can freeze the decision without changing runtime behavior. Slice 1 must separately implement and verify the durable writer fence, current contracts, versioned projection dispatch, and atomic cutover.
 

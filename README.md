@@ -116,6 +116,13 @@ export AGENTMESH_TASK_SCENARIO_ROUTING=true
 
 The server is the only configuration authority; the React app reads the effective mode from `/api/bootstrap` and does not use a Vite feature flag.
 
+The builtin catalog contains 84 unique 2C-DesignWiki Skills, grouped into 17 pre-design, 26 during-design, and 41 post-design capabilities. Ten governed pilot Skills remain eligible for automatic planning; the other 74 are explicit-only. Of the 84 catalog entries, 57 are complete with the current runtime adapters and 27 are marked `tool_limited` because their declared Bash/file/Zero/JoySpace-style tools are not connected. Catalog and explicit-command integration does not imply that those external tools have been granted or implemented. The UI keeps the 27 Skills discoverable and explicitly startable, but labels them “已接入 · 工具待接通”; runtime Tool Grant and approval checks remain authoritative. With Agent Runtime v2 enabled, `/api/chat/skills` exposes those 84 Skills plus the 11 Legacy commands (95 entries total). Refresh or verify the vendored snapshot with:
+
+```bash
+.venv/bin/python scripts/sync_wiki_skills.py
+.venv/bin/python scripts/sync_wiki_skills.py --check
+```
+
 | Mode | Natural-language request | Explicit `$skill` | Existing Legacy `$group.command` |
 | --- | --- | --- | --- |
 | `off` | Existing single Runtime v2 path | Single Skill Runtime v2 | Legacy chat path |
@@ -150,7 +157,6 @@ Run the deterministic release gates before moving beyond `preview`:
 ```bash
 .venv/bin/python eval/run_skill_retrieval_eval.py
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
-.venv/bin/python eval/research_orchestration/run_eval.py
 .venv/bin/python -m pytest
 .venv/bin/ruff check agentmesh tests scripts eval
 npm --prefix agentmesh-demo test -- --run
@@ -158,8 +164,6 @@ npm --prefix agentmesh-demo run api:types
 npm --prefix agentmesh-demo run build
 npm --prefix agentmesh-demo run test:e2e
 ```
-
-`eval/research_orchestration/run_eval.py` validates the fixed 20-case dataset and rubric; without real observations it deliberately reports `release_gate_passed=false`. On an approved release host with real credentials, run the Provider checks in [the research-v2 runbook](docs/runbooks/research-orchestration-v2.md). The redacted engineering evidence is recorded in [the research-v2 baseline](docs/verification/2026-08-19-research-orchestration-v2-baseline.md). Neither document substitutes for the pending blind review and internal pilot.
 
 ### Research V3 Gate 2 dormant preview
 
@@ -169,9 +173,10 @@ Research-v3 Competitive Text preview composition is implemented behind durable s
 AGENTMESH_SKILL_ORCHESTRATION=off
 AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST=
 research_writer_control.active_generation=research-v2
+research_writer_control.lifecycle_state=retired
 ```
 
-The server, not the client, selects the active writer generation. Client-turn replay precedes routing; subsequent reads and commands dispatch by the Run's stored version. A SQLite trigger blocks a stale research-v2 writer after a future one-way generation advance. Research-v3 preview can clarify, compare candidates, revise, and confirm a Plan, but Provider-backed approval, execute, and recovery commands fail closed.
+Research-v2 is retired: no Runtime or mutation path remains, while owner-scoped historical Runs and Artifacts stay readable through a read-only adapter. Client-turn replay may return an existing v2 Run but cannot restart it. Research-v3 preview can clarify, compare candidates, revise, and confirm a Plan, but Provider-backed approval, execute, and recovery commands fail closed.
 
 Do not change the production control row or populate the allowlist. Use only the disposable procedure in [the research-v3 preview runbook](docs/runbooks/research-v3-preview.md). Gate evidence and remaining production-cutover blockers are recorded in [the Gate 2 verification](docs/verification/2026-08-21-research-v3-gate2.md).
 
@@ -367,11 +372,15 @@ Chat and orchestrated research Skills use separate timeout budgets; the parent o
 ```bash
 export AGENTMESH_CHAT_LLM_TIMEOUT_SECONDS=120
 export AGENTMESH_RESEARCH_SKILL_TIMEOUT_SECONDS=180
+export AGENTMESH_SKILL_MATCH_LLM_TIMEOUT_SECONDS=8
 export AGENTMESH_LLM_TIMEOUT_SECONDS=30
 export AGENTMESH_LLM_CONNECT_TIMEOUT_SECONDS=5
 ```
 
-If the chat model times out, AgentMesh returns the deterministic local answer and records the reason in `workflow_trace.model_fallback_reason`.
+Skill matching uses its shorter budget only for ambiguous or explicitly multi-deliverable requests that need semantic
+reranking. If a model call times out,
+AgentMesh returns the deterministic local match and a stable diagnostic instead of failing the request. If the chat model
+times out, AgentMesh returns the deterministic local answer and records the reason in `workflow_trace.model_fallback_reason`.
 
 Additional selectable models use `AGENTMESH_MODELS` plus per-model variables:
 
@@ -433,7 +442,7 @@ export AGENTMESH_FIRECRAWL_MAX_PAGES=6
 export AGENTMESH_FIRECRAWL_MAX_CONTENT_CHARS=4000
 ```
 
-Tavily remains the discovery provider. For research-v2, AgentMesh derives at most three question-scoped queries from the frozen comparison dimensions and may issue one bounded supplemental query when a required question has fewer than two candidate sources. Results are canonically deduplicated and primary documentation paths are ranked ahead of known secondary-content domains. Firecrawl then scrapes at most six selected pages and replaces their search snippets with bounded, query-relevant Markdown excerpts. Each source keeps an independent Evidence record with its retrieval time, content hash, question IDs, and truncation state. Failed Firecrawl enrichment falls back to the original Tavily snippet and is recorded in Provider metadata. For a trusted self-hosted Firecrawl endpoint, set `AGENTMESH_FIRECRAWL_API_URL` to its `/v2/scrape` URL; an API key is optional outside `*.firecrawl.dev`. Never expose an unauthenticated self-hosted endpoint publicly.
+Tavily remains the discovery provider. Firecrawl can enrich selected results with bounded page text; failed enrichment falls back to the original Tavily snippet and is recorded in Provider metadata. For a trusted self-hosted Firecrawl endpoint, set `AGENTMESH_FIRECRAWL_API_URL` to its `/v2/scrape` URL; an API key is optional outside `*.firecrawl.dev`. Never expose an unauthenticated self-hosted endpoint publicly.
 
 Command-backed providers remain available as alternatives.
 

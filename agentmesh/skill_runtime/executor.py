@@ -61,7 +61,11 @@ def _transient(error: Exception) -> bool:
         return True
     return type(error).__name__ in {
         "APIConnectionError",
+        "ConnectError",
         "InternalServerError",
+        "NetworkError",
+        "ReadError",
+        "RemoteProtocolError",
         "RateLimitError",
         "ServiceUnavailableError",
         "TemporaryProviderError",

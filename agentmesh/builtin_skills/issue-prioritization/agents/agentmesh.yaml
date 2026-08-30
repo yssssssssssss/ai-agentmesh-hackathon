@@ -2,6 +2,7 @@ skill_id: auto
 skill_version: "1"
 skill_content_hash: 2930e969b003ed7b3856b9101453a5a84e42b55de93a4a4fe720c6ea4421a103
 profile_version: "1"
+display_description: 对已识别的问题或需求进行分层、严重度评估和优先级排序，输出先做项、快赢项与行动顺序。
 primary_stage: post_design
 lifecycle_tags: [during_design, post_design]
 capability_type: analysis

@@ -2,6 +2,7 @@ skill_id: auto
 skill_version: "1"
 skill_content_hash: 0604513aa1a962cbc1e55761c3f382eb78eb84421ec5585554aaf046a826e59e
 profile_version: "1"
+display_description: 把功能设想或表层诉求转成用户真正要完成的任务，分析情境、动机、替代方案与机会点。
 primary_stage: pre_design
 lifecycle_tags: [pre_design]
 capability_type: analysis

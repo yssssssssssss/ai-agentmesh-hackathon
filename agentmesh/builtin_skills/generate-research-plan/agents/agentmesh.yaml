@@ -2,6 +2,7 @@ skill_id: auto
 skill_version: "1"
 skill_content_hash: 7a87dba190d59914fcd528dea5eaf3197c15e30101b3f251e08a630026f89adc
 profile_version: "1"
+display_description: 把模糊研究需求澄清为可执行方案，明确研究目标、方法、样本、排期、成本和交付物。
 primary_stage: pre_design
 lifecycle_tags: [pre_design]
 capability_type: planning

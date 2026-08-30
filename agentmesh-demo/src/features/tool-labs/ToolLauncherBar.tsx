@@ -1,22 +1,28 @@
-import { BrainCircuit, Palette } from 'lucide-react'
+import { BrainCircuit, Palette, Search } from 'lucide-react'
 
 import { cn } from '../../lib/cn'
 import type { WorkspaceToolId } from './types'
 
 interface ToolLauncherBarProps {
   activeTool: WorkspaceToolId | null
+  skillRecommendationsEnabled: boolean
   onOpen: (tool: WorkspaceToolId) => void
 }
 
 const TOOLS = [
+  { id: 'skill-recommender' as const, label: 'Skill 推荐', icon: Search, tone: 'mint' as const },
   { id: 'aesthetic-quant' as const, label: '美学量化', icon: Palette, tone: 'mint' as const },
   { id: 'experience-model' as const, label: '体验模型', icon: BrainCircuit, tone: 'amber' as const },
 ]
 
-export function ToolLauncherBar({ activeTool, onOpen }: ToolLauncherBarProps) {
+export function ToolLauncherBar({ activeTool, skillRecommendationsEnabled, onOpen }: ToolLauncherBarProps) {
+  const visibleTools = skillRecommendationsEnabled
+    ? TOOLS
+    : TOOLS.filter((tool) => tool.id !== 'skill-recommender')
+
   return (
     <section aria-label="工具入口" className="flex items-center gap-2 overflow-x-auto pb-0.5">
-      {TOOLS.map((tool) => {
+      {visibleTools.map((tool) => {
         const Icon = tool.icon
         const selected = activeTool === tool.id
         return (
@@ -27,11 +33,11 @@ export function ToolLauncherBar({ activeTool, onOpen }: ToolLauncherBarProps) {
             aria-expanded={selected}
             onClick={() => onOpen(tool.id)}
             className={cn(
-              'inline-flex h-8 shrink-0 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-colors active:translate-y-px',
+              'inline-flex h-10 shrink-0 touch-manipulation items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-[transform,background-color,color,border-color] duration-150 active:scale-[0.96]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50',
               tool.tone === 'mint'
-                ? 'border-mint-400/20 bg-mint-400/[0.08] text-mint-300 hover:bg-mint-400/[0.14]'
-                : 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200 hover:bg-amber-300/[0.14]',
+                ? 'border-mint-400/20 bg-mint-400/[0.08] text-mint-300 [@media(hover:hover)]:hover:bg-mint-400/[0.14]'
+                : 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200 [@media(hover:hover)]:hover:bg-amber-300/[0.14]',
               selected && 'border-white/20 bg-white/[0.1] text-white',
             )}
           >

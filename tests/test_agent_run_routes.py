@@ -1,28 +1,25 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
 
+import pytest
 from agents.testing import ScriptedModel, assistant_message
 from fastapi.testclient import TestClient
 
 import agentmesh.routes.chat as chat_routes
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.app import app
-from agentmesh.models import AgentRun, AgentRunStatus, Artifact, SkillOrchestrationRequestMode
-from agentmesh.research_orchestration.artifacts import ArtifactDraft, ArtifactLease, ArtifactLineage, ArtifactStore
-from agentmesh.research_orchestration.contracts import (
-    AttemptStatus,
-    ExecutionAttempt,
-    ExecutionPlanVersion,
-    RequirementVersion,
-    ResearchPhase,
-    ResearchStep,
-    ResearchWorkflow,
-    StepStatus,
-    canonical_sha256,
+from agentmesh.models import (
+    AgentRun,
+    AgentRunStatus,
+    Artifact,
+    ArtifactVerificationState,
+    SkillOrchestrationRequestMode,
 )
+from agentmesh.routes.deps import current_user
 from agentmesh.seed import TEAM_LEAD, USER
 from agentmesh.store import SQLiteStore, store
 
@@ -30,6 +27,57 @@ from agentmesh.store import SQLiteStore, store
 def _login(client: TestClient, user_id: str, password: str) -> None:
     response = client.post("/api/auth/login", json={"user_id": user_id, "password": password})
     assert response.status_code == 200
+
+
+def _save_historical_v2_run(run: AgentRun) -> AgentRun:
+    """Seed a persisted historical row without reopening the retired writer."""
+
+    legacy = run.model_copy(update={"orchestration_version": "v1", "writer_generation_epoch": None})
+    store.claim_new_agent_run(legacy)
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE agent_runs SET payload = ?, orchestration_version = ? WHERE id = ?",
+            (run.model_dump_json(), "research-v2", run.id),
+        )
+    return run
+
+
+def _insert_historical_artifact(artifact: Artifact) -> Artifact:
+    """Insert a pre-existing v2 Artifact fixture without a production writer API."""
+
+    with store._connect() as connection:
+        connection.execute(
+            """INSERT INTO artifacts(
+                id, run_id, payload, created_at, workspace_id, project_id, user_id,
+                artifact_type, content_type, truncated, verification_state, schema_version,
+                content_hash, size_bytes, requirement_version_id, plan_version_id,
+                attempt_id, step_number, purged_at, purged_by, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                artifact.id,
+                artifact.run_id,
+                artifact.model_dump_json(),
+                artifact.created_at.isoformat(),
+                artifact.workspace_id,
+                artifact.project_id,
+                artifact.user_id,
+                artifact.artifact_type,
+                artifact.content_type,
+                int(artifact.truncated),
+                artifact.verification_state.value if artifact.verification_state is not None else None,
+                artifact.schema_version,
+                artifact.content_hash,
+                artifact.size_bytes,
+                artifact.requirement_version_id,
+                artifact.plan_version_id,
+                artifact.attempt_id,
+                artifact.step_number,
+                artifact.purged_at.isoformat() if artifact.purged_at is not None else None,
+                artifact.purged_by,
+                artifact.updated_at.isoformat() if artifact.updated_at is not None else None,
+            ),
+        )
+    return artifact
 
 
 def test_agent_run_create_is_idempotent_by_client_turn(monkeypatch) -> None:
@@ -158,6 +206,95 @@ def test_compound_research_request_prefers_task_scenario_orchestration(monkeypat
     assert response.status_code == 202
     assert runtime.orchestrated_calls == 1
     assert response.json()["item"]["orchestration_version"] == "v1"
+
+
+def test_competitive_research_falls_back_to_v1_without_touching_retired_v2_runtime(monkeypatch) -> None:
+    class RuntimeStub:
+        enabled = True
+        orchestrated_calls = 0
+
+        async def start_orchestrated(self, **kwargs):
+            self.orchestrated_calls += 1
+            return AgentRun(
+                id="run_competitive_v1_fallback",
+                thread_id=kwargs["thread_id"],
+                user_id=kwargs["user"].id,
+                workspace_id=kwargs["user"].workspace_id,
+                project_id=kwargs["user"].default_project_id,
+                input_text=kwargs["content"],
+                client_turn_id=kwargs["client_turn_id"],
+                requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+                orchestration_mode=kwargs["mode"].value,
+                status=AgentRunStatus.PLANNING,
+            )
+
+        async def start(self, **_kwargs):
+            raise AssertionError("eligible auto request must use the v1 DAG")
+
+    runtime = RuntimeStub()
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", runtime)
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "preview")
+    monkeypatch.setenv("AGENTMESH_TASK_SCENARIO_ROUTING", "false")
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    response = client.post(
+        "/api/agent/runs",
+        json={
+            "content": "对比淘宝和拼多多的协作能力并分析差异",
+            "client_turn_id": "competitive-v1-after-v2-retirement",
+            "orchestration_mode": "auto",
+        },
+    )
+
+    assert response.status_code == 202
+    assert runtime.orchestrated_calls == 1
+    assert response.json()["item"]["orchestration_version"] == "v1"
+
+
+def test_existing_v2_client_turn_replay_precedes_live_routing(
+    monkeypatch,
+) -> None:
+    prior = _save_historical_v2_run(
+        AgentRun(
+            id="run_existing_v2_client_turn",
+            thread_id="thread_existing_v2_client_turn",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="对比淘宝和拼多多的协作能力并分析差异",
+            client_turn_id="existing-v2-client-turn",
+            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            orchestration_version="research-v2",
+            orchestration_mode="preview",
+            status=AgentRunStatus.FAILED,
+        )
+    )
+
+    class ForbiddenRuntime:
+        enabled = True
+
+        def __getattribute__(self, name):  # noqa: ANN001, ANN204
+            if name != "enabled":
+                raise AssertionError("client-turn replay must not dispatch any Runtime")
+            return super().__getattribute__(name)
+
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", ForbiddenRuntime())
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    response = client.post(
+        "/api/agent/runs",
+        json={
+            "content": prior.input_text,
+            "client_turn_id": prior.client_turn_id,
+            "orchestration_mode": "auto",
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["item"]["id"] == prior.id
+    assert response.json()["item"]["orchestration_version"] == "research-v2"
 
 
 def test_no_plan_retry_preserves_auto_orchestration(monkeypatch) -> None:
@@ -302,11 +439,13 @@ def test_agent_run_events_and_artifact_are_owner_scoped() -> None:
     assert client.get(f"/api/artifacts/{artifact.id}").status_code == 404
 
 
-def test_v2_artifact_route_returns_only_integrity_verified_sealed_content() -> None:
-    run = store.save_agent_run(
+@pytest.mark.parametrize("corruption", ["hash", "index", "noncanonical_json"])
+def test_v2_artifact_route_returns_only_integrity_verified_sealed_content(corruption: str) -> None:
+    suffix = corruption
+    run = _save_historical_v2_run(
         AgentRun(
-            id="run_v2_artifact_route",
-            thread_id="thread_v2_artifact_route",
+            id=f"run_v2_artifact_route_{suffix}",
+            thread_id=f"thread_v2_artifact_route_{suffix}",
             user_id=USER.id,
             workspace_id=USER.workspace_id,
             project_id=USER.default_project_id,
@@ -316,96 +455,49 @@ def test_v2_artifact_route_returns_only_integrity_verified_sealed_content() -> N
             orchestration_mode="execute",
         )
     )
-    requirement_payload = {"goal": "compare"}
-    requirement = store.add_research_requirement_version(
-        RequirementVersion(
-            id="requirement_v2_artifact_route",
+    content = '{"result":"verified"}'
+    sealed = _insert_historical_artifact(
+        Artifact(
+            id=f"artifact_v2_route_sealed_{suffix}",
             run_id=run.id,
-            version=1,
-            schema_version="research-task-v2",
-            task_type="competitive_research",
-            payload=requirement_payload,
-            content_hash=canonical_sha256(requirement_payload),
-        )
-    )
-    plan_payload = {"steps": [{"step_number": 1, "actor_type": "tool"}]}
-    plan = store.add_research_plan_version(
-        ExecutionPlanVersion(
-            id="plan_v2_artifact_route",
-            run_id=run.id,
-            requirement_version_id=requirement.id,
-            version=1,
-            schema_version="execution-plan-v2",
-            plan_hash=canonical_sha256(plan_payload),
-            payload=plan_payload,
-        )
-    )
-    now = datetime.now(UTC)
-    attempt = store.add_research_attempt(
-        ExecutionAttempt(
-            id="attempt_v2_artifact_route",
-            run_id=run.id,
-            plan_version_id=plan.id,
-            attempt_number=1,
-            status=AttemptStatus.RUNNING,
-            lease_owner="worker_route",
-            lease_token="lease_route",
-            fencing_epoch=1,
-            lease_expires_at=now + timedelta(minutes=5),
-            deadline_at=now + timedelta(minutes=10),
-        )
-    )
-    store.add_research_step(
-        ResearchStep(
-            attempt_id=attempt.id,
-            step_number=1,
-            status=StepStatus.RUNNING,
-            claim_epoch=1,
-            started_at=now,
-        )
-    )
-    store.create_research_workflow(
-        ResearchWorkflow(
-            run_id=run.id,
-            phase=ResearchPhase.EXECUTION,
-            active_requirement_version_id=requirement.id,
-            active_plan_version_id=plan.id,
-            active_attempt_id=attempt.id,
-        )
-    )
-    lineage = ArtifactLineage(
-        run_id=run.id,
-        user_id=USER.id,
-        workspace_id=USER.workspace_id,
-        project_id=USER.default_project_id,
-        requirement_version_id=requirement.id,
-        plan_version_id=plan.id,
-        attempt_id=attempt.id,
-        step_number=1,
-    )
-    lease = ArtifactLease(owner="worker_route", token="lease_route", fencing_epoch=1)
-    artifacts = ArtifactStore(store)
-    sealed = artifacts.seal(
-        lineage,
-        ArtifactDraft(
-            artifact_id="artifact_v2_route_sealed",
-            kind="tool_result",
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            user_id=USER.id,
+            artifact_type="tool_result",
+            content_type="application/json",
+            content=content,
+            verification_state=ArtifactVerificationState.SEALED,
             schema_version="result-v1",
-            content={"result": "verified"},
-        ),
-        lease=lease,
+            content_hash=hashlib.sha256(content.encode()).hexdigest(),
+            size_bytes=len(content.encode()),
+            requirement_version_id=f"requirement_v2_artifact_route_{suffix}",
+            plan_version_id=f"plan_v2_artifact_route_{suffix}",
+            attempt_id=f"attempt_v2_artifact_route_{suffix}",
+            step_number=1,
+        )
     )
-    staging = artifacts.stage(
-        lineage,
-        artifact_id="artifact_v2_route_staging",
-        kind="tool_result",
-        schema_version="result-v1",
-        lease=lease,
+    staging = _insert_historical_artifact(
+        Artifact(
+            id=f"artifact_v2_route_staging_{suffix}",
+            run_id=run.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            user_id=USER.id,
+            artifact_type="tool_result",
+            content_type="application/json",
+            content="",
+            verification_state=ArtifactVerificationState.STAGING,
+            schema_version="result-v1",
+            requirement_version_id=f"requirement_v2_artifact_route_{suffix}",
+            plan_version_id=f"plan_v2_artifact_route_{suffix}",
+            attempt_id=f"attempt_v2_artifact_route_{suffix}",
+            step_number=1,
+        )
     )
     client = TestClient(app)
     _login(client, USER.id, "designer123")
 
-    sealed_response = client.get(f"/api/artifacts/{sealed.artifact_id}")
+    sealed_response = client.get(f"/api/artifacts/{sealed.id}")
     staging_response = client.get(f"/api/artifacts/{staging.id}")
 
     assert sealed_response.status_code == 200
@@ -417,28 +509,58 @@ def test_v2_artifact_route_returns_only_integrity_verified_sealed_content() -> N
     assert staging_response.json()["detail"] == "artifact_not_ready"
 
     _login(client, TEAM_LEAD.id, "lead123")
-    assert client.get(f"/api/artifacts/{sealed.artifact_id}").status_code == 404
+    assert client.get(f"/api/artifacts/{sealed.id}").status_code == 404
 
     with store._connect() as connection:
         row = connection.execute(
-            "SELECT payload FROM artifacts WHERE id = ?",
-            (sealed.artifact_id,),
+            "SELECT payload, content_hash, size_bytes FROM artifacts WHERE id = ?",
+            (sealed.id,),
         ).fetchone()
         payload = json.loads(row["payload"])
-        payload["verification_state"] = None
-        payload["content"] = '{"result":"tampered"}'
-        connection.execute(
-            "UPDATE artifacts SET payload = ? WHERE id = ?",
-            (json.dumps(payload), sealed.artifact_id),
-        )
+        if corruption == "hash":
+            payload["content"] = '{"result":"tampered"}'
+            connection.execute(
+                "UPDATE artifacts SET payload = ? WHERE id = ?",
+                (json.dumps(payload), sealed.id),
+            )
+        elif corruption == "index":
+            connection.execute(
+                "UPDATE artifacts SET size_bytes = size_bytes + 1 WHERE id = ?",
+                (sealed.id,),
+            )
+        else:
+            noncanonical = '{"result": "verified"}'
+            content_hash = hashlib.sha256(noncanonical.encode()).hexdigest()
+            payload["content"] = noncanonical
+            payload["content_hash"] = content_hash
+            payload["size_bytes"] = len(noncanonical.encode())
+            connection.execute(
+                """UPDATE artifacts
+                SET payload = ?, content_hash = ?, size_bytes = ?
+                WHERE id = ?""",
+                (json.dumps(payload), content_hash, payload["size_bytes"], sealed.id),
+            )
 
-    _login(client, USER.id, "designer123")
-    tampered_response = client.get(f"/api/artifacts/{sealed.artifact_id}")
+    app.dependency_overrides[current_user] = lambda: USER
+    try:
+        with sqlite3.connect(store.db_path) as observer:
+            observer.row_factory = sqlite3.Row
+            before_version = int(observer.execute("PRAGMA data_version").fetchone()[0])
+            before_row = observer.execute(
+                "SELECT payload, content_hash, size_bytes, verification_state FROM artifacts WHERE id = ?",
+                (sealed.id,),
+            ).fetchone()
+            tampered_response = client.get(f"/api/artifacts/{sealed.id}")
+            after_version = int(observer.execute("PRAGMA data_version").fetchone()[0])
+            after_row = observer.execute(
+                "SELECT payload, content_hash, size_bytes, verification_state FROM artifacts WHERE id = ?",
+                (sealed.id,),
+            ).fetchone()
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
     assert tampered_response.status_code == 409
     assert tampered_response.json()["detail"] == "artifact_integrity_failed"
-    with store._connect() as connection:
-        state = connection.execute(
-            "SELECT verification_state FROM artifacts WHERE id = ?",
-            (sealed.artifact_id,),
-        ).fetchone()["verification_state"]
-    assert state == "failed"
+    assert after_version == before_version
+    assert after_row == before_row
+    assert after_row["verification_state"] == "sealed"

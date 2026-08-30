@@ -1,7 +1,7 @@
 """Non-production research-v3 foundation contracts.
 
 Importing this package does not register a route, Store codec, writer, Provider, or UI
-branch. Production research-v2 remains the only reachable research writer.
+branch. Research-v2 is historical and read-only; research-v3 remains preview-only.
 """
 
 from agentmesh.research_orchestration.v3.canonical import (

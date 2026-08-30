@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import struct
 from dataclasses import dataclass
@@ -64,11 +65,12 @@ def _get_client() -> httpx.Client:
     return _client
 
 
-def embed_text(text: str) -> list[float] | None:
+def embed_text(text: str, *, timeout_seconds: float | None = None) -> list[float] | None:
     if not EMBEDDING_ENABLED or not EMBEDDING_API_URL or not EMBEDDING_API_KEY or not text.strip():
         return None
     started = monotonic()
     try:
+        request_options = {"timeout": timeout_seconds} if timeout_seconds is not None else {}
         response = _get_client().post(
             EMBEDDING_API_URL,
             headers={
@@ -76,12 +78,14 @@ def embed_text(text: str) -> list[float] | None:
                 "Authorization": f"Bearer {EMBEDDING_API_KEY}",
             },
             json={"model": EMBEDDING_MODEL, "input": text[:2000]},
+            **request_options,
         )
         response.raise_for_status()
         data = response.json()
-        embedding = data["data"][0]["embedding"]
-        if not isinstance(embedding, list) or not embedding:
-            raise ValueError("Embedding response did not contain a vector")
+        embedding = validate_embedding(
+            data["data"][0]["embedding"],
+            expected_dimensions=EMBEDDING_DIMENSIONS,
+        )
         _telemetry.success((monotonic() - started) * 1000)
         return embedding
     except Exception as error:
@@ -111,19 +115,51 @@ def embed_texts(texts: list[str]) -> list[list[float] | None]:
     return results
 
 
+def embedding_index_signature() -> str:
+    """Identify the vector space used by persisted embeddings."""
+    return f"{EMBEDDING_MODEL}:{EMBEDDING_DIMENSIONS}"
+
+
+def validate_embedding(
+    embedding: object,
+    *,
+    expected_dimensions: int | None = None,
+) -> list[float]:
+    if not isinstance(embedding, list) or not embedding:
+        raise ValueError("invalid_embedding")
+    normalized: list[float] = []
+    for value in embedding:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("invalid_embedding")
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise ValueError("invalid_embedding")
+        normalized.append(numeric)
+    if expected_dimensions is not None and len(normalized) != expected_dimensions:
+        raise ValueError("invalid_embedding_dimensions")
+    return normalized
+
+
 def serialize_embedding(embedding: list[float]) -> bytes:
-    return struct.pack(f"{len(embedding)}f", *embedding)
+    normalized = validate_embedding(embedding)
+    return struct.pack(f"{len(normalized)}f", *normalized)
 
 
 def deserialize_embedding(data: bytes) -> list[float]:
+    if not data or len(data) % 4:
+        raise ValueError("invalid_embedding")
     count = len(data) // 4
-    return list(struct.unpack(f"{count}f", data))
+    return validate_embedding(list(struct.unpack(f"{count}f", data)))
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b, strict=True))
-    norm_a = sum(x * x for x in a) ** 0.5
-    norm_b = sum(x * x for x in b) ** 0.5
+    left = validate_embedding(a)
+    right = validate_embedding(b)
+    if len(left) != len(right):
+        return 0.0
+    dot = sum(x * y for x, y in zip(left, right, strict=True))
+    norm_a = sum(x * x for x in left) ** 0.5
+    norm_b = sum(x * x for x in right) ** 0.5
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return dot / (norm_a * norm_b)

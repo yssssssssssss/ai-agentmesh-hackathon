@@ -6,9 +6,8 @@ import asyncio
 import json
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
-from agentmesh.agent_runtime.settings import SkillOrchestrationMode
 from agentmesh.models import (
     BriefConfirmRequest,
     ChatMessage,
@@ -26,9 +25,10 @@ from agentmesh.models import (
     now_utc,
 )
 from agentmesh.routes.deps import create_audit_event, current_user
-from agentmesh.store import BriefConfirmationError, ResearchToolApprovalError, store
+from agentmesh.store import BriefConfirmationError, store
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"])
+_RESEARCH_V2_READ_ONLY = "Research-v2 Tool approvals are historical and read-only"
 
 
 def is_active_inbox_item(item: InboxItem, now) -> bool:
@@ -41,7 +41,7 @@ def is_active_inbox_item(item: InboxItem, now) -> bool:
 
 def inbox_item_view(item: InboxItem) -> InboxItemView:
     actions: list[str] = []
-    if item.status != "resolved":
+    if item.status != "resolved" and item.item_type != "research_tool_approval":
         if item.status != "snoozed":
             actions.append("snooze")
         if item.item_type == "prompt_injection_review":
@@ -50,7 +50,7 @@ def inbox_item_view(item: InboxItem) -> InboxItemView:
         elif is_brief_confirmation(item):
             if item.status == "open":
                 actions.append("confirm_brief")
-        elif item.item_type in {"sdk_tool_approval", "research_tool_approval"}:
+        elif item.item_type == "sdk_tool_approval":
             if item.status == "open":
                 actions.extend(("approve_tool", "reject_tool"))
         else:
@@ -81,6 +81,8 @@ def update_inbox_item(
         raise HTTPException(status_code=404, detail="Inbox item not found")
     if not inbox_visible_to_user(item, user):
         raise HTTPException(status_code=403, detail="Not allowed to update this inbox item")
+    if item.item_type == "research_tool_approval":
+        raise HTTPException(status_code=409, detail=_RESEARCH_V2_READ_ONLY)
     if requires_dedicated_transition(item) and (request.status == "resolved" or item.status == "resolved"):
         raise HTTPException(status_code=409, detail="Inbox item requires its dedicated governance transition")
     if request.ttl_minutes is not None and request.snooze_until is not None:
@@ -213,7 +215,6 @@ async def resolve_sdk_tool_approval(
     item_id: str,
     action: str,
     call_id: str,
-    request: Request,
     user: User = Depends(current_user),
 ) -> dict[str, object]:
     item = store.get_inbox_item(item_id)
@@ -222,53 +223,7 @@ async def resolve_sdk_tool_approval(
     if not inbox_visible_to_user(item, user):
         raise HTTPException(status_code=403, detail="Not allowed to update this inbox item")
     if item.item_type == "research_tool_approval":
-        runtime = getattr(request.app.state, "research_runtime", None)
-        if action == "approve" and (
-            runtime is None
-            or not getattr(runtime, "execution_enabled", False)
-            or runtime.mode_provider() != SkillOrchestrationMode.EXECUTE
-        ):
-            raise HTTPException(status_code=409, detail="Research execution is currently disabled")
-        try:
-            result = store.resolve_research_tool_approval(
-                item_id,
-                owner_user_id=user.id,
-                action=action,
-                call_id=call_id,
-            )
-        except ResearchToolApprovalError as error:
-            status_code = {
-                "not_found": 404,
-                "forbidden": 403,
-                "invalid": 400,
-                "conflict": 409,
-            }.get(error.code, 409)
-            raise HTTPException(status_code=status_code, detail=error.detail) from error
-        if result.expired:
-            raise HTTPException(status_code=409, detail="Tool approval has expired")
-        scheduled = False
-        if result.attempt_id is not None:
-            scheduled = runtime.workflow_service.resume_approved_attempt(result.attempt_id)
-        store.add_audit_event(
-            create_audit_event(
-                user.id,
-                "resolve_research_tool_approval",
-                "inbox_item",
-                result.inbox_item.id,
-                {
-                    "action": action,
-                    "run_id": result.run.id,
-                    "call_id": call_id,
-                    "scheduled": scheduled,
-                },
-            )
-        )
-        return {
-            "item": result.inbox_item,
-            "run_id": result.run.id,
-            "attempt_id": result.attempt_id,
-            "scheduled": scheduled,
-        }
+        raise HTTPException(status_code=409, detail=_RESEARCH_V2_READ_ONLY)
     if item.item_type != "sdk_tool_approval":
         raise HTTPException(status_code=400, detail="Inbox item is not an SDK tool approval")
     from agentmesh.routes.chat import agent

@@ -4,12 +4,10 @@ from datetime import datetime
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agentmesh.models import AgentRunStatus
 from agentmesh.research_orchestration.contracts import ResearchGate, ResearchPhase
-
-ResearchCommandType = Literal["clarify", "confirm_plan", "revise", "execute", "recover", "purge"]
 
 
 class ResearchNotFoundError(LookupError):
@@ -26,109 +24,6 @@ class ResearchOwnerScope(BaseModel):
     user_id: str = Field(min_length=1, max_length=120)
     workspace_id: str = Field(min_length=1, max_length=120)
     project_id: str = Field(min_length=1, max_length=120)
-
-
-class ResearchClarificationAnswer(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    question_id: str = Field(pattern="^clarify_[a-z0-9_]+$", max_length=80)
-    answer: str = Field(min_length=1, max_length=2000)
-
-    @field_validator("answer")
-    @classmethod
-    def require_non_blank_answer(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("clarification answers must not be blank")
-        return value
-
-
-class ResearchClarifyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    expected_state_version: int = Field(ge=1)
-    answers: list[ResearchClarificationAnswer] = Field(min_length=1, max_length=3)
-
-    @model_validator(mode="after")
-    def require_unique_questions(self) -> ResearchClarifyRequest:
-        question_ids = [item.question_id for item in self.answers]
-        if len(question_ids) != len(set(question_ids)):
-            raise ValueError("clarification question IDs must be unique")
-        return self
-
-
-class ResearchConfirmPlanRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    expected_state_version: int = Field(ge=1)
-
-
-class ResearchAssumptionRevision(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    assumption_id: str = Field(pattern="^assumption_[a-z0-9_]+$", max_length=80)
-    statement: str | None = Field(default=None, min_length=1, max_length=1000)
-    accepted_by_user: bool | None = None
-
-    @model_validator(mode="after")
-    def require_a_change(self) -> ResearchAssumptionRevision:
-        if self.statement is None and self.accepted_by_user is None:
-            raise ValueError("assumption revision must change statement or acceptance")
-        if self.statement is not None and not self.statement.strip():
-            raise ValueError("assumption statement must not be blank")
-        return self
-
-
-class ResearchRevisePlanRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    expected_state_version: int = Field(ge=1)
-    research_goal: str | None = Field(default=None, min_length=1, max_length=4000)
-    competitor_scope: str | None = Field(default=None, min_length=1, max_length=2000)
-    assumptions: list[ResearchAssumptionRevision] = Field(default_factory=list, max_length=20)
-    preferred_plan_version_id: str | None = Field(default=None, min_length=1, max_length=120)
-    remove_optional_step_numbers: list[int] = Field(default_factory=list, max_length=20)
-
-    @model_validator(mode="after")
-    def validate_declarative_changes(self) -> ResearchRevisePlanRequest:
-        if self.research_goal is not None and not self.research_goal.strip():
-            raise ValueError("research goal must not be blank")
-        if self.competitor_scope is not None and not self.competitor_scope.strip():
-            raise ValueError("competitor scope must not be blank")
-        if any(step_number < 1 for step_number in self.remove_optional_step_numbers):
-            raise ValueError("optional step numbers must be positive")
-        if len(self.remove_optional_step_numbers) != len(set(self.remove_optional_step_numbers)):
-            raise ValueError("optional step numbers must be unique")
-        if not any(
-            (
-                self.research_goal is not None,
-                self.competitor_scope is not None,
-                bool(self.assumptions),
-                self.preferred_plan_version_id is not None,
-                bool(self.remove_optional_step_numbers),
-            )
-        ):
-            raise ValueError("at least one declarative revision is required")
-        return self
-
-
-class ResearchExecuteRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    expected_state_version: int = Field(ge=1)
-
-
-class ResearchRecoverRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    expected_state_version: int = Field(ge=1)
-    invocation_id: str = Field(min_length=1, max_length=120)
-    action: Literal["retry", "abort"]
-
-
-class ResearchPurgeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    expected_state_version: int = Field(ge=1)
 
 
 class ResearchWorkflowProjection(BaseModel):
@@ -342,15 +237,3 @@ class ResearchRunProjection(BaseModel):
     tool_approval: ResearchToolApprovalProjection | None = None
     recovery: ResearchRecoveryProjection | None = None
     integrity_errors: list[str] = Field(default_factory=list, max_length=20)
-
-
-class ResearchCommandResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    run_id: str = Field(min_length=1, max_length=120)
-    command_type: ResearchCommandType
-    state_version: int | None = Field(default=None, ge=1)
-    accepted: Literal[True] = True
-    replayed: bool = False
-    projection: ResearchRunProjection | None = None
-    purged_artifact_count: int | None = Field(default=None, ge=0)

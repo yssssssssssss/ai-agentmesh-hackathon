@@ -9,7 +9,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agentmesh.app import app
-from agentmesh.models import SkillCapabilityProfile, SkillCapabilityType, SkillLifecycleStage
+from agentmesh.models import (
+    SkillCapabilityProfile,
+    SkillCapabilityType,
+    SkillDefinition,
+    SkillLifecycleStage,
+    SkillSourceScope,
+)
 from agentmesh.provider_status import ProviderTelemetry
 from agentmesh.routes import health as health_routes
 from agentmesh.seed import ADMIN
@@ -57,6 +63,8 @@ class TestProviderHealthCheck:
         assert runtime["planner_health"] in {"disabled", "ready", "degraded"}
         assert runtime["research_writer_generation"] == "research-v2"
         assert runtime["research_writer_generation_epoch"] == 1
+        assert runtime["research_writer_lifecycle"] == "retired"
+        assert runtime["research_writer_accepts_new_runs"] is False
         assert runtime["research_preview_allowlist_count"] == 0
         assert len(runtime["research_preview_allowlist_digest"]) == 64
         metrics = runtime["orchestration_metrics"]
@@ -115,7 +123,7 @@ class TestProviderHealthCheck:
         assert runtime["runtime_enabled"] is True
         assert runtime["skill_orchestration_mode"] == effective
 
-    def test_skill_profile_index_health_degrades_when_fts_is_missing(
+    def test_skill_search_index_health_degrades_when_a_definition_is_missing(
         self,
         auth_client: TestClient,
         tmp_path,
@@ -133,6 +141,17 @@ class TestProviderHealthCheck:
             primary_stage=SkillLifecycleStage.PRE_DESIGN,
             capability_type=SkillCapabilityType.ANALYSIS,
         )
+        definition = SkillDefinition(
+            id=profile.skill_id,
+            name=profile.skill_name,
+            title="Health index",
+            description="Health index test Skill",
+            instructions="# Test",
+            source_path="/test/health-index/SKILL.md",
+            source_scope=SkillSourceScope.WORKSPACE,
+            content_hash=profile.skill_content_hash,
+        )
+        repository.save_skill_definition(definition)
         repository.save_skill_capability_profile(profile)
         catalog = SimpleNamespace(diagnostics=[], list_enabled=lambda: [])
         monkeypatch.setattr(health_routes, "store", repository)
@@ -143,12 +162,12 @@ class TestProviderHealthCheck:
             item for item in ready_response.json()["providers"] if item["name"] == "openai_agents_sdk"
         )
         assert ready_runtime["index_health"] == "ready"
-        assert ready_runtime["index_counts"] == {"records": 1, "indexed": 1, "missing": 0}
+        assert ready_runtime["index_counts"] == {"records": 2, "indexed": 2, "missing": 0}
 
         with sqlite3.connect(repository.db_path) as connection:
             connection.execute(
                 "DELETE FROM records_fts WHERE collection = ? AND record_id = ?",
-                ("skill_capability_profiles", profile.id),
+                ("skill_definitions", definition.id),
             )
 
         degraded_response = auth_client.get("/api/health/providers")
@@ -156,7 +175,7 @@ class TestProviderHealthCheck:
             item for item in degraded_response.json()["providers"] if item["name"] == "openai_agents_sdk"
         )
         assert degraded_runtime["index_health"] == "degraded"
-        assert degraded_runtime["index_counts"] == {"records": 1, "indexed": 0, "missing": 1}
+        assert degraded_runtime["index_counts"] == {"records": 2, "indexed": 1, "missing": 1}
 
     def test_plan_modification_rate_counts_modified_plans_once(self, monkeypatch: pytest.MonkeyPatch):
         created_at = datetime(2026, 8, 19, tzinfo=UTC)
@@ -261,6 +280,7 @@ class TestProviderHealthCheck:
             "AGENTMESH_LLM_API_KEY": "sk-test-key",
             "AGENTMESH_LLM_MODEL": "gpt-4",
             "AGENTMESH_CHAT_LLM_TIMEOUT_SECONDS": "2.5",
+            "AGENTMESH_SKILL_MATCH_LLM_TIMEOUT_SECONDS": "4.5",
             "AGENTMESH_LLM_CONNECT_TIMEOUT_SECONDS": "1.5",
         }
         with patch.dict("os.environ", env):
@@ -272,6 +292,7 @@ class TestProviderHealthCheck:
         assert "sk-test-key" not in response.text
         assert llm["model"] == "gpt-4"
         assert llm["timeouts"]["chat_timeout_seconds"] == 2.5
+        assert llm["timeouts"]["skill_match_timeout_seconds"] == 4.5
         assert llm["timeouts"]["connect_timeout_seconds"] == 1.5
 
     def test_ai_api_responses_configured(self, auth_client: TestClient):

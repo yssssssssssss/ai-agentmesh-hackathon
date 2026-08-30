@@ -240,7 +240,7 @@ def _agent_runtime_status() -> dict[str, object]:
     planner_profiles = [profile for profile in store.skill_capability_profiles if profile.planner_eligible]
     profile_errors = sum(item.level == "error" for item in catalog.diagnostics)
     profile_ready = bool(planner_profiles) and profile_errors == 0
-    index_counts = store.skill_profile_index_counts()
+    index_counts = store.skill_search_index_counts()
     index_ready = index_counts["records"] == index_counts["indexed"] and index_counts["missing"] == 0
     orchestration_mode = skill_orchestration_mode()
     preview_allowlist = research_preview_allowlist()
@@ -265,6 +265,8 @@ def _agent_runtime_status() -> dict[str, object]:
         "skill_orchestration_mode": orchestration_mode.value,
         "research_writer_generation": writer_control.active_generation.value,
         "research_writer_generation_epoch": writer_control.generation_epoch,
+        "research_writer_lifecycle": writer_control.lifecycle_state.value,
+        "research_writer_accepts_new_runs": writer_control.lifecycle_state.accepts_new_runs,
         "research_preview_allowlist_count": len(preview_allowlist),
         "research_preview_allowlist_digest": canonical_json_v3_sha256(sorted(preview_allowlist)),
         "skills": len(catalog.list_enabled()),

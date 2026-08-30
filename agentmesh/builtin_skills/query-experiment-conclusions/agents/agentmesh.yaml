@@ -2,6 +2,7 @@ skill_id: auto
 skill_version: "1"
 skill_content_hash: e37fb77128ce9ce7dce17e5c37166a803bf9b01097e9b3bb15718971e9327556
 profile_version: "1"
+display_description: 按组件、场景、人群或关键词反查历史 AB 实验，返回可复用方案、数据依据和避坑建议。
 primary_stage: pre_design
 lifecycle_tags: [pre_design, during_design]
 capability_type: retrieval

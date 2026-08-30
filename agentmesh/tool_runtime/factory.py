@@ -24,6 +24,13 @@ _MAX_OUTPUT_BYTES = 50 * 1024
 _MAX_OUTPUT_LINES = 2000
 
 
+def _is_wiki_import(skill: SkillDefinition | None) -> bool:
+    return bool(
+        skill
+        and skill.metadata.get("agentmesh-wiki-import", "").strip().lower() in {"1", "true", "yes", "on"}
+    )
+
+
 class AgentMeshToolFactory:
     def __init__(self, repository: SQLiteStore, gateway: ToolGateway | None = None):
         self.repository = repository
@@ -55,7 +62,10 @@ class AgentMeshToolFactory:
         handlers = self.gateway.handlers()
         requested = allowed_tool_names
         if requested is None:
-            requested = set(skill.requested_tools) if skill and skill.requested_tools else None
+            if skill and skill.requested_tools:
+                requested = set(skill.requested_tools)
+            elif _is_wiki_import(skill):
+                requested = set()
         definitions = [
             definition
             for definition in list_agent_tools(self.repository, user.personal_agent_id)
@@ -76,12 +86,17 @@ class AgentMeshToolFactory:
                 return True
             if definition.name == "risk_review":
                 return False
-            if definition.approval_required:
-                return True
             if definition.side_effect != "read":
                 return True
             assessment = assess_tool_request(json.dumps(params, ensure_ascii=False, default=str))
-            return assessment.decision != RiskDecision.ALLOW
+            if assessment.decision != RiskDecision.ALLOW:
+                return True
+            # A Skill can only see tools already granted to the user's personal Agent.
+            # That durable grant is sufficient for routine read-only calls, so the SDK
+            # must not interrupt the run for a second, call-scoped approval.
+            if ctx.context.skill_id is not None:
+                return False
+            return definition.approval_required
 
         async def invoke(ctx, raw_arguments: str) -> str:  # noqa: ANN001
             if not isinstance(ctx.context, AgentMeshRunContext):

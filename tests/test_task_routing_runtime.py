@@ -7,7 +7,11 @@ from agents.testing import ScriptedModel
 
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agent_runtime.settings import SkillOrchestrationMode
-from agentmesh.llm import llm_chat_timeout_seconds, research_skill_timeout_seconds
+from agentmesh.llm import (
+    llm_chat_timeout_seconds,
+    research_skill_timeout_seconds,
+    skill_match_llm_timeout_seconds,
+)
 from agentmesh.models import AgentRunStatus, AgentToolGrant, ChatThread, SkillPlanStatus
 from agentmesh.seed import USER, ensure_base_workspace_data
 from agentmesh.skill_runtime.planner import deterministic_intent
@@ -23,6 +27,17 @@ def test_orchestration_timeout_defaults_are_tiered(monkeypatch) -> None:
 
     assert llm_chat_timeout_seconds() == 120
     assert research_skill_timeout_seconds() == 180
+
+
+def test_skill_match_llm_timeout_is_configurable(monkeypatch) -> None:
+    monkeypatch.delenv("AGENTMESH_SKILL_MATCH_LLM_TIMEOUT_SECONDS", raising=False)
+    assert skill_match_llm_timeout_seconds() == 8
+
+    monkeypatch.setenv("AGENTMESH_SKILL_MATCH_LLM_TIMEOUT_SECONDS", "5.5")
+    assert skill_match_llm_timeout_seconds() == 5.5
+
+    monkeypatch.setenv("AGENTMESH_SKILL_MATCH_LLM_TIMEOUT_SECONDS", "invalid")
+    assert skill_match_llm_timeout_seconds() == 8
 
 
 def test_runtime_builds_route_bound_plan_without_llm_planner(

@@ -13,7 +13,6 @@ from agentmesh.models import (
     SkillPlanNodeStatus,
     SkillPlanStatus,
 )
-from agentmesh.research_orchestration.contracts import ResearchPhase, ResearchWorkflow
 from agentmesh.store import SQLiteStore
 
 
@@ -91,27 +90,27 @@ def test_startup_reconciles_orphaned_running_runs(tmp_path) -> None:
     assert repository.list_agent_run_events(run.id)[-1].event_type == "run_failed"
 
 
-def test_legacy_startup_reconciler_leaves_research_v2_for_its_reconciler(tmp_path) -> None:
+def test_startup_reconciler_never_mutates_historical_research_v2(tmp_path) -> None:  # noqa: ANN001
     repository = SQLiteStore(tmp_path / "research-orphaned-run.sqlite3")
-    run = repository.save_agent_run(
-        AgentRun(
-            id="run_research_orphaned",
-            thread_id="thread_research_orphaned",
-            user_id="user",
-            workspace_id="workspace",
-            project_id="project",
-            input_text="test",
-            status=AgentRunStatus.RUNNING,
-            orchestration_version="research-v2",
+    historical = AgentRun(
+        id="run_research_orphaned",
+        thread_id="thread_research_orphaned",
+        user_id="user",
+        workspace_id="workspace",
+        project_id="project",
+        input_text="test",
+        status=AgentRunStatus.RUNNING,
+        orchestration_version="research-v2",
+    )
+    repository.save_agent_run(historical.model_copy(update={"orchestration_version": "v1"}))
+    with repository._connect() as connection:
+        connection.execute(
+            "UPDATE agent_runs SET payload = ?, orchestration_version = ? WHERE id = ?",
+            (historical.model_dump_json(), "research-v2", historical.id),
         )
-    )
-    repository.create_research_workflow(
-        ResearchWorkflow(run_id=run.id, phase=ResearchPhase.EXECUTION)
-    )
 
     assert repository.reconcile_orphaned_agent_runs() == 0
-    assert repository.get_agent_run(run.id).status == AgentRunStatus.RUNNING  # type: ignore[union-attr]
-    assert repository.get_research_workflow(run.id).phase == ResearchPhase.EXECUTION  # type: ignore[union-attr]
+    assert repository.get_agent_run(historical.id).status == AgentRunStatus.RUNNING  # type: ignore[union-attr]
 
 
 def test_startup_reconciles_planning_run_and_related_plan_nodes(tmp_path) -> None:

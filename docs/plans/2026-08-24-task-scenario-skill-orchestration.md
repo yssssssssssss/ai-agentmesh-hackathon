@@ -69,7 +69,7 @@ PlannerUnavailable
 - 不在请求运行时扫描数千个 Wiki 文件。
 - 不把所有 `draft` / `planned` Skill 自动视为生产能力。
 - 不允许 Synthesis 新增未被上游结果支持的事实。
-- 不绕过现有 Tool Approval、Source、Artifact、Evidence 和 Audit 机制。
+- 不绕过用户级 Tool Grant、Source、Artifact、Evidence 和 Audit 机制。
 - 不为普通只读、草稿和可回滚开发步骤增加逐阶段人工审批。
 - 不因 Skill 处于 `draft` 就在每次运行中重复要求人工确认；状态披露和自动质量检查优先。
 - 不在本方案中重写 Research v2/v3 的证据流水线。
@@ -84,7 +84,7 @@ PlannerUnavailable
 - `draft` Skill 可以参与路由和执行，但必须披露状态并通过相同的自动校验。
 - Completion Check 是自动验证，不是人工审核步骤。
 - 只有低置信度且会实质改变执行路径、缺失无法降级的必需输入、高风险业务判断或不可逆副作用时，才请求人工确认。
-- Tool Approval 保留现有安全边界；一次审批覆盖该节点的授权调用，不对同一节点内部的每个 Provider 子调用重复审批。
+- 已授予个人 Agent 的只读 Tool 由 Skill 直接继承，不重复逐调用确认；外部写入、不可逆操作或命中高风险策略时才保留单次确认。
 
 ## 5. 总体架构
 
@@ -433,12 +433,13 @@ evidence_requirement:
 ```text
 external_evidence_required=true
 → Plan 至少包含一个可使用 web_research 的执行节点
-→ Tool Grant 必须有效
+→ 用户的个人 Agent 必须已获得 Tool Grant
 → Provider 必须 healthy
-→ 调用前执行一次节点级 Tool Approval
+→ 已授权的只读 Web Research 直接执行，不重复逐调用确认
+→ 外部写入、不可逆操作或高风险参数才进入单次确认
 ```
 
-同一节点获批后，Tavily、Firecrawl 等内部 Provider 子调用不重复请求审批。条件不满足时输出 Capability Gap，禁止退回无 Search 的普通 Agent。
+Tavily、Firecrawl 等只读 Provider 子调用继承当前用户个人 Agent 的 Tool Grant。授权缺失时在执行前输出 Capability Gap；授权有效时直接运行，禁止退回无 Search 的普通 Agent。
 
 ## 14. Plan Compiler
 
@@ -675,7 +676,7 @@ Scenario D：priority-roadmap
 ### Phase 4：Execution 与 Completion Check
 
 - 执行允许的 Skill。
-- 保持 Tool Approval。
+- 保持用户级 Tool Grant，并仅对外部写入、不可逆操作和高风险参数执行单次确认。
 - 执行 Completion Check。
 - 输出 partial、gap 或 human confirmation。
 

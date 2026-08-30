@@ -18,6 +18,13 @@ from agentmesh.tools import list_agent_tools
 _MAX_MCP_OUTPUT_BYTES = 50 * 1024
 
 
+def _is_wiki_import(skill: SkillDefinition | None) -> bool:
+    return bool(
+        skill
+        and skill.metadata.get("agentmesh-wiki-import", "").strip().lower() in {"1", "true", "yes", "on"}
+    )
+
+
 class MCPServerConfig(BaseModel):
     name: str
     tool_id: str
@@ -215,7 +222,10 @@ class AgentMeshMCPFactory:
         granted = {tool.id: tool for tool in list_agent_tools(self.repository, user.personal_agent_id)}
         requested = allowed_tool_names
         if requested is None:
-            requested = set(skill.requested_tools) if skill and skill.requested_tools else None
+            if skill and skill.requested_tools:
+                requested = set(skill.requested_tools)
+            elif _is_wiki_import(skill):
+                requested = set()
         servers: list[MCPServer] = []
         for config in self.config.servers:
             definition = granted.get(config.tool_id)

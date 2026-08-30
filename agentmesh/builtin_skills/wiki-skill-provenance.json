@@ -1,0 +1,873 @@
+{
+  "duplicate_groups": [
+    {
+      "canonical_source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/plus-and-new-channel/_skills/zero-id-to-md/SKILL.md",
+      "source_sha256": "4405264795472393813077b0451a2ae99a8b62be11f0027c143dc5ebc867c587",
+      "sources": [
+        "2C-DesignWiki/jd-design-system-md-v16/product-architecture/plus-and-new-channel/_foundation/components/zero-id-to-md/SKILL.md",
+        "2C-DesignWiki/jd-design-system-md-v16/product-architecture/plus-and-new-channel/_skills/zero-id-to-md/SKILL.md"
+      ]
+    },
+    {
+      "canonical_source": "2C-DesignWiki/tools/dwiki/SKILL.md",
+      "source_sha256": "dc9aad37b98bfc97df4d555121482c5f281e3fd651a8e946992d1bd0e44a98b2",
+      "sources": [
+        "2C-DesignWiki/tools/dwiki/SKILL.md",
+        "2C-DesignWiki/tools/dwiki/o2-registry/SKILL.md"
+      ]
+    }
+  ],
+  "generated_builtin_count": 74,
+  "preserved_builtin_count": 10,
+  "schema_version": 1,
+  "skills": [
+    {
+      "adapter": false,
+      "builtin_sha256": "7076d94fc3ba8515f7e15f6da96c6552912b8f6cc0c3b7f6ee99ccd6bd0c3a98",
+      "destination": "agentmesh/builtin_skills/accessibility-review/SKILL.md",
+      "mode": "generated",
+      "name": "accessibility-review",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/accessibility-review/SKILL.md",
+      "source_sha256": "b961a33aa8336cca15b7e2aecace63aa5e96f1045eb3be6f8b06201af4126f11",
+      "stage": "post_design"
+    },
+    {
+      "adapter": true,
+      "builtin_sha256": "0652b1a9a5c0befe0498203f219bb8408e738e762cb733c41ac5d96e35b22769",
+      "destination": "agentmesh/builtin_skills/ai-decision-lab/SKILL.md",
+      "mode": "generated",
+      "name": "ai-decision-lab",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/AI-Decision-Lab/SKILL.md",
+      "source_sha256": "17c273ddb9c58a0442e95e1b8719a6965ed289006746d9e68a1e0646a770c067",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "b1602ba37980637e2787f51f60a401dc3018441b75090bc285ee5009eb4f0e5e",
+      "destination": "agentmesh/builtin_skills/analyze-satisfaction/SKILL.md",
+      "mode": "generated",
+      "name": "analyze-satisfaction",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/analyze-satisfaction/SKILL.md",
+      "source_sha256": "6a3f6a529bee25d8b08c7c0f0dba5e9e1c194341aafcd18caa43b2d333c598fa",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "380581bbdc9660f567ff4822ebb062d94bbc81447e9a62f68ff703b0be87e36f",
+      "destination": "agentmesh/builtin_skills/build-experience-metrics/SKILL.md",
+      "mode": "preserved",
+      "name": "build-experience-metrics",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/build-experience-metrics/SKILL.md",
+      "source_sha256": "847c3b4947df4e7091bf3dc762f0813b7f363147367c6d490306b2ee6fa389fc",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "89f037d820a27f01be73d2ca1fe573f17d176c939297977cf4c6aa77afef72e2",
+      "destination": "agentmesh/builtin_skills/case-register/SKILL.md",
+      "mode": "generated",
+      "name": "case-register",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/case-register/SKILL.md",
+      "source_sha256": "9c38dc487ebd87ff827bac4414a2f727d4cf331039bea752b681d6f4971b9376",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "5d07458ca675441016d78dfc8ca7b7bc6326e313cbab0737a79ac1de0dc21bad",
+      "destination": "agentmesh/builtin_skills/code-open-feedback/SKILL.md",
+      "mode": "generated",
+      "name": "code-open-feedback",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/code-open-feedback/SKILL.md",
+      "source_sha256": "b66f0dc2570c2f58bd7b8b15b9a20f871d0dea6331b9eafa6e61f50f526b801b",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "f90e8bfe99e9ebb278e5130e5efedaff4ed26cf0427d480864d5f274bcb78c65",
+      "destination": "agentmesh/builtin_skills/coding-repo-sync/SKILL.md",
+      "mode": "generated",
+      "name": "coding-repo-sync",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/search-recommend-foundation/skills&tools/coding-repo-sync/SKILL.md",
+      "source_sha256": "83b4f9f6a8df2c17fd50db16f0d9783dbd3dcd67661029340cc45f44038dc211",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "4fc52941c57f92f8f869ca846c469b18b1dc91c43ee91071933e0a6c26778e1a",
+      "destination": "agentmesh/builtin_skills/competitive-analysis/SKILL.md",
+      "mode": "preserved",
+      "name": "competitive-analysis",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/competitive-analysis/SKILL.md",
+      "source_sha256": "971cccdbeec8824ad4bfaf65c57dbd3e8bed2ed4fafe3d293f063fdf01c68915",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "5417d5d4236ec8efd80706546327f01040a0bfea8abcab57d8dfeb24d399ec40",
+      "destination": "agentmesh/builtin_skills/component-properties-admission/SKILL.md",
+      "mode": "generated",
+      "name": "component-properties-admission",
+      "source": "2C-DesignWiki/.agents/skills/component-properties-admission/SKILL.md",
+      "source_sha256": "7c31670d8e3cc5e0b084d776c7ae57ada699b0476ab7d863ed40de1f582d4cbc",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "1391a304924b82b87d46225beb67c6d0b095721c96295db821511834f0472e8c",
+      "destination": "agentmesh/builtin_skills/conversion-funnel-analysis/SKILL.md",
+      "mode": "generated",
+      "name": "conversion-funnel-analysis",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/conversion-funnel-analysis/SKILL.md",
+      "source_sha256": "adf54c42b413a337a311716cb68725160d82bfbc1e4b513293f3a7df970281fd",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "c155343d0f8d9d04d34d1a08f8b95008742e388f58bc345f9ea467106e487b64",
+      "destination": "agentmesh/builtin_skills/design-abtest-analysis/SKILL.md",
+      "mode": "generated",
+      "name": "design-abtest-analysis",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/comprehensive-business/content-ecosystem/design-abtest-analysis/SKILL.md",
+      "source_sha256": "5653dd5d1485e815c5f5bde401ca621ad6c3acb3ec70393440b948f0704f87b6",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "0447a04ecc3caa2d6c94a69638ae5544ef3370b99b2dd979b918315b14029b3d",
+      "destination": "agentmesh/builtin_skills/design-advisor/SKILL.md",
+      "mode": "generated",
+      "name": "design-advisor",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/design-advisor/SKILL.md",
+      "source_sha256": "ddd39583edb6247cd392fba25be61e608d9a947032082f31da3397b915b10e93",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "53dac6e1923184fa34acc8b86c9db581eb4fc03bfacd9194b0159bd815246870",
+      "destination": "agentmesh/builtin_skills/design-cleanup/SKILL.md",
+      "mode": "generated",
+      "name": "design-cleanup",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/search-recommend-foundation/skills&tools/design-cleanup/SKILL.md",
+      "source_sha256": "51ae8b86a2f77824e6ceee5de39ce5254e5d0d21408f8e31e3427c70d25ece94",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "c28b8f49a74a45150fb237bdb90d42b5cd1fedac3ceb9cfe35a508ac0ee70adc",
+      "destination": "agentmesh/builtin_skills/design-md-to-portal/SKILL.md",
+      "mode": "generated",
+      "name": "design-md-to-portal",
+      "source": "2C-DesignWiki/.agents/skills/design-md-to-portal/SKILL.md",
+      "source_sha256": "3bae1e318495a8392d5b6b1346471629e8940c78a883c78f436aabb4c79d3b08",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "bb981d2e3df2413cbf6619e02e89fc5273a09fd6bbc263fa20f0a72bb6b2e324",
+      "destination": "agentmesh/builtin_skills/design-md-to-relay/SKILL.md",
+      "mode": "generated",
+      "name": "design-md-to-relay",
+      "source": "2C-DesignWiki/.agents/skills/design-md-to-relay/SKILL.md",
+      "source_sha256": "10216e6e3768cb34da075b456fb1fe84517814ebfa961261e33a6d539ca8d3b2",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "8edfe73414ec0bfaf42c8a2db35cb2d7222b9942951e5dc1a77b7bec6bca33aa",
+      "destination": "agentmesh/builtin_skills/design-md-to-spec-page/SKILL.md",
+      "mode": "generated",
+      "name": "design-md-to-spec-page",
+      "source": "2C-DesignWiki/.agents/skills/design-md-to-spec-page/SKILL.md",
+      "source_sha256": "22e0a9f475d2ed50350f61dbc934c8e411d188b8036079d039a589578c2eb723",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "754a9b96fd15cb131741b31959c91c08eaa2d4ef26385dc7be49b52436fe06a6",
+      "destination": "agentmesh/builtin_skills/design-reasoning-input/SKILL.md",
+      "mode": "generated",
+      "name": "design-reasoning-input",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/design-reasoning-input/SKILL.md",
+      "source_sha256": "933a295535e3287d5a278a8e5a6bbea4c43d24a7f0e3c8573454ce08e802a76d",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "05b261b192db902a1a0f50f637203a543edc1ba7e53b6c292c1502b38f5c7715",
+      "destination": "agentmesh/builtin_skills/design-review/SKILL.md",
+      "mode": "generated",
+      "name": "design-review",
+      "source": "2C-DesignWiki/.agents/skills/design-review/SKILL.md",
+      "source_sha256": "440c869109d21f79b7cbb775b2b5f70095bcff2d2c7f22ffbb0fdf456775a661",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "9e30f065282fa3762644be70ee30cde69a2617da27a51739e06313806ee90401",
+      "destination": "agentmesh/builtin_skills/dwiki/SKILL.md",
+      "mode": "generated",
+      "name": "dwiki",
+      "source": "2C-DesignWiki/tools/dwiki/SKILL.md",
+      "source_sha256": "dc9aad37b98bfc97df4d555121482c5f281e3fd651a8e946992d1bd0e44a98b2",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "90e1a761d672c87e970d699d836ddb44fcf52f351d1c3ee1a5287adfe93541d7",
+      "destination": "agentmesh/builtin_skills/feature-adoption-analysis/SKILL.md",
+      "mode": "generated",
+      "name": "feature-adoption-analysis",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/feature-adoption-analysis/SKILL.md",
+      "source_sha256": "4419af2f227e5f3191208eb6b9fcb707f1982ace46b473a4b1bd3a3773152b24",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "5c2d7c198e9bb9cdd4a063b81c5dc46aa297a2ff2137c72ab892871fc46a0a60",
+      "destination": "agentmesh/builtin_skills/feedback-insight/SKILL.md",
+      "mode": "generated",
+      "name": "feedback-insight",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Skill/voice-of-customer/skill/SKILL.md",
+      "source_sha256": "3e20832cc35a4df41aeaee1a63dc1cb46cb081bca68f1128567a4b8be9b4995d",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "ce14ec4f98dab2826910ad67c8ab9410726b2ac3572db447e2e01691d8bb96c3",
+      "destination": "agentmesh/builtin_skills/field-design-build/SKILL.md",
+      "mode": "generated",
+      "name": "field-design-build",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/platform-transaction/SKILL.md",
+      "source_sha256": "1896af34111b6f455e0b208780f036fbf9bedb71d42a3546f9284cb46c3d0214",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "2a6aa9a8f330b6d2a058bf8d530c6f49e45a91b11908ded682efd14c1b9f0af9",
+      "destination": "agentmesh/builtin_skills/filter-tabs-design-skill/SKILL.md",
+      "mode": "generated",
+      "name": "filter-tabs-design-skill",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Channel 频道/Filter Tabs 筛选项/filter-tabs-design-skill/SKILL.md",
+      "source_sha256": "ad46a9000e5882f928dd58bcdf3dfedcd9b78a78edd5175a0b74bd0446494720",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "6191fe05eeec6d9e9d1899898c7467d4bf7b463e169651350a3bbfb5261922d8",
+      "destination": "agentmesh/builtin_skills/generate-interview-guide/SKILL.md",
+      "mode": "preserved",
+      "name": "generate-interview-guide",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/generate-interview-guide/SKILL.md",
+      "source_sha256": "9e92339ef61dbb02f411c6efd9f7d75071019fee090b143f1ba880cfb9133de9",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "5ed81421ad8ab0407719de0d2db373e623b648105effdb049e4f6fba2b0600c6",
+      "destination": "agentmesh/builtin_skills/generate-persona/SKILL.md",
+      "mode": "generated",
+      "name": "generate-persona",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/generate-persona/SKILL.md",
+      "source_sha256": "49d34f40864c7a402afd6d65fa3679b43363c26fb8b0d68061ccd9d6b46fe9b4",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "7a87dba190d59914fcd528dea5eaf3197c15e30101b3f251e08a630026f89adc",
+      "destination": "agentmesh/builtin_skills/generate-research-plan/SKILL.md",
+      "mode": "preserved",
+      "name": "generate-research-plan",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/generate-research-plan/SKILL.md",
+      "source_sha256": "e4dd39a088ee62ac53e7c8022e64fb2da6f1bf34172910c14590fb7b7f962235",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "47dcf31674043af0e577efe65b3e0e19a7222694bd2942168b0fead8c66c2ae7",
+      "destination": "agentmesh/builtin_skills/generate-survey/SKILL.md",
+      "mode": "preserved",
+      "name": "generate-survey",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/generate-survey/SKILL.md",
+      "source_sha256": "4a887cb961de5f28be4d2fba3d23c618eb315f0fd735e4bb2cdbac154962c135",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "c5bbfb771871aba1a142e6506ef2e0aeae152ce812a5c6ce612757e9aa71b7a7",
+      "destination": "agentmesh/builtin_skills/generate-usability-test/SKILL.md",
+      "mode": "preserved",
+      "name": "generate-usability-test",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/generate-usability-test/SKILL.md",
+      "source_sha256": "d1271bb4bc3e619aa70b2d7cd8aace0ad138e44c8e2be26bc8eb858e7ecc0340",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "3059e2c9e6ed5d3da7a1c93815e023cf2d4aafd6f450ba3d769860a12732a3e0",
+      "destination": "agentmesh/builtin_skills/git-workflow/SKILL.md",
+      "mode": "generated",
+      "name": "git-workflow",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/git-workflow/SKILL.md",
+      "source_sha256": "df1315863b8e793d806563d9a16244ec9e464f1c9df475ba2a4d9478ceb46ee4",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "c34ccef254ad52ae642c955ad5e97e767297c1034282a8f9f5003ac285bacb4e",
+      "destination": "agentmesh/builtin_skills/industry-market-analysis/SKILL.md",
+      "mode": "generated",
+      "name": "industry-market-analysis",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/industry-market-analysis/SKILL.md",
+      "source_sha256": "a7eae503ad1d06bac8a33874da697a20aa906b372cfd5306c6a4b6b4addd3fac",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "bd03f26701b568b728f19f4a80777e189e95ff13bae30db78439b05d3a0c268e",
+      "destination": "agentmesh/builtin_skills/instance-manage/SKILL.md",
+      "mode": "generated",
+      "name": "instance-manage",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/instance-manage/SKILL.md",
+      "source_sha256": "f080d90282c8b1da7ea57ddad5131f82374bdde9edf757774f9ce7641562d650",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "4e594361fccc967de26edb3054a05b882a954692e8d8d4f412dd1ceba02fda3d",
+      "destination": "agentmesh/builtin_skills/instance-suggest/SKILL.md",
+      "mode": "generated",
+      "name": "instance-suggest",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/instance-suggest/SKILL.md",
+      "source_sha256": "a42e684032c2e2ed7e9c7b30fbb81c2a32cdb4b78ee93554a832e9476cafbf7b",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "2930e969b003ed7b3856b9101453a5a84e42b55de93a4a4fe720c6ea4421a103",
+      "destination": "agentmesh/builtin_skills/issue-prioritization/SKILL.md",
+      "mode": "preserved",
+      "name": "issue-prioritization",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/issue-prioritization/SKILL.md",
+      "source_sha256": "45fe3d15115721fbab3763f7b9fc2eaaeffff47707d2aea2fa1156ea33db6cf0",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "052bfd2681a8a6174933883d8c880c645ec9c1ab51b001ceb718c3ec63ddf4a0",
+      "destination": "agentmesh/builtin_skills/jd-app-journey-map/SKILL.md",
+      "mode": "generated",
+      "name": "jd-app-journey-map",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/comprehensive-business/content-ecosystem/jd-app-journey-map/SKILL.md",
+      "source_sha256": "dbc946880cdc2de01291dc6d9b33e6fc8764f81f406643b6dd57b1a42900e81d",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "9aea29b0669ee118c4a895585600c10476161a818a406c4adf28dc60edae91ca",
+      "destination": "agentmesh/builtin_skills/jd-field-ppt-skill/SKILL.md",
+      "mode": "generated",
+      "name": "jd-field-ppt-skill",
+      "source": "2C-DesignWiki/.agents/skills/jd-field-ppt-skill/SKILL.md",
+      "source_sha256": "3629e275d473c1050030f6c956699c3b786ae1fd811b15a69b1b35a69b9c4bd6",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "0604513aa1a962cbc1e55761c3f382eb78eb84421ec5585554aaf046a826e59e",
+      "destination": "agentmesh/builtin_skills/jobs-to-be-done/SKILL.md",
+      "mode": "preserved",
+      "name": "jobs-to-be-done",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/jobs-to-be-done/SKILL.md",
+      "source_sha256": "2f8440a5dd875071d9634a764388638e6719ea28b8872b12de9435e16715b670",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "81deaee33fdb5425abbdd30d27daad92b8a6a4ad292146f061d5988ac94945b8",
+      "destination": "agentmesh/builtin_skills/journey-map/SKILL.md",
+      "mode": "generated",
+      "name": "journey-map",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/journey-map/SKILL.md",
+      "source_sha256": "130f4d7f0fa3a63948eb40178698ad7a3f04eb8aa230c64c4d3969bfd73209be",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "389d488309bffaac8cbd8ccd62d20d5c318b79a8ded88b2cd7a8a18f6dac6edb",
+      "destination": "agentmesh/builtin_skills/joyspace-docs/SKILL.md",
+      "mode": "generated",
+      "name": "joyspace-docs",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Skill/joyspace-docs/SKILL.md",
+      "source_sha256": "536019c11bf582dbcf8ba4f93ef19e7e8747cf5bf08de333d9d8230661a3e13f",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "58c4ce87c161e53ce2b6a95a2fe785b7bae43e1b7a3db0690a46dd21201e66b3",
+      "destination": "agentmesh/builtin_skills/knowledge-preview/SKILL.md",
+      "mode": "generated",
+      "name": "knowledge-preview",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/knowledge-preview/SKILL.md",
+      "source_sha256": "532aea13e04a1af725052c4e0d1b04a06af4f899337793210cdf07960fbd4c07",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "93296648400b344ad6cc0ba4c072443e93ec711fe22fa9761f0b53e7bb59c979",
+      "destination": "agentmesh/builtin_skills/knowledge-update/SKILL.md",
+      "mode": "generated",
+      "name": "knowledge-update",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/knowledge-update/SKILL.md",
+      "source_sha256": "821a145db1ac2e4f9ecd11c1ba487d0494cf6d78fcc5962716550dd856ee803a",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "abd100364e70c62478d4aac22f9868561dec37ef24c75e24b2b183b8f575b639",
+      "destination": "agentmesh/builtin_skills/leader-report/SKILL.md",
+      "mode": "generated",
+      "name": "leader-report",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/leader-report/SKILL.md",
+      "source_sha256": "c630aefd43555bff29710b03167e1922e2f5559232bed10e1f6163432b2bb481",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "f3d4a5b85e67514a0e20644244fde2aac1e23d6d78696ec2bc80069acb2c910a",
+      "destination": "agentmesh/builtin_skills/lieflat-charts/SKILL.md",
+      "mode": "generated",
+      "name": "lieflat-charts",
+      "source": "2C-DesignWiki/site/skills/lieflat-chart/SKILL.md",
+      "source_sha256": "0e1fa3e96dbe0c2d78c96631ad793fe097d0e2cd32d5fdad99899fe74d892c56",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "d67b7f57461541a1b77e961d422810d2ead52b236f651e3ed0d861afdddb0d26",
+      "destination": "agentmesh/builtin_skills/livestream-cover-generator/SKILL.md",
+      "mode": "generated",
+      "name": "livestream-cover-generator",
+      "source": "2C-DesignWiki/.agents/skills/livestream-cover-generator/SKILL.md",
+      "source_sha256": "18967c7800e7fc58ec6faa7cbe706f90d3cbde98aa8ba727185e4a6be1fa663f",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "cbbd35eafc872196c078b2fc66bb420e42d4ae812542d3c371a37271bee64ace",
+      "destination": "agentmesh/builtin_skills/mega-subsidy-design-skill/SKILL.md",
+      "mode": "generated",
+      "name": "mega-subsidy-design-skill",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Channel 频道/Mega Subsidy 百亿补贴/mega-subsidy-design-skill-bundle/mega-subsidy-design-skill/SKILL.md",
+      "source_sha256": "bab98107c223045b3b56315cb9e80c3b35e58849dac8a919dd95cea4ac3c86bb",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "c69b05390227b19121a9af6db15243431ab5efe946b5a12ef43a5fdcc58c1c51",
+      "destination": "agentmesh/builtin_skills/motion-handoff-export/SKILL.md",
+      "mode": "generated",
+      "name": "motion-handoff-export",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/search-recommend-foundation/skills&tools/motion-handoff-export/SKILL.md",
+      "source_sha256": "7152daa33507cc5b3fe7726cabc61aaec2ab79420dc1ecd52b5cba2dcce7a3d5",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "bbad09950beac4d685ed6f0dd170c33c79beadc1683c909587d6f0ba52ee041e",
+      "destination": "agentmesh/builtin_skills/navbar-generation/SKILL.md",
+      "mode": "generated",
+      "name": "navbar-generation",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Channel 频道/Page Header 头部/Navbar 导航栏/navbar-generation-bundle/navbar-generation/SKILL.md",
+      "source_sha256": "ed027ee4ab2f4ee53bfd2fde40ab57051281f2812b7e99eb66307891280f2d90",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "814ccac37c54169d213412049de292b43000eb552286126033d3a45f24a220f1",
+      "destination": "agentmesh/builtin_skills/nested-structure-generation-skill/SKILL.md",
+      "mode": "generated",
+      "name": "nested-structure-generation-skill",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Channel 频道/Page Header 头部/Nested Structure 父子嵌套Tab/nested-structure-generation-skill-backup/nested-structure-generation-skill/SKILL.md",
+      "source_sha256": "c60b9471ae7cb3c2ee908fdee876f6b66f5c91eb85a0366bc2070947d024edeb",
+      "stage": "during_design"
+    },
+    {
+      "adapter": true,
+      "builtin_sha256": "66b02759cd44bedf18c082d46b79e917c01178edf3e68233a80ab8c04ef0614a",
+      "destination": "agentmesh/builtin_skills/platform-transaction-address/SKILL.md",
+      "mode": "generated",
+      "name": "platform-transaction-address",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/platform-transaction/交易链路/地址/SKILL.md",
+      "source_sha256": "32a95e086388b547f2796356ddf74f277d5e62b8c33eeccf63e96092f1800625",
+      "stage": "during_design"
+    },
+    {
+      "adapter": true,
+      "builtin_sha256": "7dfd7a5a36d8a444dd3b862385c5547fa1d2d829d1031342ba30324e287bd4b2",
+      "destination": "agentmesh/builtin_skills/platform-transaction-cart/SKILL.md",
+      "mode": "generated",
+      "name": "platform-transaction-cart",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/platform-transaction/交易链路/购物车/SKILL.md",
+      "source_sha256": "6c356f2e671a14a57aa193a137ab64505dde67632f3d63ce01f4ac680738ffaf",
+      "stage": "during_design"
+    },
+    {
+      "adapter": true,
+      "builtin_sha256": "115ddea10b824a91a5fe5a6decc3d796cf021630e9039ae95fd0e8e4a2acb1d3",
+      "destination": "agentmesh/builtin_skills/platform-transaction-cashier/SKILL.md",
+      "mode": "generated",
+      "name": "platform-transaction-cashier",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/platform-transaction/交易链路/收银台/SKILL.md",
+      "source_sha256": "b5236c4fa29ed1e0dc2b7c9fdeedb24ac8bf1b06859703bae0b0b91154f7b7e8",
+      "stage": "during_design"
+    },
+    {
+      "adapter": true,
+      "builtin_sha256": "072afc2228acf5ae92f9fef634ab6ef706054c566b25c346faa52ad452259d48",
+      "destination": "agentmesh/builtin_skills/platform-transaction-settlement/SKILL.md",
+      "mode": "generated",
+      "name": "platform-transaction-settlement",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/platform-transaction/交易链路/结算/SKILL.md",
+      "source_sha256": "f968f231001c1e9c225e578e9c2c835293e53c6b55f4af2cac3d6cbd53569f9c",
+      "stage": "during_design"
+    },
+    {
+      "adapter": true,
+      "builtin_sha256": "dab605a3db4a76dc371bc89199757143c0388e94e2d28cbd741e2deeb93bb153",
+      "destination": "agentmesh/builtin_skills/platform-transaction-shared-foundation/SKILL.md",
+      "mode": "generated",
+      "name": "platform-transaction-shared-foundation",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/platform-transaction/_共享底座/SKILL.md",
+      "source_sha256": "aa071aaa12389a524e7ccf8cbfb33dab0ad4f31ec2b8f68d12ce1fb2f2c721c3",
+      "stage": "during_design"
+    },
+    {
+      "adapter": true,
+      "builtin_sha256": "ed6b82aae4ed3ae6d98f2a1146600421083572228325d4608fd725d80c4d5a1a",
+      "destination": "agentmesh/builtin_skills/platform-transaction-success-page/SKILL.md",
+      "mode": "generated",
+      "name": "platform-transaction-success-page",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/platform-transaction/交易链路/成功页/SKILL.md",
+      "source_sha256": "4e4b51db9f9c3aa02521e20f155ae20d867cca7f20875aa55a2430c1816bcfc9",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "02a1ccde525c96fc956d7ccf8817aa6f2fa8e03db61319c85aaea137ae5ace12",
+      "destination": "agentmesh/builtin_skills/plugin-api-key-ai/SKILL.md",
+      "mode": "generated",
+      "name": "plugin-api-key-ai",
+      "source": "2C-DesignWiki/.agents/skills/plugin-api-key-ai/SKILL.md",
+      "source_sha256": "0027eb1321b5efcfb99a9e43df4ad08d6170f1957e04491e77ef203a8920a0ca",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "f2ed50b72332bfc92fff5b9c11f2e672e7dafe990305412f37a090c4208fd6db",
+      "destination": "agentmesh/builtin_skills/popup-design-skill/SKILL.md",
+      "mode": "generated",
+      "name": "popup-design-skill",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Channel 频道/popup半弹层/SKILL.md",
+      "source_sha256": "7548f9bd6bf8742ff3c1515762d77560e6fccf373e1ea2335a2a33808b99e6ee",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "4a2cfc023e967d98dc5386a0c9d35d7bb8230f6ff84908ae0b180c313449751d",
+      "destination": "agentmesh/builtin_skills/prd-design-brief/SKILL.md",
+      "mode": "generated",
+      "name": "prd-design-brief",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Skill/prd-design-brief/SKILL.md",
+      "source_sha256": "12b3f9538eaebff5f07cf7902c86868f0145d47dbf3f28874d896a3821543f49",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "31fa2f32997de271b29c2f272770eb779682c87953da8337a983136056ba3195",
+      "destination": "agentmesh/builtin_skills/prd-feasibility/SKILL.md",
+      "mode": "preserved",
+      "name": "prd-feasibility",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/comprehensive-business/content-ecosystem/prd-feasibility/SKILL.md",
+      "source_sha256": "e4a7a23ca12fad02109ddc5a36bb4e550f564ae625b12bf776464ae94818eba3",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "e25ab487aa007f0aaf9a3b2fc253292ea6eb9a5347feddd380053b12de7cafdf",
+      "destination": "agentmesh/builtin_skills/prelaunch-usability-review/SKILL.md",
+      "mode": "generated",
+      "name": "prelaunch-usability-review",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/comprehensive-business/content-ecosystem/prelaunch-usability-review/SKILL.md",
+      "source_sha256": "49e9c999632aa1ca4597a02ef17664e5118ba397d27b1ddad74cdfde227962bb",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "814e851ab75bf62239451a9adfe1ebcbc52da34ada78f3ae66fc2c747fc6e767",
+      "destination": "agentmesh/builtin_skills/prototype-generation/SKILL.md",
+      "mode": "generated",
+      "name": "prototype-generation",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Skill/prototype-generation/SKILL.md",
+      "source_sha256": "bd8b64f89783e1a1488dd038549be6647a7f8c5c388a18e4a9e79a62b4650309",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "2197306c2e7b65b67952ecf2e0eb1eb8c7266c578462317eb21f87d29b9dbda7",
+      "destination": "agentmesh/builtin_skills/qiangdan-hall-generator/SKILL.md",
+      "mode": "generated",
+      "name": "qiangdan-hall-generator",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Logistics 物流/page/抢单大厅/SKILL.md",
+      "source_sha256": "1a45a1ca32e7781d40b89f8634d4fb0df1250e9a5e83d7738c5126bfe14f4a9a",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "e37fb77128ce9ce7dce17e5c37166a803bf9b01097e9b3bb15718971e9327556",
+      "destination": "agentmesh/builtin_skills/query-experiment-conclusions/SKILL.md",
+      "mode": "preserved",
+      "name": "query-experiment-conclusions",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/plus-and-new-channel/_skills/query-experiment-conclusions/SKILL.md",
+      "source_sha256": "01d1528092a52ae2a1adc1fb78d4e97ee7867969a0c35ad15914dcfcdd5b77c6",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "4be38543725d57a60ee96a69ee0320ef1b099f2a2a9e269b760409a968f250e1",
+      "destination": "agentmesh/builtin_skills/register-experiment/SKILL.md",
+      "mode": "generated",
+      "name": "register-experiment",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/plus-and-new-channel/_skills/register-experiment/SKILL.md",
+      "source_sha256": "c053e76a2e3e9d45f63bd5052835ad93bfa5018aef19cd6ad8439c529bf14ea4",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "83cb0cc169b42027ae6d87d6be4fd81dc2343c8cde79d77d4df237625b9a614f",
+      "destination": "agentmesh/builtin_skills/relay-component-set-architect/SKILL.md",
+      "mode": "generated",
+      "name": "relay-component-set-architect",
+      "source": "2C-DesignWiki/.agents/skills/relay-component-set-architect/SKILL.md",
+      "source_sha256": "b8a3c99cbaffb4dddb961dfb1a6ee3873573d1bcde898f0adf90c3a6f580f8f8",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "58148c5c4e0cea0af0d7137064bb606cf66f2d56b75e86b71b8071bc282b8379",
+      "destination": "agentmesh/builtin_skills/relay-component-variant-generator/SKILL.md",
+      "mode": "generated",
+      "name": "relay-component-variant-generator",
+      "source": "2C-DesignWiki/.agents/skills/relay-component-variant-generator/SKILL.md",
+      "source_sha256": "5c6978d609cc9529fdd6052f680aafc76b06c213025f59ff62e814bd26c28d6f",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "a70b975c7a7000d97a27554eb80f0f14955f2dff13ed124072647abfeb9919a4",
+      "destination": "agentmesh/builtin_skills/relay-demo-from-md/SKILL.md",
+      "mode": "generated",
+      "name": "relay-demo-from-md",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/local-life/Home Service 家政频道/.cursor/skills/relay-demo-from-md/SKILL.md",
+      "source_sha256": "2dadddfcb13a4559e7e1038cceb305d3a2e0dea38bc73fc3b5aecab650aa1fc5",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "504edc3c23b04f4f733d150ec10b01b6e37aeac19825d70c23d990f76d70243d",
+      "destination": "agentmesh/builtin_skills/relay-spec-longpage/SKILL.md",
+      "mode": "generated",
+      "name": "relay-spec-longpage",
+      "source": "2C-DesignWiki/.agents/skills/relay-spec-longpage/SKILL.md",
+      "source_sha256": "2ff50f0ce5d616dda8845fd7e7bb9cadd6789183a94aed19e8828738c18bb879",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "8fa11fead4e629b0dcb88e59ccdcfad59807e80217f6b41b0cbfe40a33b4a10a",
+      "destination": "agentmesh/builtin_skills/relay-theme-replace/SKILL.md",
+      "mode": "generated",
+      "name": "relay-theme-replace",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/search-recommend-foundation/skills&tools/relay-theme-replace/SKILL.md",
+      "source_sha256": "1b620bcb2cc7336a3abf048eea5856bc659cf3ac97465ebff04905caa75a50c6",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "9b82c5a7d359f61152092aab27131171d74433f5812bccca91d2d5fc5f946782",
+      "destination": "agentmesh/builtin_skills/relay-to-component-pipeline/SKILL.md",
+      "mode": "generated",
+      "name": "relay-to-component-pipeline",
+      "source": "2C-DesignWiki/.agents/skills/relay-to-component-pipeline/SKILL.md",
+      "source_sha256": "e7790e31daa6f82875c3c50bc908538c192ca9d4573434b59263d405b289a8ca",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "17a0278e829488f2f823eada0acbaf8a157f2487a1ebb4b8c5bc8b4e9f28cea6",
+      "destination": "agentmesh/builtin_skills/relay-to-design-md/SKILL.md",
+      "mode": "generated",
+      "name": "relay-to-design-md",
+      "source": "2C-DesignWiki/.agents/skills/relay-to-design-md/SKILL.md",
+      "source_sha256": "e7db2cd6453768c0b02fd448355df0af5c85b9d11d234eb729c12df54cc9f7db",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "8caea33900caa13a7550d03c4cd45d7649a58d8dc8b724057af97b889e4a2bb0",
+      "destination": "agentmesh/builtin_skills/research-screenshot-analyzer/SKILL.md",
+      "mode": "generated",
+      "name": "research-screenshot-analyzer",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/research-screenshot-analyzer/SKILL.md",
+      "source_sha256": "ae1c5ff210242a4b504db4f2215744136e6ba3a74f528111547e2a96e60c7885",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "93a584d1a6f71034f78d503f9f0aaa8cae89d29e41b40b095d99fe1db1c04c67",
+      "destination": "agentmesh/builtin_skills/ruler-annotation/SKILL.md",
+      "mode": "generated",
+      "name": "ruler-annotation",
+      "source": "2C-DesignWiki/.agents/skills/ruler-annotation/SKILL.md",
+      "source_sha256": "095790855c5aa87bf5540bb56a59882dd9eb3054ba00ffc2855c7057128bea22",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "d66e872e7bc0a90f0d7f8b13524939c22855f5ad138c9fdf19ccddafccce80e8",
+      "destination": "agentmesh/builtin_skills/run-heuristic-evaluation/SKILL.md",
+      "mode": "generated",
+      "name": "run-heuristic-evaluation",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/run-heuristic-evaluation/SKILL.md",
+      "source_sha256": "9fad96b72780dc4507ab441cb1b3a8dd57e5d255bfebcfaacf26718404a46530",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "3218e3b39614d6900bde8758cfb18dc0c3699a9c0349c86d9adb86288f0338d5",
+      "destination": "agentmesh/builtin_skills/search/SKILL.md",
+      "mode": "generated",
+      "name": "search",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/search/SKILL.md",
+      "source_sha256": "f5a5de3c716058611fb726484ac3815e88c72f1623178cf37ca1812757ccf462",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "3482c2f8472f9514d375a272d92b5e3b40c6c5b5edf034bcd0fe864316cd82ab",
+      "destination": "agentmesh/builtin_skills/senior-adaptation-tool/SKILL.md",
+      "mode": "generated",
+      "name": "senior-adaptation-tool",
+      "source": "2C-DesignWiki/.agents/skills/senior-adaptation-tool/SKILL.md",
+      "source_sha256": "3b507324aa2345d46b936ad34d25fc4dae685ec89f8ec7ce9a31bba369ab2cf7",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "55bcf5d3c5e9279fe366057ac8d19f4a6cd56fc8f3af71733c5eadf26534c87d",
+      "destination": "agentmesh/builtin_skills/structure-interview-transcript/SKILL.md",
+      "mode": "generated",
+      "name": "structure-interview-transcript",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/structure-interview-transcript/SKILL.md",
+      "source_sha256": "af80d71754917bc056097ca7e04588bfea313a40078e7b9cf5a257d05a53670d",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "3a928a69a842f0f3757babefd49637a1b88b1328a60df12d52064d4daf5feee5",
+      "destination": "agentmesh/builtin_skills/synthesize-qualitative-insights/SKILL.md",
+      "mode": "generated",
+      "name": "synthesize-qualitative-insights",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/horizontal/user-research/skills/synthesize-qualitative-insights/SKILL.md",
+      "source_sha256": "6ddaed854eb0e173a9290c59617f0512ec9145a892d5afeb0a769944124c375f",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "2862408f05229acdae6dfdf18927abb56e94d1f295ba3521e2832574c6572735",
+      "destination": "agentmesh/builtin_skills/usability-review/SKILL.md",
+      "mode": "generated",
+      "name": "usability-review",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/usability-review/SKILL.md",
+      "source_sha256": "40b13b9960d931bc5e3ef3b5d87600ede281e2ec56576a3d4a76efa77f21a136",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "b0e05efb10e80c2035024490f56d646cdbc653310c8f4b8ddd11c6bdbd7a1523",
+      "destination": "agentmesh/builtin_skills/welcome/SKILL.md",
+      "mode": "generated",
+      "name": "welcome",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/huangliu-design/product-details/JD-ProductDetails-web/brain-frontend/public/design-kb/skills/welcome/SKILL.md",
+      "source_sha256": "2f6f7fcc5b5787e8b0fac6367bd1861c2906a41c02e18144758c377fd4984f17",
+      "stage": "pre_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "7b4f3bb117b294864a7d36ade010eaeb47094cab386b445e69a9e192bd28fafb",
+      "destination": "agentmesh/builtin_skills/zero-banner-update/SKILL.md",
+      "mode": "generated",
+      "name": "zero-banner-update",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/search-recommend-foundation/skills&tools/zero-banner/SKILL.md",
+      "source_sha256": "87d563b6e733a26e86f9571aa9a2f146a85803d91e18f368b150cbbf157f8551",
+      "stage": "during_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "1a743f2aa8efda398a66fcbe8496024e55431fea6c3f460b158857821f9a73cf",
+      "destination": "agentmesh/builtin_skills/zero-id-to-md/SKILL.md",
+      "mode": "generated",
+      "name": "zero-id-to-md",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/plus-and-new-channel/_skills/zero-id-to-md/SKILL.md",
+      "source_sha256": "4405264795472393813077b0451a2ae99a8b62be11f0027c143dc5ebc867c587",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "19521dc5c9af8af47e1a27039ff906bf041977b724ee0ebbeb2e731e60e23152",
+      "destination": "agentmesh/builtin_skills/zero-md-to-page/SKILL.md",
+      "mode": "generated",
+      "name": "zero-md-to-page",
+      "source": "2C-DesignWiki/.agents/skills/zero-md-to-page-skill/SKILL.md",
+      "source_sha256": "ca9da9f6d534e0789b62332727faffe27b10b3b3a777918a00ed3e3cb906a02a",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "9736c44cb8d5baf2cb5967a2c918452cf97442839bf7fc9b540509381d951bd2",
+      "destination": "agentmesh/builtin_skills/zero-spec-to-md/SKILL.md",
+      "mode": "generated",
+      "name": "zero-spec-to-md",
+      "source": "2C-DesignWiki/.agents/skills/zero-spec-to-md-skill-zero/SKILL.md",
+      "source_sha256": "124dfc7b3858f0e242337a9719481bf94a5f98ba39d7e2172d1dc2842cf9b0c4",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "8db9c58a245fc5f964de5af68c485fddcdefc0270192a627214fd48e6c0d9884",
+      "destination": "agentmesh/builtin_skills/zero-superbrand-banner-audit/SKILL.md",
+      "mode": "generated",
+      "name": "zero-superbrand-banner-audit",
+      "source": "2C-DesignWiki/jd-design-system-md-v16/product-architecture/plus-and-new-channel/_skills/Super Product Business | Full-Width Review/SKILL.md",
+      "source_sha256": "758dcefb52a01da8d50f0e32f717076b62c6fb2dad45d037a463d3c8391486b4",
+      "stage": "post_design"
+    },
+    {
+      "adapter": false,
+      "builtin_sha256": "9754837c57515215f395fb58a5975eeb3218a4e96a8e9791d706fad19ba73dfe",
+      "destination": "agentmesh/builtin_skills/zero-to-joyspace/SKILL.md",
+      "mode": "generated",
+      "name": "zero-to-joyspace",
+      "source": "2C-DesignWiki/.agents/skills/zero-to-joyspace/SKILL.md",
+      "source_sha256": "3e5b037ef75cf28d9ccf9b2870dd15c5655d9a775fdbfd6d305a5a617b501470",
+      "stage": "post_design"
+    }
+  ],
+  "source_file_count": 86,
+  "source_root": "2C-DesignWiki",
+  "stage_counts": {
+    "during_design": 26,
+    "post_design": 41,
+    "pre_design": 17
+  },
+  "unique_source_count": 84
+}
