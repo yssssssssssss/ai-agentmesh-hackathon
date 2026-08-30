@@ -124,7 +124,11 @@ test('Admin lifecycle, audit filters, and diagnostics use persisted backend stat
   await page.goto('/admin')
 
   await page.getByRole('button', { name: '创建用户' }).click()
-  await page.getByLabel('姓名').fill(memberName)
+  const nameInput = page.getByLabel('姓名')
+  await nameInput.click()
+  await nameInput.pressSequentially(memberName, { delay: 5 })
+  await expect(nameInput).toBeFocused()
+  await expect(nameInput).toHaveValue(memberName)
   await page.getByLabel('初始密码').fill(initialPassword)
   const createResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith('/api/users') && response.request().method() === 'POST',
