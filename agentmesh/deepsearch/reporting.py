@@ -1165,6 +1165,16 @@ def decide_deepsearch_terminal(
             error_code="deepsearch_budget_exhausted",
         )
 
+    if plan.capability_gaps:
+        return DeepSearchTerminalDecision(
+            status=(AgentRunStatus.PARTIAL if can_publish_partial else AgentRunStatus.FAILED),
+            error_code=(
+                "deepsearch_required_coverage_incomplete"
+                if can_publish_partial
+                else "deepsearch_delivery_unavailable"
+            ),
+        )
+
     required_node_incomplete = any(
         node.required and node.status is not SkillPlanNodeStatus.COMPLETED
         for node in plan.nodes

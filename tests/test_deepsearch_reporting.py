@@ -632,6 +632,19 @@ def test_model_claim_drafts_receive_ids_and_can_form_a_complete_report() -> None
         safe_partial_report=True,
         report_available=True,
     ).status is AgentRunStatus.COMPLETED
+    gapped_plan = plan.model_copy(
+        update={"capability_gaps": ["deliverable:unavailable_output"]}
+    )
+    gapped = decide_deepsearch_terminal(
+        plan=gapped_plan,
+        synthesis=synthesis,
+        coverage=coverage,
+        review_outcome=review_outcome,
+        safe_partial_report=True,
+        report_available=True,
+    )
+    assert gapped.status is AgentRunStatus.PARTIAL
+    assert gapped.error_code == "deepsearch_required_coverage_incomplete"
 
 
 def test_review_draft_cannot_mint_lineage_or_reference_unknown_claims() -> None:
