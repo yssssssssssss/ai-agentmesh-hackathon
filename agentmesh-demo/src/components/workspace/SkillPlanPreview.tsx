@@ -36,9 +36,15 @@ export function SkillPlanPreview({
 }: SkillPlanPreviewProps) {
   const nodes = detail.plan.nodes ?? []
   const route = detail.plan.routing_result
+  const scenarioOptions = detail.scenario_assignment_options ?? {}
   const candidateSkillIds = detail.plan.candidate_skill_ids ?? []
   const [selected, setSelected] = useState(() => new Set(nodes.map((node) => node.skill_id)))
   const [order, setOrder] = useState(() => nodes.map((node) => node.skill_id))
+  const [scenarioAssignments, setScenarioAssignments] = useState<Record<string, string>>(
+    () => Object.fromEntries(
+      nodes.flatMap((node) => node.scenario_id ? [[node.skill_id, node.scenario_id]] : []),
+    ),
+  )
   const skillsById = useMemo(() => new Map(candidates.map((skill) => [skill.id, skill])), [candidates])
   const nodeSkillIds = useMemo(() => new Set(nodes.map((node) => node.skill_id)), [nodes])
   const addableCandidates = useMemo(
@@ -58,10 +64,31 @@ export function SkillPlanPreview({
     })
   }, [nodes, order])
   const originalSelected = nodes.map((node) => node.skill_id)
+  const originalScenarioAssignments = new Map(
+    nodes.map((node) => [node.skill_id, node.scenario_id ?? '']),
+  )
   const selectedOrder = order.filter((skillId) => selected.has(skillId))
-  const dirty = selectedOrder.join('|') !== originalSelected.join('|') || selected.size !== originalSelected.length
+  const ambiguousSelections = selectedOrder.flatMap((skillId) => {
+    const options = scenarioOptions[skillId] ?? []
+    return options.length > 1 ? [{ skillId, options }] : []
+  })
+  const unresolvedScenarioAssignments = ambiguousSelections.filter(
+    ({ skillId, options }) => !options.some(
+      (option) => option.scenario_id === scenarioAssignments[skillId],
+    ),
+  )
+  const scenarioDirty = ambiguousSelections.some(
+    ({ skillId }) => (scenarioAssignments[skillId] ?? '') !== (
+      originalScenarioAssignments.get(skillId) ?? ''
+    ),
+  )
+  const dirty = selectedOrder.join('|') !== originalSelected.join('|')
+    || selected.size !== originalSelected.length
+    || scenarioDirty
   const busy = pendingAction !== null
-  const approvalBlocked = blockApprovalForCapabilityGaps && (detail.plan.capability_gaps ?? []).length > 0
+  const approvalBlocked = (
+    blockApprovalForCapabilityGaps && (detail.plan.capability_gaps ?? []).length > 0
+  ) || unresolvedScenarioAssignments.length > 0
   const planNotice = detail.plan.degradation ? degradationCopy(detail.plan.degradation) : null
 
   const toggle = (skillId: string) => {
@@ -135,6 +162,16 @@ export function SkillPlanPreview({
             ))}
           </div>
         </section>
+      ) : null}
+
+      {!route && (detail.plan.capability_gaps ?? []).length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+          {(detail.plan.capability_gaps ?? []).map((gap) => (
+            <span key={gap} className="rounded-full bg-rose/10 px-2 py-1 text-rose" title={gap}>
+              能力缺口：{capabilityGapLabel(gap)}
+            </span>
+          ))}
+        </div>
       ) : null}
 
       <dl className="mt-5 grid gap-3 text-xs sm:grid-cols-2">
@@ -211,6 +248,37 @@ export function SkillPlanPreview({
         </section>
       ) : null}
 
+      {ambiguousSelections.length > 0 ? (
+        <section aria-labelledby="scenario-assignment-title" className="mt-4 rounded-soft border border-amber-300/15 bg-amber-300/[0.05] p-3.5">
+          <h3 id="scenario-assignment-title" className="text-xs font-semibold text-amber-100">确认场景归属</h3>
+          <p className="mt-1 text-[11px] leading-5 text-slate-400">同一能力匹配多个场景时，必须先选择本次实际交付的场景。</p>
+          <div className="mt-3 grid gap-3">
+            {ambiguousSelections.map(({ skillId, options }) => (
+              <label key={skillId} className="text-xs text-slate-300">
+                {skillsById.get(skillId)?.title ?? skillId}
+                <select
+                  aria-label={`场景归属：${skillsById.get(skillId)?.title ?? skillId}`}
+                  value={scenarioAssignments[skillId] ?? ''}
+                  disabled={busy}
+                  onChange={(event) => setScenarioAssignments((current) => ({
+                    ...current,
+                    [skillId]: event.target.value,
+                  }))}
+                  className="mt-1.5 h-10 w-full rounded-soft border border-white/[0.08] bg-surface-1 px-3 text-slate-100 outline-none focus:border-mint-400/50"
+                >
+                  <option value="">请选择场景</option>
+                  {options.map((option) => (
+                    <option key={option.scenario_id} value={option.scenario_id}>
+                      {option.title}{(option.output_labels ?? []).length > 0 ? ` · ${(option.output_labels ?? []).join('、')}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {planNotice && detail.plan.degradation ? (
         <section className="mt-4 rounded-soft border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3">
           <p className="text-xs font-semibold text-amber-100">{planNotice.title}</p>
@@ -222,7 +290,11 @@ export function SkillPlanPreview({
         </section>
       ) : null}
       {error ? <p role="alert" className="mt-4 text-sm text-rose">{error}</p> : null}
-      {approvalBlocked ? (
+      {unresolvedScenarioAssignments.length > 0 ? (
+        <p className="mt-4 text-xs leading-5 text-rose">
+          请选择所有多义节点的场景归属，保存后才能批准计划。
+        </p>
+      ) : approvalBlocked ? (
         <p className="mt-4 text-xs leading-5 text-rose">
           必需能力尚未满足，当前计划不能批准。请先处理上方能力缺口。
         </p>
@@ -245,12 +317,23 @@ export function SkillPlanPreview({
           <Button
             variant="secondary"
             size="sm"
-            disabled={!dirty || selected.size === 0 || busy}
+            disabled={
+              !dirty
+              || selected.size === 0
+              || busy
+              || unresolvedScenarioAssignments.length > 0
+            }
             loading={pendingAction === 'update'}
             onClick={() => onUpdate({
               expected_version: detail.plan.version,
               selected_skill_ids: selectedOrder,
               preferred_order: selectedOrder,
+              scenario_assignments: Object.fromEntries(
+                ambiguousSelections.map(({ skillId }) => [
+                  skillId,
+                  scenarioAssignments[skillId],
+                ]),
+              ),
             })}
           >
             保存调整

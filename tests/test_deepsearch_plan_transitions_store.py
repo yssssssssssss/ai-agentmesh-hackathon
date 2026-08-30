@@ -131,6 +131,8 @@ def _seed_skill(repository: SQLiteStore, *, skill_id: str, name: str, content_ha
 def _prepare_waiting_plan(
     repository: SQLiteStore,
     run_id: str,
+    *,
+    capability_gaps: list[str] | None = None,
 ) -> tuple[AgentRun, RequirementVersionV1, SkillPlan, str]:
     repository.save_user(
         User(
@@ -211,6 +213,7 @@ def _prepare_waiting_plan(
         status=SkillPlanStatus.WAITING_APPROVAL,
         intent=SkillIntent(goal=requirement.payload.goal),
         candidate_skill_ids=["skill_primary", "skill_optional"],
+        capability_gaps=capability_gaps or [],
         preferred_order=["skill_primary"],
         nodes=[
             SkillPlanNode(
@@ -401,6 +404,44 @@ def test_plan_approval_atomically_freezes_next_version_and_starts_the_run(tmp_pa
     assert saved_run.deepsearch_budget.consumed == expected_usage
     assert len(saved_run.deepsearch_budget.reservations) == 2
     assert repository.list_agent_run_events(run.id)[-1].event_type == "plan_approved"
+
+
+def test_plan_approval_allows_persisted_blocking_capability_gaps(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "deepsearch-plan-approve-gaps.sqlite3")
+    run, _requirement, current, _first_snapshot_id = _prepare_waiting_plan(
+        repository,
+        "run_plan_approve_gaps",
+        capability_gaps=["deliverable:unavailable_output"],
+    )
+    approved = current.model_copy(
+        deep=True,
+        update={
+            "version": current.version + 1,
+            "status": SkillPlanStatus.APPROVED,
+        },
+    )
+    approved.plan_content_hash = plan_content_hash(approved)
+    approved_at = NOW + timedelta(hours=2)
+    approved_snapshot = build_deepsearch_plan_snapshot(
+        run=run,
+        plan=approved,
+        created_at=approved_at,
+    )
+    approved.approved_plan_artifact_id = approved_snapshot.id
+
+    result = repository.approve_deepsearch_plan_and_transition(
+        run_id=run.id,
+        user_id=run.user_id,
+        expected_plan_version=current.version,
+        plan=approved,
+        plan_snapshot=approved_snapshot,
+        checked_at=approved_at,
+    )
+
+    assert result is not None
+    saved_plan, saved_run, _saved_snapshot = result
+    assert saved_plan.capability_gaps == ["deliverable:unavailable_output"]
+    assert saved_run.status is AgentRunStatus.RUNNING
 
 
 @pytest.mark.parametrize(

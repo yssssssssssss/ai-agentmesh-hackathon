@@ -721,6 +721,7 @@ def get_agent_run_plan(
             plan=DeepSearchPlanViewV1.from_plan(plan),
             results=results,
             synthesis=None,
+            scenario_assignment_options=_scenario_assignment_options_view(plan),
         )
     return SkillPlanDetailResponse(
         plan=SkillPlanPublicView.from_plan(plan),
@@ -832,6 +833,9 @@ def update_agent_run_plan(
             plan=DeepSearchPlanViewV1.from_plan(transitioned_plan),
             results=[],
             synthesis=None,
+            scenario_assignment_options=_scenario_assignment_options_view(
+                transitioned_plan
+            ),
         )
     with current_orchestration_admission().permit():
         updated = store.compare_and_swap_skill_plan(

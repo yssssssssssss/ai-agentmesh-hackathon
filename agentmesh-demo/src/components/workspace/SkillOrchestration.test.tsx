@@ -198,6 +198,68 @@ describe('Skill orchestration views', () => {
     expect(html).toContain('完成标准：结论有来源')
   })
 
+  it('requires explicit assignment when a selected Skill matches multiple scenarios', () => {
+    const preview = detail()
+    preview.scenario_assignment_options = {
+      [skill.id]: [
+        {
+          scenario_id: 'scenario-one',
+          title: '场景一',
+          output_ids: ['analysis_result'],
+          output_labels: ['分析结论'],
+        },
+        {
+          scenario_id: 'scenario-two',
+          title: '场景二',
+          output_ids: ['analysis_result'],
+          output_labels: ['对比结论'],
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(
+      <SkillPlanPreview
+        detail={preview}
+        candidates={[skill]}
+        orchestrationMode="execute"
+        pendingAction={null}
+        error={null}
+        onUpdate={vi.fn()}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('确认场景归属')
+    expect(html).toContain('场景一')
+    expect(html).toContain('场景二')
+    expect(html).toContain('请选择所有多义节点的场景归属')
+    const approval = html.match(/<button([^>]*)>确认并开始执行<\/button>/)
+    expect(approval?.[1] ?? '').toMatch(/\sdisabled(?:=|$)/)
+  })
+
+  it('allows approving a DeepSearch plan that retains blocking capability gaps', () => {
+    const preview = detail()
+    preview.plan.capability_gaps = ['deliverable:unavailable_output']
+
+    const html = renderToStaticMarkup(
+      <SkillPlanPreview
+        detail={preview}
+        candidates={[skill]}
+        orchestrationMode="execute"
+        pendingAction={null}
+        error={null}
+        onUpdate={vi.fn()}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('能力缺口')
+    const approval = html.match(/<button([^>]*)>确认并开始执行<\/button>/)
+    expect(approval?.[1] ?? '').not.toMatch(/\sdisabled(?:=|$)/)
+  })
+
   it('moves preview controls below node content on narrow screens', () => {
     const html = renderToStaticMarkup(
       <SkillPlanNodeCard

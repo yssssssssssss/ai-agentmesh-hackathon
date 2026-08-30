@@ -3501,6 +3501,10 @@ export interface components {
             results?: components["schemas"]["SkillNodeResult"][];
             /** Synthesis */
             synthesis?: null;
+            /** Scenario Assignment Options */
+            scenario_assignment_options?: {
+                [key: string]: components["schemas"]["ScenarioAssignmentOptionV1"][];
+            };
         };
         /**
          * DeepSearchPlanNodeViewV1
@@ -3720,6 +3724,10 @@ export interface components {
             plan?: components["schemas"]["DeepSearchPlanViewV1"] | null;
             evidence_coverage?: components["schemas"]["DeepSearchEvidenceCoverageV1"] | null;
             report_review?: components["schemas"]["DeepSearchReviewViewV1"] | null;
+            /** Scenario Assignment Options */
+            scenario_assignment_options?: {
+                [key: string]: components["schemas"]["ScenarioAssignmentOptionV1"][];
+            };
             /** @default none */
             retry_disposition: components["schemas"]["DeepSearchRetryDisposition"];
         };

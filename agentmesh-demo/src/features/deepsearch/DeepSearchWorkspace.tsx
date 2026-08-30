@@ -10,7 +10,7 @@ import type {
   SkillPlanVersionRequest,
 } from '../workspace/types'
 import { activeDeepSearchStage } from './presentation'
-import type { DeepSearchClarifyRequest, DeepSearchPlan, DeepSearchReport, DeepSearchState } from './types'
+import type { DeepSearchClarifyRequest, DeepSearchReport, DeepSearchState } from './types'
 import { DeepSearchEvidenceStatus, DeepSearchReportView } from './DeepSearchEvidenceReport'
 import { DeepSearchRequirementPanel } from './DeepSearchRequirementPanel'
 import { DeepSearchStageRail } from './DeepSearchStageRail'
@@ -50,11 +50,13 @@ const FAILURE_COPY: Record<string, string> = {
   deepsearch_review_not_passed: '报告审核未通过。只有已排除争议结论的安全部分报告才会发布。',
 }
 
-function planDetailFromAggregate(plan: DeepSearchPlan): DeepSearchPlanDetailResponse {
+function planDetailFromAggregate(state: DeepSearchState): DeepSearchPlanDetailResponse | null {
+  if (!state.plan) return null
   return {
-    plan,
+    plan: state.plan,
     results: [],
     synthesis: null,
+    scenario_assignment_options: state.scenario_assignment_options ?? {},
   }
 }
 
@@ -145,7 +147,7 @@ export function DeepSearchWorkspace({
   const run = state.run
   const terminal = TERMINAL_STATUSES.has(run.status)
   const activeStage = activeDeepSearchStage(state)
-  const mergedPlanDetail = state.plan ? planDetailFromAggregate(state.plan) : null
+  const mergedPlanDetail = planDetailFromAggregate(state)
   const skillsById = new Map(skills.map((skill) => [skill.id, skill]))
   const finalizationStarted = state.plan?.finalization_stage !== undefined
     && state.plan.finalization_stage !== 'none'
@@ -198,7 +200,6 @@ export function DeepSearchWorkspace({
           detail={mergedPlanDetail}
           candidates={skills}
           orchestrationMode="execute"
-          blockApprovalForCapabilityGaps
           pendingAction={planPendingAction}
           error={planError}
           onUpdate={onUpdatePlan}

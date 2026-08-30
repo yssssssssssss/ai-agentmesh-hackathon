@@ -20,6 +20,7 @@ from agentmesh.models import (
     DeepSearchEvidenceCoverageV1,
     DeepSearchFinalizationStage,
     DeepSearchReviewOutcomeV1,
+    ScenarioAssignmentOptionV1,
     SkillIntent,
     SkillNodeResult,
     SkillPlan,
@@ -914,6 +915,9 @@ class DeepSearchPlanDetailResponse(_FrozenContract):
     plan: DeepSearchPlanViewV1
     results: list[SkillNodeResult] = Field(default_factory=list)
     synthesis: None = None
+    scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
+        default_factory=dict
+    )
 
 
 class DeepSearchPlanTransitionResponse(_FrozenContract):
@@ -959,4 +963,7 @@ class DeepSearchStateResponse(_FrozenContract):
     plan: DeepSearchPlanViewV1 | None = None
     evidence_coverage: DeepSearchEvidenceCoverageV1 | None = None
     report_review: DeepSearchReviewViewV1 | None = None
+    scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
+        default_factory=dict
+    )
     retry_disposition: DeepSearchRetryDisposition = DeepSearchRetryDisposition.NONE

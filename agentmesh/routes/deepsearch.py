@@ -124,6 +124,23 @@ def _conflict(error: DeepSearchRequirementConflict) -> HTTPException:
     return HTTPException(status_code=409, detail=detail)
 
 
+def _with_scenario_assignment_options(
+    state: DeepSearchStateResponse,
+) -> DeepSearchStateResponse:
+    if state.plan is None:
+        return state
+    plan = store.get_skill_plan(state.plan.id)
+    if plan is None:
+        return state
+    from agentmesh.routes.agent_runs import _scenario_assignment_options_view
+
+    return state.model_copy(
+        update={
+            "scenario_assignment_options": _scenario_assignment_options_view(plan)
+        }
+    )
+
+
 @router.get("/{run_id}/deepsearch", response_model=DeepSearchStateResponse)
 def get_deepsearch_state(
     run_id: str,
@@ -132,7 +149,7 @@ def get_deepsearch_state(
 ) -> DeepSearchStateResponse:
     run = _visible_deepsearch_run(run_id, user)
     try:
-        return service.get_state(run)
+        return _with_scenario_assignment_options(service.get_state(run))
     except (DeepSearchRequirementIntegrityError, ResearchStoreConflict) as error:
         raise HTTPException(
             status_code=409,
@@ -165,7 +182,9 @@ async def clarify_deepsearch_requirement(
             headers={"Retry-After": "1"},
         )
     try:
-        return await service.clarify(run=run, request=request)
+        return _with_scenario_assignment_options(
+            await service.clarify(run=run, request=request)
+        )
     except DeepSearchRequirementConflict as error:
         raise _conflict(error) from error
     except DeepSearchRequirementInvalid as error:

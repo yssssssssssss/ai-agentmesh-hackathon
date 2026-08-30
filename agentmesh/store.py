@@ -7513,7 +7513,6 @@ class SQLiteStore:
                     or plan.created_at != current.created_at
                     or current.approved_plan_artifact_id is not None
                     or plan.approved_plan_artifact_id != plan_snapshot.id
-                    or plan.capability_gaps
                     or plan.capability_check != current.capability_check
                     or current.degradation is not None
                     or current.completion_check is not None

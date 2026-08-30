@@ -8,8 +8,11 @@ from fastapi import HTTPException
 
 import agentmesh.routes.agent_runs as agent_run_routes
 import agentmesh.routes.chat as chat_routes
+import agentmesh.routes.deepsearch as deepsearch_routes
 from agentmesh.artifacts import DeepSearchPlanSnapshotV1
 from agentmesh.deepsearch.contracts import (
+    DeepSearchPlanViewV1,
+    DeepSearchStateResponse,
     ProblemQuestionV1,
     RequirementPayloadV1,
     RequirementScopeV1,
@@ -27,6 +30,7 @@ from agentmesh.models import (
     AgentToolGrant,
     ChatThread,
     DeepSearchBudgetV1,
+    ScenarioAssignmentOptionV1,
     SkillCandidate,
     SkillCandidateScore,
     SkillCapabilityProfile,
@@ -298,7 +302,85 @@ def _install_route_dependencies(
 ) -> None:
     monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "execute")
     monkeypatch.setattr(agent_run_routes, "store", repository)
-    monkeypatch.setattr(agent_run_routes, "_current_plan_candidates", lambda *_args: candidates)
+    monkeypatch.setattr(
+        agent_run_routes,
+        "_current_plan_candidates",
+        lambda *_args, **_kwargs: candidates,
+    )
+
+
+def test_deepsearch_plan_detail_projects_scenario_assignment_options(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = SQLiteStore(tmp_path / "deepsearch-plan-route-options.sqlite3")
+    run, _plan, candidates = _prepare_deepsearch_plan(repository, suffix="options")
+    _install_route_dependencies(monkeypatch, repository, candidates)
+    options = {
+        "skill_primary": [
+            ScenarioAssignmentOptionV1(
+                scenario_id="scenario-one",
+                title="Scenario one",
+                output_ids=("report",),
+                output_labels=("Report",),
+            ),
+            ScenarioAssignmentOptionV1(
+                scenario_id="scenario-two",
+                title="Scenario two",
+                output_ids=("report",),
+                output_labels=("Report",),
+            ),
+        ]
+    }
+    monkeypatch.setattr(
+        agent_run_routes,
+        "_scenario_assignment_options_view",
+        lambda _plan: options,
+    )
+
+    response = agent_run_routes.get_agent_run_plan(run.id, user=USER)
+
+    assert response.scenario_assignment_options == options
+
+
+def test_deepsearch_state_projects_scenario_assignment_options(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = SQLiteStore(tmp_path / "deepsearch-state-options.sqlite3")
+    run, plan, candidates = _prepare_deepsearch_plan(repository, suffix="state-options")
+    _install_route_dependencies(monkeypatch, repository, candidates)
+    monkeypatch.setattr(deepsearch_routes, "store", repository)
+    options = {
+        "skill_primary": [
+            ScenarioAssignmentOptionV1(
+                scenario_id="scenario-one",
+                title="Scenario one",
+                output_ids=("report",),
+                output_labels=("Report",),
+            ),
+            ScenarioAssignmentOptionV1(
+                scenario_id="scenario-two",
+                title="Scenario two",
+                output_ids=("report",),
+                output_labels=("Report",),
+            ),
+        ]
+    }
+    monkeypatch.setattr(
+        agent_run_routes,
+        "_scenario_assignment_options_view",
+        lambda _plan: options,
+    )
+    state = DeepSearchStateResponse(
+        run=run,
+        active_requirement=None,
+        plan=DeepSearchPlanViewV1.from_plan(plan),
+    )
+
+    projected = deepsearch_routes._with_scenario_assignment_options(state)
+
+    assert projected.scenario_assignment_options == options
 
 
 def test_deepsearch_plan_patch_writes_authoritative_next_snapshot_and_renews_ttl(

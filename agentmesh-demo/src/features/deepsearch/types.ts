@@ -123,6 +123,7 @@ export interface DeepSearchState {
   plan: DeepSearchPlan | null
   evidence_coverage: DeepSearchEvidenceCoverage | null
   report_review: DeepSearchReportReview | null
+  scenario_assignment_options?: components['schemas']['DeepSearchStateResponse']['scenario_assignment_options']
   retry_disposition: 'retry_run' | 'revise_goal' | 'none'
 }
 
