@@ -4,28 +4,34 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 import sys
 from collections import Counter
 from datetime import date
 from pathlib import Path
 
 import yaml
+from pydantic import ValidationError
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from agentmesh.canonical_json import strict_json_loads  # noqa: E402
 from agentmesh.models import SkillSourceScope  # noqa: E402
 from agentmesh.skill_runtime.parser import parse_skill_file  # noqa: E402
 from agentmesh.skill_runtime.profiles import (  # noqa: E402
     PILOT_BUILTIN_SKILL_NAMES,
+    LoadedCapabilityProfile,
     ProfileError,
     legacy_capability_profiles,
     load_capability_profile_record,
     profile_matches_skill,
     profile_path,
 )
+from agentmesh.skill_runtime.trust import SkillProfileProvenanceV2  # noqa: E402
 
 EXPECTED_DOMAIN_SKILLS = 84
 EXPECTED_PLANNER_PROFILES = len(PILOT_BUILTIN_SKILL_NAMES)
@@ -43,9 +49,85 @@ KNOWN_CAPABILITIES = {
 }
 
 
+_GITHUB_HANDLE = re.compile(r"^@[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?$")
+_EXPECTED_REPOSITORY = "yssssssssssss/ai-agentmesh-hackathon"
+
+
+def _codeowner_handles(path: Path) -> set[str]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return set()
+    return {
+        token
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+        for token in line.split()[1:]
+        if _GITHUB_HANDLE.fullmatch(token)
+    }
+
+
+def _provenance_blockers(
+    *,
+    profile_records: list[tuple[str, LoadedCapabilityProfile]],
+    catalog_root: Path,
+    codeowners_path: Path,
+    source_manifest_path: Path,
+) -> list[str]:
+    try:
+        manifest = SkillProfileProvenanceV2.model_validate(
+            strict_json_loads(source_manifest_path.read_bytes())
+        )
+    except (OSError, UnicodeError, ValueError, ValidationError):
+        return ["profile_provenance_v2_missing"]
+    entries = {entry.skill_name: entry for entry in manifest.profiles}
+    expected_names = {name for name, _loaded in profile_records}
+    if (
+        manifest.repository != _EXPECTED_REPOSITORY
+        or len(entries) != len(manifest.profiles)
+        or set(entries) != expected_names
+    ):
+        return ["profile_provenance_v2_invalid"]
+    codeowners = _codeowner_handles(codeowners_path)
+    blockers: list[str] = []
+    for name, loaded in profile_records:
+        entry = entries[name]
+        profile = loaded.profile
+        sidecar = catalog_root / name / "agents" / "agentmesh.yaml"
+        expected_path = sidecar.relative_to(catalog_root.parent).as_posix()
+        enhanced = bool(
+            profile.required_tools
+            or profile.risk_level == "high"
+            or profile.side_effect.value in {"local_write", "external_write"}
+        )
+        required_reviewers = 2 if enhanced else 1
+        reviewers = tuple(dict.fromkeys(entry.reviewers))
+        try:
+            sidecar_hash = hashlib.sha256(sidecar.read_bytes()).hexdigest()
+        except OSError:
+            blockers.append(f"profile_provenance_invalid:{name}")
+            continue
+        if (
+            entry.profile_path != expected_path
+            or entry.profile_sha256 != sidecar_hash
+            or entry.reviewed_blob_sha256 != sidecar_hash
+            or entry.profile_version != profile.profile_version
+            or entry.profile_content_hash != profile.profile_content_hash
+            or entry.skill_content_hash != profile.skill_content_hash
+            or entry.reviewed_tree_sha != manifest.reviewed_tree_sha
+            or entry.review_policy != ("double" if enhanced else "single")
+            or len(reviewers) < required_reviewers
+            or entry.author in reviewers
+            or any(reviewer not in codeowners for reviewer in reviewers)
+        ):
+            blockers.append(f"profile_provenance_invalid:{name}")
+    return blockers
+
+
 def _release_review_blockers(
     *,
-    profile_records: list[tuple[str, object]],
+    profile_records: list[tuple[str, LoadedCapabilityProfile]],
+    catalog_root: Path,
     roster_path: Path,
     codeowners_path: Path,
     source_manifest_path: Path,
@@ -101,12 +183,14 @@ def _release_review_blockers(
                 blockers.append(f"review_schedule_invalid:{name}")
     if not codeowners_path.is_file():
         blockers.append("codeowners_missing")
-    try:
-        manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        manifest = None
-    if not isinstance(manifest, dict) or manifest.get("schema_version") != 2:
-        blockers.append("profile_provenance_v2_missing")
+    blockers.extend(
+        _provenance_blockers(
+            profile_records=profile_records,
+            catalog_root=catalog_root,
+            codeowners_path=codeowners_path,
+            source_manifest_path=source_manifest_path,
+        )
+    )
     return blockers
 
 
@@ -135,7 +219,7 @@ def main() -> int:
     names: list[str] = []
     diagnostics: list[dict[str, str]] = []
     profiles = []
-    profile_records: list[tuple[str, object]] = []
+    profile_records: list[tuple[str, LoadedCapabilityProfile]] = []
     draft_profiles = []
     legacy_unreviewed_profiles = []
     for path in files:
@@ -322,6 +406,7 @@ def main() -> int:
         )
     release_blockers = _release_review_blockers(
         profile_records=profile_records,
+        catalog_root=root,
         roster_path=args.review_roster,
         codeowners_path=args.codeowners,
         source_manifest_path=(args.profile_provenance or root / "wiki-skill-provenance.json"),

@@ -16,6 +16,7 @@ from agentmesh.skill_runtime.parser import parse_skill_file
 from agentmesh.skill_runtime.profiles import load_capability_profile_record
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
+from scripts.build_skill_profile_provenance import build_profile_provenance
 from scripts.sync_wiki_skills import (
     CanonicalSkill,
     SourceSkill,
@@ -286,7 +287,48 @@ def test_catalog_release_gate_can_graduate_all_reviewed_profiles(tmp_path: Path)
     codeowners_path = tmp_path / "CODEOWNERS"
     codeowners_path.write_text("* @reviewer-one @reviewer-two\n", encoding="utf-8")
     provenance_path = tmp_path / "profile-provenance.json"
-    provenance_path.write_text('{"schema_version":2}\n', encoding="utf-8")
+    reviewed_tree_sha = "c" * 40
+    evidence_path = tmp_path / "review-evidence.json"
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "profile-review-evidence-v1",
+                "repository": "yssssssssssss/ai-agentmesh-hackathon",
+                "release_commit": "b" * 40,
+                "reviewed_tree_sha": reviewed_tree_sha,
+                "profiles": [
+                    {
+                        "skill_name": sidecar.parents[1].name,
+                        "author": "@profile-author",
+                        "reviewers": ["@reviewer-one", "@reviewer-two"],
+                        "reviewed_head_sha": "d" * 40,
+                        "reviewed_tree_sha": reviewed_tree_sha,
+                        "reviewed_blob_sha256": hashlib.sha256(
+                            sidecar.read_bytes()
+                        ).hexdigest(),
+                    }
+                    for sidecar in sorted(
+                        catalog_root.glob("*/agents/agentmesh.yaml")
+                    )
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    provenance = build_profile_provenance(
+        builtin_root=catalog_root,
+        evidence_path=evidence_path,
+        codeowners_path=codeowners_path,
+        expected_profile_count=84,
+    )
+    provenance_path.write_text(
+        json.dumps(
+            provenance.model_dump(mode="json"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
     release = subprocess.run(
         [
