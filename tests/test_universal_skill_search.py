@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import agentmesh.skill_runtime.recommendation as recommendation_module
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.models import (
     AgentToolGrant,
@@ -652,6 +653,57 @@ def test_candidate_snapshot_freezes_evidence_path_without_exposing_it_publicly(t
             catalog=catalog,
             user=USER,
             intent=SkillIntent(goal="Research", external_evidence_required=True),
+            profile_trust=lambda _skill, _loaded: True,
+        )
+
+
+def test_snapshot_revalidation_limits_dynamic_readiness_to_selected_candidates(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    service, skills, _calls = _controlled_universal_service(
+        tmp_path,
+        [
+            ("selected-candidate", ["analysis_result"], "approved"),
+            ("unused-candidate", ["analysis_result"], "approved"),
+        ],
+    )
+    intent = SkillIntent(goal="Need analysis_result", deliverables=["analysis_result"])
+    result = service.search(USER, intent)
+    assert len(result.selectable_candidates) == 2
+    snapshot = build_candidate_snapshot(result, service._repository)
+    selected_id = skills[0].id
+    unused_id = skills[1].id
+
+    def readiness(_repository, _user, skill, *_args, **_kwargs):  # noqa: ANN001, ANN202
+        return ["required_tool_not_granted"] if skill.id == unused_id else []
+
+    monkeypatch.setattr(
+        recommendation_module,
+        "_universal_readiness_diagnostics",
+        readiness,
+    )
+
+    candidates = revalidate_candidate_snapshot(
+        snapshot=snapshot,
+        repository=service._repository,
+        catalog=service._catalog,
+        user=USER,
+        intent=intent,
+        profile_trust=lambda _skill, _loaded: True,
+        dynamic_skill_ids={selected_id},
+    )
+    assert [candidate.skill_id for candidate in candidates] == [
+        candidate.skill_id for candidate in snapshot.candidates
+    ]
+
+    with pytest.raises(ValueError, match="required_tool_not_granted"):
+        revalidate_candidate_snapshot(
+            snapshot=snapshot,
+            repository=service._repository,
+            catalog=service._catalog,
+            user=USER,
+            intent=intent,
             profile_trust=lambda _skill, _loaded: True,
         )
 

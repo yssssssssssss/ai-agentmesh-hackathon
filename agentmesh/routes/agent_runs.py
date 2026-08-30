@@ -335,6 +335,7 @@ def _current_plan_candidates(
     user: User,
     *,
     require_concrete_assignments: bool = False,
+    dynamic_skill_ids: set[str] | None = None,
 ):  # noqa: ANN001, ANN201
     if plan.candidate_snapshot is not None:
         task_catalog = _universal_catalog_for_plan(plan)
@@ -350,6 +351,7 @@ def _current_plan_candidates(
                 user=user,
                 intent=plan.intent,
                 profile_trust=profile_trust,
+                dynamic_skill_ids=dynamic_skill_ids,
             )
             validate_universal_plan(
                 plan=plan,
@@ -751,7 +753,11 @@ def update_agent_run_plan(
             detail={"codes": ["scenario_assignment_not_supported"]},
         )
     try:
-        candidates = _current_plan_candidates(plan, user)
+        candidates = _current_plan_candidates(
+            plan,
+            user,
+            dynamic_skill_ids=set(request.selected_skill_ids),
+        )
         adjusted = adjust_plan(plan, request, candidates)
         if plan.candidate_snapshot is not None:
             assignments = {
@@ -894,6 +900,7 @@ async def approve_agent_run_plan(
             plan,
             user,
             require_concrete_assignments=True,
+            dynamic_skill_ids={node.skill_id for node in plan.nodes},
         )
         if plan.candidate_snapshot is not None
         else _current_plan_candidates(plan, user)

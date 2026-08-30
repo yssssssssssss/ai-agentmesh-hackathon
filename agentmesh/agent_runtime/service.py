@@ -3785,6 +3785,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                     user=user,
                     intent=plan.intent,
                     profile_trust=self.profile_trust,
+                    dynamic_skill_ids={node.skill_id},
                 )
             except ValueError as error:
                 raise RuntimeError(str(error)) from error

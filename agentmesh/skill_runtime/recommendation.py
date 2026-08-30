@@ -739,6 +739,7 @@ def revalidate_candidate_snapshot(
     user: User,
     intent: SkillIntent,
     profile_trust: Callable[[SkillDefinition, LoadedCapabilityProfile], bool],
+    dynamic_skill_ids: set[str] | None = None,
 ) -> list[SkillCandidate]:
     current_evidence_policy = EvidenceAtomV1()
     for atom in snapshot.required_coverage_atoms:
@@ -795,17 +796,18 @@ def revalidate_candidate_snapshot(
                 or witness.identity_hash != canonical_json_sha256(witness_body)
             ):
                 raise ValueError("candidate_snapshot_stale")
-        readiness = _universal_readiness_diagnostics(
-            repository,
-            user,
-            skill,
-            loaded,
-            intent,
-            runtime_enabled=runtime_enabled,
-            profile_trusted=True,
-        )
-        if readiness:
-            raise ValueError(readiness[0])
+        if dynamic_skill_ids is None or identity.skill_id in dynamic_skill_ids:
+            readiness = _universal_readiness_diagnostics(
+                repository,
+                user,
+                skill,
+                loaded,
+                intent,
+                runtime_enabled=runtime_enabled,
+                profile_trusted=True,
+            )
+            if readiness:
+                raise ValueError(readiness[0])
         candidates.append(
             SkillCandidate(
                 skill_id=skill.id,
