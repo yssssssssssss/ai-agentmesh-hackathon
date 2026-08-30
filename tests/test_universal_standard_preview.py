@@ -5,6 +5,7 @@ import hashlib
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 import yaml
 from agents.testing import ScriptedModel
 
@@ -258,6 +259,77 @@ def test_standard_universal_preview_freezes_marker_snapshot_and_skeleton(tmp_pat
     )
     assert approved.run.status is AgentRunStatus.COMPLETED
     assert approved.plan.execution_contract_version is AgentExecutionContractVersion.STANDARD_UNIVERSAL_V1
+
+
+def test_all_blocked_universal_run_projects_safe_match_diagnostics(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    repository, catalog, skill = _catalog(tmp_path)
+    intent = SkillIntent(goal="Analyze this product", deliverables=["analysis_result"])
+
+    class IntentAnalyzer:
+        async def analyze(self, *_args, **_kwargs):
+            return intent, []
+
+    class Trust:
+        available = True
+
+        def __call__(self, _skill, _loaded):  # noqa: ANN001, ANN204
+            return True
+
+    trust = Trust()
+    universal_search = UniversalSkillSearchService(
+        repository,
+        catalog,
+        profile_trust=trust,
+        profile_ranker=lambda queries, _ids: [([], [skill.id], []) for _query in queries],
+    )
+    baseline = universal_search.search(USER, intent)
+    blocked = baseline.selectable_candidates[0].model_copy(
+        update={
+            "ready": False,
+            "diagnostics": ["tool_grant_missing"],
+        }
+    )
+    failed_search = replace(
+        baseline,
+        selectable_candidates=(),
+        blocked_matches=(blocked,),
+        outcome_code="no_executable_skill",
+    )
+    universal_search.search = lambda *_args, **_kwargs: failed_search  # type: ignore[method-assign]
+    runtime = AgentRuntimeService(
+        repository,
+        model=ScriptedModel([]),
+        enabled=True,
+        skill_catalog=catalog,
+        intent_analyzer=IntentAnalyzer(),  # type: ignore[arg-type]
+        profile_trust=trust,  # type: ignore[arg-type]
+        universal_search=universal_search,
+        universal_preview_enabled=True,
+    )
+    monkeypatch.setenv("AGENTMESH_TASK_SCENARIO_ROUTING", "false")
+
+    async def scenario():
+        run = await runtime.start_orchestrated(
+            content=intent.goal,
+            user=USER,
+            thread_id="thread_universal_all_blocked",
+            history=[],
+            client_turn_id="turn_universal_all_blocked",
+            mode=SkillOrchestrationMode.PREVIEW,
+        )
+        with pytest.raises(RuntimeError, match="no_executable_skill"):
+            await runtime._tasks[run.id]
+        return repository.get_agent_run(run.id)
+
+    failed = asyncio.run(scenario())
+
+    assert failed is not None and failed.status is AgentRunStatus.FAILED
+    assert failed.error_code == "no_executable_skill"
+    assert "Universal Preview Skill" in (failed.output_text or "")
+    assert "tool_grant_missing" in (failed.output_text or "")
 
 
 def test_routed_universal_preview_accepts_server_owned_scenario_assignment(tmp_path, monkeypatch) -> None:

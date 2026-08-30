@@ -1032,6 +1032,16 @@ class ApprovalConflict(RuntimeError):
     """The approval request is stale, invalid, expired, or already claimed."""
 
 
+class _UniversalPlannerUnavailable(PlannerUnavailable):
+    def __init__(
+        self,
+        code: str,
+        blocked_matches: tuple[BlockedSkillMatchPublicV1, ...],
+    ) -> None:
+        super().__init__(code)
+        self.blocked_matches = blocked_matches
+
+
 class AgentRuntimeService:
     def __init__(
         self,
@@ -2686,6 +2696,15 @@ Follow the activated Skill for this request, subject to the platform rules above
             routing_result=universal_routing,
             task_catalog=self.universal_task_catalog if universal_routing is not None else None,
         )
+        blocked_matches = tuple(
+            BlockedSkillMatchPublicV1(
+                skill_id=candidate.skill_id,
+                skill_name=candidate.skill_name,
+                title=candidate.title,
+                reason_codes=tuple(candidate.diagnostics),
+            )
+            for candidate in search_result.blocked_matches
+        )
         self.repository.append_agent_run_event(
             run.id,
             "skill_search_completed",
@@ -2694,15 +2713,10 @@ Follow the activated Skill for this request, subject to the platform rules above
                 "outcome_code": search_result.outcome_code,
                 "searchable_count": search_result.searchable_count,
                 "selectable_count": len(search_result.selectable_candidates),
-                "blocked_match_count": len(search_result.blocked_matches),
+                "blocked_match_count": len(blocked_matches),
                 "blocked_matches": [
-                    BlockedSkillMatchPublicV1(
-                        skill_id=candidate.skill_id,
-                        skill_name=candidate.skill_name,
-                        title=candidate.title,
-                        reason_codes=tuple(candidate.diagnostics),
-                    ).model_dump(mode="json")
-                    for candidate in search_result.blocked_matches
+                    blocked.model_dump(mode="json")
+                    for blocked in blocked_matches
                 ],
                 "latency_ms": round((monotonic() - retrieval_started) * 1000, 3),
                 "candidate_ids": [
@@ -2711,7 +2725,10 @@ Follow the activated Skill for this request, subject to the platform rules above
             },
         )
         if search_result.outcome_code != "ok" or not search_result.selectable_candidates:
-            raise PlannerUnavailable(search_result.outcome_code)
+            raise _UniversalPlannerUnavailable(
+                search_result.outcome_code,
+                blocked_matches,
+            )
         snapshot = build_candidate_snapshot(search_result, self.repository)
         skeleton = SkillPlan(
             id=new_id("plan"),
@@ -3183,9 +3200,17 @@ Follow the activated Skill for this request, subject to the platform rules above
                     else type(error).__name__
                 )
                 if isinstance(error, PlannerUnavailable):
+                    blocked_summary = ""
+                    if isinstance(error, _UniversalPlannerUnavailable):
+                        blocked_summary = "；相关但暂不可用：" + "；".join(
+                            f"{match.title}（{','.join(match.reason_codes) or 'unavailable'}）"
+                            for match in error.blocked_matches
+                        )
                     current.output_text = (
                         "当前无法生成可靠的多 Skill 执行计划。能力缺口："
-                        f"{redact_sensitive_text(str(error))[:500]}。系统没有降级为无工具普通回答。"
+                        f"{redact_sensitive_text(str(error))[:500]}"
+                        f"{redact_sensitive_text(blocked_summary)[:1000]}。"
+                        "系统没有降级为无工具普通回答。"
                     )
                 elif isinstance(error, (TimeoutError, asyncio.TimeoutError)):
                     current.output_text = "任务在编排或执行阶段超时，已停止本次运行；可以保留编排模式后重试。"
