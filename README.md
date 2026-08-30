@@ -133,13 +133,13 @@ The builtin catalog contains 84 unique 2C-DesignWiki Skills, grouped into 17 pre
 
 Legacy plans with two or more domain Skills still stop at the Plan Approval gate. Task/Scenario plans with high or medium confidence and only read/draft effects continue automatically in `execute` mode; `preview`, high-risk decisions, and write effects still pause. Confirming a plan does not approve a Tool call: approved external tools use a separate node-level approval, without repeating approval for internal Provider subcalls. The parent Run is the durable control record; refresh or SSE reconnect reads the same Run and Plan instead of starting work again.
 
-Roll out in order: `off` → `preview` → `execute`. To roll back without deleting Plans, node results, artifacts, events, or audits:
+Roll out in order: `off` → `preview` → `execute`. Setting `off` is the final restart state, not by itself a safe online rollback. Production rollback must first fence ingress, quiesce the live process, stop the only SQLite writer, run the checksum-bound offline inventory and backup/restore checks, and then restart a forward-compatible binary with:
 
 ```bash
 export AGENTMESH_SKILL_ORCHESTRATION=off
 ```
 
-Open Tool approvals remain stopped after rollback and are never auto-resumed.
+Follow the [Universal Skill orchestration release and rollback runbook](docs/runbooks/universal-skill-orchestration.md). Open Tool approvals remain stopped after rollback and are never auto-resumed.
 
 The orchestration API surface is:
 
@@ -161,7 +161,8 @@ Run the deterministic release gates before moving beyond `preview`:
 .venv/bin/python eval/run_universal_skill_retrieval_eval.py
 .venv/bin/python eval/run_universal_skill_profile_smoke.py --mode fts-only
 # Offline rollback preflight; --apply additionally requires the printed checksum,
-# an integrity-checked backup path, and a two-operator approval file.
+# a separate integrity-checked backup path, a durable receipt path, and a
+# two-operator approval file.
 .venv/bin/python scripts/quiesce_skill_orchestration.py --database data/agentmesh.sqlite3
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
 .venv/bin/python -m pytest

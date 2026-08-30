@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import stat
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
+import scripts.quiesce_skill_orchestration as quiesce_command
 from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.models import (
     AgentPlanningContractVersion,
@@ -90,6 +93,27 @@ def _candidate_snapshot() -> CandidateSnapshotV1:
     return CandidateSnapshotV1(**body, content_hash=canonical_json_sha256(body))
 
 
+def _approval_file(
+    directory: Path,
+    checksum: str,
+    *,
+    name: str,
+    approved_by: list[str] | None = None,
+) -> Path:
+    path = directory / name
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "orchestration-quiesce-approval-v1",
+                "operation_checksum": checksum,
+                "approved_by": approved_by or ["@operator-one", "@operator-two"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_quiesce_command_dry_run_and_apply_are_checksum_bound(tmp_path: Path, capsys) -> None:
     database = tmp_path / "quiesce.sqlite3"
     repository = SQLiteStore(database)
@@ -157,7 +181,8 @@ def test_quiesce_command_dry_run_and_apply_are_checksum_bound(tmp_path: Path, ca
         ),
         encoding="utf-8",
     )
-    backup = tmp_path / "quiesce.backup.sqlite3"
+    backup = tmp_path / "backups" / "quiesce.backup.sqlite3"
+    receipt = tmp_path / "evidence" / "quiesce-apply-receipt.json"
     assert main(
         [
             "--database",
@@ -169,12 +194,31 @@ def test_quiesce_command_dry_run_and_apply_are_checksum_bound(tmp_path: Path, ca
             str(backup),
             "--approval-file",
             str(approval),
+            "--receipt",
+            str(receipt),
         ]
     ) == 0
     applied = json.loads(capsys.readouterr().out)
 
     assert backup.is_file()
-    assert applied["backup_sha256"]
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o600
+    assert receipt.is_file()
+    assert stat.S_IMODE(receipt.stat().st_mode) == 0o600
+    durable_receipt = json.loads(receipt.read_text(encoding="utf-8"))
+    assert durable_receipt["status"] == "verified"
+    assert durable_receipt["backup"]["sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
+    assert durable_receipt["operation_checksum"] == inventory.operation_checksum
+    assert applied["receipt"] == str(receipt.resolve())
+    assert applied["receipt_status"] == "verified"
+    assert applied["backup_sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
+    assert applied["backup_bytes"] == backup.stat().st_size
+    assert applied["backup_source"]["integrity_check"] == "ok"
+    assert applied["backup_snapshot"]["table_counts"] == applied["backup_source"]["table_counts"]
+    assert applied["restore_smoke"]["integrity_check"] == "ok"
+    assert (
+        applied["restore_smoke"]["inventory_operation_checksum"]
+        == inventory.operation_checksum
+    )
     assert repository.universal_quiesce_inventory().run_ids == ()
     stored_universal = repository.get_agent_run(universal.id)
     stored_deepsearch_v2 = repository.get_agent_run(deepsearch_v2.id)
@@ -183,6 +227,325 @@ def test_quiesce_command_dry_run_and_apply_are_checksum_bound(tmp_path: Path, ca
     assert stored_deepsearch_v2 is not None and stored_deepsearch_v2.status is AgentRunStatus.CANCELLED
     assert stored_direct is not None and stored_direct.status is AgentRunStatus.FAILED
     assert stored_direct.error_code == "external_outcome_unknown"
+
+
+def test_quiesce_apply_requires_a_separate_backup_directory(tmp_path: Path) -> None:
+    database = tmp_path / "quiesce-backup-directory.sqlite3"
+    repository = SQLiteStore(database)
+    inventory = repository.universal_quiesce_inventory()
+    approval = tmp_path / "backup-directory-approval.json"
+    approval.write_text(
+        json.dumps(
+            {
+                "schema_version": "orchestration-quiesce-approval-v1",
+                "operation_checksum": inventory.operation_checksum,
+                "approved_by": ["@operator-one", "@operator-two"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    backup = tmp_path / "invalid-same-directory-backup.sqlite3"
+    receipt = tmp_path / "evidence" / "same-directory-receipt.json"
+
+    with pytest.raises(QuiesceCommandError, match="backup_directory_must_differ"):
+        main(
+            [
+                "--database",
+                str(database),
+                "--apply",
+                "--expected-operation-checksum",
+                inventory.operation_checksum,
+                "--backup",
+                str(backup),
+                "--approval-file",
+                str(approval),
+                "--receipt",
+                str(receipt),
+            ]
+        )
+
+    assert not backup.exists()
+
+
+def test_quiesce_backup_publish_race_never_overwrites_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "quiesce-backup-race.sqlite3"
+    repository = SQLiteStore(database)
+    inventory = repository.universal_quiesce_inventory()
+    approval = _approval_file(
+        tmp_path,
+        inventory.operation_checksum,
+        name="backup-race-approval.json",
+    )
+    backup = tmp_path / "backups" / "race.sqlite3"
+    receipt = tmp_path / "evidence" / "race-receipt.json"
+    original_link = quiesce_command.os.link
+
+    def racing_link(source, target, *, follow_symlinks=True):  # noqa: ANN001, ANN202
+        if Path(target) == backup:
+            backup.write_bytes(b"do-not-overwrite")
+        return original_link(source, target, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(quiesce_command.os, "link", racing_link)
+
+    with pytest.raises(QuiesceCommandError, match="backup_path_exists"):
+        main(
+            [
+                "--database",
+                str(database),
+                "--apply",
+                "--expected-operation-checksum",
+                inventory.operation_checksum,
+                "--backup",
+                str(backup),
+                "--approval-file",
+                str(approval),
+                "--receipt",
+                str(receipt),
+            ]
+        )
+
+    assert backup.read_bytes() == b"do-not-overwrite"
+    assert not receipt.exists()
+    assert not list(backup.parent.glob(".*.tmp"))
+
+
+def test_quiesce_backup_rejects_dangling_symlink_destination(tmp_path: Path) -> None:
+    database = tmp_path / "quiesce-backup-symlink.sqlite3"
+    repository = SQLiteStore(database)
+    inventory = repository.universal_quiesce_inventory()
+    approval = _approval_file(
+        tmp_path,
+        inventory.operation_checksum,
+        name="backup-symlink-approval.json",
+    )
+    backup_directory = tmp_path / "backups"
+    backup_directory.mkdir()
+    target = backup_directory / "missing-target.sqlite3"
+    backup = backup_directory / "symlink.sqlite3"
+    backup.symlink_to(target)
+
+    with pytest.raises(QuiesceCommandError, match="backup_path_exists"):
+        main(
+            [
+                "--database",
+                str(database),
+                "--apply",
+                "--expected-operation-checksum",
+                inventory.operation_checksum,
+                "--backup",
+                str(backup),
+                "--approval-file",
+                str(approval),
+                "--receipt",
+                str(tmp_path / "evidence" / "symlink-receipt.json"),
+            ]
+        )
+
+    assert backup.is_symlink()
+    assert not target.exists()
+
+
+def test_private_receipt_writer_rejects_dangling_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "missing-receipt-target.json"
+    receipt = tmp_path / "receipt-link.json"
+    receipt.symlink_to(target)
+
+    with pytest.raises(QuiesceCommandError, match="receipt_path_exists"):
+        quiesce_command._write_private_json(
+            receipt,
+            {"status": "backup_verified"},
+            create_only=True,
+        )
+
+    assert receipt.is_symlink()
+    assert not target.exists()
+
+
+def test_private_receipt_writer_handles_short_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = tmp_path / "evidence" / "short-write-receipt.json"
+    payload: dict[str, object] = {
+        "schema_version": "orchestration-quiesce-apply-receipt-v1",
+        "status": "backup_verified",
+        "operation_checksum": "a" * 64,
+        "backup": {"sha256": "b" * 64},
+    }
+    original_write = quiesce_command.os.write
+    write_calls = 0
+
+    def short_write(descriptor: int, data) -> int:  # noqa: ANN001
+        nonlocal write_calls
+        write_calls += 1
+        chunk_size = max(1, len(data) // 3)
+        return original_write(descriptor, data[:chunk_size])
+
+    monkeypatch.setattr(quiesce_command.os, "write", short_write)
+
+    quiesce_command._write_private_json(receipt, payload, create_only=True)
+
+    assert write_calls > 1
+    assert json.loads(receipt.read_text(encoding="utf-8")) == payload
+    assert stat.S_IMODE(receipt.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize(
+    "approved_by",
+    [
+        ["@operator-one"],
+        ["@operator-one", "@operator-one"],
+        ["operator-one", "@operator-two"],
+    ],
+)
+def test_quiesce_apply_rejects_invalid_approval_identities(
+    tmp_path: Path,
+    approved_by: list[str],
+) -> None:
+    database = tmp_path / "quiesce-invalid-approval.sqlite3"
+    repository = SQLiteStore(database)
+    inventory = repository.universal_quiesce_inventory()
+    approval = _approval_file(
+        tmp_path,
+        inventory.operation_checksum,
+        name="invalid-approval.json",
+        approved_by=approved_by,
+    )
+
+    with pytest.raises(QuiesceCommandError, match="quiesce_approval_invalid"):
+        main(
+            [
+                "--database",
+                str(database),
+                "--apply",
+                "--expected-operation-checksum",
+                inventory.operation_checksum,
+                "--backup",
+                str(tmp_path / "backups" / "invalid-approval.sqlite3"),
+                "--approval-file",
+                str(approval),
+                "--receipt",
+                str(tmp_path / "evidence" / "invalid-approval.json"),
+            ]
+        )
+
+
+def test_restore_inventory_mismatch_prevents_apply(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "quiesce-restore-mismatch.sqlite3"
+    repository = SQLiteStore(database)
+    run = repository.save_agent_run(
+        _run(
+            "run_restore_mismatch",
+            contract=AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+        )
+    )
+    inventory = repository.universal_quiesce_inventory()
+    approval = _approval_file(
+        tmp_path,
+        inventory.operation_checksum,
+        name="restore-mismatch-approval.json",
+    )
+    backup = tmp_path / "backups" / "restore-mismatch.sqlite3"
+    receipt = tmp_path / "evidence" / "restore-mismatch-receipt.json"
+    original_inventory = SQLiteStore.universal_quiesce_inventory
+
+    def mismatched_restore(self):  # noqa: ANN001, ANN202
+        current = original_inventory(self)
+        if self.db_path.resolve() != database.resolve():
+            return current.model_copy(update={"operation_checksum": "0" * 64})
+        return current
+
+    monkeypatch.setattr(SQLiteStore, "universal_quiesce_inventory", mismatched_restore)
+
+    with pytest.raises(
+        QuiesceCommandError,
+        match="backup_restore_inventory_mismatch",
+    ):
+        main(
+            [
+                "--database",
+                str(database),
+                "--apply",
+                "--expected-operation-checksum",
+                inventory.operation_checksum,
+                "--backup",
+                str(backup),
+                "--approval-file",
+                str(approval),
+                "--receipt",
+                str(receipt),
+            ]
+        )
+
+    assert not backup.exists()
+    assert not receipt.exists()
+    assert repository.get_agent_run(run.id).status is AgentRunStatus.PLANNING  # type: ignore[union-attr]
+
+
+def test_postcheck_failure_retains_durable_backup_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "quiesce-postcheck.sqlite3"
+    repository = SQLiteStore(database)
+    run = repository.save_agent_run(
+        _run(
+            "run_quiesce_postcheck",
+            contract=AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+        )
+    )
+    inventory = repository.universal_quiesce_inventory()
+    approval = _approval_file(
+        tmp_path,
+        inventory.operation_checksum,
+        name="postcheck-approval.json",
+    )
+    backup = tmp_path / "backups" / "postcheck.sqlite3"
+    receipt = tmp_path / "evidence" / "postcheck-receipt.json"
+    original_inventory = SQLiteStore.universal_quiesce_inventory
+    source_inventory_calls = 0
+
+    def failing_postcheck(self):  # noqa: ANN001, ANN202
+        nonlocal source_inventory_calls
+        current = original_inventory(self)
+        if self.db_path.resolve() == database.resolve():
+            source_inventory_calls += 1
+            if source_inventory_calls == 2:
+                return current.model_copy(update={"run_ids": ("postcheck_failed",)})
+        return current
+
+    monkeypatch.setattr(SQLiteStore, "universal_quiesce_inventory", failing_postcheck)
+
+    with pytest.raises(QuiesceCommandError, match="quiesce_postcheck_failed"):
+        main(
+            [
+                "--database",
+                str(database),
+                "--apply",
+                "--expected-operation-checksum",
+                inventory.operation_checksum,
+                "--backup",
+                str(backup),
+                "--approval-file",
+                str(approval),
+                "--receipt",
+                str(receipt),
+            ]
+        )
+
+    durable_receipt = json.loads(receipt.read_text(encoding="utf-8"))
+    assert durable_receipt["status"] == "postcheck_failed"
+    assert durable_receipt["error_code"] == "quiesce_postcheck_failed"
+    assert durable_receipt["backup"]["sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o600
+    assert stat.S_IMODE(receipt.stat().st_mode) == 0o600
+    assert repository.get_agent_run(run.id).status is AgentRunStatus.CANCELLED  # type: ignore[union-attr]
 
 
 def test_quiesce_apply_rejects_checksum_drift_without_writing(tmp_path: Path) -> None:
