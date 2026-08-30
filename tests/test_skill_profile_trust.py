@@ -127,6 +127,7 @@ def _fixture(
 def test_profile_trust_requires_verified_release_and_reviewed_blob(tmp_path: Path) -> None:
     skill, package_root, manifest_path, marker_path, release_id = _fixture(tmp_path)
     loaded = load_capability_profile_record(skill)
+    assert loaded.profile.planner_eligible is True
 
     verifier = ProfileTrustVerifier.load(
         package_root=package_root,

@@ -259,6 +259,62 @@ def test_catalog_report_separates_draft_coverage_from_release_eligibility() -> N
     assert "profile_provenance_v2_missing" in release_payload["release_blockers"]
 
 
+def test_catalog_release_gate_can_graduate_all_reviewed_profiles(tmp_path: Path) -> None:
+    catalog_root = tmp_path / "builtin_skills"
+    shutil.copytree(BUILTIN_ROOT, catalog_root)
+    for sidecar in catalog_root.glob("*/agents/agentmesh.yaml"):
+        profile = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+        profile["review_state"] = "approved"
+        profile["planner_eligible"] = True
+        sidecar.write_text(
+            yaml.safe_dump(profile, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+
+    roster = yaml.safe_load(REVIEW_ROSTER_PATH.read_text(encoding="utf-8"))
+    for item in roster["items"]:
+        item["author"] = "@profile-author"
+        item["reviewers"] = ["@reviewer-one", "@reviewer-two"]
+        item["confirmed_at"] = "2026-08-30"
+        item["review_due_at"] = "2099-01-01"
+        item["status"] = "approved"
+    roster_path = tmp_path / "review-roster.yaml"
+    roster_path.write_text(
+        yaml.safe_dump(roster, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    codeowners_path = tmp_path / "CODEOWNERS"
+    codeowners_path.write_text("* @reviewer-one @reviewer-two\n", encoding="utf-8")
+    provenance_path = tmp_path / "profile-provenance.json"
+    provenance_path.write_text('{"schema_version":2}\n', encoding="utf-8")
+
+    release = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "skill_catalog_report.py"),
+            str(catalog_root),
+            "--release-gate",
+            "--review-roster",
+            str(roster_path),
+            "--codeowners",
+            str(codeowners_path),
+            "--profile-provenance",
+            str(provenance_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(release.stdout)
+    assert release.returncode == 0, release.stdout
+    assert payload["release_gate_eligible"] is True
+    assert payload["release_blockers"] == []
+    assert payload["planner_profiles"] == 84
+    assert payload["draft_profiles"] == 0
+    assert payload["errors"] == 0
+
+
 def test_catalog_uses_stage_metadata_without_exposing_draft_profile_fields(tmp_path: Path) -> None:
     expected = {
         "design-advisor": "pre_design",

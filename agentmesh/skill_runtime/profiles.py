@@ -257,7 +257,6 @@ def load_capability_profile_record(skill: SkillDefinition) -> LoadedCapabilityPr
         planner_eligible=(
             document.planner_eligible
             and document.review_state != "draft"
-            and is_pilot_orchestration_skill(skill)
         ),
     )
     try:

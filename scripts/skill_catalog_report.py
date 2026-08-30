@@ -183,7 +183,10 @@ def main() -> int:
                     else:
                         if loaded.review_state == "draft":
                             draft_profiles.append(result.skill.name)
-                        if loaded.review_state != "draft" or loaded.declared_planner_eligible:
+                        if not args.release_gate and (
+                            loaded.review_state != "draft"
+                            or loaded.declared_planner_eligible
+                        ):
                             diagnostics.append(
                                 {
                                     "level": "error",
@@ -192,7 +195,7 @@ def main() -> int:
                                     "path": str(sidecar),
                                 }
                             )
-                        if profile.planner_eligible:
+                        if not args.release_gate and profile.planner_eligible:
                             diagnostics.append(
                                 {
                                     "level": "error",
@@ -263,13 +266,16 @@ def main() -> int:
                 "path": str(root),
             }
         )
-    if len([profile for profile in profiles if profile.planner_eligible]) != EXPECTED_PLANNER_PROFILES:
+    expected_planner_profiles = (
+        EXPECTED_DOMAIN_SKILLS if args.release_gate else EXPECTED_PLANNER_PROFILES
+    )
+    if len([profile for profile in profiles if profile.planner_eligible]) != expected_planner_profiles:
         diagnostics.append(
             {
                 "level": "error",
                 "code": "planner_profile_count",
                 "message": (
-                    f"expected {EXPECTED_PLANNER_PROFILES}, loaded "
+                    f"expected {expected_planner_profiles}, loaded "
                     f"{len([profile for profile in profiles if profile.planner_eligible])}"
                 ),
                 "path": str(root),
@@ -284,12 +290,13 @@ def main() -> int:
                 "path": str(root),
             }
         )
-    if len(draft_profiles) != EXPECTED_DRAFT_PROFILES:
+    expected_draft_profiles = 0 if args.release_gate else EXPECTED_DRAFT_PROFILES
+    if len(draft_profiles) != expected_draft_profiles:
         diagnostics.append(
             {
                 "level": "error",
                 "code": "draft_profile_count",
-                "message": f"expected {EXPECTED_DRAFT_PROFILES}, loaded {len(draft_profiles)}",
+                "message": f"expected {expected_draft_profiles}, loaded {len(draft_profiles)}",
                 "path": str(root),
             }
         )
@@ -319,6 +326,7 @@ def main() -> int:
         codeowners_path=args.codeowners,
         source_manifest_path=(args.profile_provenance or root / "wiki-skill-provenance.json"),
     )
+    error_count = sum(item["level"] == "error" for item in diagnostics)
     payload = {
         "root": str(root),
         "files": len(files),
@@ -335,10 +343,10 @@ def main() -> int:
             {capability for profile in profiles for capability in profile.required_capabilities}
         ),
         "duplicates": domain_duplicates,
-        "errors": sum(item["level"] == "error" for item in diagnostics),
+        "errors": error_count,
         "warnings": sum(item["level"] == "warning" for item in diagnostics),
         "diagnostics": diagnostics,
-        "release_gate_eligible": not release_blockers,
+        "release_gate_eligible": not release_blockers and error_count == 0,
         "release_blockers": release_blockers,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
