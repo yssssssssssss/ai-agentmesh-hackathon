@@ -105,7 +105,9 @@ def agents_with_runtime_state() -> list[Agent]:
 
 @router.get("/bootstrap", response_model=BootstrapState)
 def bootstrap(user: User = Depends(current_user)) -> BootstrapState:
-    state = bootstrap_state(store, user)
+    from agentmesh.routes.chat import agent
+
+    state = bootstrap_state(store, user, agent_runtime=agent.agent_runtime)
     return state.model_copy(update={"agents": agents_with_runtime_state()})
 
 

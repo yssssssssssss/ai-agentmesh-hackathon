@@ -18,7 +18,7 @@ export function WelcomeHero({ model }: WelcomeHeroProps) {
       <section className="border-b border-white/[0.08] pb-7" aria-live="polite">
         {model.loading ? <p className="text-sm text-slate-400">正在读取当前进展…</p> : null}
         {model.error ? <p role="alert" className="text-sm text-rose">{model.error}</p> : null}
-        {!model.loading && !model.error ? <p className="text-sm text-slate-500">当前工作上下文不可用。</p> : null}
+        {!model.loading && !model.error ? <p className="text-sm text-slate-400">当前工作上下文不可用。</p> : null}
       </section>
     )
   }
@@ -29,20 +29,20 @@ export function WelcomeHero({ model }: WelcomeHeroProps) {
         <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-mint-300">当前进展</div>
         <ModuleSourceBadges sources={model.sources} />
       </div>
-      <h1 id="digital-self-heading" className="mt-3 text-[28px] font-bold tracking-tight text-white">
+      <h1 id="digital-self-heading" className="mt-3 text-2xl text-balance font-bold tracking-tight text-white">
         {hero.greeting.value}
       </h1>
       <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-400">
         <span>{hero.workspaceName.value}</span>
-        <span aria-hidden="true" className="text-slate-600">·</span>
+        <span aria-hidden="true" className="text-slate-400">·</span>
         <span className="font-medium text-slate-200">{hero.projectName.value}</span>
         <ValueSourceBadge value={hero.projectName} />
       </div>
-      <p className="mt-2 max-w-4xl text-[13px] leading-6 text-slate-500">项目目标：{hero.projectGoal.value}</p>
+      <p className="mt-2 max-w-4xl text-[13px] leading-6 text-slate-400">项目目标：{hero.projectGoal.value}</p>
       <div className="mt-3 flex max-w-5xl flex-wrap items-center gap-x-2 gap-y-1 text-[15px] leading-7 text-slate-300">
         <span>{hero.progressNarrative.value}</span>
         <ValueSourceBadge value={hero.progressNarrative} />
-        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
           参考参与人数 {hero.participantCount.value}
           <ValueSourceBadge value={hero.participantCount} />
         </span>
@@ -61,7 +61,7 @@ export function WelcomeHero({ model }: WelcomeHeroProps) {
           </span>
         ) : null}
         {hero.currentTask?.value ? <span>当前任务：{hero.currentTask.value}</span> : null}
-        {model.loading ? <span role="status" className="text-slate-500">正在同步数字员工状态…</span> : null}
+        {model.loading ? <span role="status" className="text-slate-400">正在同步数字员工状态…</span> : null}
         {model.error ? <span role="alert" className="text-rose">{model.error}</span> : null}
       </div>
 

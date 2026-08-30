@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from yaml.events import AliasEvent
 from yaml.nodes import MappingNode, ScalarNode
 
-from agentmesh.research_orchestration.v3.canonical import canonical_json_v3_sha256
+from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.task_routing.contracts import (
     CatalogManifest,
     CatalogSkillReference,
@@ -176,7 +176,7 @@ def _strict_yaml_load(value: str) -> Any:
 
 
 def canonical_sha256(payload: Any) -> str:
-    return canonical_json_v3_sha256(payload)
+    return canonical_json_sha256(payload)
 
 
 def json_bytes(payload: Any) -> bytes:

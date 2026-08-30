@@ -102,25 +102,25 @@ export function ActivitySection() {
               <div className="card-base p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone={BADGE_TONE[a.tone]}>{ACTIVITY_CATEGORY_LABELS[a.category]}</Badge>
-                  <span className="inline-flex items-center gap-1 text-[11.5px] text-slate-500">
+                  <span className="inline-flex items-center gap-1 text-[11.5px] text-slate-400">
                     <Clock className="h-3 w-3" />
                     {a.time}
                   </span>
                 </div>
                 <h3 className="mt-2 text-[14px] font-medium leading-relaxed text-slate-100">{a.title}</h3>
                 {a.detail && <p className="mt-1 text-[12.5px] leading-relaxed text-slate-400">{a.detail}</p>}
-                <p className="mt-2 text-[11.5px] text-slate-500">{a.actor}</p>
+                <p className="mt-2 text-[11.5px] text-slate-400">{a.actor}</p>
               </div>
             </li>
           ))}
         </ol>
       ) : (
         <div className="card-base flex flex-col items-center py-14 text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-slate-500">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-slate-400">
             <History className="h-5 w-5" />
           </span>
           <h3 className="mt-3 text-sm font-semibold text-slate-100">该分类下暂无活动</h3>
-          <p className="mt-1 max-w-sm text-xs text-slate-500">切换到其他分类查看数字人的近期活动。</p>
+          <p className="mt-1 max-w-sm text-xs text-slate-400">切换到其他分类查看数字人的近期活动。</p>
         </div>
       )}
     </div>

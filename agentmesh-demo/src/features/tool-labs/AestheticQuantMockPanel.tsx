@@ -9,7 +9,7 @@ import { CaseStudyFigure } from './CaseStudyFigure'
 import { AESTHETIC_MOCK_RESULT, DEFAULT_ROIS } from './fixtures'
 import type { AestheticDepth, AestheticProfile, RoiInput } from './types'
 
-const inputClass = 'mt-1.5 w-full rounded-[9px] border border-white/[0.08] bg-base px-3 py-2 text-sm text-slate-100 outline-none focus:border-mint-400/40'
+const inputClass = 'mt-1.5 w-full rounded-soft border border-white/[0.08] bg-base px-3 py-2 text-sm text-slate-100 outline-none focus:border-mint-400/40'
 
 function useObjectUrl(file: File | null) {
   const [url, setUrl] = useState<string | null>(null)
@@ -33,7 +33,7 @@ function ImageInput({ label, file, onChange, previewUrl }: {
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   return (
-    <div className="rounded-[12px] border border-white/[0.07] bg-base/70 p-3">
+    <div className="rounded-soft border border-white/[0.07] bg-base/70 p-3">
       <input
         ref={inputRef}
         type="file"
@@ -44,7 +44,7 @@ function ImageInput({ label, file, onChange, previewUrl }: {
         onChange={(event) => onChange(event.target.files?.[0] ?? null)}
       />
       {previewUrl ? (
-        <img src={previewUrl} alt="设计图预览" className="mb-3 h-28 w-full rounded-[9px] border border-white/[0.08] object-cover" />
+        <img src={previewUrl} alt="设计图预览" width={360} height={112} loading="lazy" className="mb-3 h-28 w-full rounded-soft border border-white/[0.08] object-cover" />
       ) : null}
       <Button type="button" variant="subtle" size="sm" block className="min-w-0 overflow-hidden" icon={<ImagePlus className="h-4 w-4" />} onClick={() => inputRef.current?.click()}>
         <span className="min-w-0 flex-1 truncate text-left">{file ? file.name : label}</span>
@@ -72,7 +72,7 @@ function RoiEditor({ rois, onChange }: { rois: RoiInput[]; onChange: (rois: RoiI
     >
       <div className="space-y-3">
         {rois.map((roi, index) => (
-          <div key={roi.id} className="rounded-[10px] border border-white/[0.06] bg-base p-3">
+          <div key={roi.id} className="rounded-soft border border-white/[0.06] bg-base p-3">
             <div className="flex items-center gap-2">
               <input
                 aria-label={`ROI 名称 ${index + 1}`}
@@ -85,14 +85,14 @@ function RoiEditor({ rois, onChange }: { rois: RoiInput[]; onChange: (rois: RoiI
                 aria-label={`删除 ${roi.label}`}
                 disabled={rois.length === 1}
                 onClick={() => onChange(rois.filter((item) => item.id !== roi.id))}
-                className="rounded-md p-1.5 text-slate-500 hover:bg-white/[0.05] hover:text-rose disabled:opacity-30"
+                className="rounded-md p-1.5 text-slate-400 hover:bg-white/[0.05] hover:text-rose disabled:opacity-30"
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {(['x', 'y', 'width', 'height'] as const).map((field) => (
-                <label key={field} className="text-[11px] text-slate-500">
+                <label key={field} className="text-[11px] text-slate-400">
                   {field}
                   <input
                     aria-label={`ROI ${index + 1} ${field}`}
@@ -102,7 +102,7 @@ function RoiEditor({ rois, onChange }: { rois: RoiInput[]; onChange: (rois: RoiI
                     step="0.01"
                     value={roi[field]}
                     onChange={(event) => update(roi.id, field, Math.min(1, Math.max(0, Number(event.target.value))))}
-                    className="mt-1 w-full rounded-[8px] border border-white/[0.07] bg-surface-1 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-mint-400/40"
+                    className="mt-1 w-full rounded-control border border-white/[0.07] bg-surface-1 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-mint-400/40"
                   />
                 </label>
               ))}
@@ -145,7 +145,7 @@ export function AestheticQuantMockPanel() {
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]">
       <div className="space-y-4">
-        <div className="rounded-[12px] border border-amber-300/20 bg-amber-300/[0.07] px-4 py-3 text-xs leading-5 text-amber-100">
+        <div className="rounded-soft border border-amber-300/20 bg-amber-300/[0.07] px-4 py-3 text-xs leading-5 text-amber-100">
           <strong>示例演示：</strong>报告基于内置京东新品频道截图生成。上传图片仅替换本地预览，不会上传，也不会改变固定结论。
         </div>
         <SectionCard title="分析输入" desc="配置设计素材和演示参数。" icon={<ImagePlus className="h-4 w-4" />}>
@@ -173,11 +173,11 @@ export function AestheticQuantMockPanel() {
             </label>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <label className="flex items-center gap-2 rounded-[9px] border border-white/[0.06] bg-base px-3 py-2 text-xs text-slate-300">
+            <label className="flex items-center gap-2 rounded-soft border border-white/[0.06] bg-base px-3 py-2 text-xs text-slate-300">
               <input type="checkbox" checked={enableAttention} onChange={(event) => { setEnableAttention(event.target.checked); if (!event.target.checked) setIncludeAttention(false) }} />
               启用注意力分析
             </label>
-            <label className="flex items-center gap-2 rounded-[9px] border border-white/[0.06] bg-base px-3 py-2 text-xs text-slate-300">
+            <label className="flex items-center gap-2 rounded-soft border border-white/[0.06] bg-base px-3 py-2 text-xs text-slate-300">
               <input type="checkbox" checked={includeAttention} disabled={!enableAttention} onChange={(event) => setIncludeAttention(event.target.checked)} />
               注意力计入综合分
             </label>

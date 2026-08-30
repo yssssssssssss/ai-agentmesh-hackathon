@@ -25,7 +25,7 @@ export function PendingKnowledgeCard({
     <article data-inbox-item-id={item.id} className="rounded-card border border-mint-400/20 bg-mint-400/[0.05] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-mint-400/12 text-mint-300">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-soft bg-mint-400/12 text-mint-300">
             {item.item_type === 'prompt_injection_review' ? (
               <ShieldAlert className="h-5 w-5" />
             ) : (

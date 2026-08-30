@@ -9,6 +9,7 @@ dependencies = [
   "pydantic",
   "httpx",
   "jsonschema>=4,<5",
+  "markdown-it-py>=3,<4",
   "openai-agents==0.21.1",
   "pymupdf",
   "python-multipart",
@@ -53,7 +54,5 @@ include = ["agentmesh*"]
 [tool.setuptools.package-data]
 agentmesh = [
   "builtin_skills/**",
-  "schemas/research/*.json",
-  "research_catalog/research-v3/competitive-text-v1/**",
   "task_catalog/user-research-v1/**",
 ]

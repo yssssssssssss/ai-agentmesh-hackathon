@@ -273,6 +273,17 @@ def _probe_unauthorized(root: Path) -> SecurityProbeResult:
     target = "prd-feasibility"
     request = "评审这份 PRD 的业务逻辑可行性、方案风险和上线影响。"
     baseline, _ = _recommend(retriever, request)
+    web_research_grant = next(
+        (
+            grant
+            for grant in repository.list_agent_tool_grants(USER.personal_agent_id)
+            if grant.tool_id == "tool_web_research"
+        ),
+        None,
+    )
+    if web_research_grant is None:
+        raise RuntimeError("unauthorized_probe_tool_grant_missing")
+    repository.save_agent_tool_grant(web_research_grant.model_copy(update={"enabled": False}))
     skill = repository.get_skill_definition_by_name(target)
     if skill is None:
         raise RuntimeError("unauthorized_probe_skill_missing")

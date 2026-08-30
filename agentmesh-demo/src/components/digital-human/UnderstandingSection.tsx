@@ -93,16 +93,16 @@ export function UnderstandingSection() {
                 <button
                   type="button"
                   onClick={() => toggleExpand(u.id)}
-                  className="mt-2.5 inline-flex items-center gap-1 text-[12px] text-slate-500 transition-colors hover:text-slate-300"
+                  className="mt-2.5 inline-flex items-center gap-1 text-[12px] text-slate-400 transition-colors hover:text-slate-300"
                 >
                   <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', isOpen ? '' : '-rotate-90')} />
                   查看形成依据
                 </button>
 
                 {isOpen && (
-                  <div className="mt-2 space-y-2 rounded-[10px] bg-surface-1 px-3.5 py-3 text-[12.5px] leading-relaxed animate-fade-in">
+                  <div className="mt-2 space-y-2 rounded-soft bg-surface-1 px-3.5 py-3 text-[12.5px] leading-relaxed animate-fade-in">
                     <p className="text-slate-400">{u.basis}</p>
-                    <p className="flex items-center gap-1.5 text-slate-500">
+                    <p className="flex items-center gap-1.5 text-slate-400">
                       <BookOpen className="h-3.5 w-3.5" />
                       来源:{u.source}
                     </p>
@@ -143,13 +143,13 @@ export function UnderstandingSection() {
         </ul>
       ) : (
         <div className="card-base flex flex-col items-center py-14 text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-slate-500">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-slate-400">
             <Sparkles className="h-5 w-5" />
           </span>
           <h3 className="mt-3 text-sm font-semibold text-slate-100">
             {filter === 'pending' ? '没有待确认的理解' : filter === 'confirmed' ? '还没有已确认的理解' : '没有被忽略的理解'}
           </h3>
-          <p className="mt-1 max-w-sm text-xs text-slate-500">
+          <p className="mt-1 max-w-sm text-xs text-slate-400">
             数字人会持续从你的工作中形成新的理解,出现后会在这里等待你确认。
           </p>
         </div>

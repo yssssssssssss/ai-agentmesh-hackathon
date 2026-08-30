@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from agentmesh.agent_runtime.settings import research_preview_allowlist
+from agentmesh.deepsearch.recovery import DeepSearchRecoveryCoordinator
 from agentmesh.marketplace import (
     start_market_publish_worker,
     start_market_scout_worker,
@@ -21,7 +21,6 @@ from agentmesh.model_registry import ensure_model_seed_data
 from agentmesh.permissions import ensure_permission_policy_seed_data
 from agentmesh.research_orchestration.v2_artifact_history import V2ArtifactHistoryReader
 from agentmesh.research_orchestration.v2_history import V2HistoryAdapter
-from agentmesh.research_orchestration.v3.composition import ResearchV3PreviewComposition
 from agentmesh.risk import ensure_risk_policy_seed_data
 from agentmesh.routes.agent_runs import router as agent_runs_router
 from agentmesh.routes.agents import router as agents_router
@@ -34,8 +33,10 @@ from agentmesh.routes.blackboard import (
     stop_auto_post_worker,
     stop_research_dispatch_worker,
 )
+from agentmesh.routes.chat import agent as chat_agent
 from agentmesh.routes.chat import router as chat_router
 from agentmesh.routes.data_sources import router as data_sources_router
+from agentmesh.routes.deepsearch import router as deepsearch_router
 from agentmesh.routes.documents import ingestion_service
 from agentmesh.routes.documents import router as documents_router
 from agentmesh.routes.health import router as health_router
@@ -65,6 +66,7 @@ FRONTEND_DIST = ROOT_DIR / "agentmesh-demo" / "dist"
 FRONTEND_INDEX = FRONTEND_DIST / "index.html"
 FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 
+
 def initialize_application_data(repository: SQLiteStore) -> None:
     repository.reconcile_orphaned_agent_runs()
     ensure_base_workspace_data(repository)
@@ -84,12 +86,18 @@ def initialize_application_data(repository: SQLiteStore) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize_application_data(store)
-    research_preview_allowlist()
     research_v2_history_reader = V2HistoryAdapter(store, V2ArtifactHistoryReader(store))
-    research_v3_preview = ResearchV3PreviewComposition(store)
     app.state.research_v2_history_reader = research_v2_history_reader
-    app.state.research_v3_preview = research_v3_preview
+    runtime = chat_agent.agent_runtime
+    deepsearch_recovery = (
+        DeepSearchRecoveryCoordinator(store, runtime)
+        if runtime is not None
+        else None
+    )
+    app.state.deepsearch_recovery_coordinator = deepsearch_recovery
     try:
+        if deepsearch_recovery is not None:
+            await deepsearch_recovery.start()
         await start_auto_post_worker()
         await start_daily_memory_worker()
         await start_research_dispatch_worker()
@@ -98,6 +106,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         try:
+            if deepsearch_recovery is not None:
+                await deepsearch_recovery.stop()
             await stop_market_scout_worker()
             await stop_market_publish_worker()
             await stop_research_dispatch_worker()
@@ -106,8 +116,11 @@ async def lifespan(app: FastAPI):
         finally:
             if getattr(app.state, "research_v2_history_reader", None) is research_v2_history_reader:
                 del app.state.research_v2_history_reader
-            if getattr(app.state, "research_v3_preview", None) is research_v3_preview:
-                del app.state.research_v3_preview
+            if (
+                getattr(app.state, "deepsearch_recovery_coordinator", None)
+                is deepsearch_recovery
+            ):
+                del app.state.deepsearch_recovery_coordinator
             await asyncio.to_thread(ingestion_service.shutdown)
 
 
@@ -118,6 +131,7 @@ app = FastAPI(title="AgentMesh", version="0.1.0", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(agent_runs_router)
+app.include_router(deepsearch_router)
 app.include_router(research_router)
 app.include_router(artifacts_router)
 app.include_router(chat_router)

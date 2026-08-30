@@ -101,12 +101,12 @@ export function CollabTimelineDrawer({
     >
       {detail.isLoading ? <p className="text-sm text-slate-400">正在读取协作详情…</p> : null}
       {detail.error ? <p role="alert" className="text-sm text-rose">{collaborationErrorMessage(detail.error)}</p> : null}
-      {error ? <p role="alert" className="mb-4 rounded-[10px] border border-rose/25 bg-rose/10 p-3 text-sm text-rose">{error}</p> : null}
-      {message ? <p role="status" className="mb-4 rounded-[10px] border border-mint-400/20 bg-mint-400/[0.06] p-3 text-sm text-mint-300">{message}</p> : null}
+      {error ? <p role="alert" className="mb-4 rounded-soft border border-rose/25 bg-rose/10 p-3 text-sm text-rose">{error}</p> : null}
+      {message ? <p role="status" className="mb-4 rounded-soft border border-mint-400/20 bg-mint-400/[0.06] p-3 text-sm text-mint-300">{message}</p> : null}
 
       {card || record ? (
         <div className="space-y-6">
-          <section className="rounded-[12px] border border-white/[0.06] bg-surface-1 p-4">
+          <section className="rounded-soft border border-white/[0.06] bg-surface-1 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={card?.task.status === 'completed' ? 'mint' : 'knowledge'}>
                 {card?.task.status === 'completed' ? '已完成' : '协作中'}
@@ -115,11 +115,11 @@ export function CollabTimelineDrawer({
               <DataSourceBadge source="T" />
             </div>
             <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
-              <div><dt className="text-xs text-slate-500">当前负责人</dt><dd className="mt-1 text-slate-200">{card?.owner ?? record?.owner.value ?? '尚未分配'}</dd></div>
-              <div><dt className="text-xs text-slate-500">完成条件</dt><dd className="mt-1 text-slate-200">{card?.done_when ?? record?.doneWhen.value ?? '服务端暂未设置'}</dd></div>
+              <div><dt className="text-xs text-slate-400">当前负责人</dt><dd className="mt-1 text-slate-200">{card?.owner ?? record?.owner.value ?? '尚未分配'}</dd></div>
+              <div><dt className="text-xs text-slate-400">完成条件</dt><dd className="mt-1 text-slate-200">{card?.done_when ?? record?.doneWhen.value ?? '服务端暂未设置'}</dd></div>
             </dl>
             <details className="mt-4 border-t border-white/[0.06] pt-3 text-xs">
-              <summary className="min-h-8 cursor-pointer py-1.5 text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">任务技术详情</summary>
+              <summary className="min-h-8 cursor-pointer py-1.5 text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">任务技术详情</summary>
               <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-slate-400">{JSON.stringify({
                 task: card?.task ?? record?.technical.value.task,
                 stage: card?.stage ?? record?.technical.value.stage,
@@ -140,18 +140,18 @@ export function CollabTimelineDrawer({
                   return (
                     <li key={item.id.value} className="relative flex gap-3.5">
                       {!last ? <span className="absolute left-[15px] top-9 h-[calc(100%+4px)] w-px bg-white/[0.09]" /> : null}
-                      <Avatar name={item.actor.value} size="sm" tone={tone} className="relative z-10 h-8 w-8 shrink-0 text-[10px]" />
+                      <Avatar name={item.actor.value} size="sm" tone={tone} className="relative z-10 h-8 w-8 shrink-0 text-[11px]" />
                       <div className="min-w-0 flex-1 pb-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <h4 className="text-[13.5px] font-semibold text-slate-100">{item.action.value}</h4>
                           <DataSourceBadge source={item.narrative.source} />
-                          <span className="text-[11px] text-slate-500">{item.actor.value}</span>
+                          <span className="text-[11px] text-slate-400">{item.actor.value}</span>
                         </div>
                         <p className="mt-1 text-[12.5px] leading-relaxed text-slate-400">{item.narrative.value}</p>
                         {item.technical.value.sources?.length ? <SourceList sources={item.technical.value.sources} /> : null}
                         <details className="mt-2 text-xs">
-                          <summary className="min-h-8 cursor-pointer py-1.5 text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">技术详情</summary>
-                          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-[10px] bg-surface-1 p-3 font-mono text-[11px] leading-5 text-slate-500">{JSON.stringify(item.technical.value, null, 2)}</pre>
+                          <summary className="min-h-8 cursor-pointer py-1.5 text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">技术详情</summary>
+                          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-soft bg-surface-1 p-3 font-mono text-[11px] leading-5 text-slate-400">{JSON.stringify(item.technical.value, null, 2)}</pre>
                         </details>
                       </div>
                     </li>
@@ -159,24 +159,24 @@ export function CollabTimelineDrawer({
                 })}
               </ol>
             ) : (
-              <div className="rounded-[12px] border border-white/[0.06] bg-surface-1 p-5 text-sm text-slate-500">当前任务尚无可见协作记录。</div>
+              <div className="rounded-soft border border-white/[0.06] bg-surface-1 p-5 text-sm text-slate-400">当前任务尚无可见协作记录。</div>
             )}
           </section>
 
-          <div className="flex items-start gap-2 border-t border-white/[0.06] pt-4 text-[11.5px] leading-relaxed text-slate-500">
+          <div className="flex items-start gap-2 border-t border-white/[0.06] pt-4 text-[11.5px] leading-relaxed text-slate-400">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             协作内容仅来自当前账号可见的 Task 与 Blackboard Post，来源和操作权限由服务端返回。
           </div>
 
           {targetPostId && actions.includes('reply') ? (
-            <section className="rounded-[12px] border border-white/[0.06] p-4">
+            <section className="rounded-soft border border-white/[0.06] p-4">
               <label htmlFor="collaboration-reply" className="text-sm font-semibold text-slate-200">回复任务</label>
               <textarea
                 id="collaboration-reply"
                 value={reply}
                 onChange={(event) => setReply(event.target.value)}
                 rows={3}
-                className="mt-2 w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-200 outline-none focus:border-collab/50 focus-visible:ring-2 focus-visible:ring-mint-400/50"
+                className="mt-2 w-full rounded-soft border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-200 outline-none focus:border-collab/50 focus-visible:ring-2 focus-visible:ring-mint-400/50"
                 placeholder="补充证据、决策或进度"
               />
               <Button
@@ -198,20 +198,20 @@ export function CollabTimelineDrawer({
           ) : null}
 
           {targetPostId && actions.includes('handoff') ? (
-            <section className="rounded-[12px] border border-white/[0.06] p-4">
+            <section className="rounded-soft border border-white/[0.06] p-4">
               <h3 className="text-sm font-semibold text-slate-200">任务交接</h3>
               <div className="mt-3 grid gap-3">
                 <label className="text-xs text-slate-400">下一位负责人
-                  <select value={nextOwner} onChange={(event) => setNextOwner(event.target.value)} className="mt-1 block w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">
+                  <select value={nextOwner} onChange={(event) => setNextOwner(event.target.value)} className="mt-1 block w-full rounded-soft border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">
                     <option value="">请选择 Agent</option>
                     {eligibleAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
                   </select>
                 </label>
                 <label className="text-xs text-slate-400">当前结果
-                  <input value={handoffResult} onChange={(event) => setHandoffResult(event.target.value)} className="mt-1 block w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50" />
+                  <input value={handoffResult} onChange={(event) => setHandoffResult(event.target.value)} className="mt-1 block w-full rounded-soft border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50" />
                 </label>
                 <label className="text-xs text-slate-400">完成条件
-                  <input value={doneWhen} onChange={(event) => setDoneWhen(event.target.value)} className="mt-1 block w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50" />
+                  <input value={doneWhen} onChange={(event) => setDoneWhen(event.target.value)} className="mt-1 block w-full rounded-soft border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50" />
                 </label>
               </div>
               <Button
@@ -242,7 +242,7 @@ export function CollabTimelineDrawer({
               {actions.includes('lock') ? <Button size="sm" disabled={!currentAgentId} loading={mutations.lock.isPending} icon={<LockKeyhole className="h-4 w-4" />} onClick={() => void run(() => mutations.lock.mutateAsync({ postId: targetPostId, ownerAgentId: currentAgentId }), '个人数字分身已取得执行锁。')}>锁定给我的数字分身</Button> : null}
               {actions.includes('unlock') ? <Button size="sm" variant="secondary" loading={mutations.unlock.isPending} icon={<UnlockKeyhole className="h-4 w-4" />} onClick={() => void run(() => mutations.unlock.mutateAsync(targetPostId), '执行锁已释放。')}>释放执行锁</Button> : null}
               {actions.includes('read') ? <Button size="sm" variant="ghost" loading={mutations.markRead.isPending} icon={<Check className="h-4 w-4" />} onClick={() => void run(() => mutations.markRead.mutateAsync(targetPostId), '已标记为已读。')}>标记已读</Button> : null}
-              {actions.includes('reply') ? <span className="inline-flex items-center gap-1 text-xs text-slate-600"><MessageSquareReply className="h-3.5 w-3.5" />可回复</span> : null}
+              {actions.includes('reply') ? <span className="inline-flex items-center gap-1 text-xs text-slate-400"><MessageSquareReply className="h-3.5 w-3.5" />可回复</span> : null}
               {actions.length === 0 ? <Badge tone="neutral">当前任务只读</Badge> : null}
             </div>
           ) : null}

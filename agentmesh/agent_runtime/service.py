@@ -2,17 +2,38 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from contextlib import AsyncExitStack
 from datetime import datetime, timedelta
 from time import monotonic
+from typing import Any
 
-from agents import Agent, ModelSettings, RunConfig, Runner, RunState, ToolExecutionConfig
+from agents import (
+    Agent,
+    ModelRetryBackoffSettings,
+    ModelRetrySettings,
+    ModelSettings,
+    RunConfig,
+    Runner,
+    RunState,
+    ToolExecutionConfig,
+    retry_policies,
+)
 from agents.models.interface import Model
+from pydantic import BaseModel, ConfigDict, Field
 
+from agentmesh.agent_run_identity import agent_run_create_request_hash
 from agentmesh.agent_runtime.compaction import compact_session_if_needed
 from agentmesh.agent_runtime.guardrails import agentmesh_input_guardrail, agentmesh_output_guardrail
 from agentmesh.agent_runtime.hooks import AgentMeshRunHooks
 from agentmesh.agent_runtime.model_factory import AgentMeshModelFactory, SelectedSDKModel
+from agentmesh.agent_runtime.model_retry import (
+    AtomicModelStreamFailure,
+    AtomicStreamModel,
+    ModelStreamRetryExhausted,
+    is_transient_stream_error,
+    retry_transient_atomic_stream,
+)
 from agentmesh.agent_runtime.models import AgentMeshRunContext, RuntimeAnswer
 from agentmesh.agent_runtime.session import AgentMeshSession
 from agentmesh.agent_runtime.settings import (
@@ -22,18 +43,57 @@ from agentmesh.agent_runtime.settings import (
     task_scenario_routing_enabled,
 )
 from agentmesh.agent_runtime.trace_processor import configure_agentmesh_tracing
+from agentmesh.artifacts import (
+    ArtifactAccessError,
+    DeepSearchArtifactSchemaRegistry,
+    TrustedEvidenceEnvelopeV1,
+)
+from agentmesh.canonical_json import canonical_json_sha256
+from agentmesh.deepsearch.artifact_budget import save_runtime_artifact
+from agentmesh.deepsearch.budget import DeepSearchBudgetMeter, DeepSearchBudgetScope
+from agentmesh.deepsearch.contracts import (
+    ClarificationAnswerValue,
+    DeepSearchClarifyRequestV1,
+    DeepSearchStateResponse,
+    ProblemGraphV1,
+    ProblemQuestionV1,
+    RequirementRefinementDraftV1,
+    RequirementVersionV1,
+    build_problem_graph,
+    problem_question_id,
+)
+from agentmesh.deepsearch.finalization import DeepSearchFinalizer, terminate_deepsearch_without_report
+from agentmesh.deepsearch.modeling import DeepSearchReviewService, DeepSearchSynthesisService
+from agentmesh.deepsearch.planning import (
+    DeepSearchPlanCompiler,
+    DeepSearchPlanningPipeline,
+    UnavailableRequirementRefiner,
+)
+from agentmesh.deepsearch.service import (
+    DeepSearchExecutionUnavailable,
+    DeepSearchPlanningService,
+    DeepSearchRequirementIntegrityError,
+)
+from agentmesh.deepsearch.tool_policy import DEEPSEARCH_V1_TOOL_NAMES
 from agentmesh.llm import llm_chat_timeout_seconds, research_skill_timeout_seconds
 from agentmesh.models import (
+    AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
     Artifact,
     ChatMessage,
     ChatRole,
     ChatWorkflowTrace,
+    DeepSearchBudgetUsageV1,
+    DeepSearchBudgetV1,
+    DeepSearchEvidenceBindingDraft,
+    DeepSearchEvidenceItemV1,
+    DeepSearchToolInvocationV1,
     InboxItem,
     Intent,
     MemoryLayer,
     Scope,
+    SkillCandidate,
     SkillDefinition,
     SkillMemoryWritePolicy,
     SkillNodeResult,
@@ -44,9 +104,12 @@ from agentmesh.models import (
     SkillPlanNode,
     SkillPlanNodeStatus,
     SkillPlanStatus,
+    SkillResultSource,
     SkillSideEffect,
+    ToolDefinition,
     User,
     UserMemoryItem,
+    new_id,
     now_utc,
 )
 from agentmesh.skill_runtime.activation import build_skill_activation_tool
@@ -56,6 +119,7 @@ from agentmesh.skill_runtime.executor import (
     NodePause,
     PlanExecutionConflict,
     PlanExecutionOutcome,
+    skill_node_timeout_seconds,
 )
 from agentmesh.skill_runtime.plan_validation import PlanValidationError, build_plan, validate_draft
 from agentmesh.skill_runtime.planner import (
@@ -68,6 +132,7 @@ from agentmesh.skill_runtime.planner import (
 from agentmesh.skill_runtime.profiles import is_pilot_orchestration_skill, profile_matches_skill
 from agentmesh.skill_runtime.resources import (
     approved_skill_wiki_root,
+    build_skill_resource_manifest_snapshot,
     build_skill_resource_tool,
     resolve_skill_resource,
     skill_resource_manifest,
@@ -75,10 +140,14 @@ from agentmesh.skill_runtime.resources import (
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever, tool_names_for_profile
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.skill_runtime.synthesis import SkillSynthesisService, render_synthesis
-from agentmesh.store import SQLiteStore
+from agentmesh.store import DeepSearchBudgetConflict, ResearchStoreConflict, SQLiteStore
 from agentmesh.task_routing.catalog import load_default_task_catalog
 from agentmesh.task_routing.contracts import InputDecision, TaskRoutingResult
 from agentmesh.task_routing.router import TaskScenarioRouter
+from agentmesh.tool_runtime.deepsearch import (
+    DeepSearchToolRuntimeError,
+    normalize_deepsearch_evidence_bindings,
+)
 from agentmesh.tool_runtime.factory import AgentMeshToolFactory
 from agentmesh.tool_runtime.guardrails import redact_sensitive_text
 from agentmesh.tool_runtime.mcp import AgentMeshMCPFactory
@@ -91,6 +160,768 @@ Be explicit when required evidence or capabilities are unavailable.
 """
 
 _GENERAL_INSTRUCTIONS = """Handle this as an ordinary conversation. Answer the user's request directly and concisely. Do not invent project evidence or tool results."""
+
+_STANDARD_RUN_DEADLINE_SECONDS = 900
+_STANDARD_NODE_MAX_TOKENS = 8_192
+_STANDARD_MODEL_STREAM_MAX_ATTEMPTS = 3
+
+_DEEPSEARCH_REQUIREMENT_INSTRUCTIONS = """Refine one research request into the required Requirement schema.
+Do not answer the research request and do not claim access to tools, files, private memory, or external systems.
+Preserve every confirmed answer and prior clarification-history fact. Ask only questions that block a reliable research plan.
+Return at most five concise clarification questions in one round. When the requirement is complete, return no clarification questions and no blocking ambiguities.
+Success-criterion, assumption, and ambiguity IDs are semantic identifiers; keep existing IDs stable when their meaning is unchanged.
+"""
+
+_DEEPSEARCH_PROBLEM_GRAPH_INSTRUCTIONS = """Decompose the supplied frozen Requirement into a small research ProblemGraph draft.
+Do not perform research and do not claim access to tools, files, private memory, or external systems.
+Use only success_criterion_ids present in the supplied Requirement. Every success criterion must be covered by at least one required question.
+Each required question needs concrete evidence requirements and acceptance criteria.
+Dependency indexes are zero-based positions in the returned questions array. Dependencies must be acyclic; a required question may depend only on another required question.
+Return at most twenty questions and prefer the smallest graph that fully covers the Requirement.
+"""
+
+_DEEPSEARCH_PLANNING_MODEL_MAXIMA = DeepSearchBudgetUsageV1(
+    active_seconds=120,
+    llm_calls=1,
+    tokens=32_000,
+)
+_DEEPSEARCH_MODEL_TOKEN_MAXIMA = 32_000
+_DEEPSEARCH_BUDGET_CAS_ATTEMPTS = 4
+
+
+def _deepsearch_planning_operation_key(stage: str, identity: object) -> str:
+    return f"planning:{stage}:{canonical_json_sha256(identity)}"
+
+
+def _deepsearch_model_operation_key(
+    *,
+    scope: DeepSearchBudgetScope,
+    stage: str,
+    identity: object,
+) -> str:
+    return f"{scope}:{stage}:{canonical_json_sha256(identity)}"
+
+
+class _BudgetedDeepSearchModel(Model):
+    """Charge one durable reservation around each DeepSearch provider request."""
+
+    def __init__(
+        self,
+        *,
+        repository: SQLiteStore,
+        run_id: str,
+        model: Model,
+        logical_operation_key: str,
+        resource_maxima: DeepSearchBudgetUsageV1 = _DEEPSEARCH_PLANNING_MODEL_MAXIMA,
+        scope: DeepSearchBudgetScope = "standard",
+        request_scoped: bool = False,
+    ) -> None:
+        self._repository = repository
+        self._meter = DeepSearchBudgetMeter(repository)
+        self._run_id = run_id
+        self._model = model
+        self._base_logical_operation_key = logical_operation_key
+        self._resource_maxima = resource_maxima
+        self._scope = scope
+        self._request_scoped = request_scoped
+        self.failure: BaseException | None = None
+
+    @staticmethod
+    def _json_default(value: object) -> object:
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            return model_dump(mode="json")
+        return str(value)
+
+    def _logical_operation_key(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+        if not self._request_scoped:
+            return self._base_logical_operation_key
+        system_instructions = args[0] if args else kwargs.get("system_instructions")
+        input_value = args[1] if len(args) > 1 else kwargs.get("input")
+        request_identity = json.dumps(
+            {
+                "system_instructions": system_instructions,
+                "input": input_value,
+                "previous_response_id": kwargs.get("previous_response_id"),
+                "conversation_id": kwargs.get("conversation_id"),
+                "prompt": kwargs.get("prompt"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=self._json_default,
+        )
+        digest = canonical_json_sha256(
+            {
+                "operation": self._base_logical_operation_key,
+                "request": request_identity,
+            }
+        )
+        return f"{self._scope}:model:{digest}"
+
+    def _current_budget(self) -> DeepSearchBudgetV1:
+        run = self._repository.get_agent_run(self._run_id)
+        if run is None:
+            raise DeepSearchBudgetConflict("deepsearch_budget_run_not_found")
+        if run.deepsearch_budget is None:
+            raise DeepSearchBudgetConflict("deepsearch_budget_run_invalid")
+        return run.deepsearch_budget
+
+    def _settle(
+        self,
+        *,
+        invocation_key: str,
+        actual_usage: DeepSearchBudgetUsageV1,
+    ) -> None:
+        last_conflict: DeepSearchBudgetConflict | None = None
+        for _ in range(_DEEPSEARCH_BUDGET_CAS_ATTEMPTS):
+            expected_version = self._current_budget().version
+            try:
+                self._meter.settle(
+                    run_id=self._run_id,
+                    expected_budget_version=expected_version,
+                    invocation_key=invocation_key,
+                    actual_usage=actual_usage,
+                )
+                return
+            except DeepSearchBudgetConflict as error:
+                if error.code != "deepsearch_budget_version_conflict":
+                    raise
+                last_conflict = error
+        assert last_conflict is not None
+        raise last_conflict
+
+    def _reserve(self, logical_operation_key: str):  # noqa: ANN202
+        last_conflict: DeepSearchBudgetConflict | None = None
+        for _ in range(_DEEPSEARCH_BUDGET_CAS_ATTEMPTS):
+            budget = self._current_budget()
+            logical_attempts = [
+                reservation
+                for reservation in budget.reservations
+                if reservation.logical_operation_key == logical_operation_key
+            ]
+            unsettled = next(
+                (reservation for reservation in logical_attempts if reservation.status == "reserved"),
+                None,
+            )
+            if unsettled is not None:
+                self._settle(
+                    invocation_key=unsettled.invocation_key,
+                    actual_usage=unsettled.resource_maxima,
+                )
+                continue
+            physical_attempt = max(
+                (reservation.physical_attempt for reservation in logical_attempts),
+                default=0,
+            ) + 1
+            if physical_attempt > 3:
+                raise DeepSearchBudgetConflict("deepsearch_recovery_exhausted")
+            invocation_key = f"{logical_operation_key}:attempt:{physical_attempt}"
+            try:
+                return self._meter.reserve(
+                    run_id=self._run_id,
+                    expected_budget_version=budget.version,
+                    logical_operation_key=logical_operation_key,
+                    invocation_key=invocation_key,
+                    physical_attempt=physical_attempt,
+                    resource_maxima=self._resource_maxima,
+                    scope=self._scope,
+                )
+            except DeepSearchBudgetConflict as error:
+                if error.code != "deepsearch_budget_version_conflict":
+                    raise
+                last_conflict = error
+        assert last_conflict is not None
+        raise last_conflict
+
+    def _settle_after_failure(self, invocation_key: str, error: BaseException) -> None:
+        try:
+            self._settle(
+                invocation_key=invocation_key,
+                actual_usage=self._resource_maxima,
+            )
+        except Exception as settlement_error:
+            error.add_note(f"DeepSearch budget settlement failed: {settlement_error}")
+
+    def _actual_usage(self, *, response: object, elapsed: float) -> DeepSearchBudgetUsageV1:
+        usage = getattr(response, "usage", None)
+        total_tokens = getattr(usage, "total_tokens", None)
+        if type(total_tokens) is not int or total_tokens < 0:
+            raise RuntimeError("deepsearch_model_usage_missing")
+        if elapsed > self._resource_maxima.active_seconds or total_tokens > self._resource_maxima.tokens:
+            raise DeepSearchBudgetConflict("deepsearch_budget_exhausted")
+        return DeepSearchBudgetUsageV1(
+            active_seconds=elapsed,
+            llm_calls=1,
+            tokens=total_tokens,
+        )
+
+    async def get_response(self, *args: Any, **kwargs: Any):  # noqa: ANN202
+        try:
+            reserved = self._reserve(self._logical_operation_key(args, kwargs))
+        except BaseException as error:
+            self.failure = error
+            raise
+        invocation_key = reserved.reservation.invocation_key
+        started_at = monotonic()
+        try:
+            response = await self._model.get_response(*args, **kwargs)
+        except BaseException as error:
+            self.failure = error
+            self._settle_after_failure(invocation_key, error)
+            raise
+
+        try:
+            actual_usage = self._actual_usage(
+                response=response,
+                elapsed=monotonic() - started_at,
+            )
+        except BaseException as error:
+            self.failure = error
+            self._settle_after_failure(invocation_key, error)
+            raise error
+        self._settle(
+            invocation_key=invocation_key,
+            actual_usage=actual_usage,
+        )
+        return response
+
+    def stream_response(self, *args: Any, **kwargs: Any):  # noqa: ANN202
+        return self._stream_response(args, kwargs)
+
+    async def _stream_response(self, args: tuple[Any, ...], kwargs: dict[str, Any]):  # noqa: ANN202
+        try:
+            reserved = self._reserve(self._logical_operation_key(args, kwargs))
+        except BaseException as error:
+            self.failure = error
+            raise
+        invocation_key = reserved.reservation.invocation_key
+        started_at = monotonic()
+        settled = False
+        completed = False
+        try:
+            stream = self._model.stream_response(*args, **kwargs)
+            async for event in stream:
+                event_type = getattr(event, "type", None)
+                if event_type == "response.completed":
+                    actual_usage = self._actual_usage(
+                        response=getattr(event, "response", None),
+                        elapsed=monotonic() - started_at,
+                    )
+                    self._settle(
+                        invocation_key=invocation_key,
+                        actual_usage=actual_usage,
+                    )
+                    settled = True
+                    completed = True
+                elif event_type in {
+                    "response.failed",
+                    "response.incomplete",
+                    "error",
+                    "response.error",
+                }:
+                    stream_error = RuntimeError("deepsearch_model_stream_failed")
+                    self.failure = stream_error
+                    self._settle_after_failure(invocation_key, stream_error)
+                    settled = True
+                yield event
+            if not completed:
+                raise RuntimeError("deepsearch_model_usage_missing")
+        except BaseException as error:
+            self.failure = error
+            if not settled:
+                self._settle_after_failure(invocation_key, error)
+            raise
+
+    async def _cleanup_on_run_end(self, owner: object) -> None:
+        await self._model._cleanup_on_run_end(owner)
+
+    async def close(self) -> None:
+        await self._model.close()
+
+    def get_retry_advice(self, request):  # noqa: ANN001, ANN201
+        return self._model.get_retry_advice(request)
+
+
+# Keep the existing internal name stable for planning tests and adapters.
+_BudgetedPlanningModel = _BudgetedDeepSearchModel
+
+
+def _budgeted_planning_model(
+    *,
+    repository: SQLiteStore,
+    run_id: str,
+    model: Model,
+    stage: str,
+    identity: object,
+) -> _BudgetedPlanningModel:
+    return _BudgetedPlanningModel(
+        repository=repository,
+        run_id=run_id,
+        model=model,
+        logical_operation_key=_deepsearch_planning_operation_key(stage, identity),
+    )
+
+
+class _ProblemQuestionDraft(BaseModel):
+    """Model-owned ProblemQuestion fields; identities remain server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=8_000)
+    required: bool = Field(strict=True)
+    success_criterion_ids: list[str] = Field(default_factory=list, max_length=20)
+    evidence_requirements: list[str] = Field(default_factory=list, max_length=20)
+    acceptance_criteria: list[str] = Field(default_factory=list, max_length=20)
+    dependency_indexes: list[int] = Field(default_factory=list, max_length=20)
+
+
+class _ProblemGraphDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    questions: list[_ProblemQuestionDraft] = Field(min_length=1, max_length=20)
+
+
+class _StandardSkillNodeResultDraft(BaseModel):
+    """Model-owned result content; runtime identity and accounting stay server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str
+    skill_id: str
+    summary: str = Field(min_length=1, max_length=8_000)
+    deliverable_markdown: str = Field(default="", max_length=60_000)
+    findings: list[str] = Field(default_factory=list, max_length=100)
+    recommendations: list[str] = Field(default_factory=list, max_length=100)
+    scenario_outputs: list[str] = Field(default_factory=list, max_length=100)
+    completion_criteria_met: list[str] = Field(default_factory=list, max_length=100)
+    sources: list[SkillResultSource] = Field(default_factory=list, max_length=100)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    limitations: list[str] = Field(default_factory=list, max_length=100)
+    artifact_ids: list[str] = Field(default_factory=list, max_length=100)
+    degradation: str | None = Field(default=None, max_length=1_000)
+
+
+class _DeepSearchSkillNodeResultDraft(_StandardSkillNodeResultDraft):
+    """DeepSearch result content with model-authored references to trusted Evidence."""
+
+    evidence_bindings: list[DeepSearchEvidenceBindingDraft] = Field(
+        default_factory=list,
+        max_length=60,
+    )
+
+
+class _ModelRequirementRefiner:
+    """Structured-output Requirement adapter with no Tool surface."""
+
+    def __init__(self, model: Model, repository: SQLiteStore, run_id: str) -> None:
+        self._model = model
+        self._repository = repository
+        self._run_id = run_id
+
+    async def refine(
+        self,
+        *,
+        previous: RequirementVersionV1 | None,
+        user_request: str,
+        answers: dict[str, ClarificationAnswerValue],
+    ) -> RequirementRefinementDraftV1:
+        model = _budgeted_planning_model(
+            repository=self._repository,
+            run_id=self._run_id,
+            model=self._model,
+            stage="requirement",
+            identity={
+                "previous_requirement_hash": (
+                    previous.content_hash if previous is not None else None
+                ),
+                "user_request": user_request,
+                "clarification_answers": answers,
+            },
+        )
+        agent = Agent(
+            name="AgentMesh DeepSearch Requirement Refiner",
+            instructions=_DEEPSEARCH_REQUIREMENT_INSTRUCTIONS,
+            model=model,
+            tools=[],
+            output_type=RequirementRefinementDraftV1,
+        )
+        result = await Runner.run(
+            agent,
+            json.dumps(
+                {
+                    "user_request": user_request,
+                    "previous_requirement": (
+                        previous.model_dump(mode="json") if previous is not None else None
+                    ),
+                    "clarification_answers": answers,
+                },
+                ensure_ascii=False,
+            ),
+            max_turns=2,
+            run_config=RunConfig(
+                workflow_name="deepsearch_requirement_refinement",
+                trace_include_sensitive_data=False,
+            ),
+        )
+        return RequirementRefinementDraftV1.model_validate(result.final_output)
+
+
+class _ModelProblemGraphPlanner:
+    """Structured-output ProblemGraph adapter with server-owned identities."""
+
+    def __init__(self, repository: SQLiteStore, run_id: str) -> None:
+        self._repository = repository
+        self._run_id = run_id
+
+    async def build(
+        self,
+        *,
+        requirement: RequirementVersionV1,
+        planning_input: str,
+        model: object | None,
+    ):
+        if not isinstance(model, Model):
+            raise PlannerUnavailable("ProblemGraph model is not configured")
+        budgeted_model = _budgeted_planning_model(
+            repository=self._repository,
+            run_id=self._run_id,
+            model=model,
+            stage="problem_graph",
+            identity={
+                "requirement_content_hash": requirement.content_hash,
+                "planning_input": planning_input,
+            },
+        )
+        agent = Agent(
+            name="AgentMesh DeepSearch ProblemGraph Planner",
+            instructions=_DEEPSEARCH_PROBLEM_GRAPH_INSTRUCTIONS,
+            model=budgeted_model,
+            tools=[],
+            output_type=_ProblemGraphDraft,
+        )
+        result = await Runner.run(
+            agent,
+            json.dumps(
+                {
+                    "planning_input": planning_input,
+                    "allowed_success_criterion_ids": [
+                        criterion.id for criterion in requirement.payload.success_criteria
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            max_turns=2,
+            run_config=RunConfig(
+                workflow_name="deepsearch_problem_graph_planning",
+                trace_include_sensitive_data=False,
+            ),
+        )
+        draft = _ProblemGraphDraft.model_validate(result.final_output)
+        question_ids = [problem_question_id(question.question) for question in draft.questions]
+        questions: list[ProblemQuestionV1] = []
+        for index, question in enumerate(draft.questions):
+            if any(
+                dependency_index < 0
+                or dependency_index >= len(draft.questions)
+                or dependency_index == index
+                for dependency_index in question.dependency_indexes
+            ):
+                raise ValueError("ProblemGraph dependency index is invalid")
+            questions.append(
+                ProblemQuestionV1(
+                    id=question_ids[index],
+                    question=question.question,
+                    required=question.required,
+                    success_criterion_ids=question.success_criterion_ids,
+                    evidence_requirements=question.evidence_requirements,
+                    acceptance_criteria=question.acceptance_criteria,
+                    depends_on=[question_ids[item] for item in question.dependency_indexes],
+                )
+            )
+        return build_problem_graph(requirement=requirement, questions=questions)
+
+
+class _RuntimeCandidateRetriever:
+    def __init__(
+        self,
+        retriever: SkillCandidateRetriever,
+        task_catalog,
+    ) -> None:
+        self._retriever = retriever
+        self._task_catalog = task_catalog
+
+    def retrieve(
+        self,
+        *,
+        user: User,
+        requirement: RequirementVersionV1,
+        planning_input: str,
+        intent,
+        graph,
+        routing_result: TaskRoutingResult,
+    ):
+        del requirement, planning_input, graph
+        return self._retriever.recommend_for_route(
+            user,
+            intent,
+            routing_result,
+            self._task_catalog,
+        )
+
+
+class _RuntimeIntentAnalyzer:
+    def __init__(
+        self,
+        analyzer: SkillIntentAnalyzer,
+        repository: SQLiteStore,
+        run_id: str,
+    ) -> None:
+        self._analyzer = analyzer
+        self._repository = repository
+        self._run_id = run_id
+
+    async def analyze(
+        self,
+        content: str,
+        *,
+        model: object | None,
+        project_summary: str = "",
+        thread_summary: str = "",
+    ):
+        if not isinstance(model, Model):
+            raise PlannerUnavailable("Intent model is not configured")
+        budgeted_model = _budgeted_planning_model(
+            repository=self._repository,
+            run_id=self._run_id,
+            model=model,
+            stage="intent",
+            identity={
+                "content": content,
+                "project_summary": project_summary,
+                "thread_summary": thread_summary,
+            },
+        )
+        result = await self._analyzer.analyze(
+            content,
+            model=budgeted_model,
+            project_summary=project_summary,
+            thread_summary=thread_summary,
+        )
+        if budgeted_model.failure is not None:
+            raise budgeted_model.failure
+        return result
+
+
+_SEMANTIC_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "for",
+        "from",
+        "in",
+        "is",
+        "of",
+        "on",
+        "or",
+        "request",
+        "the",
+        "to",
+        "use",
+        "we",
+        "what",
+        "which",
+        "with",
+    }
+)
+
+
+def _semantic_terms(*values: str) -> set[str]:
+    terms: set[str] = set()
+    for value in values:
+        normalized = value.lower().replace("_", " ").replace("-", " ")
+        for token in re.findall(r"[a-z0-9]+|[\u3400-\u9fff]+", normalized):
+            if token in _SEMANTIC_STOP_WORDS:
+                continue
+            terms.add(token)
+            if re.fullmatch(r"[\u3400-\u9fff]+", token):
+                terms.update(token[index : index + 2] for index in range(len(token) - 1))
+                terms.update(token[index : index + 3] for index in range(len(token) - 2))
+    return terms
+
+
+def _semantic_overlap(left: set[str], right: set[str]) -> int:
+    return sum(min(len(term), 4) for term in left & right)
+
+
+def _assign_problem_questions(
+    *,
+    requirement: RequirementVersionV1,
+    graph: ProblemGraphV1,
+    draft: SkillPlanDraft,
+    candidates: list[SkillCandidate],
+) -> SkillPlanDraft:
+    """Bind each question to one semantically relevant node without another model call."""
+
+    known_question_ids = {question.id for question in graph.questions}
+    assignments = {node.id: list(node.question_ids) for node in draft.nodes}
+    for node in draft.nodes:
+        unknown = set(node.question_ids) - known_question_ids
+        if unknown:
+            raise PlannerUnavailable(
+                f"DeepSearch Plan node {node.id} references unknown ProblemQuestions: "
+                f"{','.join(sorted(unknown))}"
+            )
+
+    candidate_by_id = {candidate.skill_id: candidate for candidate in candidates}
+    criteria_by_id = {
+        criterion.id: criterion.statement
+        for criterion in requirement.payload.success_criteria
+    }
+    for question in graph.questions:
+        eligible_nodes = [
+            node for node in draft.nodes if node.required or not question.required
+        ]
+        if any(question.id in assignments[node.id] for node in eligible_nodes):
+            continue
+        if len(eligible_nodes) == 1:
+            assignments[eligible_nodes[0].id].append(question.id)
+            continue
+
+        question_terms = _semantic_terms(
+            question.question,
+            *question.evidence_requirements,
+            *question.acceptance_criteria,
+            *(criteria_by_id.get(item, "") for item in question.success_criterion_ids),
+        )
+        scores: list[tuple[int, SkillPlanNode]] = []
+        for node in eligible_nodes:
+            node_terms = _semantic_terms(
+                node.reason,
+                node.task_id or "",
+                node.scenario_id or "",
+                node.skill_registry_id or "",
+                *node.output_contract,
+                *node.completion_criteria,
+            )
+            candidate = candidate_by_id.get(node.skill_id)
+            candidate_terms = (
+                _semantic_terms(
+                    candidate.reason,
+                    candidate.profile.search_text(candidate.title, candidate.description),
+                )
+                if candidate is not None
+                else set()
+            )
+            scores.append(
+                (
+                    2 * _semantic_overlap(question_terms, node_terms)
+                    + _semantic_overlap(question_terms, candidate_terms),
+                    node,
+                )
+            )
+
+        best_score = max(score for score, _node in scores)
+        best_nodes = [node for score, node in scores if score == best_score]
+        if best_score == 0 or len(best_nodes) != 1:
+            candidate_ids = ",".join(node.id for node in best_nodes if best_score > 0)
+            if not candidate_ids:
+                candidate_ids = ",".join(node.id for node in eligible_nodes)
+            raise PlannerUnavailable(
+                f"No unique semantic Skill node for ProblemQuestion {question.id}; "
+                f"candidates={candidate_ids}"
+            )
+        assignments[best_nodes[0].id].append(question.id)
+
+    return draft.model_copy(
+        update={
+            "nodes": [
+                node.model_copy(update={"question_ids": assignments[node.id]})
+                for node in draft.nodes
+            ]
+        }
+    )
+
+
+class _RuntimeDraftPlanner:
+    def __init__(self, planner: SkillPlanner, repository: SQLiteStore, run_id: str) -> None:
+        self._planner = planner
+        self._repository = repository
+        self._run_id = run_id
+
+    async def create_draft(
+        self,
+        *,
+        requirement: RequirementVersionV1,
+        planning_input: str,
+        intent,
+        graph,
+        routing_result: TaskRoutingResult,
+        candidates,
+        model: object | None,
+    ) -> SkillPlanDraft:
+        del planning_input, routing_result
+        if not isinstance(model, Model):
+            raise PlannerUnavailable("Planner model is not configured")
+        budgeted_model = _budgeted_planning_model(
+            repository=self._repository,
+            run_id=self._run_id,
+            model=model,
+            stage="skill_plan",
+            identity={
+                "requirement_content_hash": requirement.content_hash,
+                "problem_graph_hash": graph.content_hash,
+                "intent": intent.model_dump(mode="json"),
+                "candidates": [
+                    {
+                        "skill_id": candidate.skill_id,
+                        "skill_name": candidate.skill_name,
+                        "skill_version": candidate.profile.skill_version,
+                        "skill_content_hash": candidate.profile.skill_content_hash,
+                    }
+                    for candidate in candidates
+                ],
+            },
+        )
+        draft = await self._planner.create_draft(intent, candidates, model=budgeted_model)
+        required_nodes = [node for node in draft.nodes if node.required]
+        if not required_nodes:
+            raise PlannerUnavailable("DeepSearch Plan has no required node")
+        return _assign_problem_questions(
+            requirement=requirement,
+            graph=graph,
+            draft=draft,
+            candidates=candidates,
+        )
+
+
+class _RuntimeDeepSearchPlanningService:
+    """Stable Runtime-owned facade; provider-bound pipelines are built per operation."""
+
+    def __init__(self, repository: SQLiteStore, factory) -> None:  # noqa: ANN001
+        self._read_service = DeepSearchPlanningService(
+            repository,
+            UnavailableRequirementRefiner(),
+        )
+        self._factory = factory
+
+    def get_state(self, run: AgentRun) -> DeepSearchStateResponse:
+        return self._read_service.get_state(run)
+
+    async def refine_initial(self, run: AgentRun) -> DeepSearchStateResponse:
+        return await self._factory(run).refine_initial(run)
+
+    async def clarify(
+        self,
+        *,
+        run: AgentRun,
+        request: DeepSearchClarifyRequestV1,
+    ) -> DeepSearchStateResponse:
+        return await self._factory(run).clarify(run=run, request=request)
+
+    async def resume_planning(self, run: AgentRun) -> DeepSearchStateResponse:
+        return await self._factory(run).resume_planning(run)
 
 
 class ApprovalConflict(RuntimeError):
@@ -111,6 +942,7 @@ class AgentRuntimeService:
         intent_analyzer: SkillIntentAnalyzer | None = None,
         skill_planner: SkillPlanner | None = None,
         task_router: TaskScenarioRouter | None = None,
+        deepsearch_planning_service: DeepSearchPlanningService | None = None,
     ):
         self.repository = repository
         self._model = model
@@ -123,7 +955,13 @@ class AgentRuntimeService:
         self.skill_planner = skill_planner or SkillPlanner()
         self.task_catalog = load_default_task_catalog()
         self.task_router = task_router or TaskScenarioRouter(self.task_catalog)
+        self.deepsearch_planning_service = deepsearch_planning_service or _RuntimeDeepSearchPlanningService(
+            repository,
+            self._deepsearch_planning_service_for_run,
+        )
         self.synthesis_service = SkillSynthesisService()
+        self.deepsearch_synthesis_service = DeepSearchSynthesisService()
+        self.deepsearch_review_service = DeepSearchReviewService()
         self.hooks = AgentMeshRunHooks(repository)
         self._tasks: dict[str, asyncio.Task] = {}
         self._plan_semaphore = asyncio.Semaphore(4)
@@ -143,6 +981,60 @@ class AgentRuntimeService:
 
     def select_model(self, user: User) -> SelectedSDKModel | None:
         return self._select_model(user)
+
+    def _deepsearch_tool_definition(self, reference: str) -> ToolDefinition | None:
+        return next(
+            (
+                definition
+                for definition in self.repository.tool_definitions
+                if reference in {definition.id, definition.name, definition.external_name}
+            ),
+            None,
+        )
+
+    def _deepsearch_planning_service_for_run(self, run: AgentRun) -> DeepSearchPlanningService:
+        user = self.repository.get_user(run.user_id)
+        if (
+            user is None
+            or user.workspace_id != run.workspace_id
+            or user.default_project_id != run.project_id
+        ):
+            raise DeepSearchRequirementIntegrityError("DeepSearch Run owner is invalid")
+        if not self.enabled:
+            raise DeepSearchExecutionUnavailable("DeepSearch Runtime is unavailable")
+        selected = self._select_model(user)
+        if selected is None:
+            raise DeepSearchExecutionUnavailable("DeepSearch model is unavailable")
+        retriever = SkillCandidateRetriever(self.repository, self.skill_catalog)
+        pipeline = DeepSearchPlanningPipeline(
+            task_router=self.task_router,
+            intent_analyzer=_RuntimeIntentAnalyzer(
+                self.intent_analyzer,
+                self.repository,
+                run.id,
+            ),
+            problem_graph_planner=_ModelProblemGraphPlanner(self.repository, run.id),
+            candidate_retriever=_RuntimeCandidateRetriever(retriever, self.task_catalog),
+            draft_planner=_RuntimeDraftPlanner(
+                self.skill_planner,
+                self.repository,
+                run.id,
+            ),
+            compiler=DeepSearchPlanCompiler(
+                tool_definition_lookup=self._deepsearch_tool_definition,
+                skill_definition_lookup=self.repository.get_skill_definition,
+            ),
+            model=selected.model,
+        )
+        return DeepSearchPlanningService(
+            self.repository,
+            _ModelRequirementRefiner(selected.model, self.repository, run.id),
+            can_refine=lambda: (
+                self.enabled
+                and skill_orchestration_mode() is SkillOrchestrationMode.EXECUTE
+            ),
+            planning_pipeline=pipeline,
+        )
 
     @staticmethod
     def _resources(skill: SkillDefinition) -> list[str]:
@@ -184,11 +1076,14 @@ Follow the activated Skill for this request, subject to the platform rules above
         selected: SelectedSDKModel,
         user: User,
         skill: SkillDefinition | None,
+        model: Model | None = None,
         mcp_servers=None,
         allowed_tool_names: set[str] | None = None,
         allow_skill_activation: bool = True,
         output_type=None,  # noqa: ANN001
         additional_instructions: str = "",
+        timeout_seconds: float | None = None,
+        max_tokens: int | None = None,
     ) -> Agent[AgentMeshRunContext]:
         tools = self.tool_factory.build(user, skill, allowed_tool_names=allowed_tool_names)
         if skill is not None:
@@ -197,16 +1092,46 @@ Follow the activated Skill for this request, subject to the platform rules above
             activation_tool = build_skill_activation_tool(self.repository, self.skill_catalog, user)
             if activation_tool is not None:
                 tools.append(activation_tool)
-        timeout_seconds = llm_chat_timeout_seconds()
-        if skill is not None:
-            profile = self.repository.get_skill_capability_profile(skill.id)
-            if profile is not None and "web_research" in tool_names_for_profile(profile):
-                timeout_seconds = research_skill_timeout_seconds()
+        if timeout_seconds is None:
+            timeout_seconds = llm_chat_timeout_seconds()
+            if skill is not None:
+                profile = self.repository.get_skill_capability_profile(skill.id)
+                if profile is not None and "web_research" in tool_names_for_profile(profile):
+                    timeout_seconds = research_skill_timeout_seconds()
+        effective_model = model or selected.model
+        if isinstance(effective_model, _BudgetedDeepSearchModel):
+            model_settings = ModelSettings(
+                timeout=timeout_seconds,
+                max_tokens=max_tokens,
+                include_usage=True,
+                preserve_raw_usage=True,
+            )
+        elif isinstance(effective_model, AtomicStreamModel):
+            model_settings = ModelSettings(
+                timeout=timeout_seconds,
+                max_tokens=max_tokens,
+                retry=ModelRetrySettings(
+                    max_retries=_STANDARD_MODEL_STREAM_MAX_ATTEMPTS - 1,
+                    backoff=ModelRetryBackoffSettings(
+                        initial_delay=0.5,
+                        max_delay=1.0,
+                        multiplier=2.0,
+                        jitter=True,
+                    ),
+                    policy=retry_policies.any(
+                        retry_policies.provider_suggested(),
+                        retry_policies.network_error(),
+                        retry_transient_atomic_stream,
+                    ),
+                ),
+            )
+        else:
+            model_settings = ModelSettings(timeout=timeout_seconds, max_tokens=max_tokens)
         return Agent[AgentMeshRunContext](
             name=skill.title if skill else "AgentMesh Personal Agent",
             instructions=self._instructions(skill) + additional_instructions,
-            model=selected.model,
-            model_settings=ModelSettings(timeout=timeout_seconds),
+            model=effective_model,
+            model_settings=model_settings,
             tools=tools,
 
             mcp_servers=list(mcp_servers or []),
@@ -237,6 +1162,39 @@ Follow the activated Skill for this request, subject to the platform rules above
             tool_name_collision_policy="error",
         )
 
+    def _budgeted_model_for_run(
+        self,
+        *,
+        run: AgentRun,
+        model: Model,
+        scope: DeepSearchBudgetScope,
+        stage: str,
+        identity: object,
+        timeout_seconds: float,
+        request_scoped: bool = True,
+    ) -> Model:
+        """Leave standard runs untouched and fail closed for every DeepSearch model request."""
+
+        if run.planning_mode is not AgentPlanningMode.DEEPSEARCH:
+            return model
+        return _BudgetedDeepSearchModel(
+            repository=self.repository,
+            run_id=run.id,
+            model=model,
+            logical_operation_key=_deepsearch_model_operation_key(
+                scope=scope,
+                stage=stage,
+                identity=identity,
+            ),
+            resource_maxima=DeepSearchBudgetUsageV1(
+                active_seconds=timeout_seconds,
+                llm_calls=1,
+                tokens=_DEEPSEARCH_MODEL_TOKEN_MAXIMA,
+            ),
+            scope=scope,
+            request_scoped=request_scoped,
+        )
+
     def _new_run(
         self,
         content: str,
@@ -249,9 +1207,24 @@ Follow the activated Skill for this request, subject to the platform rules above
         status: AgentRunStatus = AgentRunStatus.RUNNING,
         orchestration_mode: SkillOrchestrationMode = SkillOrchestrationMode.OFF,
         requested_orchestration_mode: SkillOrchestrationRequestMode | None = None,
+        planning_mode: AgentPlanningMode = AgentPlanningMode.STANDARD,
+        create_request_hash: str | None = None,
         project_id: str | None = None,
         retry_of_run_id: str | None = None,
     ) -> tuple[AgentRun, bool]:
+        if client_turn_id is not None and create_request_hash is None:
+            create_request_hash = agent_run_create_request_hash(
+                user_id=user.id,
+                thread_id=thread_id,
+                client_turn_id=client_turn_id,
+                content=content,
+                skill_name=skill.name if skill else None,
+                orchestration_mode=requested_orchestration_mode,
+                planning_mode=planning_mode,
+                retry_of_run_id=retry_of_run_id,
+            )
+        created_at = now_utc()
+        is_deepsearch = planning_mode is AgentPlanningMode.DEEPSEARCH
         run = AgentRun(
             thread_id=thread_id,
             user_id=user.id,
@@ -265,10 +1238,20 @@ Follow the activated Skill for this request, subject to the platform rules above
             project_chat=project_chat,
             plan_id=None,
             retry_of_run_id=retry_of_run_id,
+            planning_mode=planning_mode,
+            create_request_hash=create_request_hash,
             orchestration_version="v1",
             orchestration_mode=orchestration_mode.value,
             requested_orchestration_mode=requested_orchestration_mode,
-            deadline_at=now_utc() + timedelta(seconds=300),
+            deadline_at=(
+                None
+                if is_deepsearch
+                else created_at + timedelta(seconds=_STANDARD_RUN_DEADLINE_SECONDS)
+            ),
+            absolute_expires_at=created_at + timedelta(days=7) if is_deepsearch else None,
+            deepsearch_budget=DeepSearchBudgetV1() if is_deepsearch else None,
+            created_at=created_at,
+            updated_at=created_at,
         )
         run, created = self.repository.claim_new_agent_run(run)
         if created:
@@ -301,6 +1284,10 @@ Follow the activated Skill for this request, subject to the platform rules above
 
     @staticmethod
     def _remaining_run_seconds(run: AgentRun) -> float:
+        if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+            if run.absolute_expires_at is None:
+                return 0.0
+            return max(0.0, (run.absolute_expires_at - now_utc()).total_seconds())
         if run.deadline_at is None:
             return 300.0
         return max(0.0, (run.deadline_at - now_utc()).total_seconds())
@@ -313,6 +1300,8 @@ Follow the activated Skill for this request, subject to the platform rules above
         selected: SelectedSDKModel,
         skill: SkillDefinition | None,
     ) -> RuntimeAnswer:
+        if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+            raise RuntimeError("deepsearch_standard_execution_forbidden")
         if result.interruptions:
             state = result.to_state()
             paused_state = state.to_json(
@@ -396,29 +1385,51 @@ Follow the activated Skill for this request, subject to the platform rules above
         session=None,
         timeout_seconds: float = 300,
     ):  # noqa: ANN001
+        if (
+            run.planning_mode is AgentPlanningMode.DEEPSEARCH
+            and not isinstance(getattr(agent, "model", None), _BudgetedDeepSearchModel)
+        ):
+            raise RuntimeError("deepsearch_model_budget_missing")
         if run.deadline_at is not None:
             timeout_seconds = min(timeout_seconds, max(0.0, (run.deadline_at - now_utc()).total_seconds()))
         if timeout_seconds <= 0:
-            raise TimeoutError("Agent run exceeded the 300-second deadline")
-        async with asyncio.timeout(timeout_seconds):
-            result = Runner.run_streamed(
-                agent,
-                input_value,
-                context=context,
-                max_turns=8,
-                hooks=self.hooks,
-                run_config=self._run_config(run),
-                session=session,
-            )
-            async for event in result.stream_events():
-                payload: dict[str, object] = {"sdk_event_type": event.type}
-                if event.type == "run_item_stream_event":
-                    payload["name"] = str(getattr(event, "name", ""))
-                    payload["item_type"] = str(getattr(getattr(event, "item", None), "type", ""))
-                elif event.type == "agent_updated_stream_event":
-                    payload["agent_name"] = str(getattr(getattr(event, "new_agent", None), "name", ""))
-                self.repository.append_agent_run_event(run.id, "sdk_stream_event", payload)
-            return result
+            raise TimeoutError("Agent run deadline exceeded")
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                result = Runner.run_streamed(
+                    agent,
+                    input_value,
+                    context=context,
+                    max_turns=8,
+                    hooks=self.hooks,
+                    run_config=self._run_config(run),
+                    session=session,
+                )
+                async for event in result.stream_events():
+                    payload: dict[str, object] = {"sdk_event_type": event.type}
+                    if event.type == "run_item_stream_event":
+                        payload["name"] = str(getattr(event, "name", ""))
+                        payload["item_type"] = str(getattr(getattr(event, "item", None), "type", ""))
+                    elif event.type == "agent_updated_stream_event":
+                        payload["agent_name"] = str(getattr(getattr(event, "new_agent", None), "name", ""))
+                    self.repository.append_agent_run_event(run.id, "sdk_stream_event", payload)
+                return result
+        except AtomicModelStreamFailure as failure:
+            error = failure.error
+            if is_transient_stream_error(error):
+                self.repository.append_agent_run_event(
+                    run.id,
+                    "model_stream_retry_exhausted",
+                    {
+                        "error_code": type(error).__name__,
+                        "attempts": failure.attempts,
+                    },
+                )
+                raise ModelStreamRetryExhausted(
+                    error,
+                    attempts=failure.attempts,
+                ) from error
+            raise error from failure
 
     async def start(
         self,
@@ -470,6 +1481,164 @@ Follow the activated Skill for this request, subject to the platform rules above
         self._tasks[run.id] = task
         task.add_done_callback(lambda completed, run_id=run.id: self._finish_background_task(run_id, completed))
         return run
+
+    @staticmethod
+    def _deepsearch_planning_error_code(error: BaseException) -> str:
+        if isinstance(error, DeepSearchBudgetConflict):
+            if error.code in {
+                "deepsearch_budget_exhausted",
+                "deepsearch_recovery_exhausted",
+            }:
+                return error.code
+            return "deepsearch_planning_transient"
+        if isinstance(
+            error,
+            (
+                DeepSearchRequirementIntegrityError,
+                PlanValidationError,
+                PlannerUnavailable,
+                TypeError,
+                ValueError,
+            ),
+        ):
+            return "deepsearch_planning_failed"
+        return "deepsearch_planning_transient"
+
+    def _fail_deepsearch_planning(self, run: AgentRun, error: BaseException) -> None:
+        current = self.repository.get_agent_run(run.id)
+        if current is None or current.status in {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.PARTIAL,
+            AgentRunStatus.FAILED,
+            AgentRunStatus.REJECTED,
+            AgentRunStatus.CANCELLED,
+        }:
+            return
+        failed = self.repository.fail_deepsearch_planning_run(
+            run_id=run.id,
+            user_id=run.user_id,
+            error_code=self._deepsearch_planning_error_code(error),
+        )
+        if failed is None:
+            current = self.repository.get_agent_run(run.id)
+            if current is not None and current.status is AgentRunStatus.PLANNING and current.plan_id is None:
+                raise RuntimeError("DeepSearch planning failure transition conflicted") from error
+
+    def _clone_deepsearch_retry_requirement(self, run: AgentRun) -> AgentRun:
+        if run.retry_of_run_id is None:
+            return run
+        snapshot = self.repository.get_deepsearch_state_snapshot(run.retry_of_run_id)
+        if snapshot is None or snapshot.requirement is None:
+            raise DeepSearchRequirementIntegrityError("DeepSearch retry Requirement source is missing")
+        source = RequirementVersionV1.model_validate(snapshot.requirement)
+        if source.payload.clarification_questions or any(
+            ambiguity.blocking for ambiguity in source.payload.ambiguities
+        ):
+            raise DeepSearchRequirementIntegrityError("DeepSearch retry Requirement source is incomplete")
+        if run.client_turn_id is None or run.create_request_hash is None:
+            raise DeepSearchRequirementIntegrityError("DeepSearch retry identity is incomplete")
+        created_at = now_utc()
+        requirement = RequirementVersionV1(
+            id=new_id("requirement"),
+            run_id=run.id,
+            version=1,
+            request_key=run.client_turn_id,
+            request_hash=run.create_request_hash,
+            content_hash=source.content_hash,
+            derived_from_requirement_version_id=source.id,
+            payload=source.payload.model_copy(deep=True),
+            created_at=created_at,
+        )
+        result = self.repository.append_deepsearch_requirement_and_transition(
+            run_id=run.id,
+            user_id=run.user_id,
+            requirement=requirement.model_dump(mode="json"),
+            expected_requirement_version=None,
+            expected_run_status=AgentRunStatus.PLANNING,
+            next_run_status=AgentRunStatus.PLANNING,
+            interaction_expires_at=None,
+            error_code=None,
+            events=[],
+            checked_at=created_at,
+        )
+        if result is None:
+            raise DeepSearchRequirementIntegrityError("DeepSearch retry Requirement clone failed")
+        return result.run
+
+    async def start_deepsearch(
+        self,
+        *,
+        content: str,
+        user: User,
+        thread_id: str,
+        history: list[ChatMessage],
+        client_turn_id: str,
+        mode: SkillOrchestrationMode,
+        create_request_hash: str,
+        project_id: str | None = None,
+        retry_of_run_id: str | None = None,
+    ) -> AgentRun:
+        """Create one v1 DeepSearch Run and advance its Requirement/Plan synchronously."""
+
+        del history
+        if mode is not SkillOrchestrationMode.EXECUTE:
+            raise RuntimeError("DeepSearch requires execute orchestration mode")
+        if not self.enabled:
+            raise RuntimeError("OpenAI Agents SDK runtime is disabled")
+        if self._select_model(user) is None:
+            raise RuntimeError("Agent model is not configured")
+        run, created = self._new_run(
+            content,
+            user,
+            thread_id,
+            None,
+            client_turn_id=client_turn_id,
+            project_chat=True,
+            status=AgentRunStatus.PLANNING,
+            orchestration_mode=mode,
+            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            planning_mode=AgentPlanningMode.DEEPSEARCH,
+            create_request_hash=create_request_hash,
+            project_id=project_id,
+            retry_of_run_id=retry_of_run_id,
+        )
+        if not created:
+            return run
+        user_message = self.repository.add_chat_message(
+            ChatMessage(
+                thread_id=thread_id,
+                role=ChatRole.USER,
+                content=content,
+                scope=Scope.PRIVATE,
+            )
+        )
+        self.repository.mark_sdk_session_chat_messages(thread_id, [user_message.id])
+        try:
+            run = self._clone_deepsearch_retry_requirement(run)
+            state = await self.deepsearch_planning_service.refine_initial(run)
+            if (
+                state.run.id != run.id
+                or state.run.orchestration_version != "v1"
+                or state.run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            ):
+                raise DeepSearchRequirementIntegrityError(
+                    "DeepSearch Planning Service returned an invalid Run identity"
+                )
+            return state.run
+        except asyncio.CancelledError:
+            current = self.repository.get_agent_run(run.id)
+            if current is not None and current.status not in {
+                AgentRunStatus.COMPLETED,
+                AgentRunStatus.PARTIAL,
+                AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED,
+                AgentRunStatus.CANCELLED,
+            }:
+                self.repository.cancel_agent_run_tree(run.id, user_id=user.id)
+            raise
+        except Exception as error:
+            self._fail_deepsearch_planning(run, error)
+            raise
 
     async def start_orchestrated(
         self,
@@ -834,7 +2003,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                         validate_draft(draft, candidates, intent=intent)
                     except Exception:
                         if self._remaining_run_seconds(run) <= 0:
-                            raise TimeoutError("Agent run exceeded the 300-second deadline") from first_error
+                            raise TimeoutError("Agent run deadline exceeded") from first_error
                         synthesis_outputs = {"executive_summary", "summary", "synthesis"}
                         required_outputs = set(intent.deliverables) - synthesis_outputs
                         fallback_candidate = next(
@@ -1008,6 +2177,108 @@ Follow the activated Skill for this request, subject to the platform rules above
         task.add_done_callback(lambda completed, run_id=run.id: self._finish_background_task(run_id, completed))
         return run
 
+    async def recover_deepsearch_run(self, run_id: str) -> AgentRun | None:
+        """Resume one persisted DeepSearch Run through its existing planner/executor."""
+
+        run = self.repository.get_agent_run(run_id)
+        if run is None:
+            return None
+        if (
+            run.orchestration_version != "v1"
+            or run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+        ):
+            return None
+        run = self.repository.expire_deepsearch_run_if_needed(
+            run.id,
+            user_id=run.user_id,
+        )
+        if run is None:
+            return None
+        terminal_statuses = {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.PARTIAL,
+            AgentRunStatus.FAILED,
+            AgentRunStatus.REJECTED,
+            AgentRunStatus.CANCELLED,
+        }
+        waiting_statuses = {
+            AgentRunStatus.WAITING_CLARIFICATION,
+            AgentRunStatus.WAITING_PLAN_APPROVAL,
+            AgentRunStatus.WAITING_APPROVAL,
+        }
+        if run.status in terminal_statuses or run.status in waiting_statuses:
+            return run
+        if (
+            run.orchestration_mode != SkillOrchestrationMode.EXECUTE.value
+            or skill_orchestration_mode() is not SkillOrchestrationMode.EXECUTE
+        ):
+            return run
+
+        active_task = asyncio.current_task()
+        existing_task = self._tasks.get(run.id)
+        if (
+            existing_task is not None
+            and not existing_task.done()
+            and existing_task is not active_task
+        ):
+            return run
+        if active_task is not None:
+            self._tasks[run.id] = active_task
+
+        try:
+            if run.status is AgentRunStatus.PLANNING:
+                try:
+                    state = await self.deepsearch_planning_service.resume_planning(run)
+                except DeepSearchBudgetConflict as error:
+                    if error.code != "deepsearch_recovery_exhausted":
+                        raise
+                    return self.repository.fail_deepsearch_recovery_state(
+                        run_id=run.id,
+                        error_code=error.code,
+                    )
+                except (DeepSearchRequirementIntegrityError, ResearchStoreConflict, TypeError, ValueError):
+                    return self.repository.fail_deepsearch_recovery_state(run_id=run.id)
+                if (
+                    state.run.id != run.id
+                    or state.run.orchestration_version != "v1"
+                    or state.run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+                ):
+                    return self.repository.fail_deepsearch_recovery_state(run_id=run.id)
+                return state.run
+
+            if run.status is not AgentRunStatus.RUNNING:
+                return self.repository.fail_deepsearch_recovery_state(run_id=run.id)
+            try:
+                prepared = self.repository.prepare_deepsearch_execution_recovery(
+                    run_id=run.id,
+                )
+            except (ResearchStoreConflict, TypeError, ValueError):
+                return self.repository.fail_deepsearch_recovery_state(run_id=run.id)
+            if prepared is None:
+                return self.repository.fail_deepsearch_recovery_state(run_id=run.id)
+            plan, run = prepared
+            user = self.repository.get_user(run.user_id)
+            if (
+                user is None
+                or user.workspace_id != run.workspace_id
+                or user.default_project_id != run.project_id
+            ):
+                return self.repository.fail_deepsearch_recovery_state(run_id=run.id)
+            resume = plan.status is SkillPlanStatus.RUNNING
+            try:
+                outcome = await self._execute_approved_skill_plan(
+                    plan=plan,
+                    run=run,
+                    user=user,
+                    resume=resume,
+                )
+            except PlanExecutionConflict:
+                return self.repository.get_agent_run(run.id)
+            return self.repository.get_agent_run(run.id) or outcome.run
+        finally:
+            if active_task is not None and self._tasks.get(run.id) is active_task:
+                self._tasks.pop(run.id, None)
+
     async def _execute_approved_skill_plan(
         self,
         *,
@@ -1016,8 +2287,26 @@ Follow the activated Skill for this request, subject to the platform rules above
         user: User,
         resume: bool = False,
     ) -> PlanExecutionOutcome:
+        deepsearch = (
+            plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+            or run.planning_mode is AgentPlanningMode.DEEPSEARCH
+        )
+        if deepsearch and not (
+            plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+            and run.planning_mode is AgentPlanningMode.DEEPSEARCH
+        ):
+            raise RuntimeError("deepsearch_execution_identity_invalid")
         selected = self._select_model(user)
         if selected is None:
+            if deepsearch:
+                terminate_deepsearch_without_report(
+                    self.repository,
+                    run_id=run.id,
+                    plan_id=plan.id,
+                    terminal_status=AgentRunStatus.FAILED,
+                    error_code="deepsearch_execution_unavailable",
+                )
+                raise RuntimeError("Agent model is not configured")
             plan.status = SkillPlanStatus.FAILED
             run.status = AgentRunStatus.FAILED
             run.error_code = "model_not_configured"
@@ -1059,10 +2348,103 @@ Follow the activated Skill for this request, subject to the platform rules above
                 plan_nodes=current_plan.nodes,
             )
 
-        executor = BoundedDAGExecutor(
-            self.repository,
-            node_runner=node_runner,
-            synthesis_runner=synthesis_runner,
+        async def deepsearch_synthesis_runner(
+            finalization_run,
+            current_plan,
+            requirement,
+            graph,
+            results,
+            manifest,
+            evidence_artifacts,
+            revision_count,
+            prior_review,
+        ):  # noqa: ANN001, ANN202
+            budgeted_model = self._budgeted_model_for_run(
+                run=finalization_run,
+                model=selected.model,
+                scope="standard",
+                stage=f"synthesis_v{revision_count}",
+                identity={
+                    "plan_id": current_plan.id,
+                    "plan_version": current_plan.version,
+                    "plan_content_hash": current_plan.plan_content_hash,
+                    "manifest": manifest.model_dump(mode="json"),
+                    "prior_review": (
+                        prior_review.model_dump(mode="json")
+                        if prior_review is not None
+                        else None
+                    ),
+                },
+                timeout_seconds=llm_chat_timeout_seconds(),
+                request_scoped=False,
+            )
+            return await self.deepsearch_synthesis_service.synthesize(
+                model=budgeted_model,
+                run=finalization_run,
+                plan=current_plan,
+                requirement=requirement,
+                graph=graph,
+                results=results,
+                manifest=manifest,
+                evidence_artifacts=evidence_artifacts,
+                revision_count=revision_count,
+                prior_review=prior_review,
+            )
+
+        async def deepsearch_review_runner(
+            finalization_run,
+            current_plan,
+            requirement,
+            graph,
+            synthesis,
+            manifest,
+            evidence_artifacts,
+            reviewed_at,
+        ):  # noqa: ANN001, ANN202
+            budgeted_model = self._budgeted_model_for_run(
+                run=finalization_run,
+                model=selected.model,
+                scope="standard",
+                stage=f"review_v{synthesis.revision_count}",
+                identity={
+                    "plan_id": current_plan.id,
+                    "plan_version": current_plan.version,
+                    "plan_content_hash": current_plan.plan_content_hash,
+                    "synthesis": synthesis.model_dump(mode="json"),
+                    "manifest": manifest.model_dump(mode="json"),
+                },
+                timeout_seconds=llm_chat_timeout_seconds(),
+                request_scoped=False,
+            )
+            return await self.deepsearch_review_service.review(
+                model=budgeted_model,
+                run=finalization_run,
+                plan=current_plan,
+                requirement=requirement,
+                graph=graph,
+                synthesis=synthesis,
+                manifest=manifest,
+                evidence_artifacts=evidence_artifacts,
+                reviewed_at=reviewed_at,
+            )
+
+        executor = (
+            BoundedDAGExecutor(
+                self.repository,
+                node_runner=node_runner,
+                finalization_strategy=DeepSearchFinalizer(
+                    self.repository,
+                    synthesis_runner=deepsearch_synthesis_runner,
+                    review_runner=deepsearch_review_runner,
+                    recover_unsettled=resume,
+                ),
+            )
+            if deepsearch
+            else BoundedDAGExecutor(
+                self.repository,
+                node_runner=node_runner,
+                synthesis_runner=synthesis_runner,
+            )
         )
         try:
             async with asyncio.timeout(self._remaining_run_seconds(run)):
@@ -1074,7 +2456,6 @@ Follow the activated Skill for this request, subject to the platform rules above
             raise
         except Exception as error:
             current_plan = self.repository.get_skill_plan(plan.id) or plan
-            current_plan.status = SkillPlanStatus.FAILED
             current_run = self.repository.get_agent_run(run.id) or run
             if current_run.status not in {
                 AgentRunStatus.COMPLETED,
@@ -1082,6 +2463,16 @@ Follow the activated Skill for this request, subject to the platform rules above
                 AgentRunStatus.FAILED,
                 AgentRunStatus.CANCELLED,
             }:
+                if deepsearch:
+                    terminate_deepsearch_without_report(
+                        self.repository,
+                        run_id=current_run.id,
+                        plan_id=current_plan.id,
+                        terminal_status=AgentRunStatus.FAILED,
+                        error_code="deepsearch_delivery_unavailable",
+                    )
+                    raise
+                current_plan.status = SkillPlanStatus.FAILED
                 current_run.status = AgentRunStatus.FAILED
                 current_run.error_code = type(error).__name__
                 self.repository.finish_skill_plan_and_run(
@@ -1128,9 +2519,14 @@ Follow the activated Skill for this request, subject to the platform rules above
         node: SkillPlanNode,
         run: AgentRun,
         user: User,
-    ) -> tuple[SkillDefinition, set[str], tuple[str, ...]]:
+    ) -> tuple[SkillDefinition, set[str], tuple[str, ...], dict[str, str], bool]:
         if plan.run_id != run.id or run.plan_id != plan.id:
             raise RuntimeError("planned_run_mismatch")
+        if (
+            plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+            and not set(node.required_tool_names).issubset(DEEPSEARCH_V1_TOOL_NAMES)
+        ):
+            raise RuntimeError("deepsearch_tool_policy_violation")
         self._require_run_project_access(
             run,
             user,
@@ -1154,6 +2550,20 @@ Follow the activated Skill for this request, subject to the platform rules above
             or skill.content_hash != node.skill_content_hash
         ):
             raise RuntimeError("planned_skill_changed")
+        if plan.planning_mode is AgentPlanningMode.DEEPSEARCH:
+            if run.planning_mode is not AgentPlanningMode.DEEPSEARCH or node.resource_manifest is None:
+                raise RuntimeError("planned_resource_changed")
+            try:
+                current_resource_manifest = build_skill_resource_manifest_snapshot(skill, profile)
+            except ValueError as error:
+                raise RuntimeError("planned_resource_changed") from error
+            if current_resource_manifest != node.resource_manifest:
+                raise RuntimeError("planned_resource_changed")
+            approved_resource_hashes = dict(node.resource_manifest.resource_hashes)
+            resource_manifest_frozen = True
+        else:
+            approved_resource_hashes = skill_resource_manifest(skill)
+            resource_manifest_frozen = False
         if node.scenario_id is not None:
             routing = plan.routing_result
             if routing is None or routing.catalog_hash != self.task_catalog.manifest.catalog_hash:
@@ -1181,7 +2591,15 @@ Follow the activated Skill for this request, subject to the platform rules above
             ):
                 raise RuntimeError("planned_route_node_changed")
         allowed_tool_names = tool_names_for_profile(profile)
-        if node.scenario_id is not None and set(node.required_tool_names) != allowed_tool_names:
+        if (
+            plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+            and not allowed_tool_names.issubset(DEEPSEARCH_V1_TOOL_NAMES)
+        ):
+            raise RuntimeError("deepsearch_tool_policy_violation")
+        if (
+            (plan.planning_mode is AgentPlanningMode.DEEPSEARCH or node.scenario_id is not None)
+            and set(node.required_tool_names) != allowed_tool_names
+        ):
             raise RuntimeError("planned_tool_contract_changed")
         granted_tools: dict[str, tuple[str, str]] = {}
         for definition in self.repository.tool_definitions:
@@ -1202,7 +2620,13 @@ Follow the activated Skill for this request, subject to the platform rules above
         if not allowed_tool_names.issubset(granted_tools):
             raise RuntimeError("planned_tool_grant_revoked")
         grant_snapshot_ids = tuple(sorted(granted_tools[name][1] for name in allowed_tool_names))
-        return skill, allowed_tool_names, grant_snapshot_ids
+        return (
+            skill,
+            allowed_tool_names,
+            grant_snapshot_ids,
+            approved_resource_hashes,
+            resource_manifest_frozen,
+        )
 
     def _knowledge_context(
         self,
@@ -1240,6 +2664,66 @@ Follow the activated Skill for this request, subject to the platform rules above
             context.append(item)
         return context
 
+    @staticmethod
+    def _deepsearch_node_lineage(
+        *,
+        plan: SkillPlan,
+        node: SkillPlanNode,
+        run: AgentRun,
+    ) -> dict[str, object]:
+        if run.planning_mode is not AgentPlanningMode.DEEPSEARCH:
+            return {}
+        matching_steps = [
+            index
+            for index, candidate in enumerate(plan.nodes, start=1)
+            if candidate.id == node.id
+        ]
+        if (
+            plan.planning_mode is not AgentPlanningMode.DEEPSEARCH
+            or plan.run_id != run.id
+            or run.plan_id != plan.id
+            or not plan.requirement_version_id
+            or len(matching_steps) != 1
+            or node.attempt < 1
+        ):
+            raise RuntimeError("deepsearch_tool_lineage_incomplete")
+        return {
+            "requirement_version_id": plan.requirement_version_id,
+            "plan_version": plan.version,
+            "node_step_number": matching_steps[0],
+            "node_attempt": node.attempt,
+        }
+
+    @staticmethod
+    def _deepsearch_node_evidence_scope(
+        *,
+        plan: SkillPlan,
+        node: SkillPlanNode,
+    ) -> tuple[set[str], set[str], list[dict[str, object]]]:
+        if plan.planning_mode is not AgentPlanningMode.DEEPSEARCH:
+            return set(), set(), []
+        try:
+            graph = ProblemGraphV1.model_validate(plan.problem_graph)
+        except (TypeError, ValueError) as error:
+            raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid") from error
+        questions_by_id = {question.id: question for question in graph.questions}
+        question_ids = set(node.question_ids)
+        if not question_ids or not question_ids.issubset(questions_by_id):
+            raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+        selected_questions = [
+            question for question in graph.questions if question.id in question_ids
+        ]
+        success_criterion_ids = {
+            criterion_id
+            for question in selected_questions
+            for criterion_id in question.success_criterion_ids
+        }
+        return (
+            question_ids,
+            success_criterion_ids,
+            [question.model_dump(mode="json") for question in selected_questions],
+        )
+
     async def _execute_skill_plan_node(
         self,
         *,
@@ -1250,7 +2734,14 @@ Follow the activated Skill for this request, subject to the platform rules above
         user: User,
         selected: SelectedSDKModel,
     ) -> NodeExecutionOutcome:
-        skill, allowed_tool_names, grant_snapshot_ids = self._resolve_plan_node_security(
+        deepsearch = run.planning_mode is AgentPlanningMode.DEEPSEARCH
+        (
+            skill,
+            allowed_tool_names,
+            grant_snapshot_ids,
+            approved_resource_hashes,
+            resource_manifest_frozen,
+        ) = self._resolve_plan_node_security(
             plan=plan,
             node=node,
             run=run,
@@ -1265,10 +2756,17 @@ Follow the activated Skill for this request, subject to the platform rules above
             plan_id=plan.id,
             node_id=node.id,
             skill_id=skill.id,
+            **self._deepsearch_node_lineage(plan=plan, node=node, run=run),
             policy_snapshot_ids=list(grant_snapshot_ids),
-            approved_resource_hashes=skill_resource_manifest(skill),
+            approved_resource_hashes=approved_resource_hashes,
+            resource_manifest_frozen=resource_manifest_frozen,
             source_ids=list(dict.fromkeys(source.id for result in upstream for source in result.sources)),
             artifact_ids=list(dict.fromkeys(artifact_id for result in upstream for artifact_id in result.artifact_ids)),
+        )
+        node_question_ids, node_success_criterion_ids, problem_questions = (
+            self._deepsearch_node_evidence_scope(plan=plan, node=node)
+            if deepsearch
+            else (set(), set(), [])
         )
         knowledge_context = self._knowledge_context(skill=skill, node=node)
         scenario = self.task_catalog.get_scenario(node.scenario_id) if node.scenario_id else None
@@ -1280,6 +2778,9 @@ Follow the activated Skill for this request, subject to the platform rules above
             "output_contract": node.output_contract,
             "expected_scenario_outputs": list(scenario.outputs) if scenario is not None else [],
             "completion_criteria": node.completion_criteria,
+            "problem_questions": problem_questions,
+            "allowed_evidence_question_ids": sorted(node_question_ids),
+            "allowed_evidence_success_criterion_ids": sorted(node_success_criterion_ids),
             "knowledge_context": knowledge_context,
             "user_request": run.input_text,
             "upstream_results": [result.model_dump(mode="json") for result in upstream],
@@ -1290,16 +2791,66 @@ Follow the activated Skill for this request, subject to the platform rules above
 This node requires current external evidence. You MUST call web_research before returning the node result.
 Skill resources provide methods only and do not satisfy the external evidence requirement.
 """
+        evidence_instruction = ""
+        if deepsearch:
+            evidence_instruction = """
+For evidence, return only evidence_bindings copied from successful Tool output. Never return evidence_items,
+Evidence IDs, or node_result_id; those identities are assigned and verified by the server. Every binding's
+question_ids and success_criterion_ids must be subsets of the allowed IDs in the input.
+"""
+        deliverable_length_instruction = (
+            "Prefer dense, directly usable content of roughly 1,500–3,500 Chinese characters "
+            "for substantial text deliverables."
+            if deepsearch
+            else "Keep substantial deliverables between 1,200 and 2,400 Chinese characters and never exceed "
+            "3,000 Chinese characters. Keep supporting lists concise."
+        )
+        resource_read_instruction = (
+            "For a batch call, pass `paths` with 1–12 non-empty entries; split larger batches when needed."
+            if deepsearch
+            else "For this Standard node, read no more than 12 resource paths in total across all "
+            "read_skill_resource calls. Select only the most relevant files; when an exact path is known, "
+            "do not read an index first and do not split a larger set into additional calls."
+        )
         additional = f"""
 
 Return only the structured node result. Set node_id to {node.id!r} and skill_id to {skill.id!r}.
+Complete every requested output_contract deliverable in full and put the usable final content in
+deliverable_markdown. It must contain the actual report, plan, questions, script, table, or other requested
+material—not a description of what was produced, an outline, placeholders, or hidden reasoning. Keep summary
+short; downstream synthesis preserves deliverable_markdown verbatim in the final report. {deliverable_length_instruction}
+If non-sensitive
+project details are missing, state reasonable assumptions and produce an adaptable complete draft instead of
+replacing the deliverable with a clarification checklist; record the assumptions in limitations.
 Set scenario_outputs only to expected_scenario_outputs that the result explicitly supports.
 Set completion_criteria_met only to completion_criteria that the result actually satisfies.
-Knowledge IDs and descriptions are routing metadata, not readable paths. Only pass a `resource_path` from
+Knowledge IDs and descriptions are routing metadata, not readable paths. Only pass a `path` from
 `knowledge_context` to read_skill_resource; otherwise follow relative resource paths explicitly named by the Skill.
+{resource_read_instruction} Never send an empty list.
 {research_instruction}
+{evidence_instruction}
 Do not include hidden reasoning. Cite only sources actually supplied by tools, approved Skill resources, or upstream results.
 """
+        node_timeout_seconds = skill_node_timeout_seconds(
+            node,
+            planning_mode=run.planning_mode,
+        )
+        node_model = self._budgeted_model_for_run(
+            run=run,
+            model=selected.model,
+            scope="standard",
+            stage="node",
+            identity={
+                "plan_id": plan.id,
+                "plan_version": plan.version,
+                "plan_content_hash": plan.plan_content_hash,
+                "node_id": node.id,
+                "node_attempt": node.attempt,
+            },
+            timeout_seconds=node_timeout_seconds,
+        )
+        if not deepsearch:
+            node_model = AtomicStreamModel(node_model)
         async with AsyncExitStack() as stack:
             mcp_servers = [
                 await stack.enter_async_context(server)
@@ -1314,16 +2865,16 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 selected=selected,
                 user=user,
                 skill=skill,
+                model=node_model,
                 mcp_servers=mcp_servers,
                 allowed_tool_names=allowed_tool_names,
                 allow_skill_activation=False,
-                output_type=SkillNodeResult,
+                output_type=(
+                    _DeepSearchSkillNodeResultDraft if deepsearch else _StandardSkillNodeResultDraft
+                ),
                 additional_instructions=additional,
-            )
-            node_timeout_seconds = (
-                research_skill_timeout_seconds()
-                if "web_research" in allowed_tool_names
-                else llm_chat_timeout_seconds()
+                timeout_seconds=node_timeout_seconds,
+                max_tokens=_STANDARD_NODE_MAX_TOKENS if not deepsearch else None,
             )
             result = await self._run_streamed(
                 agent,
@@ -1360,6 +2911,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 allowed_artifact_ids=set(context.artifact_ids),
                 allowed_resource_references=set(context.resource_references),
                 upstream_source_origins=self._upstream_source_origins(upstream, run.id),
+                runtime_context=context,
             )
         )
 
@@ -1397,6 +2949,120 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 ):
                     raise ValueError("unauthorized_synthesis_source")
 
+    def _normalize_deepsearch_evidence_items(
+        self,
+        *,
+        drafts: list[DeepSearchEvidenceBindingDraft],
+        node_result_id: str,
+        plan: SkillPlan,
+        node: SkillPlanNode,
+        skill: SkillDefinition,
+        run: AgentRun,
+        user: User,
+        runtime_context: AgentMeshRunContext | None,
+        allowed_source_ids: set[str],
+        allowed_artifact_ids: set[str],
+        result_source_ids: set[str],
+    ) -> list[DeepSearchEvidenceItemV1]:
+        if not drafts:
+            return []
+        if runtime_context is None:
+            raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+        expected_lineage = self._deepsearch_node_lineage(plan=plan, node=node, run=run)
+        if (
+            runtime_context.run_id != run.id
+            or runtime_context.user_id != user.id
+            or runtime_context.workspace_id != run.workspace_id
+            or runtime_context.project_id != run.project_id
+            or runtime_context.plan_id != plan.id
+            or runtime_context.node_id != node.id
+            or runtime_context.skill_id != skill.id
+            or runtime_context.requirement_version_id
+            != expected_lineage["requirement_version_id"]
+            or runtime_context.plan_version != expected_lineage["plan_version"]
+            or runtime_context.node_step_number != expected_lineage["node_step_number"]
+            or runtime_context.node_attempt != expected_lineage["node_attempt"]
+        ):
+            raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+
+        current_run = self.repository.get_agent_run(run.id)
+        if current_run is None or current_run.deepsearch_budget is None:
+            raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+        invocation_by_operation: dict[str, DeepSearchToolInvocationV1] = {}
+        for reservation in current_run.deepsearch_budget.reservations:
+            invocation = reservation.tool_invocation
+            if invocation is None or reservation.status != "settled":
+                continue
+            if invocation.operation_key in invocation_by_operation:
+                raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+            invocation_by_operation[invocation.operation_key] = invocation
+
+        node_question_ids, allowed_success_criterion_ids, _questions = (
+            self._deepsearch_node_evidence_scope(plan=plan, node=node)
+        )
+        grouped_drafts: dict[str, list[DeepSearchEvidenceBindingDraft]] = {}
+        grouped_artifacts: dict[str, dict[str, Artifact]] = {}
+        for draft in drafts:
+            if draft.evidence_artifact_id not in allowed_artifact_ids:
+                raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+            artifact = self.repository.get_artifact(draft.evidence_artifact_id)
+            if artifact is None:
+                raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+            try:
+                envelope = DeepSearchArtifactSchemaRegistry.parse(
+                    artifact.artifact_type,
+                    artifact.schema_version or "",
+                    artifact.content,
+                )
+            except (ArtifactAccessError, TypeError, ValueError) as error:
+                raise DeepSearchToolRuntimeError(
+                    "deepsearch_evidence_binding_invalid"
+                ) from error
+            if (
+                not isinstance(envelope, TrustedEvidenceEnvelopeV1)
+                or envelope.origin_type != "tool"
+                or envelope.operation_key is None
+            ):
+                raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+            grouped_drafts.setdefault(envelope.operation_key, []).append(draft)
+            grouped_artifacts.setdefault(envelope.operation_key, {})[artifact.id] = artifact
+
+        normalized: list[DeepSearchEvidenceItemV1] = []
+        for operation_key, operation_drafts in grouped_drafts.items():
+            invocation = invocation_by_operation.get(operation_key)
+            if invocation is None:
+                raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+            normalized.extend(
+                normalize_deepsearch_evidence_bindings(
+                    context=runtime_context,
+                    invocation=invocation,
+                    node_result_id=node_result_id,
+                    drafts=operation_drafts,
+                    node_question_ids=node_question_ids,
+                    allowed_success_criterion_ids=allowed_success_criterion_ids,
+                    artifacts=grouped_artifacts[operation_key],
+                )
+            )
+        item_ids = [item.id for item in normalized]
+        if len(item_ids) != len(set(item_ids)):
+            raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+        for item in normalized:
+            source_id = item.source_id
+            source = self.repository.get_source(source_id) if source_id is not None else None
+            if (
+                source_id is None
+                or source_id not in allowed_source_ids
+                or source_id not in result_source_ids
+                or source is None
+                or source.run_id != run.id
+                or source.workspace_id != run.workspace_id
+                or source.project_id != run.project_id
+                or source.user_id != user.id
+                or source.skill_id != skill.id
+            ):
+                raise DeepSearchToolRuntimeError("deepsearch_evidence_binding_invalid")
+        return sorted(normalized, key=lambda item: item.id)
+
     def _normalize_skill_node_result(
         self,
         output: object,
@@ -1411,13 +3077,81 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         allowed_artifact_ids: set[str],
         allowed_resource_references: set[str],
         upstream_source_origins: dict[str, set[tuple[str, str]]],
+        runtime_context: AgentMeshRunContext | None = None,
     ) -> SkillNodeResult:
-        node_result = SkillNodeResult.model_validate(output)
+        deepsearch = run.planning_mode is AgentPlanningMode.DEEPSEARCH
+        if deepsearch:
+            raw_output = (
+                output.model_dump(mode="python")
+                if isinstance(output, BaseModel)
+                else output
+            )
+            if isinstance(raw_output, dict) and raw_output.get("evidence_items"):
+                raise ValueError("deepsearch_model_owned_evidence_forbidden")
+            if isinstance(output, SkillNodeResult):
+                raw_output = output.model_dump(
+                    mode="python",
+                    exclude={
+                        "id",
+                        "attempt",
+                        "usage",
+                        "reused_from_run_id",
+                        "evidence_items",
+                    },
+                )
+            draft = _DeepSearchSkillNodeResultDraft.model_validate(raw_output)
+            node_result_id = f"node_result_{plan.id}_{node.id}_{node.attempt}"
+            node_result = SkillNodeResult.model_validate(
+                {
+                    **draft.model_dump(mode="python", exclude={"evidence_bindings"}),
+                    "id": node_result_id,
+                    "attempt": node.attempt,
+                    "usage": SkillNodeUsage(total_tokens=total_tokens),
+                    "evidence_items": [],
+                }
+            )
+            node_result.evidence_items = self._normalize_deepsearch_evidence_items(
+                drafts=draft.evidence_bindings,
+                node_result_id=node_result_id,
+                plan=plan,
+                node=node,
+                skill=skill,
+                run=run,
+                user=user,
+                runtime_context=runtime_context,
+                allowed_source_ids=allowed_source_ids,
+                allowed_artifact_ids=allowed_artifact_ids,
+                result_source_ids={source.id for source in node_result.sources},
+            )
+        else:
+            raw_output = (
+                output.model_dump(
+                    mode="python",
+                    exclude={
+                        "id",
+                        "attempt",
+                        "usage",
+                        "reused_from_run_id",
+                        "reused_from_result_id",
+                        "evidence_items",
+                        "created_at",
+                    },
+                )
+                if isinstance(output, BaseModel)
+                else output
+            )
+            draft = _StandardSkillNodeResultDraft.model_validate(raw_output)
+            node_result = SkillNodeResult.model_validate(
+                {
+                    **draft.model_dump(mode="python"),
+                    "id": f"node_result_{plan.id}_{node.id}_{node.attempt}",
+                    "attempt": node.attempt,
+                    "usage": SkillNodeUsage(total_tokens=total_tokens),
+                    "evidence_items": [],
+                }
+            )
         if node_result.node_id != node.id or node_result.skill_id != skill.id:
             raise ValueError("node_result_identity_mismatch")
-        node_result.id = f"node_result_{plan.id}_{node.id}_{node.attempt}"
-        node_result.attempt = node.attempt
-        node_result.usage = SkillNodeUsage(total_tokens=total_tokens)
         if node.scenario_id is not None:
             scenario = self.task_catalog.get_scenario(node.scenario_id)
             if scenario is None:
@@ -1464,7 +3198,8 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 raise ValueError("unknown_node_artifact")
         serialized = node_result.model_dump_json()
         if len(serialized.encode("utf-8")) > 50 * 1024:
-            artifact = self.repository.save_artifact(
+            artifact = save_runtime_artifact(
+                self.repository,
                 Artifact(
                     run_id=run.id,
                     workspace_id=run.workspace_id,
@@ -1474,7 +3209,8 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     content_type="application/json",
                     content=serialized,
                     truncated=True,
-                )
+                ),
+                planning_mode=run.planning_mode,
             )
             node_result.artifact_ids.append(artifact.id)
             node_result.findings = node_result.findings[:50]
@@ -1490,6 +3226,8 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         approval_expires_at = now_utc() + timedelta(hours=24)
         if run.deadline_at is not None:
             approval_expires_at = min(approval_expires_at, run.deadline_at)
+        if run.absolute_expires_at is not None:
+            approval_expires_at = min(approval_expires_at, run.absolute_expires_at)
         paused_state: dict[str, object] = {
             "kind": "skill_plan_node",
             "plan_id": outcome.plan.id,
@@ -1531,7 +3269,8 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             raise RuntimeError("Agent run changed while pausing for tool approval")
 
     def _finish_background_task(self, run_id: str, task: asyncio.Task) -> None:
-        self._tasks.pop(run_id, None)
+        if self._tasks.get(run_id) is task:
+            self._tasks.pop(run_id, None)
         if task.cancelled():
             return
         try:
@@ -1574,6 +3313,8 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         skill: SkillDefinition | None,
         project_chat: bool = False,
     ) -> RuntimeAnswer:
+        if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+            raise RuntimeError("deepsearch_standard_execution_forbidden")
         context = AgentMeshRunContext(
             user_id=user.id,
             workspace_id=run.workspace_id,
@@ -1762,6 +3503,18 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         node: SkillPlanNode,
         error_code: str,
     ) -> None:
+        if (
+            plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+            or run.planning_mode is AgentPlanningMode.DEEPSEARCH
+        ):
+            terminate_deepsearch_without_report(
+                self.repository,
+                run_id=run.id,
+                plan_id=plan.id,
+                terminal_status=AgentRunStatus.FAILED,
+                error_code=error_code,
+            )
+            return
         previous_run_status = run.status
         failed_at = now_utc()
         for item in plan.nodes:
@@ -1781,14 +3534,45 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         run.status = AgentRunStatus.FAILED
         run.error_code = error_code
         run.paused_state = None
+        completed_node_ids = {
+            result.node_id for result in self.repository.list_skill_node_results(plan.id)
+        }
+        available_outputs = {
+            output
+            for item in plan.nodes
+            if item.id in completed_node_ids
+            for output in item.output_contract
+        }
         transition = self.repository.finish_skill_plan_and_run(
             plan=plan,
             run=run,
             expected_plan_statuses={SkillPlanStatus.RUNNING},
             expected_run_statuses={previous_run_status},
             events=[
-                ("node_failed", {"plan_id": plan.id, "node_id": node.id, "error_code": error_code}),
-                ("run_failed", {"plan_id": plan.id, "error_code": error_code}),
+                (
+                    "node_failed",
+                    {
+                        "plan_id": plan.id,
+                        "node_id": node.id,
+                        "attempt": node.attempt,
+                        "error_code": error_code,
+                    },
+                ),
+                (
+                    "run_failed",
+                    {
+                        "plan_id": plan.id,
+                        "error_code": error_code,
+                        "causes": [
+                            {
+                                "node_id": node.id,
+                                "error_code": error_code,
+                                "attempt": node.attempt,
+                            }
+                        ],
+                        "missing_outputs": sorted(set(plan.output_contract) - available_outputs),
+                    },
+                ),
             ],
         )
         if transition is None:
@@ -1807,6 +3591,50 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
         ):
             return
         self._fail_waiting_skill_plan(plan=plan, run=run, node=node, error_code=error_code)
+
+    def _converge_claimed_node_transition_conflict(
+        self,
+        *,
+        run_id: str,
+        plan_id: str,
+        node_id: str,
+        attempt: int,
+    ) -> None:
+        """Fail only a claim that is still ours; never terminate a concurrently advanced winner."""
+
+        current_run = self.repository.get_agent_run(run_id)
+        current_plan = self.repository.get_skill_plan(plan_id)
+        current_node = (
+            next((item for item in current_plan.nodes if item.id == node_id), None)
+            if current_plan is not None
+            else None
+        )
+        if (
+            current_run is None
+            or current_plan is None
+            or current_node is None
+            or current_plan.run_id != current_run.id
+            or current_run.plan_id != current_plan.id
+            or current_run.status is not AgentRunStatus.RUNNING
+            or current_plan.status is not SkillPlanStatus.RUNNING
+            or current_node.status is not SkillPlanNodeStatus.RUNNING
+            or current_node.attempt != attempt
+        ):
+            return
+        error_code = (
+            "deepsearch_recovery_state_invalid"
+            if (
+                current_run.planning_mode is AgentPlanningMode.DEEPSEARCH
+                or current_plan.planning_mode is AgentPlanningMode.DEEPSEARCH
+            )
+            else "skill_node_transition_conflict"
+        )
+        self._fail_waiting_skill_plan(
+            plan=current_plan,
+            run=current_run,
+            node=current_node,
+            error_code=error_code,
+        )
 
     async def _continue_after_optional_grant_revocation(
         self,
@@ -1848,15 +3676,27 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             clear_run_paused_state=True,
         )
         if transitioned is None:
+            self._converge_claimed_node_transition_conflict(
+                run_id=claimed.id,
+                plan_id=plan.id,
+                node_id=node.id,
+                attempt=node.attempt,
+            )
             raise ApprovalConflict("Skill node failure conflicted with another transition")
         current_plan = self.repository.get_skill_plan(plan.id) or plan
         current_run = self.repository.get_agent_run(claimed.id) or claimed
-        outcome = await self._execute_approved_skill_plan(
-            plan=current_plan,
-            run=current_run,
-            user=user,
-            resume=True,
-        )
+        try:
+            outcome = await self._execute_approved_skill_plan(
+                plan=current_plan,
+                run=current_run,
+                user=user,
+                resume=True,
+            )
+        except asyncio.CancelledError:
+            active_run = self.repository.get_agent_run(claimed.id)
+            if active_run is not None and active_run.status is AgentRunStatus.RUNNING:
+                self.repository.cancel_agent_run_tree(claimed.id, user_id=user.id)
+            raise
         if outcome.pause is not None:
             return RuntimeAnswer(
                 content="下一个 Skill 节点正在等待高风险操作确认。",
@@ -1900,7 +3740,13 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             )
             raise ApprovalConflict("Tool approval has expired")
         try:
-            skill, allowed_tool_names, grant_snapshot_ids = self._resolve_plan_node_security(
+            (
+                skill,
+                allowed_tool_names,
+                grant_snapshot_ids,
+                approved_resource_hashes,
+                resource_manifest_frozen,
+            ) = self._resolve_plan_node_security(
                 plan=plan,
                 node=node,
                 run=existing,
@@ -1936,6 +3782,27 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 error_code="model_not_configured",
             )
             raise RuntimeError("Agent model is not configured")
+        deepsearch = existing.planning_mode is AgentPlanningMode.DEEPSEARCH
+        node_timeout_seconds = skill_node_timeout_seconds(
+            node,
+            planning_mode=existing.planning_mode,
+        )
+        node_model = self._budgeted_model_for_run(
+            run=existing,
+            model=selected.model,
+            scope="standard",
+            stage="node",
+            identity={
+                "plan_id": plan.id,
+                "plan_version": plan.version,
+                "plan_content_hash": plan.plan_content_hash,
+                "node_id": node.id,
+                "node_attempt": node.attempt,
+            },
+            timeout_seconds=node_timeout_seconds,
+        )
+        if not deepsearch:
+            node_model = AtomicStreamModel(node_model)
         resume_context = AgentMeshRunContext(
             user_id=existing.user_id,
             workspace_id=existing.workspace_id,
@@ -1945,10 +3812,13 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             plan_id=plan.id,
             node_id=node.id,
             skill_id=skill.id,
+            **self._deepsearch_node_lineage(plan=plan, node=node, run=existing),
             policy_snapshot_ids=list(grant_snapshot_ids),
-            approved_resource_hashes=skill_resource_manifest(skill),
+            approved_resource_hashes=approved_resource_hashes,
+            resource_manifest_frozen=resource_manifest_frozen,
         )
         run = existing
+        resume_claimed = False
         try:
             async with AsyncExitStack() as stack:
                 mcp_servers = [
@@ -1964,10 +3834,15 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     selected=selected,
                     user=user,
                     skill=skill,
+                    model=node_model,
                     mcp_servers=mcp_servers,
                     allowed_tool_names=allowed_tool_names,
                     allow_skill_activation=False,
-                    output_type=SkillNodeResult,
+                    output_type=(
+                        _DeepSearchSkillNodeResultDraft if deepsearch else _StandardSkillNodeResultDraft
+                    ),
+                    timeout_seconds=node_timeout_seconds,
+                    max_tokens=_STANDARD_NODE_MAX_TOKENS if not deepsearch else None,
                 )
                 state = await RunState.from_json(
                     agent,
@@ -1990,6 +3865,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 if claimed is None:
                     raise ApprovalConflict("Agent run approval is expired or was already claimed")
                 run = claimed
+                resume_claimed = True
                 for call_id, approved in decisions.items():
                     interruption = pending[call_id]
                     if approved:
@@ -2004,11 +3880,6 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 active_task = asyncio.current_task()
                 if active_task is not None:
                     self._tasks[run.id] = active_task
-                node_timeout_seconds = (
-                    research_skill_timeout_seconds()
-                    if "web_research" in allowed_tool_names
-                    else llm_chat_timeout_seconds()
-                )
                 try:
                     result = await self._run_streamed(
                         agent,
@@ -2021,11 +3892,19 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     if self._tasks.get(run.id) is active_task:
                         self._tasks.pop(run.id, None)
         except asyncio.CancelledError:
+            if resume_claimed:
+                current = self.repository.get_agent_run(existing.id)
+                if current is not None and current.status is AgentRunStatus.RUNNING:
+                    self.repository.cancel_agent_run_tree(existing.id, user_id=user.id)
             raise
         except ApprovalConflict:
             raise
         except Exception as error:
-            self._fail_active_skill_plan(existing.id, node.id, type(error).__name__)
+            self._fail_active_skill_plan(
+                existing.id,
+                node.id,
+                getattr(error, "root_error_code", type(error).__name__),
+            )
             raise
         if result.interruptions:
             state = result.to_state()
@@ -2079,6 +3958,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     ],
                     run.id,
                 ),
+                runtime_context=result_context,
             )
         except Exception as error:
             self._fail_active_skill_plan(existing.id, node.id, type(error).__name__)
@@ -2106,6 +3986,12 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             clear_run_paused_state=True,
         )
         if transitioned is None:
+            self._converge_claimed_node_transition_conflict(
+                run_id=run.id,
+                plan_id=plan.id,
+                node_id=node.id,
+                attempt=node.attempt,
+            )
             raise RuntimeError("Skill node completion conflicted with another transition")
         plan = self.repository.get_skill_plan(plan.id) or plan
         run = self.repository.get_agent_run(run.id) or run
@@ -2136,9 +4022,29 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             raise LookupError("Agent run not found")
         if existing.user_id != user.id or existing.workspace_id != user.workspace_id:
             raise PermissionError("Agent run is not visible")
+        if existing.orchestration_version in {"research-v2", "research-v3"}:
+            raise RuntimeError("Retired research runs cannot be resumed")
+        if existing.planning_mode is AgentPlanningMode.DEEPSEARCH:
+            refreshed = self.repository.expire_deepsearch_run_if_needed(
+                existing.id,
+                user_id=user.id,
+            )
+            if refreshed is None:
+                raise LookupError("Agent run not found")
+            existing = refreshed
+            if existing.status is AgentRunStatus.CANCELLED:
+                raise ApprovalConflict(
+                    existing.error_code or "deepsearch_run_expired"
+                )
         if existing.status != AgentRunStatus.WAITING_APPROVAL or existing.paused_state is None:
             raise RuntimeError("Agent run is not waiting for approval")
-        if existing.paused_state.get("kind") == "skill_plan_node":
+        paused_kind = existing.paused_state.get("kind")
+        if (
+            existing.planning_mode is AgentPlanningMode.DEEPSEARCH
+            and paused_kind != "skill_plan_node"
+        ):
+            raise RuntimeError("deepsearch_recovery_state_invalid")
+        if paused_kind == "skill_plan_node":
             if not self.enabled or skill_orchestration_mode() != SkillOrchestrationMode.EXECUTE:
                 self.repository.cancel_agent_run_tree(existing.id, user_id=user.id)
                 raise RuntimeError("Skill orchestration execution is disabled")

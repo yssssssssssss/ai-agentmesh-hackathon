@@ -2900,6 +2900,7 @@ def test_tool_registry_and_personal_agent_tool_grants() -> None:
     assert {tool["id"] for tool in my_tools_response.json()["items"]} == {
         "tool_memory_search",
         "tool_data_query",
+        "tool_web_research",
     }
     assert update_response.status_code == 200
     assert {tool["id"] for tool in update_response.json()["items"]} == {"tool_memory_search", "tool_document_upload"}

@@ -7,6 +7,8 @@ import type {
   SkillResultSource,
   SkillSynthesisResult,
 } from '../../features/workspace/types'
+import { MarkdownContent } from '../ui/MarkdownContent'
+import { ReportActions } from './ReportActions'
 import { completionGapLabel } from './skillPlanPresentation'
 
 interface SkillSynthesisViewProps {
@@ -15,6 +17,7 @@ interface SkillSynthesisViewProps {
   skillsById: ReadonlyMap<string, Skill>
   partial?: boolean
   completionCheck?: CompletionCheckResult | null
+  reportRunId?: string
   onOpenSource: (source: SkillResultSource) => void
   onOpenArtifact: (artifactId: string) => void
 }
@@ -25,6 +28,7 @@ export function SkillSynthesisView({
   skillsById,
   partial = false,
   completionCheck,
+  reportRunId,
   onOpenSource,
   onOpenArtifact,
 }: SkillSynthesisViewProps) {
@@ -34,24 +38,25 @@ export function SkillSynthesisView({
   )
 
   return (
-    <section aria-labelledby="skill-synthesis-title" className="mt-6 rounded-[14px] bg-surface-1 p-5 shadow-card">
+    <section aria-labelledby="skill-synthesis-title" className="mt-6 rounded-soft bg-surface-1 p-5 shadow-card">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-mint-300" aria-hidden="true" />
           <h2 id="skill-synthesis-title" className="text-lg font-semibold text-slate-100">综合结果</h2>
         </div>
-        <span className={partial ? 'text-xs font-medium text-amber-300' : 'text-xs font-medium text-mint-300'}>
-          {partial ? '部分完成，有未满足项' : '完整输出'}
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className={partial ? 'text-xs font-medium text-amber-300' : 'text-xs font-medium text-mint-300'}>
+            {partial ? '部分完成，有未满足项' : '完整输出'}
+          </span>
+          {reportRunId ? <ReportActions runId={reportRunId} /> : null}
+        </div>
       </div>
 
-      <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-200">{synthesis.summary}</p>
+      <MarkdownContent content={synthesis.summary} className="mt-4 text-slate-200" />
 
       {(synthesis.sections ?? []).length > 0 ? (
-        <div className="mt-5 space-y-3 border-t border-white/[0.06] pt-4">
-          {synthesis.sections?.map((section, index) => (
-            <p key={`${index}-${section.slice(0, 24)}`} className="whitespace-pre-wrap text-sm leading-6 text-slate-300">{section}</p>
-          ))}
+        <div className="mt-5 border-t border-white/[0.06] pt-4">
+          <MarkdownContent content={(synthesis.sections ?? []).join('\n\n')} />
         </div>
       ) : null}
 
@@ -69,9 +74,9 @@ export function SkillSynthesisView({
               })
               const sourceIds = claim.source_ids ?? []
               return (
-                <li key={`${index}-${claim.text.slice(0, 24)}`} className="rounded-[10px] bg-base px-3.5 py-3">
+                <li key={`${index}-${claim.text.slice(0, 24)}`} className="rounded-soft bg-base px-3.5 py-3">
                   <p className="text-sm leading-6 text-slate-200">{claim.text}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
                     {claim.recommendation ? <span className="rounded-full bg-knowledge/10 px-2 py-0.5 text-knowledge">建议</span> : null}
                     {linkedResults.map((result) => (
                       <span key={result.id} className="rounded-full bg-white/[0.05] px-2 py-0.5">
@@ -88,7 +93,7 @@ export function SkillSynthesisView({
                             key={source.id}
                             type="button"
                             onClick={() => onOpenSource(source)}
-                            className="flex min-h-10 items-center gap-1.5 rounded-[9px] bg-white/[0.04] px-2.5 text-[11px] text-slate-300 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+                            className="flex min-h-10 items-center gap-1.5 rounded-soft bg-white/[0.04] px-2.5 text-[11px] text-slate-300 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
                           >
                             <FileText className="h-3.5 w-3.5" aria-hidden="true" />
                             {source.title}
@@ -105,7 +110,7 @@ export function SkillSynthesisView({
       ) : null}
 
       {completionCheck && !completionCheck.completed ? (
-        <section className="mt-5 rounded-[10px] border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3" aria-label="完成度检查">
+        <section className="mt-5 rounded-soft border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3" aria-label="完成度检查">
           <h3 className="flex items-center gap-2 text-xs font-semibold text-amber-100">
             <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
             为什么是“部分完成”？
@@ -124,7 +129,7 @@ export function SkillSynthesisView({
             </ul>
           ) : null}
           {(completionCheck.gaps ?? []).length > 0 ? (
-            <details className="mt-2 text-[10px] text-slate-500">
+            <details className="mt-2 text-[11px] text-slate-400">
               <summary className="cursor-pointer select-none hover:text-slate-300">查看技术诊断</summary>
               <code className="mt-1 block break-all">{(completionCheck.gaps ?? []).join('；')}</code>
             </details>
@@ -133,7 +138,7 @@ export function SkillSynthesisView({
       ) : null}
 
       {(synthesis.limitations ?? []).length > 0 ? (
-        <section className="mt-5 rounded-[10px] bg-amber-300/[0.07] px-3.5 py-3" aria-label="限制">
+        <section className="mt-5 rounded-soft bg-amber-300/[0.07] px-3.5 py-3" aria-label="限制">
           <h3 className="flex items-center gap-2 text-xs font-semibold text-amber-200">
             <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
             限制
@@ -160,7 +165,7 @@ export function SkillSynthesisView({
               key={artifactId}
               type="button"
               onClick={() => onOpenArtifact(artifactId)}
-              className="min-h-10 rounded-[9px] bg-white/[0.04] px-3 text-xs text-slate-300 transition-[transform,background-color] duration-150 active:scale-95 hover:bg-white/[0.08]"
+              className="min-h-10 rounded-soft bg-white/[0.04] px-3 text-xs text-slate-300 transition-[transform,background-color] duration-150 active:scale-95 hover:bg-white/[0.08]"
             >
               打开 Artifact · {artifactId}
             </button>

@@ -1,7 +1,7 @@
 # CONTEXT.md — Digital Twin × Agent Market
 
 Glossary for the "digital twin / agent collaboration market" work. Each term maps to its
-**code reality** as of 2026-08-21, so downstream work doesn't mistake the design doc's
+**code reality** as of 2026-08-26, so downstream work doesn't mistake the design doc's
 aspiration for what is built. Source design: `docs/2026-08-08-数字分身-Agent协作市场-产品设计.md`.
 MVP scope decisions: `docs/adr/0003-mvp-scope-answer-only-gateway.md`.
 
@@ -73,41 +73,28 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
   capture. ❌ absent from this repo — belongs to **designOS**, which is not checked in here
   (referenced only in `o2.py:21-28`). MVP replaces this entry point with pasted notes text.
 
-## Research orchestration v2
+## Research orchestration retirement
 
-- **ResearchRuntime** — the single in-process composition root and lifecycle owner for
-  research-v2 planning, execution, recovery, reconciliation and shutdown. ✅ Created by the
-  FastAPI lifespan, injected through `app.state`, and used by the production Web path. It is
-  not a durable state source; SQLite remains authoritative.
-- **Research Workflow** — durable control state bound one-to-one to a research-v2
-  `AgentRun`. ✅ `ResearchWorkflow.phase`, `active_gate` and `state_version` are persisted;
-  AgentRun/Attempt/Step/Invocation states are subordinate projections.
-- **Orchestration version** — immutable per Run: `v1`, `research-v2`, or `research-v3`.
-  ✅ The single `POST /api/agent/runs` routing decision, client-turn replay, aggregate
-  projection and Workspace branch are connected. Production-safe defaults still create no
-  research-v3 Runs; v3 is reachable only in a disposable Gate 2 rehearsal after an explicit
-  one-way control-row change.
-- **Research writer generation** — the durable singleton `research_writer_control` selects one
-  global research writer and increments a fencing epoch. ✅ It defaults to research-v2/epoch 1;
-  the `research_writer_generation_fence` SQLite trigger rejects stale writers after a future
-  generation advance. The preview allowlist controls `off` versus `preview`, never v2 versus v3.
-- **Research-v3 preview composition** — provider-free Requirement, ProblemGraph, depth/speed,
-  Plan revision/confirmation, authoritative projection and Workbench wiring. ✅ Implemented and
-  Gate 2 focused checks pass. Approval, execute and recovery commands fail closed; production
-  cutover, real Provider calls, allowlist population and v2 retirement remain unauthorized. See
-  `docs/runbooks/research-v3-preview.md` and
-  `docs/verification/2026-08-21-research-v3-gate2.md`.
-- **Research recovery** — UNKNOWN external calls are never automatically replayed. ✅ The
-  runtime and Web expose explicit retry/abort decisions; refresh, SSE reconnect and process
-  restart recover persisted state without silently resending Provider work.
+- **Research-v2** — historical, owner-scoped, read-only compatibility only. Its executable writer,
+  planner, recovery path and mutation APIs are retired. Existing Runs and Artifacts remain readable
+  through exact-version decoders and the history adapter; retry, cancel, clarify, execute and repair
+  writes remain forbidden. See `docs/adr/0007-retire-research-v2-new-runs.md`.
+- **Research-v3** — retired before production launch. The preview composition, active routing and UI
+  entry points, dedicated catalog assets and rehearsal runbook were removed. The retirement audit found
+  no local research-v3 Run or v3 repository row. Existing additive SQLite tables are left inert during
+  the first retirement stage and are not evidence of a supported Runtime. See
+  `docs/adr/0008-retire-research-v3-preview.md`.
+- **Orchestration version** — `v1` is the only version used for new executable Agent Runs.
+  `research-v2` remains solely as a historical persisted-data discriminator. Any residual v3 schema
+  columns or tables are compatibility residue, not a selectable generation or future activation path.
+- **DeepSearch** — implemented behind a default-off gate as an explicit planning mode on the existing
+  v1 Skill DAG. It does not import, alias, revive or fall back to either retired Research generation.
+  The first releasable slice accepts only real built-in `web_research` as report Evidence; MCP and other
+  Tool paths fail closed. See `docs/plans/2026-08-26-deepsearch-v1-development-plan.md`.
 
-Web Preview and Web Execute are implemented. The engineering candidate has passed local gates,
-one authorized Tavily + GPT-5.2 end-to-end Run, all three enabled GPT compatibility smokes and an
-`off` rollback drill. Formal Release Gate approval and `execute` rollout are still blocked on the
-20-case real observation set, two-reviewer blind scoring and the 10-person internal pilot. See
-`docs/verification/2026-08-19-research-orchestration-v2-baseline.md`.
-
-Architecture and delivery boundaries are fixed by `docs/adr/0005-research-runtime-web-vertical-slices.md`.
+ADRs 0005 and 0006 are retained as historical architecture records. Their descriptions of executable
+Research runtimes, writer selection and future v3 activation are superseded by ADRs 0007 and 0008;
+ADR 0008 also narrows ADR 0007's writer-control compatibility clause.
 
 ## Not in this repo
 

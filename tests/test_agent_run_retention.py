@@ -306,3 +306,48 @@ def test_retention_prunes_only_old_stream_deltas(tmp_path) -> None:
 
     assert deleted == 1
     assert [event.event_type for event in repository.list_agent_run_events(run.id)] == ["run_completed"]
+
+
+def test_retention_preserves_legacy_v3_stream_events_from_either_version_projection(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "legacy-v3-retention.sqlite3")
+    old = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+    event_ids: list[str] = []
+
+    for suffix, stored_version, payload_version in (
+        ("stored", "research-v3", "v1"),
+        ("payload", "v1", "research-v3"),
+    ):
+        run = repository.save_agent_run(
+            AgentRun(
+                id=f"run_legacy_v3_retention_{suffix}",
+                thread_id=f"thread_legacy_v3_retention_{suffix}",
+                user_id="user",
+                workspace_id="workspace",
+                project_id="project",
+                input_text="test",
+                status=AgentRunStatus.COMPLETED,
+            )
+        )
+        event = repository.append_agent_run_event(run.id, "sdk_stream_event", {"delta": "legacy"})
+        event_ids.append(event.id)
+        legacy_payload = run.model_copy(update={"orchestration_version": payload_version}).model_dump_json()
+        with repository._connect() as connection:
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, orchestration_version = ? WHERE id = ?",
+                (legacy_payload, stored_version, run.id),
+            )
+            connection.execute(
+                "UPDATE agent_run_events SET created_at = ? WHERE id = ?",
+                (old, event.id),
+            )
+
+    assert repository.prune_agent_stream_events(retention_days=30) == 0
+    with repository._connect() as connection:
+        retained_ids = {
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM agent_run_events WHERE id IN (?, ?)",
+                event_ids,
+            ).fetchall()
+        }
+    assert retained_ids == set(event_ids)

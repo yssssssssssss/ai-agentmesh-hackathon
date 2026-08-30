@@ -30,7 +30,5 @@ def task_scenario_routing_enabled() -> bool:
     return os.getenv("AGENTMESH_TASK_SCENARIO_ROUTING", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def research_preview_allowlist() -> frozenset[str]:
-    from agentmesh.research_orchestration.current import parse_research_preview_allowlist
-
-    return parse_research_preview_allowlist(os.getenv("AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST", ""))
+def deepsearch_enabled() -> bool:
+    return os.getenv("AGENTMESH_DEEPSEARCH_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}

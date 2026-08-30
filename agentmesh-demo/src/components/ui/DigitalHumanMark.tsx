@@ -20,6 +20,8 @@ export function DigitalHumanMark({ size = 56, online = true, className }: Digita
       <img
         src={avatarUrl}
         alt=""
+        width={size}
+        height={size}
         className="h-full w-full rounded-full object-cover"
       />
       {online && (

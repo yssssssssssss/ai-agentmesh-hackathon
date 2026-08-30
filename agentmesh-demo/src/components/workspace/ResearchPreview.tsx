@@ -76,7 +76,7 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
   const failureMessage = FAILURE_MESSAGES[projection.error_code ?? ''] ?? DEFAULT_FAILURE_MESSAGE
 
   return (
-    <section aria-label="研究任务预览" className="mt-6 overflow-hidden rounded-[16px] border border-mint-400/15 bg-surface-1 shadow-card">
+    <section aria-label="研究任务预览" className="mt-6 overflow-hidden rounded-overlay border border-mint-400/15 bg-surface-1 shadow-card">
       <div className="border-b border-white/[0.06] bg-gradient-to-r from-mint-400/[0.08] to-transparent px-5 py-5 sm:px-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -87,7 +87,7 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
             <h2 className="mt-2 text-lg font-semibold text-slate-100">
               {statusTitle}
             </h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-400">
               {PHASE_LABELS[workflow.phase]} · 状态版本 {workflow.state_version}
             </p>
           </div>
@@ -99,13 +99,13 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
 
       <div className="space-y-5 px-5 py-5 sm:px-6">
         {projection.status === 'failed' ? (
-          <section role="alert" className="rounded-[12px] border border-rose/25 bg-rose/[0.08] p-4">
+          <section role="alert" className="rounded-soft border border-rose/25 bg-rose/[0.08] p-4">
             <div className="flex items-center gap-2 text-rose">
               <TriangleAlert className="h-4 w-4" aria-hidden="true" />
               <h3 className="text-sm font-semibold">研究未完成</h3>
             </div>
             <p className="mt-2 text-sm leading-6 text-slate-300">{failureMessage}</p>
-            <p className="mt-2 break-all font-mono text-xs text-slate-500">
+            <p className="mt-2 break-all font-mono text-xs text-slate-400">
               错误代码：{projection.error_code ?? 'research_failed'}
             </p>
           </section>
@@ -113,12 +113,12 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
 
         {requirement ? (
           <section aria-labelledby="research-requirement-title">
-            <h3 id="research-requirement-title" className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+            <h3 id="research-requirement-title" className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
               系统理解的任务
             </h3>
             <p className="mt-3 text-base font-medium leading-7 text-slate-100">{requirement.research_goal}</p>
-            <div className="mt-3 rounded-[10px] border border-white/[0.06] bg-base/60 px-4 py-3">
-              <p className="text-[11px] font-semibold text-slate-500">对比范围</p>
+            <div className="mt-3 rounded-soft border border-white/[0.06] bg-base/60 px-4 py-3">
+              <p className="text-[11px] font-semibold text-slate-400">对比范围</p>
               <p className="mt-1 text-sm text-slate-300">{requirement.competitor_scope ?? '待补充'}</p>
             </div>
           </section>
@@ -127,7 +127,7 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
         )}
 
         {questions.length > 0 ? (
-          <section aria-labelledby="research-questions-title" className="rounded-[12px] border border-amber-300/15 bg-amber-300/[0.06] p-4">
+          <section aria-labelledby="research-questions-title" className="rounded-soft border border-amber-300/15 bg-amber-300/[0.06] p-4">
             <div className="flex items-center gap-2">
               <CircleHelp className="h-4 w-4 text-amber-200" aria-hidden="true" />
               <h3 id="research-questions-title" className="text-sm font-semibold text-amber-100">开始前需要澄清</h3>
@@ -145,30 +145,30 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 id="research-plan-title" className="text-sm font-semibold text-slate-100">推荐执行计划</h3>
-                <p className="mt-1 text-xs text-slate-500">单一路径 · Plan v{plan.version}</p>
+                <p className="mt-1 text-xs text-slate-400">单一路径 · Plan v{plan.version}</p>
               </div>
               <span className="text-xs font-semibold text-mint-300">Tool → Skill</span>
             </div>
             <ol className="mt-4">
               {steps.map((step, index) => (
                 <li key={step.step_number}>
-                  <article className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-[12px] border border-white/[0.07] bg-base/60 p-4">
+                  <article className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-soft border border-white/[0.07] bg-base/60 p-4">
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-mint-400/10 text-xs font-bold text-mint-300">
                       {step.step_number}
                     </span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                           {step.actor_type === 'tool' ? 'Tool' : 'Skill'}
                         </span>
-                        <span className="text-xs text-slate-500">{actorLabel(step.actor_type, step.actor_id)}</span>
+                        <span className="text-xs text-slate-400">{actorLabel(step.actor_type, step.actor_id)}</span>
                       </div>
                       <p className="mt-2 text-sm font-medium text-slate-200">{STEP_TITLES[step.name] ?? step.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">{step.required ? '必需步骤' : '可选步骤'}</p>
+                      <p className="mt-1 text-xs text-slate-400">{step.required ? '必需步骤' : '可选步骤'}</p>
                     </div>
                   </article>
                   {index < steps.length - 1 ? (
-                    <div className="flex h-8 items-center justify-center text-slate-600" aria-hidden="true">
+                    <div className="flex h-8 items-center justify-center text-slate-400" aria-hidden="true">
                       <ArrowDown className="h-4 w-4" />
                     </div>
                   ) : null}
@@ -177,13 +177,13 @@ export function ResearchPreview({ projection }: ResearchPreviewProps) {
             </ol>
           </section>
         ) : workflow.phase === 'planning' && questions.length === 0 && requirement ? (
-          <div role="status" className="flex items-center gap-2 rounded-[10px] bg-base/60 px-4 py-3 text-sm text-slate-400">
+          <div role="status" className="flex items-center gap-2 rounded-soft bg-base/60 px-4 py-3 text-sm text-slate-400">
             <Search className="h-4 w-4 text-mint-300" aria-hidden="true" />
             正在生成推荐研究计划…
           </div>
         ) : null}
 
-        <p role="status" className="rounded-[10px] border border-white/[0.06] bg-base px-4 py-3 text-sm text-slate-400">
+        <p role="status" className="rounded-soft border border-white/[0.06] bg-base px-4 py-3 text-sm text-slate-400">
           {projection.status === 'failed' && !hasStartedExecution
             ? '本次运行在执行开始前失败，未调用任何工具或 Skill。'
             : hasStartedExecution

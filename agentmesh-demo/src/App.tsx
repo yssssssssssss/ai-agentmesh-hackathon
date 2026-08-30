@@ -28,7 +28,7 @@ function FullPageStatus({
   return (
     <main className="flex min-h-full items-center justify-center bg-canvas px-5 py-10">
       <section className="w-full max-w-md text-center" aria-live="polite">
-        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-[12px] bg-white/[0.05] text-slate-300">
+        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-soft bg-white/[0.05] text-slate-300">
           <LockKeyhole className="h-5 w-5" aria-hidden="true" />
         </span>
         <h1 className="mt-6 text-2xl font-semibold text-slate-100">{title}</h1>

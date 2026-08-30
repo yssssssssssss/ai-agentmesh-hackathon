@@ -14,26 +14,29 @@ export default {
           3: '#22272f',
           4: '#2a303a',
         },
-        // 主强调色：薄荷 / 青绿
+        // 主强调色：薄荷 / 青绿。300 向后微调亮度以满足深色背景上的文本对比度。
         mint: {
           50: '#e6fff6',
           100: '#c3fbe8',
           200: '#8ff3d3',
-          300: '#54e6bb',
+          300: '#7eecc8',
           400: '#2dd4a8',
           500: '#19b98f',
           600: '#0f9575',
           700: '#0c745d',
         },
-        // 辅助色
-        knowledge: '#5b9dff', // 蓝：知识
-        collab: '#a98bff', // 紫：协作
-        remind: '#ffab5e', // 橙：提醒
-        rose: '#ff7a90',
+        // 辅助色。整体亮度上调，保证在深色画布上的可读性。
+        knowledge: '#8fbaff', // 蓝：知识
+        collab: '#bfa9ff', // 紫：协作
+        remind: '#ffb87a', // 橙：提醒
+        rose: '#ff97a8',
       },
       borderRadius: {
-        card: '14px',
+        // 三级语义圆角：小组件 8px / 卡片容器 12px / 浮层与抽屉 16px
+        control: '8px',
         soft: '12px',
+        card: '14px',
+        overlay: '16px',
         pill: '999px',
       },
       fontSize: {
@@ -42,6 +45,8 @@ export default {
       boxShadow: {
         card: '0 1px 0 0 rgba(255,255,255,0.03) inset, 0 8px 24px -12px rgba(0,0,0,0.6)',
         pop: '0 24px 60px -20px rgba(0,0,0,0.75)',
+        panel: '-24px 0 48px -24px rgba(0,0,0,0.7)',
+        input: 'inset 0 0 0 1px rgba(255,255,255,0.08)',
       },
       fontFamily: {
         sans: [

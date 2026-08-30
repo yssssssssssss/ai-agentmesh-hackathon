@@ -22,9 +22,9 @@ function QueryFeedback({ loading, error, empty, emptyLabel }: {
   empty: boolean
   emptyLabel: string
 }) {
-  if (loading) return <p className="text-sm text-slate-500">正在读取服务端数据…</p>
+  if (loading) return <p className="text-sm text-slate-400">正在读取服务端数据…</p>
   if (error) return <p role="alert" className="text-sm text-rose">{error}</p>
-  if (empty) return <p className="text-sm text-slate-500">{emptyLabel}</p>
+  if (empty) return <p className="text-sm text-slate-400">{emptyLabel}</p>
   return null
 }
 
@@ -42,16 +42,16 @@ export function TaskCardsPanel({ data, loading, error }: QueryState<BlackboardTa
           {data.items.map((card) => {
             const allowedActions = card.allowed_actions ?? []
             return (
-              <li key={card.task.id ?? card.task.thread_id} className="rounded-[10px] border border-white/[0.06] bg-surface-2 px-4 py-3">
+              <li key={card.task.id ?? card.task.thread_id} className="rounded-soft border border-white/[0.06] bg-surface-2 px-4 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm font-medium text-slate-100">{card.task.title}</span>
                   <Badge tone={card.task.status === 'completed' ? 'mint' : 'neutral'}>{card.task.status}</Badge>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">{card.done_when ?? '服务端未提供完成标准'}</p>
+                <p className="mt-1 text-xs text-slate-400">{card.done_when ?? '服务端未提供完成标准'}</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {allowedActions.length > 0 ? allowedActions.map((action) => (
                     <Badge key={action} tone="neutral">允许操作：{action}</Badge>
-                  )) : <span className="text-[11px] text-slate-600">当前无可执行操作</span>}
+                  )) : <span className="text-[11px] text-slate-400">当前无可执行操作</span>}
                 </div>
               </li>
             )
@@ -80,7 +80,7 @@ export function ActivityPanel({ data, loading, error }: QueryState<ActivityToday
                 <span className="text-sm font-medium text-slate-200">{item.title}</span>
                 <Badge tone="neutral">{item.scope}</Badge>
               </div>
-              <p className="mt-1 text-xs leading-5 text-slate-500">{item.summary}</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">{item.summary}</p>
             </li>
           ))}
         </ul>
@@ -109,8 +109,8 @@ export function MemoryPanel({ data, loading, error }: QueryState<MemoryOverviewR
       {data && total > 0 ? (
         <dl className="grid grid-cols-2 gap-3">
           {Object.entries(data.counts).map(([layer, count]) => (
-            <div key={layer} className="rounded-[10px] bg-surface-2 p-3">
-              <dt className="text-xs text-slate-500">{MEMORY_LABELS[layer as keyof MemoryOverviewResponse['counts']]}</dt>
+            <div key={layer} className="rounded-soft bg-surface-2 p-3">
+              <dt className="text-xs text-slate-400">{MEMORY_LABELS[layer as keyof MemoryOverviewResponse['counts']]}</dt>
               <dd className="mt-1 text-right text-lg font-semibold tabular-nums text-slate-100">{count}</dd>
             </div>
           ))}
@@ -132,7 +132,7 @@ export function AuditPanel({ data, loading, error }: QueryState<AuditListRespons
       {data && data.items.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="text-xs text-slate-500">
+            <thead className="text-xs text-slate-400">
               <tr><th className="pb-2 pr-4 font-medium">动作</th><th className="pb-2 pr-4 font-medium">对象</th><th className="pb-2 font-medium">操作者</th></tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">

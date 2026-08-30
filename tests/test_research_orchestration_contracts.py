@@ -24,7 +24,7 @@ HASH = "a" * 64
 EMPTY_OBJECT_HASH = hashlib.sha256(b"{}").hexdigest()
 
 
-def test_legacy_agent_run_defaults_to_v1_and_status_enum_is_unchanged() -> None:
+def test_legacy_agent_run_defaults_to_v1_and_status_enum_adds_clarification() -> None:
     run = AgentRun.model_validate(
         {
             "id": "run_legacy",
@@ -40,6 +40,7 @@ def test_legacy_agent_run_defaults_to_v1_and_status_enum_is_unchanged() -> None:
     assert {status.value for status in AgentRunStatus} == {
         "created",
         "planning",
+        "waiting_clarification",
         "running",
         "waiting_plan_approval",
         "waiting_approval",

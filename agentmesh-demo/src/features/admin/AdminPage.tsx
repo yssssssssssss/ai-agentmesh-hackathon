@@ -45,7 +45,7 @@ export function AdminPage() {
   if (!section || allowed.length === 0) {
     return (
       <section className="mx-auto max-w-lg py-16 text-center">
-        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-[12px] bg-white/[0.05] text-slate-300"><Shield className="h-5 w-5" /></span>
+        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-soft bg-white/[0.05] text-slate-300"><Shield className="h-5 w-5" /></span>
         <h1 className="mt-6 text-2xl font-semibold text-white">无权访问</h1>
         <p className="mt-3 text-sm text-slate-400">当前账号没有可用的管理能力。</p>
         <Button className="mt-6" variant="secondary" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => window.history.back()}>返回</Button>
@@ -65,7 +65,7 @@ export function AdminPage() {
             role="tab"
             aria-selected={section === item.id}
             onClick={() => setSection(item.id)}
-            className={`shrink-0 rounded-[10px] px-4 py-2 text-sm font-medium transition-colors ${section === item.id ? 'bg-mint-400/15 text-mint-300' : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200'}`}
+            className={`shrink-0 rounded-soft px-4 py-2 text-sm font-medium transition-colors ${section === item.id ? 'bg-mint-400/15 text-mint-300' : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200'}`}
           >{item.label}</button>
         ))}
       </div>

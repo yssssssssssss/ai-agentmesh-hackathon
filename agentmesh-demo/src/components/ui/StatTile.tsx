@@ -30,7 +30,7 @@ export function StatTile({ label, value, icon, tone = 'mint', hint, className }:
   return (
     <div
       className={cn(
-        'rounded-[12px] border border-white/[0.06] bg-surface-2 p-4 transition-colors hover:border-white/[0.1]',
+        'rounded-soft border border-white/[0.06] bg-surface-2 p-4 transition-colors hover:border-white/[0.1]',
         className,
       )}
     >
@@ -43,9 +43,9 @@ export function StatTile({ label, value, icon, tone = 'mint', hint, className }:
         )}
       </div>
       <div className="mt-2 flex items-baseline gap-1.5">
-        <span className="text-[26px] font-semibold leading-none text-white tabular-nums">{value}</span>
+        <span className="text-2xl font-semibold leading-none text-white tabular-nums">{value}</span>
       </div>
-      {hint && <p className="mt-1.5 text-xs text-slate-500">{hint}</p>}
+      {hint && <p className="mt-1.5 text-xs text-slate-400">{hint}</p>}
     </div>
   )
 }

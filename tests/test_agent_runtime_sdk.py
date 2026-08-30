@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+
+import httpx
 import pytest
-from agents.testing import ScriptedModel, assistant_message
+from agents import ModelRetryAdvice
+from agents.testing import ModelStep, ScriptedModel, assistant_message
+from openai.types.responses import ResponseTextDeltaEvent
 
 from agentmesh.agent_runtime.model_factory import AgentMeshModelFactory, SelectedSDKModel
+from agentmesh.agent_runtime.model_retry import AtomicStreamModel, ModelStreamRetryExhausted
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agent_runtime.settings import strict_tools_enabled
 from agentmesh.agent_runtime.trace_processor import AgentMeshTraceProcessor
@@ -175,12 +181,15 @@ def test_model_factory_uses_existing_openai_compatible_configuration(monkeypatch
     monkeypatch.setenv("AI_API_URL", "https://gateway.example/v1/chat/completions")
     monkeypatch.setenv("AI_API_KEY", "secret-not-logged")
     monkeypatch.setenv("AI_MODEL", "internal-tool-model")
+    monkeypatch.setenv("AGENTMESH_CHAT_LLM_TIMEOUT_SECONDS", "1")
+    monkeypatch.setenv("AGENTMESH_RESEARCH_SKILL_TIMEOUT_SECONDS", "2")
 
     selected = AgentMeshModelFactory(repository).for_user(USER)
 
     assert selected is not None
     assert selected.actual_model == "internal-tool-model"
     assert str(selected.model._client.base_url) == "https://gateway.example/v1/"  # type: ignore[attr-defined]
+    assert selected.model._client.timeout == 300  # type: ignore[attr-defined]
 
 
 def test_model_factory_rejects_unsupported_api_style(monkeypatch, tmp_path) -> None:
@@ -192,6 +201,175 @@ def test_model_factory_rejects_unsupported_api_style(monkeypatch, tmp_path) -> N
 
     with pytest.raises(ValueError, match="does not support API style 'responses'"):
         AgentMeshModelFactory(repository).for_user(USER)
+
+
+def test_standard_atomic_stream_model_enables_request_level_network_retries(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "model-stream-retry-settings.sqlite3")
+    scripted = ScriptedModel([])
+    runtime = AgentRuntimeService(repository=repository, model=scripted, enabled=True)
+    selected = SelectedSDKModel(
+        model=scripted,
+        requested_model="test-model",
+        actual_model="test-model",
+    )
+
+    agent = runtime._build_agent(
+        selected=selected,
+        user=USER,
+        skill=None,
+        model=AtomicStreamModel(scripted),
+        allow_skill_activation=False,
+    )
+
+    assert agent.model_settings.retry is not None
+    assert agent.model_settings.retry.max_retries == 2
+    assert agent.model_settings.retry.backoff is not None
+    assert agent.model_settings.retry.backoff.initial_delay == 0.5
+
+
+def test_standard_stream_retry_exhaustion_records_the_provider_root_cause(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "model-stream-retry-exhausted.sqlite3")
+
+    async def interrupted(_call):  # noqa: ANN001, ANN202
+        yield ResponseTextDeltaEvent(
+            type="response.output_text.delta",
+            content_index=0,
+            delta="PARTIAL",
+            item_id="msg_partial",
+            logprobs=[],
+            output_index=0,
+            sequence_number=0,
+        )
+        raise httpx.RemoteProtocolError("peer closed incomplete body")
+
+    scripted = ScriptedModel([ModelStep.stream(interrupted) for _ in range(3)])
+    runtime = AgentRuntimeService(repository=repository, model=scripted, enabled=True)
+    selected = SelectedSDKModel(
+        model=scripted,
+        requested_model="test-model",
+        actual_model="test-model",
+    )
+    run = repository.save_agent_run(
+        AgentRun(
+            id="run_model_stream_retry_exhausted",
+            thread_id="thread_model_stream_retry_exhausted",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="research",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    agent = runtime._build_agent(
+        selected=selected,
+        user=USER,
+        skill=None,
+        model=AtomicStreamModel(scripted),
+        allow_skill_activation=False,
+    )
+
+    with pytest.raises(ModelStreamRetryExhausted) as captured:
+        asyncio.run(runtime._run_streamed(agent, "research", run=run))
+
+    assert captured.value.root_error_code == "RemoteProtocolError"
+    assert captured.value.attempts == 3
+    assert len(scripted.calls) == 3
+    event = repository.list_agent_run_events(run.id)[-1]
+    assert event.event_type == "model_stream_retry_exhausted"
+    assert event.payload == {"error_code": "RemoteProtocolError", "attempts": 3}
+
+
+def test_standard_stream_retry_retries_provider_transient_errors_before_exhaustion(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "model-provider-retry-exhausted.sqlite3")
+
+    class RateLimitError(Exception):
+        pass
+
+    async def rate_limited(_call):  # noqa: ANN001, ANN202
+        raise RateLimitError("gateway is temporarily rate limited")
+        yield  # pragma: no cover
+
+    scripted = ScriptedModel([ModelStep.stream(rate_limited) for _ in range(3)])
+    runtime = AgentRuntimeService(repository=repository, model=scripted, enabled=True)
+    selected = SelectedSDKModel(
+        model=scripted,
+        requested_model="test-model",
+        actual_model="test-model",
+    )
+    run = repository.save_agent_run(
+        AgentRun(
+            id="run_model_provider_retry_exhausted",
+            thread_id="thread_model_provider_retry_exhausted",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="research",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    agent = runtime._build_agent(
+        selected=selected,
+        user=USER,
+        skill=None,
+        model=AtomicStreamModel(scripted),
+        allow_skill_activation=False,
+    )
+
+    with pytest.raises(ModelStreamRetryExhausted) as captured:
+        asyncio.run(runtime._run_streamed(agent, "research", run=run))
+
+    assert captured.value.root_error_code == "RateLimitError"
+    assert captured.value.attempts == 3
+    assert len(scripted.calls) == 3
+
+
+def test_standard_stream_retry_respects_an_explicit_provider_veto(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "model-provider-retry-veto.sqlite3")
+
+    class RateLimitError(Exception):
+        pass
+
+    async def rate_limited(_call):  # noqa: ANN001, ANN202
+        raise RateLimitError("provider says not to retry")
+        yield  # pragma: no cover
+
+    class ProviderVetoModel(ScriptedModel):
+        def get_retry_advice(self, _request):  # noqa: ANN001, ANN201
+            return ModelRetryAdvice(suggested=False, reason="provider veto")
+
+    scripted = ProviderVetoModel([ModelStep.stream(rate_limited)])
+    runtime = AgentRuntimeService(repository=repository, model=scripted, enabled=True)
+    selected = SelectedSDKModel(
+        model=scripted,
+        requested_model="test-model",
+        actual_model="test-model",
+    )
+    run = repository.save_agent_run(
+        AgentRun(
+            id="run_model_provider_retry_veto",
+            thread_id="thread_model_provider_retry_veto",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="research",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    agent = runtime._build_agent(
+        selected=selected,
+        user=USER,
+        skill=None,
+        model=AtomicStreamModel(scripted),
+        allow_skill_activation=False,
+    )
+
+    with pytest.raises(ModelStreamRetryExhausted) as captured:
+        asyncio.run(runtime._run_streamed(agent, "research", run=run))
+
+    assert captured.value.attempts == 1
+    assert len(scripted.calls) == 1
+    event = repository.list_agent_run_events(run.id)[-1]
+    assert event.payload == {"error_code": "RateLimitError", "attempts": 1}
 
 
 def test_trace_processor_persists_only_whitelisted_metadata(tmp_path) -> None:

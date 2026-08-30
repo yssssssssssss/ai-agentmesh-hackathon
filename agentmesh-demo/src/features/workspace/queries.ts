@@ -9,7 +9,13 @@ import { useEffect } from 'react'
 import { ApiError } from '../../api/client'
 import { queryRoots } from '../../app/queryKeys'
 import { useAuth } from '../auth/AuthProvider'
-import { subscribeAgentRunEvents, workspaceApi, type StartAgentRunInput } from './api'
+import {
+  isDeepSearchPlanDetailResponse,
+  isDeepSearchPlanTransitionResponse,
+  subscribeAgentRunEvents,
+  workspaceApi,
+  type StartAgentRunInput,
+} from './api'
 import { workspaceKeys } from './keys'
 import type {
   AgentRun,
@@ -24,7 +30,21 @@ import type {
 } from './types'
 
 const ACTIVE_JOB_STATUS: Record<string, true> = { queued: true, running: true }
+const RETIRED_RESEARCH_VERSIONS = new Set(['research-v2', 'research-v3'])
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'partial', 'failed', 'rejected', 'cancelled'])
 export type ChatSendState = 'retryable' | 'processing' | 'approval' | 'failed' | 'unknown'
+
+export function isRetiredResearchRun(run: AgentRun | null | undefined): boolean {
+  return Boolean(run && RETIRED_RESEARCH_VERSIONS.has(run.orchestration_version))
+}
+
+export function shouldSubscribeToAgentRunEvents(run: AgentRun | null | undefined): boolean {
+  return Boolean(
+    run
+    && run.orchestration_version === 'v1'
+    && !TERMINAL_RUN_STATUSES.has(run.status),
+  )
+}
 
 export class ChatSendError extends Error {
   readonly name = 'ChatSendError'
@@ -154,7 +174,13 @@ export function useResearchRunQuery(scope: WorkspaceScope, run: AgentRun | null 
 export function useSkillPlanQuery(scope: WorkspaceScope, runId: string | null, planId: string | null | undefined) {
   return useQuery({
     queryKey: workspaceKeys.plan(scope, runId ?? 'none'),
-    queryFn: () => workspaceApi.skillPlan(runId ?? ''),
+    queryFn: async () => {
+      const response = await workspaceApi.skillPlan(runId ?? '')
+      if (isDeepSearchPlanDetailResponse(response)) {
+        throw new Error('DeepSearch Plan 必须通过 DeepSearch aggregate 读取')
+      }
+      return response
+    },
     enabled: Boolean(runId && planId),
   })
 }
@@ -337,32 +363,50 @@ export function useSendAgentRunMutation(scope: WorkspaceScope) {
   })
 }
 
-export function useSkillPlanMutations(scope: WorkspaceScope, runId: string | null) {
+export function useSkillPlanMutations(
+  scope: WorkspaceScope,
+  runId: string | null,
+  deepSearch = false,
+) {
   const queryClient = useQueryClient()
   const refresh = async () => {
     if (!runId) return
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true }),
       queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, runId), exact: true }),
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.deepSearch(scope, runId), exact: true }),
     ])
   }
   const refreshOnConflict = async (error: unknown) => {
     if (error instanceof ApiError && error.status === 409) await refresh()
   }
   const update = useMutation({
-    mutationFn: (request: Parameters<typeof workspaceApi.updateSkillPlan>[1]) => {
+    mutationFn: async (request: Parameters<typeof workspaceApi.updateSkillPlan>[1]) => {
       if (!runId) throw new Error('缺少 Agent Run')
-      return workspaceApi.updateSkillPlan(runId, request)
+      const response = await workspaceApi.updateSkillPlan(runId, request)
+      if (isDeepSearchPlanDetailResponse(response) !== deepSearch) {
+        throw new Error('Plan 响应与当前运行模式不匹配')
+      }
+      return response
     },
-    onSuccess: (detail) => {
-      if (runId) queryClient.setQueryData(workspaceKeys.plan(scope, runId), detail)
+    onSuccess: async (detail) => {
+      if (runId && !isDeepSearchPlanDetailResponse(detail)) {
+        queryClient.setQueryData(workspaceKeys.plan(scope, runId), detail)
+      }
+      if (runId) {
+        await queryClient.invalidateQueries({ queryKey: workspaceKeys.deepSearch(scope, runId), exact: true })
+      }
     },
     onError: refreshOnConflict,
   })
   const approve = useMutation({
-    mutationFn: (request: Parameters<typeof workspaceApi.approveSkillPlan>[1]) => {
+    mutationFn: async (request: Parameters<typeof workspaceApi.approveSkillPlan>[1]) => {
       if (!runId) throw new Error('缺少 Agent Run')
-      return workspaceApi.approveSkillPlan(runId, request)
+      const response = await workspaceApi.approveSkillPlan(runId, request)
+      if (isDeepSearchPlanTransitionResponse(response) !== deepSearch) {
+        throw new Error('Plan 响应与当前运行模式不匹配')
+      }
+      return response
     },
     onSuccess: async (response) => {
       if (runId) queryClient.setQueryData(workspaceKeys.run(scope, runId), { item: response.run })
@@ -371,9 +415,13 @@ export function useSkillPlanMutations(scope: WorkspaceScope, runId: string | nul
     onError: refreshOnConflict,
   })
   const reject = useMutation({
-    mutationFn: (request: Parameters<typeof workspaceApi.rejectSkillPlan>[1]) => {
+    mutationFn: async (request: Parameters<typeof workspaceApi.rejectSkillPlan>[1]) => {
       if (!runId) throw new Error('缺少 Agent Run')
-      return workspaceApi.rejectSkillPlan(runId, request)
+      const response = await workspaceApi.rejectSkillPlan(runId, request)
+      if (isDeepSearchPlanTransitionResponse(response) !== deepSearch) {
+        throw new Error('Plan 响应与当前运行模式不匹配')
+      }
+      return response
     },
     onSuccess: async (response) => {
       if (runId) queryClient.setQueryData(workspaceKeys.run(scope, runId), { item: response.run })
@@ -393,6 +441,7 @@ export function useCancelAgentRunMutation(scope: WorkspaceScope) {
       queryClient.setQueryData(workspaceKeys.run(scope, run.id), response)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, run.id), exact: true }),
+        queryClient.invalidateQueries({ queryKey: workspaceKeys.deepSearch(scope, run.id), exact: true }),
         queryClient.invalidateQueries({ queryKey: queryRoots.inbox }),
         invalidateCanonicalThread(queryClient, scope, run.thread_id),
       ])
@@ -413,10 +462,9 @@ export function useRetryAgentRunMutation(scope: WorkspaceScope) {
   })
 }
 
-const TERMINAL_RUN_STATUSES = new Set(['completed', 'partial', 'failed', 'rejected', 'cancelled'])
 const PLAN_EVENT_PREFIXES = ['plan_', 'node_', 'synthesis_']
 
-type AgentRunEventTarget = Pick<AgentRun, 'id' | 'thread_id' | 'orchestration_version'>
+type AgentRunEventTarget = Pick<AgentRun, 'id' | 'thread_id' | 'orchestration_version' | 'planning_mode'>
 
 export async function invalidateAgentRunEvent(
   queryClient: QueryClient,
@@ -425,7 +473,7 @@ export async function invalidateAgentRunEvent(
   eventType: string,
   refreshBootstrap: () => Promise<void>,
 ) {
-  if (run.orchestration_version === 'research-v2' || run.orchestration_version === 'research-v3') {
+  if (run.orchestration_version === 'research-v2') {
     const work = [
       queryClient.invalidateQueries({ queryKey: workspaceKeys.research(scope, run.id), exact: true }),
       queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, run.id), exact: true }),
@@ -443,6 +491,9 @@ export async function invalidateAgentRunEvent(
   const work = [
     queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, run.id), exact: true }),
   ]
+  if (run.planning_mode === 'deepsearch') {
+    work.push(queryClient.invalidateQueries({ queryKey: workspaceKeys.deepSearch(scope, run.id), exact: true }))
+  }
   if (PLAN_EVENT_PREFIXES.some((prefix) => eventType.startsWith(prefix))) {
     work.push(queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, run.id), exact: true }))
   }
@@ -469,28 +520,41 @@ export function useAgentRunEventSubscription(
   const runStatus = run?.status
   const threadId = run?.thread_id
   const orchestrationVersion = run?.orchestration_version
+  const planningMode = run?.planning_mode
   useEffect(() => {
-    if (!runId || !threadId || !runStatus || !orchestrationVersion || TERMINAL_RUN_STATUSES.has(runStatus)) return
+    if (
+      !runId
+      || !threadId
+      || !runStatus
+      || !shouldSubscribeToAgentRunEvents(run)
+    ) return
     const target: AgentRunEventTarget = {
       id: runId,
       thread_id: threadId,
-      orchestration_version: orchestrationVersion,
+      orchestration_version: 'v1',
+      planning_mode: planningMode ?? 'standard',
     }
     return subscribeAgentRunEvents(runId, {
       onEvent: (event) => {
         void invalidateAgentRunEvent(queryClient, scope, target, event.event_type, refreshBootstrap)
       },
       onError: () => {
-        const queryKey = orchestrationVersion === 'research-v2' || orchestrationVersion === 'research-v3'
-          ? workspaceKeys.research(scope, runId)
-          : workspaceKeys.run(scope, runId)
-        void queryClient.invalidateQueries({ queryKey, exact: true })
+        const invalidations = [
+          queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true }),
+        ]
+        if (planningMode === 'deepsearch') {
+          invalidations.push(
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.deepSearch(scope, runId), exact: true }),
+          )
+        }
+        void Promise.all(invalidations)
       },
     })
   }, [
     queryClient,
     refreshBootstrap,
     orchestrationVersion,
+    planningMode,
     runId,
     runStatus,
     scope.projectId,

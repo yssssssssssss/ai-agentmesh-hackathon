@@ -9,9 +9,19 @@ from agents.strict_schema import ensure_strict_json_schema
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.agent_runtime.settings import strict_tools_enabled
-from agentmesh.models import AgentRunStatus, Artifact, AuditEvent, SkillDefinition, ToolDefinition, User
+from agentmesh.deepsearch.artifact_budget import save_runtime_artifact
+from agentmesh.models import (
+    AgentPlanningMode,
+    AgentRunStatus,
+    Artifact,
+    AuditEvent,
+    SkillDefinition,
+    ToolDefinition,
+    User,
+)
 from agentmesh.risk import RiskDecision, assess_tool_request
 from agentmesh.store import SQLiteStore
+from agentmesh.tool_runtime.deepsearch import DeepSearchToolRuntimeError, build_deepsearch_tool_invocation
 from agentmesh.tool_runtime.gateway import ToolGateway, collect_source_ids, encode_tool_output
 from agentmesh.tool_runtime.guardrails import (
     quarantine_unsafe_output,
@@ -126,7 +136,29 @@ class AgentMeshToolFactory:
                     metadata={"run_id": ctx.context.run_id, "tool_name": definition.name, "argument_keys": sorted(arguments)},
                 )
             )
-            value = await asyncio.to_thread(handler, ctx.context, arguments)
+            run = self.repository.get_agent_run(ctx.context.run_id)
+            if run is not None and run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                tool_call_id = getattr(ctx, "tool_call_id", None)
+                if not isinstance(tool_call_id, str) or not tool_call_id:
+                    raise DeepSearchToolRuntimeError("deepsearch_tool_call_identity_missing")
+                invocation = build_deepsearch_tool_invocation(
+                    context=ctx.context,
+                    definition=definition,
+                    arguments=arguments,
+                    tool_call_id=tool_call_id,
+                )
+                gateway_invoke = getattr(self.gateway, "invoke", None)
+                if not callable(gateway_invoke):
+                    raise DeepSearchToolRuntimeError("deepsearch_tool_persistence_unavailable")
+                value = await asyncio.to_thread(
+                    gateway_invoke,
+                    context=ctx.context,
+                    definition=definition,
+                    arguments=arguments,
+                    invocation=invocation,
+                )
+            else:
+                value = await asyncio.to_thread(handler, ctx.context, arguments)
             ctx.context.source_ids = list(
                 dict.fromkeys([*ctx.context.source_ids, *self._registered_source_ids(value, ctx.context)])
             )
@@ -149,7 +181,16 @@ class AgentMeshToolFactory:
                     )
                 )
                 return "Tool output was withheld by AgentMesh policy."
-            visible, artifact_id = self._bounded_output(ctx.context, definition, output)
+            visible, artifact_id = self._bounded_output(
+                ctx.context,
+                definition,
+                output,
+                planning_mode=(
+                    run.planning_mode
+                    if run is not None
+                    else AgentPlanningMode.STANDARD
+                ),
+            )
             if artifact_id:
                 ctx.context.artifact_ids = list(dict.fromkeys([*ctx.context.artifact_ids, artifact_id]))
             self.repository.add_audit_event(
@@ -188,6 +229,8 @@ class AgentMeshToolFactory:
         context: AgentMeshRunContext,
         definition: ToolDefinition,
         output: str,
+        *,
+        planning_mode: AgentPlanningMode = AgentPlanningMode.STANDARD,
     ) -> tuple[str, str | None]:
         lines = output.splitlines()
         encoded = output.encode("utf-8")
@@ -198,7 +241,8 @@ class AgentMeshToolFactory:
         visible_bytes = visible.encode("utf-8")
         if len(visible_bytes) > _MAX_OUTPUT_BYTES:
             visible = visible_bytes[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="ignore")
-        artifact = self.repository.save_artifact(
+        artifact = save_runtime_artifact(
+            self.repository,
             Artifact(
                 run_id=context.run_id,
                 workspace_id=context.workspace_id,
@@ -208,7 +252,8 @@ class AgentMeshToolFactory:
                 content_type="application/json",
                 content=output,
                 truncated=True,
-            )
+            ),
+            planning_mode=planning_mode,
         )
         suffix = f"\n\n[Output truncated. Full result artifact: {artifact.id}]"
         return visible + suffix, artifact.id

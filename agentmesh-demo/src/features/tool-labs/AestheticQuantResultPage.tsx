@@ -34,7 +34,7 @@ function MetricRow({ metric }: { metric: ToolCaseMetric }) {
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-slate-100">{metric.label}</p>
-          <p className="mt-0.5 text-xs leading-5 text-slate-500">{metric.note}</p>
+          <p className="mt-0.5 text-xs leading-5 text-slate-400">{metric.note}</p>
         </div>
         <span className="shrink-0 font-mono text-lg font-semibold text-mint-300">{metric.value}</span>
       </div>
@@ -104,13 +104,13 @@ export function AestheticQuantResultPage({
 
   return (
     <div ref={rootRef} tabIndex={-1} className="space-y-5 focus:outline-none" data-testid="aesthetic-result-page">
-      <section className="rounded-[18px] border border-mint-400/20 bg-mint-400/[0.055] p-5">
+      <section className="rounded-overlay border border-mint-400/20 bg-mint-400/[0.055] p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <button
               type="button"
               onClick={onBack}
-              className="mb-4 inline-flex min-h-10 items-center gap-2 rounded-[10px] px-2.5 text-xs font-semibold text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-slate-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+              className="mb-4 inline-flex min-h-10 items-center gap-2 rounded-soft px-2.5 text-xs font-semibold text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-slate-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
             >
               <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
               返回配置
@@ -120,10 +120,10 @@ export function AestheticQuantResultPage({
             <h4 className="mt-2 text-2xl font-semibold tracking-tight text-white">{result.caseStudy.title}</h4>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">{result.summary}</p>
           </div>
-          <div className="rounded-[14px] border border-mint-400/20 bg-base px-5 py-4 text-right">
-            <p className="text-xs text-slate-500">综合分 {displayedScore}</p>
+          <div className="rounded-soft border border-mint-400/20 bg-base px-5 py-4 text-right">
+            <p className="text-xs text-slate-400">综合分 {displayedScore}</p>
             <p className="mt-1 font-mono text-4xl font-semibold text-mint-300">{displayedScore}</p>
-            <p className="mt-1 text-[11px] text-slate-500">置信度 {result.confidence.level} · {result.confidence.score}</p>
+            <p className="mt-1 text-[11px] text-slate-400">置信度 {result.confidence.level} · {result.confidence.score}</p>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-400">
@@ -144,12 +144,12 @@ export function AestheticQuantResultPage({
         <div className="min-w-0 space-y-4">
           <SectionCard title="案例信息" icon={<ScanLine className="h-4 w-4" />}>
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
-              <div className="rounded-[10px] bg-base px-3 py-2.5">
-                <dt className="text-xs text-slate-500">页面类型</dt>
+              <div className="rounded-soft bg-base px-3 py-2.5">
+                <dt className="text-xs text-slate-400">页面类型</dt>
                 <dd className="mt-1 text-slate-200">{result.caseStudy.pageType}</dd>
               </div>
-              <div className="rounded-[10px] bg-base px-3 py-2.5">
-                <dt className="text-xs text-slate-500">核心场景</dt>
+              <div className="rounded-soft bg-base px-3 py-2.5">
+                <dt className="text-xs text-slate-400">核心场景</dt>
                 <dd className="mt-1 text-slate-200">{result.caseStudy.scenario}</dd>
               </div>
             </dl>
@@ -164,12 +164,12 @@ export function AestheticQuantResultPage({
           <SectionCard title="ROI 结果" icon={<Target className="h-4 w-4" />}>
             <div className="grid gap-3 md:grid-cols-2">
               {result.caseStudy.regions.map((region) => (
-                <article key={region.id} className="rounded-[12px] border border-white/[0.06] bg-base p-3">
+                <article key={region.id} className="rounded-soft border border-white/[0.06] bg-base p-3">
                   <div className="flex items-center justify-between gap-3">
                     <h4 className="text-sm font-semibold text-slate-100">{region.label}</h4>
                     <span className="font-mono text-sm font-semibold text-mint-300">{region.score}</span>
                   </div>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">{region.note}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">{region.note}</p>
                 </article>
               ))}
             </div>
@@ -179,10 +179,10 @@ export function AestheticQuantResultPage({
             <SectionCard title="注意力热点示意" icon={<Eye className="h-4 w-4" />}>
               <div className="grid gap-3 md:grid-cols-3">
                 {result.caseStudy.attentionHotspots.map((hotspot) => (
-                  <article key={hotspot.label} className="rounded-[12px] bg-base p-3">
-                    <p className="text-[11px] text-slate-500">{hotspot.label}</p>
+                  <article key={hotspot.label} className="rounded-soft bg-base p-3">
+                    <p className="text-[11px] text-slate-400">{hotspot.label}</p>
                     <p className="mt-1 text-sm font-semibold text-slate-100">{hotspot.value}</p>
-                    <p className="mt-2 text-xs leading-5 text-slate-500">{hotspot.note}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-400">{hotspot.note}</p>
                   </article>
                 ))}
               </div>

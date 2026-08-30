@@ -90,12 +90,12 @@ export function SkillsSection() {
       {catalog.isLoading || callableCatalog.isLoading ? <p className="text-sm text-slate-400">正在加载 Skill 目录…</p> : null}
       {catalog.isError || callableCatalog.isError ? <p className="text-sm text-red-300">Skill 目录加载失败，请刷新重试。</p> : null}
 
-      <section className="rounded-[14px] bg-surface-1 p-4 shadow-card" aria-labelledby="skill-recommendation-title">
+      <section className="rounded-soft bg-surface-1 p-4 shadow-card" aria-labelledby="skill-recommendation-title">
         <div className="flex items-center gap-2">
           <Search className="h-4 w-4 text-mint-300" aria-hidden="true" />
           <h2 id="skill-recommendation-title" className="text-sm font-semibold text-slate-100">自动编排候选预检</h2>
         </div>
-        <p className="mt-1.5 text-xs leading-5 text-slate-500">
+        <p className="mt-1.5 text-xs leading-5 text-slate-400">
           仅预检当前受治理、可自动编排的 Skill 候选。不创建 Run，也不读取 Skill 指令或调用工具。
         </p>
         <form
@@ -111,7 +111,7 @@ export function SkillsSection() {
             onChange={(event) => setRecommendationInput(event.target.value)}
             aria-label="描述自动编排目标"
             placeholder="例如：根据 PRD 评估方案并准备用户访谈"
-            className="min-h-10 min-w-0 flex-1 rounded-[10px] bg-base px-3.5 text-sm text-slate-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)] outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+            className="min-h-10 min-w-0 flex-1 rounded-soft bg-base px-3.5 text-sm text-slate-100 shadow-input outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
           />
           <Button
             type="submit"
@@ -129,14 +129,14 @@ export function SkillsSection() {
             <p className="text-xs text-slate-400">识别目标：<span className="text-slate-200">{recommendations.data.intent.goal}</span></p>
             <ol className="mt-3 space-y-2">
               {recommendations.data.candidates.slice(0, 5).map((candidate, index) => (
-                <li key={candidate.skill_id} className="flex items-start gap-3 rounded-[10px] bg-base px-3.5 py-3">
+                <li key={candidate.skill_id} className="flex items-start gap-3 rounded-soft bg-base px-3.5 py-3">
                   <span className="font-mono text-xs text-mint-300">{String(index + 1).padStart(2, '0')}</span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold text-slate-200">{candidate.title}</span>
-                      <span className="font-mono text-[10px] text-slate-500">score {candidate.score.total.toFixed(2)}</span>
+                      <span className="font-mono text-[11px] text-slate-400">score {candidate.score.total.toFixed(2)}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">{candidate.reason}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">{candidate.reason}</p>
                   </div>
                 </li>
               ))}
@@ -150,7 +150,7 @@ export function SkillsSection() {
           <section
             key={group.key}
             aria-labelledby={`skill-stage-${group.key}`}
-            className="rounded-[16px] border border-white/[0.07] bg-surface-1 p-4 shadow-card sm:p-5"
+            className="rounded-overlay border border-white/[0.07] bg-surface-1 p-4 shadow-card sm:p-5"
           >
             <div className="mb-4 flex flex-wrap items-end justify-between gap-2 border-b border-white/[0.06] pb-3">
               <div>
@@ -158,9 +158,9 @@ export function SkillsSection() {
                   <span className={cn('h-2 w-2 rounded-full', group.dotClass)} aria-hidden="true" />
                   {group.label}
                 </h2>
-                <p className="mt-1 text-xs text-slate-500">{group.description}</p>
+                <p className="mt-1 text-xs text-slate-400">{group.description}</p>
               </div>
-              <span className="text-xs text-slate-500">{group.items.length} 个 Skill</span>
+              <span className="text-xs text-slate-400">{group.items.length} 个 Skill</span>
             </div>
             <ul className="space-y-3">
               {group.items.map((skill) => {
@@ -173,14 +173,14 @@ export function SkillsSection() {
                 const source = sourceMeta(skill)
                 const pending = managed && updateBinding.isPending && updateBinding.variables?.skillId === skill.id
                 return (
-                  <li key={skill.id ?? skill.command} className="rounded-[12px] border border-white/[0.06] bg-base/70 p-4">
+                  <li key={skill.id ?? skill.command} className="rounded-soft border border-white/[0.06] bg-base/70 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-[14.5px] font-semibold text-slate-100">{skill.title}</h3>
                           <Badge tone={source.tone}>{source.label}</Badge>
                           {managed ? (
-                            <span className={cn('inline-flex items-center gap-1 text-[11.5px]', on ? 'text-mint-300' : 'text-slate-500')}>
+                            <span className={cn('inline-flex items-center gap-1 text-[11.5px]', on ? 'text-mint-300' : 'text-slate-400')}>
                               <span className={cn('h-1.5 w-1.5 rounded-full', on ? 'bg-mint-400' : 'bg-slate-600')} />
                               {on ? '已启用' : '已停用'}
                             </span>
@@ -190,13 +190,13 @@ export function SkillsSection() {
                           </span>
                         </div>
                         <p className="mt-1.5 text-[13px] leading-relaxed text-slate-400">{skill.description}</p>
-                        <p className="mt-1.5 flex items-start gap-1 text-[11.5px] text-slate-500">
+                        <p className="mt-1.5 flex items-start gap-1 text-[11.5px] text-slate-400">
                           <Clock className="mt-0.5 h-3 w-3 shrink-0" />
                           <span className="min-w-0 break-words">
                             {skill.command} · v{skill.version ?? '1'} · {skill.activation_policy === 'model_allowed' ? '可自动激活' : '显式调用'}
                           </span>
                         </p>
-                        <p className="mt-1 text-[11px] text-slate-500">
+                        <p className="mt-1 text-[11px] text-slate-400">
                           {group.label} · {skill.capability_type ?? '工具调用'} · {skill.side_effect ? SIDE_EFFECT[skill.side_effect] : '按账号权限'} · {managed ? skill.planner_eligible ? '可进入自动规划' : '仅支持显式调用' : '直接工具调用'}
                         </p>
                         {toolLimited ? (

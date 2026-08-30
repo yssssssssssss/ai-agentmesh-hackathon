@@ -91,7 +91,7 @@ function DigitalSelfContent({
       <section className="border-t border-white/[0.08] pt-5" aria-labelledby="digital-self-activity-heading">
         <div className="mb-3">
           <h2 id="digital-self-activity-heading" className="text-[16px] font-semibold text-slate-100">数字员工动态</h2>
-          <p className="mt-0.5 text-[12px] text-slate-500">近期形成的工作理解、成长与经验价值</p>
+          <p className="mt-0.5 text-[12px] text-slate-400">近期形成的工作理解、成长与经验价值</p>
         </div>
         <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-3">
           <UnderstandingList model={viewModel.understanding} />

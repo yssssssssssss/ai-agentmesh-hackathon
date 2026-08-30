@@ -26,16 +26,28 @@ _CAPABILITY_TO_TOOL = {
     "memory.project": "memory_search",
     "risk.review": "risk_review",
 }
+_SUPPORTED_WIKI_CAPABILITIES = frozenset({"wiki.corpus", "wiki.experiments"})
+_SYNTHESIS_OUTPUTS = frozenset({"design_analysis", "executive_summary", "summary", "synthesis"})
 _TOOL_REFERENCE_TO_NAME = {
     "tool_web_research": "web_research",
 }
+
+
+def tool_name_for_capability(capability: str) -> str | None:
+    """Resolve a supported non-wiki capability to its runtime Tool name."""
+
+    return _CAPABILITY_TO_TOOL.get(capability)
+
+
+def is_supported_wiki_capability(capability: str) -> bool:
+    return capability in _SUPPORTED_WIKI_CAPABILITIES
 
 
 def tool_names_for_profile(profile: SkillCapabilityProfile) -> set[str]:
     capability_tools = {
         tool_name
         for capability in profile.required_capabilities
-        if (tool_name := _CAPABILITY_TO_TOOL.get(capability)) is not None
+        if (tool_name := tool_name_for_capability(capability)) is not None
     }
     declared_tools = {_TOOL_REFERENCE_TO_NAME.get(reference, reference) for reference in profile.required_tools}
     return capability_tools | declared_tools
@@ -104,9 +116,15 @@ class SkillCandidateRetriever:
             diagnostics.append("external_write_not_requested")
         for capability in profile.required_capabilities:
             if capability.startswith("wiki."):
-                if not skill_wiki_corpus_ready(skill, capability):
+                if (
+                    not is_supported_wiki_capability(capability)
+                    or not skill_wiki_corpus_ready(skill, capability)
+                ):
                     diagnostics.append(f"{capability}_unavailable")
-            elif not self._tool_granted(user, capability):
+            elif (
+                (tool_name := tool_name_for_capability(capability)) is None
+                or not self._tool_granted(user, tool_name)
+            ):
                 diagnostics.append(f"{capability}_not_granted")
         for tool_reference in profile.required_tools:
             if not self._tool_granted(user, tool_reference):
@@ -239,8 +257,26 @@ class SkillCandidateRetriever:
                 diagnostics.append(f"runtime_skill_unbound:{registry_skill_id}")
             else:
                 runtime_names.add(catalog_skill.runtime_skill_name)
-        filtered = [candidate for candidate in candidates if candidate.skill_name in runtime_names]
-        available_names = {candidate.skill_name for candidate in filtered}
+        registered_runtime_names = {
+            skill.runtime_skill_name
+            for skill in task_catalog.skills
+            if skill.runtime_skill_name is not None
+        }
+        requested_outputs = set(intent.deliverables) - _SYNTHESIS_OUTPUTS
+        filtered = [
+            candidate
+            for candidate in candidates
+            if candidate.skill_name in runtime_names
+            or (
+                candidate.skill_name in registered_runtime_names
+                and requested_outputs.intersection(candidate.profile.output_kinds)
+            )
+        ]
+        available_names = {
+            candidate.skill_name
+            for candidate in filtered
+            if candidate.skill_name in runtime_names
+        }
         diagnostics.extend(
             f"runtime_skill_unavailable:{name}" for name in sorted(runtime_names - available_names)
         )

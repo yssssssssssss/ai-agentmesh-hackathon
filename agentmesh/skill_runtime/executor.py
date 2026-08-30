@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from agentmesh.llm import llm_chat_timeout_seconds, research_skill_timeout_seconds
 from agentmesh.models import (
+    AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
     SkillNodeResult,
@@ -14,20 +15,17 @@ from agentmesh.models import (
     SkillPlanNodeStatus,
     SkillPlanStatus,
     SkillSideEffect,
-    SkillSynthesisResult,
     now_utc,
 )
-from agentmesh.skill_runtime.synthesis import render_synthesis
+from agentmesh.skill_runtime.finalization import (
+    NodePause,
+    PlanExecutionOutcome,
+    PlanFinalizationStrategy,
+    StandardPlanFinalizer,
+    SynthesisRunner,
+)
 from agentmesh.store import SQLiteStore
-from agentmesh.task_routing.completion import evaluate_plan_completion
 from agentmesh.tool_runtime.guardrails import redact_sensitive_text
-
-
-@dataclass(frozen=True, slots=True)
-class NodePause:
-    sdk_state: dict[str, object]
-    interruptions: tuple[dict[str, str], ...]
-    grant_snapshot_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,18 +34,24 @@ class NodeExecutionOutcome:
     pause: NodePause | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class PlanExecutionOutcome:
-    plan: SkillPlan
-    run: AgentRun
-    synthesis: SkillSynthesisResult | None = None
-    pause: NodePause | None = None
-    paused_node_id: str | None = None
-    synthesis_fallback: bool = False
-
-
 NodeRunner = Callable[[SkillPlan, SkillPlanNode, list[SkillNodeResult]], Awaitable[NodeExecutionOutcome]]
-SynthesisRunner = Callable[[SkillPlan, list[SkillNodeResult]], Awaitable[tuple[SkillSynthesisResult, bool]]]
+
+_STANDARD_DELIVERABLE_TIMEOUT_SECONDS = 300.0
+
+
+def skill_node_timeout_seconds(
+    node: SkillPlanNode,
+    *,
+    planning_mode: AgentPlanningMode,
+) -> float:
+    timeout = (
+        research_skill_timeout_seconds()
+        if "web_research" in node.required_tool_names
+        else llm_chat_timeout_seconds()
+    )
+    if planning_mode is AgentPlanningMode.STANDARD and node.output_contract:
+        return max(timeout, _STANDARD_DELIVERABLE_TIMEOUT_SECONDS)
+    return timeout
 
 
 class PlanExecutionConflict(RuntimeError):
@@ -73,6 +77,9 @@ def _transient(error: Exception) -> bool:
 
 
 def _error_code(error: Exception) -> str:
+    root_error_code = getattr(error, "root_error_code", None)
+    if isinstance(root_error_code, str) and root_error_code:
+        return root_error_code
     message = str(error)
     safe = all(character.islower() or character.isdigit() or character == "_" for character in message)
     if message and len(message) <= 120 and safe:
@@ -81,7 +88,11 @@ def _error_code(error: Exception) -> str:
 
 
 def _error_detail(error: Exception) -> str:
-    return redact_sensitive_text(str(error)).strip()[:500] or type(error).__name__
+    detail = redact_sensitive_text(str(error)).strip() or type(error).__name__
+    attempts = getattr(error, "attempts", None)
+    if type(attempts) is int and attempts > 1:
+        detail = f"model stream failed after {attempts} attempts: {detail}"
+    return detail[:500]
 
 
 class BoundedDAGExecutor:
@@ -90,11 +101,22 @@ class BoundedDAGExecutor:
         repository: SQLiteStore,
         *,
         node_runner: NodeRunner,
-        synthesis_runner: SynthesisRunner,
+        synthesis_runner: SynthesisRunner | None = None,
+        finalization_strategy: PlanFinalizationStrategy | None = None,
     ):
+        if synthesis_runner is not None and finalization_strategy is not None:
+            raise ValueError("synthesis_runner and finalization_strategy are mutually exclusive")
+        if synthesis_runner is None and finalization_strategy is None:
+            raise ValueError("a finalization strategy or synthesis runner is required")
         self.repository = repository
         self.node_runner = node_runner
-        self.synthesis_runner = synthesis_runner
+        if finalization_strategy is None:
+            assert synthesis_runner is not None
+            finalization_strategy = StandardPlanFinalizer(
+                repository,
+                synthesis_runner=synthesis_runner,
+            )
+        self.finalization_strategy = finalization_strategy
 
     @staticmethod
     def _replace_node(plan: SkillPlan, node: SkillPlanNode) -> None:
@@ -142,10 +164,9 @@ class BoundedDAGExecutor:
             return node, None, RuntimeError("node_claim_conflict")
         self._replace_node(plan, claimed)
         upstream = [result for result in results if result.node_id in set(claimed.depends_on)]
-        node_timeout = (
-            research_skill_timeout_seconds()
-            if "web_research" in node.required_tool_names
-            else llm_chat_timeout_seconds()
+        node_timeout = skill_node_timeout_seconds(
+            claimed,
+            planning_mode=run.planning_mode,
         )
         remaining = node_timeout
         if run.deadline_at is not None:
@@ -226,29 +247,39 @@ class BoundedDAGExecutor:
                     # Reload the persisted plan and propagate one layer at a time.
                     continue
 
-                pending = [node for node in plan.nodes if node.status == SkillPlanNodeStatus.PENDING]
-                if not pending:
-                    break
-                ready = [
-                    node
-                    for node in pending
-                    if all(by_id[dependency].status == SkillPlanNodeStatus.COMPLETED for dependency in node.depends_on)
-                ][:3]
+                ready = [node for node in plan.nodes if node.status == SkillPlanNodeStatus.READY][:3]
                 if not ready:
-                    raise RuntimeError("dag_has_no_runnable_node")
-                marked_ready: list[SkillPlanNode] = []
-                for node in ready:
-                    marked_ready.append(
-                        self._transition_node(
-                            plan=plan,
-                            run=run,
-                            node=node.model_copy(update={"status": SkillPlanNodeStatus.READY}),
-                            expected_statuses={SkillPlanNodeStatus.PENDING},
-                            event_type="node_ready",
-                            event_payload={"plan_id": plan.id, "node_id": node.id},
+                    pending = [node for node in plan.nodes if node.status == SkillPlanNodeStatus.PENDING]
+                    if not pending:
+                        terminal_statuses = {
+                            SkillPlanNodeStatus.COMPLETED,
+                            SkillPlanNodeStatus.FAILED,
+                            SkillPlanNodeStatus.SKIPPED,
+                            SkillPlanNodeStatus.CANCELLED,
+                        }
+                        if any(node.status not in terminal_statuses for node in plan.nodes):
+                            raise RuntimeError("dag_has_nonterminal_node")
+                        break
+                    ready = [
+                        node
+                        for node in pending
+                        if all(by_id[dependency].status == SkillPlanNodeStatus.COMPLETED for dependency in node.depends_on)
+                    ][:3]
+                    if not ready:
+                        raise RuntimeError("dag_has_no_runnable_node")
+                    marked_ready: list[SkillPlanNode] = []
+                    for node in ready:
+                        marked_ready.append(
+                            self._transition_node(
+                                plan=plan,
+                                run=run,
+                                node=node.model_copy(update={"status": SkillPlanNodeStatus.READY}),
+                                expected_statuses={SkillPlanNodeStatus.PENDING},
+                                event_type="node_ready",
+                                event_payload={"plan_id": plan.id, "node_id": node.id},
+                            )
                         )
-                    )
-                ready = marked_ready
+                    ready = marked_ready
 
                 outcomes: dict[str, tuple[SkillPlanNode, NodeExecutionOutcome | None, Exception | None]] = {}
 
@@ -384,89 +415,20 @@ class BoundedDAGExecutor:
                         paused_node_id=paused_node.id,
                     )
 
-            plan = self.repository.get_skill_plan(plan.id) or plan
-            results = self.repository.list_skill_node_results(plan.id)
-            provisional_completion = evaluate_plan_completion(plan, results)
-            if provisional_completion is not None:
-                plan.completion_check = provisional_completion
-            completed_nodes = {result.node_id for result in results}
-            available_outputs = {
-                output
-                for node in plan.nodes
-                if node.id in completed_nodes
-                for output in node.output_contract
-            } | {"executive_summary", "summary", "synthesis", *plan.synthesis_output_contract}
-            required_results = [node for node in plan.nodes if node.required and node.id in completed_nodes]
-            if not required_results or not set(plan.output_contract).issubset(available_outputs):
-                plan.status = SkillPlanStatus.FAILED
-                run = self.repository.get_agent_run(run.id) or run
-                run.status = AgentRunStatus.FAILED
-                run.error_code = "output_contract_unsatisfied"
-                transition = self.repository.finish_skill_plan_and_run(
-                    plan=plan,
-                    run=run,
-                    expected_plan_statuses={SkillPlanStatus.RUNNING},
-                    expected_run_statuses={AgentRunStatus.RUNNING},
-                    events=[("run_failed", {"error_code": run.error_code})],
-                )
-                if transition is None:
-                    raise RuntimeError("plan_terminal_transition_conflict")
-                plan, run = transition
-                return PlanExecutionOutcome(plan=plan, run=run)
-
-            self.repository.append_agent_run_event(run.id, "synthesis_started", {"plan_id": plan.id})
-            remaining = 300.0
-            if run.deadline_at is not None:
-                remaining = max(0.0, (run.deadline_at - now_utc()).total_seconds())
-            if remaining <= 0:
-                raise TimeoutError("parent_run_deadline_exceeded")
-            async with asyncio.timeout(remaining):
-                synthesis, fallback = await self.synthesis_runner(plan, results)
-            completion_check = evaluate_plan_completion(plan, results, synthesis=synthesis)
-            if completion_check is not None:
-                plan.completion_check = completion_check
-                if not completion_check.completed:
-                    completion_gap = "completion_check_partial:" + ",".join(completion_check.gaps)
-                    plan.degradation = ";".join(
-                        item for item in (plan.degradation, completion_gap) if item
-                    )[:1000]
-            plan.synthesis = synthesis.model_dump(mode="json")
-            degraded = (
-                fallback
-                or bool(plan.degradation)
-                or any(result.degradation for result in results)
-                or any(
-                    node.status in {SkillPlanNodeStatus.FAILED, SkillPlanNodeStatus.SKIPPED}
-                    for node in plan.nodes
-                )
-            )
-            plan.status = SkillPlanStatus.PARTIAL if degraded else SkillPlanStatus.COMPLETED
-            run = self.repository.get_agent_run(run.id) or run
-            run.status = AgentRunStatus.PARTIAL if degraded else AgentRunStatus.COMPLETED
-            run.error_code = None
-            run.output_text = render_synthesis(synthesis)
-            run.paused_state = None
-            event_type = "run_partial" if degraded else "run_completed"
-            transition = self.repository.finish_skill_plan_and_run(
-                plan=plan,
-                run=run,
-                expected_plan_statuses={SkillPlanStatus.RUNNING},
-                expected_run_statuses={AgentRunStatus.RUNNING},
-                events=[
-                    ("synthesis_completed", {"plan_id": plan.id, "fallback": fallback}),
-                    (event_type, {"plan_id": plan.id, "synthesis_fallback": fallback}),
-                ],
-            )
-            if transition is None:
-                raise RuntimeError("plan_terminal_transition_conflict")
-            plan, run = transition
-            return PlanExecutionOutcome(
-                plan=plan,
-                run=run,
-                synthesis=synthesis,
-                synthesis_fallback=fallback,
+            return await self.finalization_strategy.finalize(
+                run_id=run.id,
+                plan_id=plan.id,
+                expected_plan_version=plan.version,
             )
         except asyncio.CancelledError:
+            current_plan = self.repository.get_skill_plan(plan.id) or plan
+            current_run = self.repository.get_agent_run(run.id) or run
+            if current_run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                # Business cancellation is committed before the Runtime task is
+                # cancelled. A process/shutdown cancellation has no such durable
+                # transition and must remain recoverable; startup recovery will
+                # mark any abandoned RUNNING node external_outcome_unknown.
+                raise
             for node in plan.nodes:
                 if node.status not in {
                     SkillPlanNodeStatus.COMPLETED,
@@ -476,7 +438,6 @@ class BoundedDAGExecutor:
                     node.status = SkillPlanNodeStatus.CANCELLED
                     node.completed_at = now_utc()
             plan.status = SkillPlanStatus.CANCELLED
-            current_run = self.repository.get_agent_run(run.id) or run
             if current_run.status == AgentRunStatus.RUNNING:
                 current_run.status = AgentRunStatus.CANCELLED
                 current_run.error_code = None

@@ -41,9 +41,8 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
         aria-labelledby={title ? titleId : undefined}
         aria-label={title ? undefined : '对话框'}
         tabIndex={-1}
-        autoFocus
         className={cn(
-          'relative z-10 flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-[16px] border border-white/[0.08] bg-surface-2 shadow-pop animate-scale-in',
+          'relative z-10 flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-overlay border border-white/[0.08] bg-surface-2 shadow-pop animate-scale-in',
           size === 'workspace'
             ? 'h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] sm:h-[86vh] sm:max-w-[94vw]'
             : size === 'lg' ? 'max-w-2xl' : 'max-w-lg',

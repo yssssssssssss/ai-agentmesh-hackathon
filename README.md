@@ -165,20 +165,23 @@ npm --prefix agentmesh-demo run build
 npm --prefix agentmesh-demo run test:e2e
 ```
 
-### Research V3 Gate 2 dormant preview
+### Research workflow retirement
 
-Research-v3 Competitive Text preview composition is implemented behind durable single-writer control, but it is not authorized for production traffic. Production-safe defaults remain:
+Research-v2 is retired: no Runtime or mutation path remains, while owner-scoped historical Runs and Artifacts stay readable through a read-only adapter. Client-turn replay may return an existing v2 Run but cannot restart it.
 
-```text
-AGENTMESH_SKILL_ORCHESTRATION=off
-AGENTMESH_RESEARCH_PREVIEW_ALLOWLIST=
-research_writer_control.active_generation=research-v2
-research_writer_control.lifecycle_state=retired
-```
+Research-v3 was retired before production launch. Its preview entry points, dedicated catalog and Workbench were removed; residual additive SQLite tables are inert and are not an activation mechanism. New full-report work uses explicit DeepSearch on the existing v1 Skill DAG. See [ADR 0008](docs/adr/0008-retire-research-v3-preview.md) and the [DeepSearch v1 plan](docs/plans/2026-08-26-deepsearch-v1-development-plan.md).
 
-Research-v2 is retired: no Runtime or mutation path remains, while owner-scoped historical Runs and Artifacts stay readable through a read-only adapter. Client-turn replay may return an existing v2 Run but cannot restart it. Research-v3 preview can clarify, compare candidates, revise, and confirm a Plan, but Provider-backed approval, execute, and recovery commands fail closed.
+### DeepSearch v1
 
-Do not change the production control row or populate the allowlist. Use only the disposable procedure in [the research-v3 preview runbook](docs/runbooks/research-v3-preview.md). Gate evidence and remaining production-cutover blockers are recorded in [the Gate 2 verification](docs/verification/2026-08-21-research-v3-gate2.md).
+DeepSearch is implemented behind a default-off release gate. A client must explicitly send `planning_mode="deepsearch"`; the server never infers it from prompt wording and never falls back to ordinary chat. New runs require `AGENTMESH_AGENT_RUNTIME=v2`, `AGENTMESH_SKILL_ORCHESTRATION=execute`, `AGENTMESH_DEEPSEARCH_ENABLED=true`, an available model, and a real healthy `web_research` adapter. The v1 evidence path rejects other built-in tools and MCP. Skill resources remain readable only from the approved frozen manifest, are budgeted, and cannot become report Evidence.
+
+The DeepSearch-specific API surface is:
+
+- `GET /api/agent/runs/{run_id}/deepsearch`
+- `POST /api/agent/runs/{run_id}/deepsearch/clarify`
+- shared Plan edit/approve/reject, cancel, retry, event, and Artifact endpoints listed above
+
+Keep the feature flag disabled until the real Provider smoke described below succeeds.
 
 ### Reference UI and data provenance
 

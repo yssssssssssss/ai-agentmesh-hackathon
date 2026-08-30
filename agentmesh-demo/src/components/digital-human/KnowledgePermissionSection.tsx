@@ -73,7 +73,7 @@ export function KnowledgePermissionSection() {
             <span>家电设计组共享给你的团队知识</span>
             <span className="text-slate-200">按团队权限调用</span>
           </p>
-          <p className="text-[12.5px] text-slate-500">
+          <p className="text-[12.5px] text-slate-400">
             数字人只能使用你确认的个人知识,以及你所在团队按权限共享的知识,不会读取成员的私人知识。
           </p>
         </div>
@@ -131,11 +131,11 @@ function ToggleRow({ label, hint, defaultOn = false }: { label: string; hint?: s
     <button
       type="button"
       onClick={() => setOn((v) => !v)}
-      className="flex w-full items-center justify-between gap-4 rounded-[10px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.03]"
+      className="flex w-full items-center justify-between gap-4 rounded-soft px-2 py-2.5 text-left transition-colors hover:bg-white/[0.03]"
     >
       <span className="min-w-0">
         <span className="block text-[13px] font-medium text-slate-200">{label}</span>
-        {hint && <span className="mt-0.5 block text-[11.5px] text-slate-500">{hint}</span>}
+        {hint && <span className="mt-0.5 block text-[11.5px] text-slate-400">{hint}</span>}
       </span>
       <span
         className={cn(
@@ -143,7 +143,7 @@ function ToggleRow({ label, hint, defaultOn = false }: { label: string; hint?: s
           on ? 'bg-mint-400' : 'bg-white/[0.12]',
         )}
       >
-        <span className={cn('h-4 w-4 rounded-full bg-white shadow transition-all', on ? 'ml-auto mr-0.5' : 'ml-0.5')} />
+        <span className={cn('h-4 w-4 rounded-full bg-white shadow transition-[margin] duration-150', on ? 'ml-auto mr-0.5' : 'ml-0.5')} />
       </span>
     </button>
   )

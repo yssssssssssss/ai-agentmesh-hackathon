@@ -62,7 +62,7 @@ export function AssetsPanel({ assets, totalCount, onOpenAsset }: Props) {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <div className="rounded-[14px] border border-white/[0.06] bg-surface-1 p-4" aria-label="知识筛选">
+      <div className="rounded-soft border border-white/[0.06] bg-surface-1 p-4" aria-label="知识筛选">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <FilterSelect
             label="类型"
@@ -95,7 +95,7 @@ export function AssetsPanel({ assets, totalCount, onOpenAsset }: Props) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4 text-xs text-slate-500">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4 text-xs text-slate-400">
         <div className="flex flex-wrap items-center gap-2">
           <span>共 <span className="tabular-nums text-slate-300">{totalCount.value}</span> 条已沉淀知识</span>
           <DataSourceBadge source={totalCount.source} />
@@ -109,7 +109,7 @@ export function AssetsPanel({ assets, totalCount, onOpenAsset }: Props) {
         <button
           type="button"
           onClick={() => setSortKey((value) => value === 'updated' ? 'cited' : 'updated')}
-          className="inline-flex min-h-10 items-center gap-1.5 rounded-[8px] px-3 text-slate-400 transition-colors active:scale-[0.98] hover:bg-white/[0.04] hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-control px-3 text-slate-400 transition-colors active:scale-[0.98] hover:bg-white/[0.04] hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
         >
           <ArrowUpDown className="h-3.5 w-3.5" />
           {sortKey === 'cited' ? '按引用数排序' : '按更新时间排序'}
@@ -124,9 +124,9 @@ export function AssetsPanel({ assets, totalCount, onOpenAsset }: Props) {
         </div>
       ) : (
         <div className="card-base flex flex-col items-center py-14 text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-slate-500"><BookMarked className="h-5 w-5" /></span>
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-slate-400"><BookMarked className="h-5 w-5" /></span>
           <h3 className="mt-3 text-sm font-semibold text-slate-100">没有匹配的知识</h3>
-          <p className="mt-1 max-w-sm text-xs text-slate-500">调整筛选条件，或等待真实工作与项目复盘形成新的知识资产。</p>
+          <p className="mt-1 max-w-sm text-xs text-slate-400">调整筛选条件，或等待真实工作与项目复盘形成新的知识资产。</p>
         </div>
       )}
     </div>
@@ -142,11 +142,11 @@ function FilterSelect({ label, value, options, onChange, optionLabel }: {
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-400">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-[10px] border border-white/[0.08] bg-surface-2 px-3 text-sm text-slate-200 outline-none transition-[border-color,box-shadow] focus:border-mint-400/60 focus:ring-2 focus:ring-mint-400/15"
+        className="h-10 w-full rounded-soft border border-white/[0.08] bg-surface-2 px-3 text-sm text-slate-200 outline-none transition-[border-color,box-shadow] focus:border-mint-400/60 focus:ring-2 focus:ring-mint-400/15"
       >
         {options.map((option) => (
           <option key={option} value={option}>{optionLabel(option)}</option>

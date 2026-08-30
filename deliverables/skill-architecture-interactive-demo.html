@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentMesh Skill 架构互动 Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --canvas: #0a0d0f;
+      --base: #0f1316;
+      --surface-1: #151a1e;
+      --surface-2: #1a2025;
+      --surface-3: #222a30;
+      --line: rgba(255,255,255,.08);
+      --line-strong: rgba(255,255,255,.14);
+      --text: #f4f7f6;
+      --text-2: #c2cbc8;
+      --text-3: #7f8c88;
+      --mint: #74e0bd;
+      --mint-strong: #9bf0d2;
+      --mint-bg: rgba(116,224,189,.10);
+      --amber: #f3bd6b;
+      --amber-bg: rgba(243,189,107,.10);
+      --red: #f08d8d;
+      --red-bg: rgba(240,141,141,.10);
+      --blue: #8fbae8;
+      --sidebar: 236px;
+      --radius: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--canvas); color: var(--text); }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+    button:active { transform: scale(.98); }
+    [hidden] { display: none !important; }
+
+    .app { min-height: 100vh; display: grid; grid-template-columns: var(--sidebar) minmax(0,1fr); }
+    .sidebar { position: sticky; top: 0; height: 100vh; padding: 26px 14px 18px; border-right: 1px solid var(--line); background: var(--base); display: flex; flex-direction: column; }
+    .brand { padding: 0 12px 22px; }
+    .brand strong { display: block; font-size: 20px; letter-spacing: .03em; }
+    .brand span { display: block; margin-top: 5px; color: var(--text-3); font-size: 11px; letter-spacing: .12em; }
+    .nav { display: grid; gap: 4px; }
+    .nav button { border: 0; background: transparent; padding: 10px 12px; border-radius: 9px; color: var(--text-3); text-align: left; cursor: pointer; }
+    .nav button.active { color: var(--text); background: var(--surface-3); box-shadow: inset 3px 0 var(--mint); }
+    .nav button:hover { color: var(--text-2); background: rgba(255,255,255,.04); }
+    .sidebar-foot { margin-top: auto; padding: 14px 12px 0; border-top: 1px solid var(--line); }
+    .user { display: flex; align-items: center; gap: 10px; }
+    .avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--mint-bg); color: var(--mint); font-weight: 700; }
+    .user small { display: block; margin-top: 2px; color: var(--text-3); }
+
+    .main { min-width: 0; padding: 30px clamp(20px, 3.5vw, 56px) 80px; }
+    .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+    .eyebrow { color: var(--mint); font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+    h1 { margin: 7px 0 0; font-size: clamp(26px, 3vw, 38px); letter-spacing: -.035em; line-height: 1.1; }
+    .subtitle { max-width: 720px; margin: 12px 0 0; color: var(--text-3); font-size: 14px; line-height: 1.7; }
+    .state-badge { min-width: 210px; border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; background: var(--surface-1); }
+    .state-badge span { color: var(--text-3); font-size: 11px; }
+    .state-badge strong { display: block; margin-top: 5px; font-size: 13px; }
+
+    .demo-note { margin-top: 22px; display: flex; gap: 12px; align-items: flex-start; padding: 13px 15px; border: 1px dashed rgba(116,224,189,.26); border-radius: var(--radius); background: rgba(116,224,189,.04); color: var(--text-2); font-size: 12px; line-height: 1.65; }
+    .demo-note b { color: var(--mint); white-space: nowrap; }
+
+    .scenario-shell { margin-top: 22px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 16px 0; }
+    .section-label { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+    .section-label h2 { margin: 0; font-size: 15px; }
+    .section-label p { margin: 0; color: var(--text-3); font-size: 12px; }
+    .scenario-list { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin-top: 12px; }
+    .scenario { border: 1px solid var(--line); background: transparent; border-radius: 10px; padding: 12px; text-align: left; cursor: pointer; }
+    .scenario:hover { border-color: var(--line-strong); background: rgba(255,255,255,.025); }
+    .scenario.active { border-color: rgba(116,224,189,.45); background: var(--mint-bg); }
+    .scenario strong { font-size: 13px; }
+    .scenario span { display: block; margin-top: 5px; color: var(--text-3); font-size: 11px; line-height: 1.5; }
+
+    .toolbar { position: sticky; top: 0; z-index: 10; margin: 24px -8px 0; padding: 12px 8px; background: rgba(10,13,15,.95); border-bottom: 1px solid transparent; display: grid; grid-template-columns: minmax(250px,1fr) auto auto; gap: 12px; align-items: center; }
+    .search { position: relative; }
+    .search input { width: 100%; height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-1); color: var(--text); padding: 0 98px 0 40px; }
+    .search input::placeholder { color: #67736f; }
+    .search .icon { position: absolute; left: 14px; top: 12px; color: var(--text-3); }
+    .shortcut { position: absolute; right: 9px; top: 8px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text-3); border-radius: 7px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
+    .segments { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-1); }
+    .segments button { border: 0; background: transparent; color: var(--text-3); padding: 8px 11px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+    .segments button.active { background: var(--surface-3); color: var(--text); }
+    .toggle { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-1); padding: 9px 11px; cursor: pointer; color: var(--text-3); white-space: nowrap; }
+    .toggle.active { color: var(--mint); border-color: rgba(116,224,189,.35); }
+
+    .summary-strip { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; }
+    .summary-strip .pill { border: 1px solid var(--line); background: var(--surface-1); border-radius: 999px; padding: 5px 9px; }
+    .summary-strip .pill b { color: var(--text-2); }
+
+    section.content-section { margin-top: 30px; }
+    .cards { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-top: 13px; }
+    .skill-card { min-width: 0; min-height: 166px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); padding: 16px; text-align: left; cursor: pointer; display: flex; flex-direction: column; }
+    .skill-card:hover { border-color: rgba(116,224,189,.32); background: #18201f; }
+    .skill-card.recommended { box-shadow: inset 0 2px var(--mint); }
+    .card-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+    .skill-card h3 { margin: 0; font-size: 14px; line-height: 1.4; }
+    .tech-name { margin-top: 4px; color: var(--text-3); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .skill-card p { margin: 10px 0 0; color: var(--text-3); font-size: 12px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .card-foot { margin-top: auto; padding-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-3); font-size: 10px; }
+    .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 7px; background: rgba(255,255,255,.05); color: var(--text-2); font-size: 10px; }
+    .tag.mint { background: var(--mint-bg); color: var(--mint); }
+    .tag.amber { background: var(--amber-bg); color: var(--amber); }
+    .tag.red { background: var(--red-bg); color: var(--red); }
+    .favorite { width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: #65706d; cursor: pointer; }
+    .favorite.on { color: var(--amber); background: var(--amber-bg); }
+
+    .group-stack { display: grid; gap: 12px; margin-top: 13px; }
+    .group { border-top: 1px solid var(--line); padding-top: 17px; }
+    .group:first-child { border-top: 0; padding-top: 0; }
+    .group-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+    .group-head h3 { margin: 0; font-size: 14px; }
+    .group-head p { margin: 5px 0 0; color: var(--text-3); font-size: 11px; }
+    .group-head button { border: 0; background: transparent; color: var(--mint); font-size: 11px; cursor: pointer; }
+    .compact-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin-top: 11px; }
+    .compact-skill { border: 1px solid var(--line); border-radius: 9px; background: transparent; padding: 11px 12px; text-align: left; cursor: pointer; min-width: 0; }
+    .compact-skill:hover { background: var(--surface-1); border-color: var(--line-strong); }
+    .compact-skill strong { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .compact-skill span { display: block; margin-top: 4px; color: var(--text-3); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { margin-top: 28px; padding: 46px 20px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); color: var(--text-3); }
+
+    .drawer-backdrop, .modal-backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.58); }
+    .drawer { position: fixed; z-index: 31; top: 0; right: 0; width: min(480px,100vw); height: 100vh; background: var(--base); border-left: 1px solid var(--line); padding: 24px; overflow-y: auto; }
+    .drawer-close, .modal-close { float: right; width: 34px; height: 34px; border: 1px solid var(--line); background: var(--surface-1); border-radius: 8px; cursor: pointer; }
+    .drawer .stage { color: var(--mint); font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+    .drawer h2 { margin: 14px 0 0; font-size: 24px; line-height: 1.2; }
+    .drawer .command { margin-top: 6px; color: var(--text-3); font: 11px ui-monospace, monospace; }
+    .drawer .long-desc { margin-top: 18px; color: var(--text-2); line-height: 1.7; font-size: 13px; }
+    .detail-grid { margin-top: 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .detail { background: var(--surface-1); border: 1px solid var(--line); border-radius: 9px; padding: 11px; }
+    .detail span { display: block; color: var(--text-3); font-size: 10px; }
+    .detail strong { display: block; margin-top: 6px; color: var(--text-2); font-size: 12px; }
+    .execution { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 18px; }
+    .execution h3 { font-size: 13px; }
+    .execution ul { padding-left: 18px; color: var(--text-3); font-size: 12px; line-height: 1.75; }
+    .primary, .secondary { border-radius: 9px; padding: 10px 14px; cursor: pointer; font-weight: 650; }
+    .primary { border: 0; background: var(--mint); color: #06231c; }
+    .primary.danger { background: var(--amber); color: #251805; }
+    .secondary { border: 1px solid var(--line); background: var(--surface-1); color: var(--text-2); }
+    .button-row { display: flex; gap: 9px; margin-top: 18px; }
+
+    .palette { position: fixed; z-index: 42; top: 11vh; left: 50%; transform: translateX(-50%); width: min(680px,calc(100vw - 28px)); max-height: 74vh; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--base); box-shadow: 0 24px 80px rgba(0,0,0,.5); overflow: hidden; }
+    .palette input { width: 100%; height: 56px; padding: 0 18px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); font-size: 15px; }
+    .palette-list { max-height: calc(74vh - 56px); overflow-y: auto; padding: 8px; }
+    .palette-item { width: 100%; border: 0; background: transparent; padding: 11px 12px; border-radius: 8px; text-align: left; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .palette-item:hover, .palette-item.active { background: var(--surface-2); }
+    .palette-item strong { display: block; font-size: 12px; }
+    .palette-item span { display: block; margin-top: 3px; color: var(--text-3); font: 10px ui-monospace, monospace; }
+    .palette-item em { color: var(--text-3); font-size: 10px; font-style: normal; white-space: nowrap; }
+
+    .toast { position: fixed; z-index: 60; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 10px 14px; border: 1px solid rgba(116,224,189,.32); border-radius: 9px; background: #173029; color: var(--mint-strong); font-size: 12px; box-shadow: 0 12px 36px rgba(0,0,0,.35); }
+
+    @media (max-width: 1050px) {
+      .app { grid-template-columns: 82px minmax(0,1fr); }
+      .brand strong { font-size: 0; }
+      .brand strong::after { content: "AM"; font-size: 17px; }
+      .brand span, .nav button span, .sidebar-foot .user div { display: none; }
+      .nav button { text-align: center; padding: 11px 4px; }
+      .cards, .compact-list { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .toolbar { grid-template-columns: 1fr; position: static; }
+    }
+    @media (max-width: 700px) {
+      .app { display: block; }
+      .sidebar { position: static; width: auto; height: auto; padding: 12px; border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row; align-items: center; gap: 8px; }
+      .brand { padding: 0 8px; }
+      .nav { display: flex; overflow-x: auto; }
+      .nav button { min-width: 76px; }
+      .sidebar-foot { display: none; }
+      .main { padding: 22px 16px 70px; }
+      .topbar { display: block; }
+      .state-badge { margin-top: 16px; }
+      .scenario-list, .cards, .compact-list { grid-template-columns: 1fr; }
+      .segments { overflow-x: auto; }
+      .detail-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <!-- PROTOTYPE: 单文件互动 Demo，用于验证 89 个 Skill 如何通过推荐、阶段筛选和渐进展开降低认知负担。 -->
+  <div class="app">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand"><strong>AgentMesh</strong><span>数字员工协作空间</span></div>
+      <nav class="nav">
+        <button><span>我的数字员工</span></button>
+        <button><span>AI 工作台</span></button>
+        <button class="active" aria-current="page"><span>技能中心</span></button>
+        <button><span>我的知识</span></button>
+        <button><span>协作网络</span></button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="user"><div class="avatar">何</div><div><strong>何云深</strong><small>家电设计组</small></div></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Skill architecture prototype</div>
+          <h1>技能中心</h1>
+          <p class="subtitle">不是把 89 个 Skill 平铺给用户，而是根据项目上下文先推荐最合适的 3 个。三阶段只负责缩小范围，完整目录通过任务分组和命令面板渐进展开。</p>
+        </div>
+        <div class="state-badge" aria-live="polite">
+          <span>当前视图状态</span>
+          <strong id="stateSummary">设计前 · 推荐模式 · 3 个推荐</strong>
+        </div>
+      </header>
+
+      <div class="demo-note">
+        <b>原型问题</b>
+        <span>设计师是否可以在不理解 89 个技术名称的情况下，通过“项目推荐、阶段筛选、任务分组、⌘K 搜索”找到并安全执行所需能力？所有状态只保存在内存中，刷新后重置。</span>
+      </div>
+
+      <section class="scenario-shell" aria-labelledby="scenarioTitle">
+        <div class="section-label"><h2 id="scenarioTitle">演示路径</h2><p>点击不同场景，观察推荐 Skill 如何随项目阶段变化</p></div>
+        <div class="scenario-list" id="scenarioList"></div>
+      </section>
+
+      <div class="toolbar">
+        <div class="search">
+          <span class="icon" aria-hidden="true">⌕</span>
+          <input id="searchInput" type="search" placeholder="描述任务或搜索 Skill，例如：评审首页方案" aria-label="搜索 Skill" />
+          <button class="shortcut" id="paletteTrigger" type="button" aria-label="打开全部 Skill 命令面板">⌘ K</button>
+        </div>
+        <div class="segments" id="stageSegments" aria-label="设计阶段筛选"></div>
+        <button class="toggle" id="advancedToggle" type="button" aria-pressed="false">高级模式</button>
+      </div>
+
+      <div class="summary-strip" id="summaryStrip"></div>
+
+      <section class="content-section" id="recommendSection" aria-labelledby="recommendTitle">
+        <div class="section-label"><h2 id="recommendTitle">为当前项目推荐</h2><p id="recommendReason"></p></div>
+        <div class="cards" id="recommendCards"></div>
+      </section>
+
+      <section class="content-section" id="recentSection" aria-labelledby="recentTitle">
+        <div class="section-label"><h2 id="recentTitle">最近使用与收藏</h2><p>覆盖日常高频任务，不必每次重新查找</p></div>
+        <div class="compact-list" id="recentList"></div>
+      </section>
+
+      <section class="content-section" aria-labelledby="catalogTitle">
+        <div class="section-label"><h2 id="catalogTitle">全部能力</h2><p id="catalogHint">按任务目标分组，每组默认只显示 3 个</p></div>
+        <div class="group-stack" id="groupStack"></div>
+        <div class="empty" id="emptyState" hidden>没有匹配的 Skill。试试输入“调研”“原型”“评审”或按 ⌘K 查看全部能力。</div>
+      </section>
+    </main>
+  </div>
+
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="drawer" id="skillDrawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" hidden>
+    <button class="drawer-close" id="drawerClose" aria-label="关闭 Skill 详情">×</button>
+    <div id="drawerContent"></div>
+  </aside>
+
+  <div class="modal-backdrop" id="paletteBackdrop" hidden></div>
+  <div class="palette" id="palette" role="dialog" aria-modal="true" aria-label="全部 Skill 命令面板" hidden>
+    <input id="paletteInput" placeholder="搜索全部 89 个能力，Legacy 原子能力也在这里" aria-label="搜索全部 Skill" />
+    <div class="palette-list" id="paletteList"></div>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script>
+    const STAGES = {
+      all: { label: '全部', short: '全部阶段' },
+      pre: { label: '设计前', short: '洞察与规划' },
+      during: { label: '设计中', short: '生成与验证' },
+      post: { label: '设计后', short: '交付与沉淀' }
+    };
+
+    const WIKI_GROUPS = {
+      pre: {
+        '历史信息与外部环境': ['design-advisor','welcome','search','query-experiment-conclusions','competitive-analysis'],
+        '用户研究与洞察获取': ['jd-app-journey-map','feedback-insight','journey-map','structure-interview-transcript','code-open-feedback','analyze-satisfaction','generate-persona','research-screenshot-analyzer','generate-survey','industry-market-analysis','generate-interview-guide','synthesize-qualitative-insights'],
+        '问题诊断与优先级': ['prd-feasibility','conversion-funnel-analysis','jobs-to-be-done','issue-prioritization','feature-adoption-analysis'],
+        '项目规划与研究设计': ['prd-design-brief','build-experience-metrics','generate-research-plan','generate-usability-test']
+      },
+      during: {
+        '页面、视觉与原型生成': ['field-design-build','relay-theme-replace','qiangdan-hall-generator','popup-design-skill','filter-tabs-design-skill','nested-structure-generation-skill','navbar-generation','mega-subsidy-design-skill','relay-demo-from-md','prototype-generation','livestream-cover-generator','lieflat-charts'],
+        '组件与结构操作': ['instance-manage','instance-suggest','zero-banner-update','relay-component-set-architect','design-md-to-relay','relay-component-variant-generator'],
+        '设计评审与质量控制': ['usability-review','zero-superbrand-banner-audit','prelaunch-usability-review','run-heuristic-evaluation','AI Decision Lab','accessibility-review','design-review'],
+        '技术适配与能力扩展': ['plugin-api-key-ai','senior-adaptation-tool']
+      },
+      post: {
+        '汇报、交付与发布': ['leader-report','coding-repo-sync','motion-handoff-export','joyspace-docs','design-md-to-portal','zero-to-joyspace','ruler-annotation','jd-field-ppt-skill','zero-md-to-page'],
+        '知识沉淀与设计系统化': ['knowledge-update','case-register','knowledge-preview','design-reasoning-input','zero-id-to-md','register-experiment','relay-to-design-md','component-properties-admission','design-md-to-spec-page','relay-to-component-pipeline','zero-spec-to-md','relay-spec-longpage'],
+        '收尾、复盘与治理': ['git-workflow','design-cleanup','design-abtest-analysis','dwiki']
+      }
+    };
+
+    const LEGACY_GROUPS = {
+      pre: {
+        '平台原子能力': ['$memory.search','$memory.personal','$memory.project','$memory.team','$brief.create','$research.request','$system.info']
+      },
+      during: { '平台原子能力': ['$data.query','$risk.review'] },
+      post: { '平台原子能力': ['$note.save','$memory.propose'] }
+    };
+
+    const DISPLAY = {
+      'design-advisor':'设计知识顾问','welcome':'能力导览','search':'查询历史案例','query-experiment-conclusions':'查询实验结论','competitive-analysis':'竞品分析',
+      'jd-app-journey-map':'生成京东旅程图','feedback-insight':'用户反馈洞察','journey-map':'用户旅程分析','structure-interview-transcript':'整理访谈逐字稿','code-open-feedback':'开放反馈编码','analyze-satisfaction':'满意度分析','generate-persona':'生成人物角色','research-screenshot-analyzer':'研究截图分析','generate-survey':'生成问卷','industry-market-analysis':'行业市场分析','generate-interview-guide':'生成访谈提纲','synthesize-qualitative-insights':'综合定性洞察',
+      'prd-feasibility':'PRD 可行性分析','conversion-funnel-analysis':'转化漏斗分析','jobs-to-be-done':'定义用户 Job','issue-prioritization':'问题优先级排序','feature-adoption-analysis':'功能采纳分析','prd-design-brief':'生成设计 Brief','build-experience-metrics':'建立体验指标','generate-research-plan':'生成调研方案','generate-usability-test':'生成可用性测试',
+      'field-design-build':'场域设计执行','relay-theme-replace':'生成主题页面','qiangdan-hall-generator':'生成抢单大厅场景','popup-design-skill':'生成半弹层组件','filter-tabs-design-skill':'生成筛选项组件','nested-structure-generation-skill':'生成父子嵌套 Tab','navbar-generation':'生成 Navbar','mega-subsidy-design-skill':'生成百亿补贴组件','relay-demo-from-md':'生成 Relay 演示页','prototype-generation':'生成高保真原型','livestream-cover-generator':'生成直播间封面','lieflat-charts':'生成数据图表',
+      'instance-manage':'管理实例标签','instance-suggest':'生成实例命名建议','zero-banner-update':'批量更新 Banner','relay-component-set-architect':'封装组件集','design-md-to-relay':'从规范生成设计稿','relay-component-variant-generator':'生成组件变体',
+      'usability-review':'设计稿可用性审阅','zero-superbrand-banner-audit':'超品通栏审核','prelaunch-usability-review':'上线前可用性评审','run-heuristic-evaluation':'启发式评估','AI Decision Lab':'AI 多视角评审','accessibility-review':'无障碍评审','design-review':'设计规范评审','plugin-api-key-ai':'插件接入 AI','senior-adaptation-tool':'适老化适配',
+      'leader-report':'生成领导汇报页','coding-repo-sync':'同步 Coding 仓库','motion-handoff-export':'导出动效交付','joyspace-docs':'发布 JoySpace 文档','design-md-to-portal':'发布设计系统总站','zero-to-joyspace':'设计稿转 JoySpace','ruler-annotation':'生成设计标注','jd-field-ppt-skill':'生成京东场域 PPT','zero-md-to-page':'规范转组件库页面',
+      'knowledge-update':'更新知识库','case-register':'登记历史案例','knowledge-preview':'预览知识库','design-reasoning-input':'录入设计推理','zero-id-to-md':'组件知识化','register-experiment':'登记实验结论','relay-to-design-md':'设计稿转 design.md','component-properties-admission':'组件属性准入','design-md-to-spec-page':'生成规范页','relay-to-component-pipeline':'业务组件全流程','zero-spec-to-md':'设计规范转 Markdown','relay-spec-longpage':'生成规范长图','git-workflow':'Git 工作流','design-cleanup':'设计稿交付清理','design-abtest-analysis':'设计 A/B 分析','dwiki':'Design Wiki 工作流',
+      '$memory.search':'查询全部记忆','$memory.personal':'查询个人记忆','$memory.project':'查询项目记忆','$memory.team':'查询团队记忆','$brief.create':'生成 Brief','$research.request':'请求外部资料','$system.info':'系统信息','$data.query':'查询数据指标','$risk.review':'风险检查','$note.save':'保存私有笔记','$memory.propose':'创建知识候选'
+    };
+
+    const GROUP_COPY = {
+      '历史信息与外部环境':'检索历史案例、实验与竞品信息，为当前设计建立可靠背景。',
+      '用户研究与洞察获取':'从访谈、问卷、反馈和行为材料中提炼用户洞察。',
+      '问题诊断与优先级':'识别真正的问题、影响范围和下一步优先顺序。',
+      '项目规划与研究设计':'把需求转成 Brief、指标、研究计划和验证方案。',
+      '页面、视觉与原型生成':'生成可讨论的页面、组件、图表和高保真原型。',
+      '组件与结构操作':'操作组件实例、变体、结构与设计系统资产。',
+      '设计评审与质量控制':'进行可用性、无障碍、规范和多视角评审。',
+      '技术适配与能力扩展':'完成插件能力接入和特殊人群适配。',
+      '汇报、交付与发布':'将设计结果转成交付物、汇报、文档或外部发布。',
+      '知识沉淀与设计系统化':'把项目结果转成可复用案例、规范、组件和知识。',
+      '收尾、复盘与治理':'完成清理、实验复盘、版本保存和 Wiki 治理。',
+      '平台原子能力':'供上层工作流内部编排的 Memory、Data、Risk 与 System 能力。'
+    };
+
+    const HIGH_RISK = new Set(['coding-repo-sync','joyspace-docs','design-md-to-portal','zero-to-joyspace','design-md-to-relay','zero-banner-update','relay-theme-replace','register-experiment','knowledge-update','case-register','git-workflow','relay-component-variant-generator','relay-component-set-architect']);
+    const REVIEW_SKILLS = new Set(['usability-review','zero-superbrand-banner-audit','prelaunch-usability-review','run-heuristic-evaluation','AI Decision Lab','accessibility-review','design-review','$risk.review']);
+    const LEGACY_DESCRIPTIONS = {
+      '$memory.search':'检索个人、项目和团队记忆中的历史经验。','$memory.personal':'只读取当前用户的私有记忆。','$memory.project':'检索当前项目的可见经验。','$memory.team':'检索团队已采纳的共享知识。','$brief.create':'基于当前上下文和来源生成 Brief 草稿。','$research.request':'请求外部资料补充竞品和项目参考。','$system.info':'查看当前模型、Runtime 和系统配置。','$data.query':'查询点击率、转化率等项目指标。','$risk.review':'检查授权、合规与提示词注入风险。','$note.save':'保存到个人私有短期记忆。','$memory.propose':'创建团队知识候选，等待审核。'
+    };
+
+    const SCENARIOS = {
+      brief: { title:'刚收到一份 PRD', desc:'先理解需求、查历史，再形成设计 Brief', stage:'pre', recommendations:['prd-design-brief','query-experiment-conclusions','competitive-analysis'], reason:'检测到 PRD 输入，优先推荐“需求理解、历史证据、设计定义”能力。' },
+      design: { title:'方案设计进行中', desc:'需要产出原型并做多视角评审', stage:'during', recommendations:['prototype-generation','AI Decision Lab','accessibility-review'], reason:'当前项目处于方案阶段，优先推荐“生成、评审、无障碍”能力。' },
+      delivery: { title:'准备评审与交付', desc:'清理设计稿、补交付物并沉淀知识', stage:'post', recommendations:['design-cleanup','motion-handoff-export','relay-to-design-md'], reason:'检测到交付状态，优先推荐“清理、交付、知识沉淀”能力。' }
+    };
+
+    function buildSkills() {
+      const items = [];
+      for (const [stage, groups] of Object.entries(WIKI_GROUPS)) {
+        for (const [group, names] of Object.entries(groups)) {
+          for (const name of names) items.push(makeSkill(name, stage, group, 'wiki'));
+        }
+      }
+      for (const [stage, groups] of Object.entries(LEGACY_GROUPS)) {
+        for (const [group, names] of Object.entries(groups)) {
+          for (const name of names) items.push(makeSkill(name, stage, group, 'legacy'));
+        }
+      }
+      return items;
+    }
+
+    function makeSkill(name, stage, group, source) {
+      const risk = HIGH_RISK.has(name) ? 'external-write' : REVIEW_SKILLS.has(name) ? 'read-only' : source === 'legacy' ? 'platform' : 'draft';
+      const type = group === '平台原子能力' ? 'platform' : group.includes('评审') ? 'review' : group.includes('交付') ? 'delivery' : group.includes('生成') ? 'generation' : group.includes('研究') || group.includes('洞察') ? 'research' : group.includes('知识') ? 'knowledge' : 'analysis';
+      return {
+        id: name, name, title: DISPLAY[name] || name.replaceAll('-', ' '), stage, group, source, risk, type,
+        description: LEGACY_DESCRIPTIONS[name] || GROUP_COPY[group],
+        inputs: source === 'legacy' ? '当前会话上下文' : stage === 'pre' ? '需求、研究材料或历史数据' : stage === 'during' ? '设计稿、原型或组件规范' : '设计结果、实验或交付材料',
+        outputs: group.includes('评审') ? '结构化评审结论' : group.includes('知识') ? '可检索知识资产' : group.includes('交付') ? '可分享交付物' : group.includes('生成') ? '可编辑设计草稿' : '分析与建议'
+      };
+    }
+
+    const skills = buildSkills();
+    const state = {
+      scenario: 'brief', stage: 'pre', query: '', advanced: false,
+      favorites: new Set(['competitive-analysis','design-review']),
+      recent: ['prd-feasibility','generate-research-plan','design-cleanup'],
+      expanded: new Set(), selected: null, paletteQuery: ''
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const stageOf = (id) => skills.find(s => s.id === id)?.stage;
+    const getSkill = (id) => skills.find(s => s.id === id);
+    const stageCount = (stage, includeLegacy = true) => skills.filter(s => (stage === 'all' || s.stage === stage) && (includeLegacy || s.source !== 'legacy')).length;
+
+    function render() {
+      renderScenarios();
+      renderSegments();
+      renderSummary();
+      renderRecommendations();
+      renderRecent();
+      renderGroups();
+      $('advancedToggle').classList.toggle('active', state.advanced);
+      $('advancedToggle').setAttribute('aria-pressed', String(state.advanced));
+      const shown = filteredSkills().length;
+      $('stateSummary').textContent = `${STAGES[state.stage].label} · ${state.advanced ? '高级' : '推荐'}模式 · 当前可见 ${shown} 个`;
+    }
+
+    function renderScenarios() {
+      $('scenarioList').innerHTML = Object.entries(SCENARIOS).map(([key,s]) => `
+        <button class="scenario ${state.scenario === key ? 'active' : ''}" data-scenario="${key}">
+          <strong>${s.title}</strong><span>${s.desc}</span>
+        </button>`).join('');
+      $('scenarioList').querySelectorAll('[data-scenario]').forEach(btn => btn.onclick = () => {
+        state.scenario = btn.dataset.scenario;
+        state.stage = SCENARIOS[state.scenario].stage;
+        state.query = '';
+        $('searchInput').value = '';
+        render();
+        toast(`已切换到：${SCENARIOS[state.scenario].title}`);
+      });
+    }
+
+    function renderSegments() {
+      $('stageSegments').innerHTML = Object.entries(STAGES).map(([key,s]) => `<button class="${state.stage === key ? 'active' : ''}" data-stage="${key}">${s.label} <small>${stageCount(key, state.advanced)}</small></button>`).join('');
+      $('stageSegments').querySelectorAll('[data-stage]').forEach(btn => btn.onclick = () => { state.stage = btn.dataset.stage; render(); });
+    }
+
+    function renderSummary() {
+      const wikiVisible = skills.filter(s => s.source === 'wiki' && (state.stage === 'all' || s.stage === state.stage)).length;
+      const legacyVisible = skills.filter(s => s.source === 'legacy' && (state.stage === 'all' || s.stage === state.stage)).length;
+      $('summaryStrip').innerHTML = `
+        <span class="pill"><b>89</b> 个能力</span>
+        <span class="pill"><b>78</b> 个领域 Skill</span>
+        <span class="pill"><b>11</b> 个平台原子能力</span>
+        <span class="pill">当前阶段：<b>${wikiVisible}</b> 个 Wiki${state.advanced ? ` + <b>${legacyVisible}</b> 个 Legacy` : ''}</span>
+        ${!state.advanced ? '<span>Legacy 能力默认隐藏，由工作流在后台编排</span>' : '<span>高级模式已显示全部底层能力</span>'}`;
+    }
+
+    function renderRecommendations() {
+      const scenario = SCENARIOS[state.scenario];
+      const ids = scenario.recommendations.filter(id => !state.query || matches(getSkill(id), state.query));
+      $('recommendReason').textContent = scenario.reason;
+      $('recommendSection').hidden = Boolean(state.query);
+      $('recommendCards').innerHTML = ids.map(id => card(getSkill(id), true)).join('');
+      wireSkillCards($('recommendCards'));
+    }
+
+    function renderRecent() {
+      const ids = [...new Set([...state.favorites, ...state.recent])].filter(id => {
+        const s = getSkill(id); return s && (state.advanced || s.source !== 'legacy');
+      }).slice(0,6);
+      $('recentList').innerHTML = ids.map(id => compact(getSkill(id))).join('');
+      wireSkillCards($('recentList'));
+    }
+
+    function filteredSkills() {
+      const q = state.query.trim().toLowerCase();
+      return skills.filter(s => (state.stage === 'all' || s.stage === state.stage) && (state.advanced || s.source !== 'legacy') && (!q || matches(s,q)));
+    }
+
+    function matches(s,q) {
+      if (!s) return false;
+      return [s.title,s.name,s.group,s.type].join(' ').toLowerCase().includes(q.toLowerCase());
+    }
+
+    function renderGroups() {
+      const visible = filteredSkills();
+      const grouped = new Map();
+      for (const skill of visible) {
+        const key = state.stage === 'all' ? `${STAGES[skill.stage].label} · ${skill.group}` : skill.group;
+        if (!grouped.has(key)) grouped.set(key,[]);
+        grouped.get(key).push(skill);
+      }
+      $('emptyState').hidden = visible.length > 0;
+      $('groupStack').innerHTML = [...grouped.entries()].map(([group,items]) => {
+        const expanded = state.expanded.has(group) || Boolean(state.query);
+        const shown = expanded ? items : items.slice(0,3);
+        return `<div class="group">
+          <div class="group-head"><div><h3>${group}</h3><p>${GROUP_COPY[group.split(' · ').pop()] || '按当前设计任务组织的能力。'}</p></div>
+          ${items.length > 3 && !state.query ? `<button data-expand="${escapeHtml(group)}">${expanded ? '收起' : `查看全部 ${items.length}`}</button>` : ''}</div>
+          <div class="compact-list">${shown.map(compact).join('')}</div>
+        </div>`;
+      }).join('');
+      $('groupStack').querySelectorAll('[data-expand]').forEach(btn => btn.onclick = () => {
+        const key = btn.dataset.expand;
+        state.expanded.has(key) ? state.expanded.delete(key) : state.expanded.add(key);
+        renderGroups();
+      });
+      wireSkillCards($('groupStack'));
+    }
+
+    function card(skill,recommended=false) {
+      const risk = riskTag(skill);
+      return `<button class="skill-card ${recommended ? 'recommended' : ''}" data-skill="${skill.id}">
+        <div class="card-head"><div style="min-width:0"><h3>${skill.title}</h3><div class="tech-name">${skill.name}</div></div><span class="tag ${skill.source === 'legacy' ? 'amber' : 'mint'}">${skill.source === 'legacy' ? '原子能力' : '领域 Skill'}</span></div>
+        <p>${skill.description}</p>
+        <div class="card-foot"><span>${STAGES[skill.stage].label} · ${skill.group}</span>${risk}</div>
+      </button>`;
+    }
+
+    function compact(skill) {
+      return `<button class="compact-skill" data-skill="${skill.id}"><strong>${skill.title}</strong><span>${skill.name} · ${riskText(skill.risk)}</span></button>`;
+    }
+
+    function riskTag(skill) {
+      if (skill.risk === 'external-write') return '<span class="tag amber">需要审批</span>';
+      if (skill.risk === 'read-only') return '<span class="tag mint">只读</span>';
+      if (skill.risk === 'platform') return '<span class="tag">后台编排</span>';
+      return '<span class="tag">生成草稿</span>';
+    }
+    function riskText(risk) { return ({'external-write':'外部写入','read-only':'只读评审','platform':'平台原子','draft':'生成草稿'})[risk]; }
+
+    function wireSkillCards(root) {
+      root.querySelectorAll('[data-skill]').forEach(btn => btn.onclick = () => openSkill(btn.dataset.skill));
+    }
+
+    function openSkill(id) {
+      const skill = getSkill(id); if (!skill) return;
+      state.selected = id;
+      const favorite = state.favorites.has(id);
+      $('drawerContent').innerHTML = `
+        <div class="stage">${STAGES[skill.stage].label.toUpperCase()} · ${skill.group}</div>
+        <h2 id="drawerTitle">${skill.title}</h2>
+        <div class="command">${skill.source === 'legacy' ? skill.name : '$' + skill.name}</div>
+        <p class="long-desc">${skill.description}</p>
+        <div class="detail-grid">
+          <div class="detail"><span>能力类型</span><strong>${skill.type}</strong></div>
+          <div class="detail"><span>来源</span><strong>${skill.source === 'legacy' ? 'AgentMesh 平台能力' : '2C Design Wiki'}</strong></div>
+          <div class="detail"><span>主要输入</span><strong>${skill.inputs}</strong></div>
+          <div class="detail"><span>主要产出</span><strong>${skill.outputs}</strong></div>
+          <div class="detail"><span>操作风险</span><strong>${riskText(skill.risk)}</strong></div>
+          <div class="detail"><span>调用方式</span><strong>${skill.source === 'legacy' ? '由上层 Skill 编排' : '显式选择或上下文推荐'}</strong></div>
+        </div>
+        <div class="execution"><h3>执行前预览</h3><ul>
+          <li>读取：${skill.inputs}</li><li>生成：${skill.outputs}</li>
+          <li>${skill.risk === 'external-write' ? '涉及外部写入，执行前需要逐调用审批。' : '不会自动发布或修改外部系统。'}</li>
+        </ul></div>
+        <div class="button-row"><button class="primary ${skill.risk === 'external-write' ? 'danger' : ''}" id="runSkill">${skill.risk === 'external-write' ? '申请审批并执行' : '用此 Skill 开始'}</button><button class="secondary" id="favoriteSkill">${favorite ? '取消收藏' : '收藏'}</button></div>`;
+      $('drawerBackdrop').hidden = false; $('skillDrawer').hidden = false; $('drawerClose').focus();
+      $('favoriteSkill').onclick = () => { state.favorites.has(id) ? state.favorites.delete(id) : state.favorites.add(id); openSkill(id); renderRecent(); };
+      $('runSkill').onclick = () => {
+        if (skill.risk === 'external-write') toast(`已创建审批请求：${skill.title}（互动演示，不会真实写入）`);
+        else toast(`已创建任务：${skill.title}（互动演示）`);
+        state.recent = [id,...state.recent.filter(x => x !== id)]; renderRecent();
+      };
+    }
+
+    function closeSkill() { $('drawerBackdrop').hidden = true; $('skillDrawer').hidden = true; state.selected = null; }
+
+    function openPalette() {
+      $('paletteBackdrop').hidden = false; $('palette').hidden = false; state.paletteQuery = '';
+      $('paletteInput').value = ''; renderPalette(); setTimeout(() => $('paletteInput').focus(),0);
+    }
+    function closePalette() { $('paletteBackdrop').hidden = true; $('palette').hidden = true; }
+    function renderPalette() {
+      const q = state.paletteQuery.toLowerCase();
+      const list = skills.filter(s => !q || matches(s,q)).slice(0,89);
+      $('paletteList').innerHTML = list.map(s => `<button class="palette-item" data-palette-skill="${s.id}"><div><strong>${s.title}</strong><span>${s.source === 'legacy' ? s.name : '$'+s.name}</span></div><em>${STAGES[s.stage].label} · ${riskText(s.risk)}</em></button>`).join('');
+      $('paletteList').querySelectorAll('[data-palette-skill]').forEach(btn => btn.onclick = () => { closePalette(); openSkill(btn.dataset.paletteSkill); });
+    }
+
+    let toastTimer;
+    function toast(message) { clearTimeout(toastTimer); $('toast').textContent = message; $('toast').hidden = false; toastTimer = setTimeout(() => $('toast').hidden = true, 2600); }
+    function escapeHtml(value) { return value.replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;'); }
+
+    $('searchInput').addEventListener('input', e => { state.query = e.target.value; render(); });
+    $('advancedToggle').onclick = () => { state.advanced = !state.advanced; render(); toast(state.advanced ? '高级模式：已显示 11 个 Legacy 原子能力' : '推荐模式：Legacy 能力已隐藏'); };
+    $('paletteTrigger').onclick = openPalette;
+    $('paletteInput').addEventListener('input', e => { state.paletteQuery = e.target.value; renderPalette(); });
+    $('paletteBackdrop').onclick = closePalette;
+    $('drawerBackdrop').onclick = closeSkill;
+    $('drawerClose').onclick = closeSkill;
+    document.addEventListener('keydown', e => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+      if (e.key === 'Escape') { if (!$('palette').hidden) closePalette(); else if (!$('skillDrawer').hidden) closeSkill(); }
+    });
+
+    const wikiCount = skills.filter(s => s.source === 'wiki').length;
+    const legacyCount = skills.filter(s => s.source === 'legacy').length;
+    if (wikiCount !== 78 || legacyCount !== 11 || new Set(skills.map(s => s.id)).size !== 89) {
+      console.error('Skill 数据校验失败', {wikiCount,legacyCount,total:skills.length});
+    }
+    render();
+  </script>
+</body>
+</html>
