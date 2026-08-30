@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import re
@@ -53,18 +54,39 @@ _GITHUB_HANDLE = re.compile(r"^@[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?$")
 _EXPECTED_REPOSITORY = "yssssssssssss/ai-agentmesh-hackathon"
 
 
-def _codeowner_handles(path: Path) -> set[str]:
+def _codeowner_entries(path: Path) -> list[tuple[str, frozenset[str]]]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return set()
-    return {
-        token
-        for line in lines
-        if line.strip() and not line.lstrip().startswith("#")
-        for token in line.split()[1:]
-        if _GITHUB_HANDLE.fullmatch(token)
-    }
+        return []
+    entries: list[tuple[str, frozenset[str]]] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        fields = stripped.split()
+        handles = frozenset(
+            token for token in fields[1:] if _GITHUB_HANDLE.fullmatch(token)
+        )
+        if len(fields) >= 2 and handles:
+            entries.append((fields[0], handles))
+    return entries
+
+
+def _codeowners_for_path(
+    entries: list[tuple[str, frozenset[str]]],
+    repository_path: str,
+) -> frozenset[str]:
+    matched = frozenset()
+    for raw_pattern, handles in entries:
+        pattern = raw_pattern.lstrip("/")
+        if (
+            pattern == "*"
+            or (pattern.endswith("/") and repository_path.startswith(pattern))
+            or fnmatch.fnmatchcase(repository_path, pattern)
+        ):
+            matched = handles
+    return matched
 
 
 def _provenance_blockers(
@@ -88,13 +110,15 @@ def _provenance_blockers(
         or set(entries) != expected_names
     ):
         return ["profile_provenance_v2_invalid"]
-    codeowners = _codeowner_handles(codeowners_path)
+    codeowner_entries = _codeowner_entries(codeowners_path)
     blockers: list[str] = []
     for name, loaded in profile_records:
         entry = entries[name]
         profile = loaded.profile
         sidecar = catalog_root / name / "agents" / "agentmesh.yaml"
         expected_path = sidecar.relative_to(catalog_root.parent).as_posix()
+        repository_path = f"agentmesh/{expected_path}"
+        codeowners = _codeowners_for_path(codeowner_entries, repository_path)
         enhanced = bool(
             profile.required_tools
             or profile.risk_level == "high"
