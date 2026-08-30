@@ -255,7 +255,7 @@ def test_catalog_report_separates_draft_coverage_from_release_eligibility() -> N
     assert payload["release_gate_eligible"] is False
     assert release.returncode == 1
     assert "profiles_not_approved:0/84" in release_payload["release_blockers"]
-    assert "codeowners_missing" in release_payload["release_blockers"]
+    assert "codeowners_missing" not in release_payload["release_blockers"]
     assert "profile_provenance_v2_missing" in release_payload["release_blockers"]
 
 
