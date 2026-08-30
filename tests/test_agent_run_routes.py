@@ -10,12 +10,14 @@ import pytest
 from agents.testing import ScriptedModel, assistant_message
 from fastapi.testclient import TestClient
 
+import agentmesh.routes.agent_runs as agent_run_routes
 import agentmesh.routes.chat as chat_routes
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.app import app
 from agentmesh.artifacts import V1VerifiedArtifactStore
-from agentmesh.canonical_json import canonical_json_bytes
+from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.models import (
+    AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRun,
     AgentRunStatus,
@@ -23,6 +25,7 @@ from agentmesh.models import (
     ArtifactVerificationState,
     ChatThread,
     DeepSearchBudgetV1,
+    RuntimeToolCallClaimV1,
     SkillOrchestrationRequestMode,
 )
 from agentmesh.routes.deps import current_user
@@ -106,6 +109,61 @@ def test_agent_run_create_is_idempotent_by_client_turn(monkeypatch) -> None:
     thread_id = first.json()["item"]["thread_id"]
     matching = [message for message in store.list_thread_messages(thread_id) if message.content == payload["content"]]
     assert len(matching) == 1
+
+
+def test_marker_bearing_create_replay_uses_the_frozen_contract_identity(monkeypatch) -> None:
+    thread = store.save_chat_thread(
+        ChatThread(
+            id="thread_marker_create_replay",
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            user_id=USER.id,
+            title="Marker replay",
+        )
+    )
+    prior, created = store.claim_new_agent_run(
+        AgentRun(
+            id="run_marker_create_replay",
+            thread_id=thread.id,
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="same marker-aware request",
+            client_turn_id="turn_marker_create_replay",
+            status=AgentRunStatus.FAILED,
+            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            orchestration_mode="preview",
+            planning_contract_version=AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+        )
+    )
+    assert created is True
+
+    class ForbiddenRuntime:
+        enabled = True
+
+        def __getattribute__(self, name):  # noqa: ANN001, ANN204
+            if name != "enabled":
+                raise AssertionError("marker-aware replay must not dispatch any Runtime")
+            return super().__getattribute__(name)
+
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", ForbiddenRuntime())
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "off")
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    response = client.post(
+        "/api/agent/runs",
+        json={
+            "content": prior.input_text,
+            "client_turn_id": prior.client_turn_id,
+            "thread_id": prior.thread_id,
+            "orchestration_mode": "auto",
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["item"]["id"] == prior.id
+    assert response.json()["item"]["planning_contract_version"] == "standard_universal_v1"
 
 
 def test_agent_run_idempotency_compares_the_requested_orchestration_mode(monkeypatch) -> None:
@@ -303,6 +361,126 @@ def test_existing_v2_client_turn_replay_precedes_live_routing(
     assert response.json()["item"]["orchestration_version"] == "research-v2"
 
 
+def test_retry_replay_uses_the_existing_retry_contract_identity(monkeypatch) -> None:
+    source = store.save_agent_run(
+        AgentRun(
+            id="run_marker_retry_source",
+            thread_id="thread_marker_retry_replay",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="retry marker-aware request",
+            client_turn_id="turn_marker_retry_source",
+            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            orchestration_mode="preview",
+            status=AgentRunStatus.FAILED,
+        )
+    )
+    existing_retry, created = store.claim_new_agent_run(
+        AgentRun(
+            id="run_marker_retry_existing",
+            thread_id=source.thread_id,
+            user_id=source.user_id,
+            workspace_id=source.workspace_id,
+            project_id=source.project_id,
+            input_text=source.input_text,
+            client_turn_id="turn_marker_retry_existing",
+            retry_of_run_id=source.id,
+            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            orchestration_mode="preview",
+            status=AgentRunStatus.FAILED,
+            planning_contract_version=AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+        )
+    )
+    assert created is True
+
+    class ForbiddenRuntime:
+        enabled = True
+
+        def __getattribute__(self, name):  # noqa: ANN001, ANN204
+            if name != "enabled":
+                raise AssertionError("retry replay must not dispatch any Runtime")
+            return super().__getattribute__(name)
+
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", ForbiddenRuntime())
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    response = client.post(
+        f"/api/agent/runs/{source.id}/retry",
+        json={"client_turn_id": existing_retry.client_turn_id},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["item"]["id"] == existing_retry.id
+    assert response.json()["item"]["planning_contract_version"] == "standard_universal_v1"
+
+
+def test_retry_rejects_any_source_run_with_a_non_read_tool_claim(monkeypatch) -> None:
+    prior = store.save_agent_run(
+        AgentRun(
+            id="run_retry_unknown_tool_outcome",
+            thread_id="thread_retry_unknown_tool_outcome",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="write externally",
+            client_turn_id="turn_retry_unknown_tool_outcome_original",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    claim_body = {
+        "run_id": prior.id,
+        "call_id": "call_unknown_write",
+        "tool_definition_id": "tool_external_write",
+        "arguments_hash": "d" * 64,
+    }
+    store.claim_runtime_tool_call(
+        RuntimeToolCallClaimV1(
+            call_id="call_unknown_write",
+            run_id=prior.id,
+            tool_definition_id="tool_external_write",
+            tool_name="external_write",
+            implementation_id="provider.external_write",
+            implementation_version="1",
+            side_effect="external",
+            operation_identity=canonical_json_sha256(claim_body),
+        )
+    )
+    store.save_agent_run(
+        prior.model_copy(
+            update={
+                "status": AgentRunStatus.FAILED,
+                "error_code": "provider_failed",
+            }
+        )
+    )
+
+    class RuntimeTrap:
+        enabled = True
+        calls = 0
+
+        def __getattribute__(self, name):  # noqa: ANN001, ANN204
+            if name not in {"enabled", "calls"}:
+                object.__setattr__(self, "calls", object.__getattribute__(self, "calls") + 1)
+                raise AssertionError("retry must stop before Runtime dispatch")
+            return object.__getattribute__(self, name)
+
+    runtime = RuntimeTrap()
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", runtime)
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    response = client.post(
+        f"/api/agent/runs/{prior.id}/retry",
+        json={"client_turn_id": "turn_retry_unknown_tool_outcome_new"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "external_outcome_unknown"
+    assert runtime.calls == 0
+
+
 def test_no_plan_retry_preserves_auto_orchestration(monkeypatch) -> None:
     prior = store.save_agent_run(
         AgentRun(
@@ -396,6 +574,19 @@ def test_single_skill_retry_fails_closed_when_original_skill_is_unavailable(monk
 
     assert response.status_code == 409
     assert response.json()["detail"] == "The original Skill is no longer ready or authorized"
+
+
+def test_sse_capacity_is_bounded_by_process_user_and_run() -> None:
+    capacity = agent_run_routes._SSECapacity(global_limit=2, user_limit=1, run_limit=1)
+
+    assert capacity.acquire(user_id="user_a", run_id="run_a") is True
+    assert capacity.acquire(user_id="user_a", run_id="run_b") is False
+    assert capacity.acquire(user_id="user_b", run_id="run_a") is False
+    assert capacity.acquire(user_id="user_b", run_id="run_b") is True
+    assert capacity.acquire(user_id="user_c", run_id="run_c") is False
+
+    capacity.release(user_id="user_a", run_id="run_a")
+    assert capacity.acquire(user_id="user_c", run_id="run_c") is True
 
 
 def test_agent_run_events_and_artifact_are_owner_scoped() -> None:

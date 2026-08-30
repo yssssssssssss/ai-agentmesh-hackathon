@@ -9,15 +9,19 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from agentmesh.harness.skill_packages import SkillPackageError, SkillPackageService
 from agentmesh.models import (
+    AgentPlanningContractVersion,
+    AgentPlanningMode,
     ItemsResponse,
     SkillBinding,
     SkillBindingUpdateRequest,
+    SkillCandidate,
     SkillCatalogItem,
     SkillCatalogItemResponse,
     SkillCatalogResponse,
     SkillMatchItem,
     SkillMatchRequest,
     SkillMatchResponse,
+    SkillRecommendationCandidateView,
     SkillRecommendationRequest,
     SkillRecommendationResponse,
     User,
@@ -26,10 +30,13 @@ from agentmesh.models import (
 from agentmesh.permissions import ensure_admin
 from agentmesh.routes.deps import create_audit_event, current_user, require_default_project
 from agentmesh.skill_runtime.planner import SkillIntentAnalyzer
-from agentmesh.skill_runtime.recommendation import recommend_skill_directory
+from agentmesh.skill_runtime.profiles import skill_capability_card
+from agentmesh.skill_runtime.recommendation import UniversalSkillSearchService, recommend_skill_directory
 from agentmesh.skill_runtime.retrieval import SkillCandidateRetriever
 from agentmesh.skill_runtime.service import catalog_service
+from agentmesh.skill_runtime.trust import runtime_profile_trust_verifier
 from agentmesh.store import store
+from agentmesh.task_routing.catalog import load_universal_task_catalog
 from agentmesh.task_routing.contracts import TaskRoutingPreviewRequest, TaskRoutingPreviewResponse
 from agentmesh.task_routing.router import TaskScenarioRouter
 
@@ -40,6 +47,26 @@ _package_service = SkillPackageService(
 )
 _intent_analyzer = SkillIntentAnalyzer()
 _task_router = TaskScenarioRouter()
+
+
+def _public_candidate(candidate: SkillCandidate) -> SkillRecommendationCandidateView:
+    skill = store.get_skill_definition(candidate.skill_id)
+    if skill is None:
+        raise RuntimeError("recommended_skill_missing")
+    return SkillRecommendationCandidateView(
+        skill_id=candidate.skill_id,
+        skill_name=candidate.skill_name,
+        title=candidate.title,
+        description=candidate.description,
+        capability_card=skill_capability_card(skill, candidate.profile),
+        score=candidate.score,
+        reason=candidate.reason,
+        match_reason_codes=candidate.match_reason_codes,
+        ready=candidate.ready,
+        diagnostics=candidate.diagnostics,
+        coverage_witness_scenario_id=candidate.coverage_witness_scenario_id,
+        covered_requirement_ids=candidate.covered_requirement_ids,
+    )
 
 
 @router.get("", response_model=SkillCatalogResponse)
@@ -139,14 +166,56 @@ def preview_task_routing(
             or thread.project_id != user.default_project_id
         ):
             raise HTTPException(status_code=404, detail="Chat thread not found")
-        thread_summary = "\n".join(message.content[:500] for message in store.list_thread_messages(thread.id)[-6:])
+        thread_summary = "\n".join(
+            message.content[:500]
+            for message in store.list_recent_thread_messages(thread.id)
+        )
     routing_result, diagnostics = _task_router.route(
         request.content,
         project_summary=project.goal,
         thread_summary=thread_summary,
     )
+    from agentmesh.routes.chat import agent
+
+    runtime = agent.agent_runtime
+    planning_mode = AgentPlanningMode(request.planning_mode)
+    selector = getattr(runtime, "planning_contract_for", None)
+    contract = (
+        selector(planning_mode=planning_mode, planned=True)
+        if callable(selector)
+        else AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V1
+        if planning_mode is AgentPlanningMode.DEEPSEARCH
+        else AgentPlanningContractVersion.STANDARD_LEGACY_V1
+    )
+    if contract in {
+        AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+        AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2,
+    }:
+        universal_catalog = load_universal_task_catalog()
+        routing_result = routing_result.model_copy(
+            update={
+                "catalog_version": universal_catalog.manifest.catalog_version,
+                "catalog_hash": universal_catalog.manifest.catalog_hash,
+            },
+            deep=True,
+        )
+    execution_selector = getattr(runtime, "execution_contract_for", None)
+    execution_contract = (
+        execution_selector(contract)
+        if callable(execution_selector)
+        else None
+    )
     require_default_project(user, store)
-    return TaskRoutingPreviewResponse(routing_result=routing_result, diagnostics=diagnostics)
+    return TaskRoutingPreviewResponse(
+        routing_result=routing_result,
+        planning_contract_version=contract.value,
+        execution_contract_version=(
+            execution_contract.value if execution_contract is not None else None
+        ),
+        catalog_version=routing_result.catalog_version,
+        catalog_hash=routing_result.catalog_hash,
+        diagnostics=diagnostics,
+    )
 
 
 @router.post("/recommendations", response_model=SkillRecommendationResponse)
@@ -167,7 +236,10 @@ async def recommend_skills(
             or thread.project_id != user.default_project_id
         ):
             raise HTTPException(status_code=404, detail="Chat thread not found")
-        thread_summary = "\n".join(message.content[:500] for message in store.list_thread_messages(thread.id)[-6:])
+        thread_summary = "\n".join(
+            message.content[:500]
+            for message in store.list_recent_thread_messages(thread.id)
+        )
     selected = None
     runtime = agent.agent_runtime
     if runtime is not None and runtime.enabled:
@@ -182,11 +254,44 @@ async def recommend_skills(
         thread_summary=thread_summary,
     )
     require_default_project(user, store)
+    verifier = runtime_profile_trust_verifier()
+    if verifier.available:
+        result = UniversalSkillSearchService(
+            store,
+            catalog_service(),
+            profile_trust=verifier,
+        ).search(user, intent)
+        return SkillRecommendationResponse(
+            intent=intent,
+            candidates=[_public_candidate(candidate) for candidate in result.selectable_candidates],
+            blocked_matches=[_public_candidate(candidate) for candidate in result.blocked_matches],
+            retrieval_policy_version=result.retrieval_policy_version,
+            outcome_code=result.outcome_code,
+            searchable_count=result.searchable_count,
+            selectable_count=len(result.selectable_candidates),
+            blocked_match_count=len(result.blocked_matches),
+            required_coverage_atoms=list(result.required_coverage_atoms),
+            required_synthesis_output_ids=list(result.required_synthesis_output_ids),
+            capability_gaps=list(result.capability_gaps),
+            diagnostics=list(dict.fromkeys([*intent_diagnostics, *result.diagnostics])),
+        )
+
     candidates, retrieval_diagnostics = SkillCandidateRetriever(store, catalog_service()).recommend(user, intent)
     return SkillRecommendationResponse(
         intent=intent,
-        candidates=candidates,
-        diagnostics=list(dict.fromkeys([*intent_diagnostics, *retrieval_diagnostics])),
+        candidates=[_public_candidate(candidate) for candidate in candidates],
+        outcome_code="legacy_trust_fallback",
+        selectable_count=len(candidates),
+        blocked_match_count=0,
+        diagnostics=list(
+            dict.fromkeys(
+                [
+                    *intent_diagnostics,
+                    *retrieval_diagnostics,
+                    "skill_profile_trust_unavailable",
+                ]
+            )
+        ),
     )
 
 

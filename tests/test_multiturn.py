@@ -61,6 +61,27 @@ class TestMultiTurnContext:
         assert len(store.list_thread_messages(thread_id)) == 26
         assert len(history) == PersonalAgent.MAX_HISTORY_MESSAGES
 
+    def test_recent_history_uses_sql_limit_and_complete_utf8_message_boundaries(self):
+        clear_store()
+        thread_id = "thread_recent_history_limit"
+        for index in range(8):
+            store.add_chat_message(
+                ChatMessage(
+                    thread_id=thread_id,
+                    role=ChatRole.USER,
+                    content=f"message-{index}-" + ("界" * 20),
+                )
+            )
+
+        recent = store.list_recent_thread_messages(
+            thread_id,
+            limit=6,
+            max_content_bytes=200,
+        )
+
+        assert [message.content.split("-")[1] for message in recent] == ["6", "7"]
+        assert sum(len(message.content.encode("utf-8")) for message in recent) <= 200
+
     def test_history_included_in_llm_prompt(self):
         """验证 _llm_prompt 正确包含历史。"""
         from agentmesh.agents import PersonalAgent

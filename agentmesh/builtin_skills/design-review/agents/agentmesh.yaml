@@ -1,0 +1,48 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 05b261b192db902a1a0f50f637203a543edc1ba7e53b6c292c1502b38f5c7715
+profile_version: '1'
+display_description: 按京东设计系统规范对 Relay 节点或 design.md 做双视角设计走查。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: review
+input_kinds:
+- design_artifact
+- design_standard
+output_kinds:
+- design_review
+- design_findings
+- prioritized_issues
+examples:
+- 按 V16 规范评审这个 Relay 节点
+- 对 design.md 做设计走查
+- 从规范符合度和业务体验两方面审稿
+negative_examples:
+- 生成组件代码
+- 查询用户反馈主题
+required_capabilities: &id001 []
+task_types:
+- design_review
+- design_findings
+- prioritized_issues
+archetypes:
+- review
+required_tools:
+- mcp__zero-design__get_design_metadata
+- mcp__zero-design__get_design_context
+- mcp__zero-design__get_screenshot
+- mcp__zero-design__get_variables
+- Bash
+- Read
+- Write
+- Edit
+required_resources: *id001
+produces_factual_claims: true
+report_policy: default
+cost_level: high
+risk_level: high
+owner: design-quality
+review_state: draft
+side_effect: external_write
+planner_eligible: false

@@ -19,13 +19,18 @@ from agentmesh.models import (
     AgentRunStatus,
     AuditEvent,
     DeepSearchBudgetUsageV1,
+    RuntimeToolCallClaimV1,
+    RuntimeToolCallOutcomeV1,
     SkillCapabilityProfile,
     SkillDefinition,
     SkillResourceManifestV1,
     SkillSourceScope,
     Source,
 )
-from agentmesh.store import SQLiteStore
+from agentmesh.runtime_admission import current_orchestration_admission
+from agentmesh.runtime_capacity import RuntimeCapacityController, current_runtime_capacity
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
+from agentmesh.store import RuntimeToolCallConflict, SQLiteStore
 
 _MAX_RESOURCE_BYTES = 200 * 1024
 _MAX_RESOURCE_BATCH_BYTES = 400 * 1024
@@ -490,7 +495,16 @@ def _settle_deepsearch_resource_read(
     raise last_conflict
 
 
-def build_skill_resource_tool(repository: SQLiteStore, skill: SkillDefinition) -> FunctionTool:
+def build_skill_resource_tool(
+    repository: SQLiteStore,
+    skill: SkillDefinition,
+    *,
+    admission: OrchestrationQuiesceController | None = None,
+    capacity: RuntimeCapacityController | None = None,
+) -> FunctionTool:
+    admission = admission or current_orchestration_admission()
+    capacity = capacity or current_runtime_capacity()
+
     async def invoke(ctx, raw_arguments: str) -> str:  # noqa: ANN001
         if not isinstance(ctx.context, AgentMeshRunContext):
             raise RuntimeError("AgentMesh run context is required")
@@ -501,15 +515,78 @@ def build_skill_resource_tool(repository: SQLiteStore, skill: SkillDefinition) -
         ):
             raise PermissionError("Agent run project access was revoked")
         run = repository.get_agent_run(ctx.context.run_id)
+        raw_call_id = getattr(ctx, "tool_call_id", None)
+        call_ordinal = ctx.context.tool_call_count
+        ctx.context.tool_call_count += 1
+        raw_arguments_hash = hashlib.sha256(raw_arguments.encode("utf-8")).hexdigest()
+        call_id = (
+            raw_call_id
+            if isinstance(raw_call_id, str) and raw_call_id
+            else "resource_call_"
+            + canonical_json_sha256(
+                {
+                    "run_id": ctx.context.run_id,
+                    "plan_id": ctx.context.plan_id,
+                    "node_id": ctx.context.node_id,
+                    "skill_id": skill.id,
+                    "raw_arguments_hash": raw_arguments_hash,
+                    "ordinal": call_ordinal,
+                }
+            )[:24]
+        )
+        claim = RuntimeToolCallClaimV1(
+            call_id=call_id,
+            run_id=ctx.context.run_id,
+            plan_id=ctx.context.plan_id,
+            node_id=ctx.context.node_id,
+            tool_definition_id="internal:read_skill_resource",
+            tool_name="read_skill_resource",
+            implementation_id="agentmesh.skill_runtime.resources.read_skill_resource",
+            implementation_version="1",
+            side_effect="read",
+            operation_identity=canonical_json_sha256(
+                {
+                    "run_id": ctx.context.run_id,
+                    "plan_id": ctx.context.plan_id,
+                    "node_id": ctx.context.node_id,
+                    "call_id": call_id,
+                    "skill_id": skill.id,
+                    "raw_arguments_hash": raw_arguments_hash,
+                }
+            ),
+        )
         invocation_key: str | None = None
-        if run is not None and run.planning_mode is AgentPlanningMode.DEEPSEARCH:
-            invocation_key = _reserve_deepsearch_resource_read(
-                repository,
-                context=ctx.context,
-                skill=skill,
-                tool_call_id=getattr(ctx, "tool_call_id", None),
-            )
-
+        await capacity.acquire_tool()
+        try:
+            if not repository.user_can_execute_agent_run(
+                ctx.context.user_id,
+                ctx.context.run_id,
+                allowed_statuses={AgentRunStatus.RUNNING},
+            ):
+                raise PermissionError("Agent run project access was revoked")
+            with admission.permit():
+                if run is not None and run.planning_mode is AgentPlanningMode.DEEPSEARCH:
+                    invocation_key = _reserve_deepsearch_resource_read(
+                        repository,
+                        context=ctx.context,
+                        skill=skill,
+                        tool_call_id=raw_call_id,
+                    )
+                claimed = repository.claim_runtime_tool_call(claim)
+                if not claimed:
+                    raise RuntimeToolCallConflict("tool_call_already_claimed")
+        except BaseException:
+            try:
+                if invocation_key is not None:
+                    _settle_deepsearch_resource_read(
+                        repository,
+                        run_id=ctx.context.run_id,
+                        invocation_key=invocation_key,
+                        actual_usage=_DEEPSEARCH_RESOURCE_MAXIMA,
+                    )
+            finally:
+                capacity.release_tool()
+            raise
         try:
             started_at = monotonic() if invocation_key is not None else None
             payload = json.loads(raw_arguments)
@@ -596,30 +673,63 @@ def build_skill_resource_tool(repository: SQLiteStore, skill: SkillDefinition) -
             response: dict[str, object] = results[0] if legacy_single else {"resources": results}
             encoded_response = json.dumps(response, ensure_ascii=False, default=str)
         except BaseException as error:
-            if invocation_key is not None:
-                try:
-                    _settle_deepsearch_resource_read(
-                        repository,
+            try:
+                if invocation_key is not None:
+                    try:
+                        _settle_deepsearch_resource_read(
+                            repository,
+                            run_id=ctx.context.run_id,
+                            invocation_key=invocation_key,
+                            actual_usage=_DEEPSEARCH_RESOURCE_MAXIMA,
+                        )
+                    except BaseException as settlement_error:
+                        repository.finish_runtime_tool_call(
+                            RuntimeToolCallOutcomeV1(
+                                call_id=call_id,
+                                run_id=ctx.context.run_id,
+                                outcome="abandoned",
+                                error_code="resource_budget_settlement_failed",
+                            )
+                        )
+                        settlement_error.add_note(f"Skill resource read failed before settlement: {error}")
+                        raise settlement_error from error
+                repository.finish_runtime_tool_call(
+                    RuntimeToolCallOutcomeV1(
+                        call_id=call_id,
                         run_id=ctx.context.run_id,
-                        invocation_key=invocation_key,
-                        actual_usage=_DEEPSEARCH_RESOURCE_MAXIMA,
+                        outcome="abandoned",
+                        error_code=type(error).__name__,
                     )
-                except BaseException as settlement_error:
-                    settlement_error.add_note(f"Skill resource read failed before settlement: {error}")
-                    raise settlement_error from error
+                )
+            finally:
+                capacity.release_tool()
             raise
 
-        if invocation_key is not None:
-            assert started_at is not None
-            _settle_deepsearch_resource_read(
-                repository,
-                run_id=ctx.context.run_id,
-                invocation_key=invocation_key,
-                actual_usage=DeepSearchBudgetUsageV1(
-                    active_seconds=min(max(monotonic() - started_at, 0), _DEEPSEARCH_RESOURCE_MAXIMA.active_seconds),
-                    tool_calls=1,
-                ),
+        try:
+            if invocation_key is not None:
+                assert started_at is not None
+                _settle_deepsearch_resource_read(
+                    repository,
+                    run_id=ctx.context.run_id,
+                    invocation_key=invocation_key,
+                    actual_usage=DeepSearchBudgetUsageV1(
+                        active_seconds=min(
+                            max(monotonic() - started_at, 0),
+                            _DEEPSEARCH_RESOURCE_MAXIMA.active_seconds,
+                        ),
+                        tool_calls=1,
+                    ),
+                )
+            repository.finish_runtime_tool_call(
+                RuntimeToolCallOutcomeV1(
+                    call_id=call_id,
+                    run_id=ctx.context.run_id,
+                    outcome="settled",
+                    result_hash=hashlib.sha256(encoded_response.encode("utf-8")).hexdigest(),
+                )
             )
+        finally:
+            capacity.release_tool()
         return encoded_response
 
     return FunctionTool(

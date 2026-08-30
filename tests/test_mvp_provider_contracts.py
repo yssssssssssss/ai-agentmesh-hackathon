@@ -44,6 +44,16 @@ class FakeEmbeddingClient:
         return self.response
 
 
+class RecordingEmbeddingClient(FakeEmbeddingClient):
+    def __init__(self, response: FakeEmbeddingResponse | BaseException):
+        super().__init__(response)
+        self.calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def post(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return super().post(*args, **kwargs)
+
+
 def _query(connector_name: str = "http_data_api", operation: str = "query") -> DataSourceQuery:
     return DataSourceQuery(
         connector_name=connector_name,
@@ -115,14 +125,7 @@ def test_health_returns_canonical_secret_safe_provider_contracts(monkeypatch: py
     for function_name, status in statuses.items():
         monkeypatch.setattr(health, function_name, lambda *_, value=status: value)
 
-    payload = health.provider_health_check(User(
-        id="usr_provider_test",
-        workspace_id="ws_default",
-        default_project_id="proj_default",
-        name="Provider Test",
-        role=UserRole.USER,
-        personal_agent_id="agent_provider_test",
-    ))
+    payload = health._provider_health_snapshot()
     providers = payload.providers
     serialized = payload.model_dump_json()
 
@@ -133,6 +136,7 @@ def test_health_returns_canonical_secret_safe_provider_contracts(monkeypatch: py
         "data_connectors",
         "llm",
         "openai_agents_sdk",
+        "sqlite_writer",
         "document_parser",
     }
     assert all(
@@ -166,6 +170,51 @@ def test_embedding_records_ready_and_degraded_observations(monkeypatch: pytest.M
     )
     assert embedding.embed_text("health") is None
     assert embedding.embedding_provider_status().last_error == "timeout"
+
+
+def test_embedding_batch_uses_one_request_and_preserves_input_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(embedding, "EMBEDDING_ENABLED", True)
+    monkeypatch.setattr(embedding, "EMBEDDING_API_URL", "https://embedding.example/v1")
+    monkeypatch.setattr(embedding, "EMBEDDING_API_KEY", "secret")
+    monkeypatch.setattr(embedding, "EMBEDDING_DIMENSIONS", 2)
+    client = RecordingEmbeddingClient(
+        FakeEmbeddingResponse(
+            {
+                "data": [
+                    {"index": 1, "embedding": [0.0, 1.0]},
+                    {"index": 0, "embedding": [1.0, 0.0]},
+                ]
+            }
+        )
+    )
+    monkeypatch.setattr(embedding, "_client", client)
+
+    assert embedding.embed_texts(["first", "", "second"], timeout_seconds=0.35) == [
+        [1.0, 0.0],
+        None,
+        [0.0, 1.0],
+    ]
+    assert len(client.calls) == 1
+    _args, kwargs = client.calls[0]
+    assert kwargs["json"] == {"model": embedding.EMBEDDING_MODEL, "input": ["first", "second"]}
+    assert kwargs["timeout"] == 0.35
+
+
+def test_embedding_batch_discards_every_vector_when_response_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(embedding, "EMBEDDING_ENABLED", True)
+    monkeypatch.setattr(embedding, "EMBEDDING_API_URL", "https://embedding.example/v1")
+    monkeypatch.setattr(embedding, "EMBEDDING_API_KEY", "secret")
+    monkeypatch.setattr(embedding, "EMBEDDING_DIMENSIONS", 2)
+    client = RecordingEmbeddingClient(
+        FakeEmbeddingResponse({"data": [{"index": 0, "embedding": [1.0, 0.0]}]})
+    )
+    monkeypatch.setattr(embedding, "_client", client)
+
+    assert embedding.embed_texts(["first", "second"]) == [None, None]
+    assert len(client.calls) == 1
+    assert embedding.embedding_provider_status().last_error == "malformed_response"
 
 
 def test_embedding_rejects_a_vector_with_the_wrong_declared_dimension(

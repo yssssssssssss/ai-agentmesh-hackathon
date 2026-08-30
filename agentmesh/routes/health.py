@@ -7,7 +7,7 @@ import shutil
 from math import ceil
 
 import agents as openai_agents
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from agentmesh.agent_runtime.settings import (
     agent_runtime_enabled,
@@ -23,7 +23,10 @@ from agentmesh.o2 import O2CommandRunner, maybe_register_o2_data_connector, o2_r
 from agentmesh.permissions import ACTION_VIEW_PROVIDER_HEALTH
 from agentmesh.provider_status import ProviderStatus, build_provider_status
 from agentmesh.routes.deps import require_permission
+from agentmesh.runtime_capacity import current_runtime_capacity
 from agentmesh.skill_runtime.service import catalog_service
+from agentmesh.skill_runtime.trust import runtime_profile_trust_verifier
+from agentmesh.skill_runtime.universal_execution import universal_standard_execution_available
 from agentmesh.store import store
 from agentmesh.web_research import web_research_provider_status
 
@@ -335,7 +338,7 @@ def _deepsearch_metrics(runs) -> dict[str, object]:  # noqa: ANN001
     }
 
 
-def _agent_runtime_status() -> dict[str, object]:
+def _agent_runtime_status(*, deepsearch_recovery_running: bool = False) -> dict[str, object]:
     runtime_enabled = agent_runtime_enabled()
     runs = store.list_agent_runs()
     status_counts: dict[str, int] = {}
@@ -349,6 +352,7 @@ def _agent_runtime_status() -> dict[str, object]:
     planner_profiles = [profile for profile in store.skill_capability_profiles if profile.planner_eligible]
     profile_errors = sum(item.level == "error" for item in catalog.diagnostics)
     profile_ready = bool(planner_profiles) and profile_errors == 0
+    profile_trust = runtime_profile_trust_verifier()
     index_counts = store.skill_search_index_counts()
     index_ready = index_counts["records"] == index_counts["indexed"] and index_counts["missing"] == 0
     orchestration_mode = skill_orchestration_mode()
@@ -370,10 +374,14 @@ def _agent_runtime_status() -> dict[str, object]:
         "sdk_version": getattr(openai_agents, "__version__", "unknown"),
         "runtime_enabled": runtime_enabled,
         "skill_orchestration_mode": orchestration_mode.value,
+        "deepsearch_recovery_running": deepsearch_recovery_running,
         "skills": len(catalog.list_enabled()),
         "planner_profiles": len(planner_profiles),
         "profile_health": "ready" if profile_ready else "degraded",
         "profile_errors": profile_errors,
+        "skill_profile_trust": "ready" if profile_trust.available else "unavailable",
+        "skill_profile_trust_error": profile_trust.diagnostic,
+        "universal_execution_available": universal_standard_execution_available(),
         "index_health": "ready" if index_ready else "degraded",
         "index_counts": index_counts,
         "planner_health": (
@@ -385,6 +393,7 @@ def _agent_runtime_status() -> dict[str, object]:
         ),
         "runs": len(runs),
         "run_status_counts": status_counts,
+        "runtime_capacity": current_runtime_capacity().snapshot(),
         "orchestration_metrics": _orchestration_metrics(runs),
         "deepsearch_metrics": _deepsearch_metrics(runs),
         "skill_activations": sum(event.action == "sdk_skill_activated" for event in store.audit_events),
@@ -425,23 +434,55 @@ def _document_parser_status() -> dict[str, object]:
     return payload
 
 
-@router.get("/providers", response_model=ProviderHealthCheckResponse)
-def provider_health_check(
-    _: User = Depends(require_permission(ACTION_VIEW_PROVIDER_HEALTH)),
-) -> ProviderHealthCheckResponse:
-    """Return secret-safe provider readiness for authenticated users."""
+def _sqlite_writer_status() -> dict[str, object]:
+    diagnostics = store.writer_lock_diagnostics()
+    enforced = bool(diagnostics["enforced"])
+    return {
+        "name": "sqlite_writer",
+        "configured": True,
+        "ready": enforced,
+        "mode": "real",
+        "last_error": None if enforced else "writer_lock_not_enforced",
+        "latency_ms": None,
+        "status": "ready" if enforced else "degraded",
+        "lock_enforced": enforced,
+        "pid": diagnostics["pid"],
+        "release_id": diagnostics["release_id"],
+    }
 
+
+def _provider_health_snapshot(
+    *,
+    deepsearch_recovery_running: bool = False,
+) -> ProviderHealthCheckResponse:
     providers = [
         _embedding_status(),
         _o2_status(),
         _web_provider_status(),
         _data_connectors_status(),
         _llm_status(),
-        _agent_runtime_status(),
+        _agent_runtime_status(
+            deepsearch_recovery_running=deepsearch_recovery_running
+        ),
+        _sqlite_writer_status(),
         _document_parser_status(),
     ]
     all_ready = all(bool(item["ready"]) for item in providers)
     return ProviderHealthCheckResponse(
         overall="healthy" if all_ready else "degraded",
         providers=providers,
+    )
+
+
+@router.get("/providers", response_model=ProviderHealthCheckResponse)
+def provider_health_check(
+    request: Request,
+    _: User = Depends(require_permission(ACTION_VIEW_PROVIDER_HEALTH)),
+) -> ProviderHealthCheckResponse:
+    """Return secret-safe provider readiness for authenticated users."""
+
+    coordinator = getattr(request.app.state, "deepsearch_recovery_coordinator", None)
+    recovery_running = bool(coordinator is not None and coordinator.running)
+    return _provider_health_snapshot(
+        deepsearch_recovery_running=recovery_running,
     )

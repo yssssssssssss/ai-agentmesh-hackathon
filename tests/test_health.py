@@ -61,8 +61,11 @@ class TestProviderHealthCheck:
         assert all("provider" not in item for item in data["providers"])
         runtime = next(item for item in data["providers"] if item["name"] == "openai_agents_sdk")
         assert runtime["profile_health"] in {"ready", "degraded"}
+        assert runtime["skill_profile_trust"] == "unavailable"
+        assert runtime["skill_profile_trust_error"] == "skill_profile_trust_unavailable"
         assert runtime["index_health"] in {"ready", "degraded"}
         assert runtime["planner_health"] in {"disabled", "ready", "degraded"}
+        assert runtime["deepsearch_recovery_running"] is False
         assert not any(key.startswith("research_writer_") for key in runtime)
         assert not any(key.startswith("research_preview_") for key in runtime)
         metrics = runtime["orchestration_metrics"]
@@ -96,6 +99,48 @@ class TestProviderHealthCheck:
         runtime = next(item for item in health.json()["providers"] if item["name"] == "openai_agents_sdk")
         assert runtime["runtime_enabled"] is True
         assert runtime["skill_orchestration_mode"] == effective
+
+    def test_health_projects_actual_recovery_task_state_instead_of_inferring_from_mode(
+        self,
+        auth_client: TestClient,
+    ) -> None:
+        app.state.deepsearch_recovery_coordinator = SimpleNamespace(running=True)
+        try:
+            with patch.dict(
+                "os.environ",
+                {"AGENTMESH_SKILL_ORCHESTRATION": "off"},
+            ):
+                health = auth_client.get("/api/health/providers")
+        finally:
+            del app.state.deepsearch_recovery_coordinator
+
+        runtime = next(item for item in health.json()["providers"] if item["name"] == "openai_agents_sdk")
+        assert runtime["skill_orchestration_mode"] == "off"
+        assert runtime["deepsearch_recovery_running"] is True
+
+    def test_off_lifespan_reports_real_recovery_task_as_stopped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import agentmesh.app as application
+
+        monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "off")
+        monkeypatch.setattr(application.ingestion_service, "shutdown", lambda: None)
+        with TestClient(app) as client:
+            login = client.post(
+                "/api/auth/login",
+                json={"user_id": ADMIN.id, "password": "admin123"},
+            )
+            assert login.status_code == 200
+            health = client.get("/api/health/providers")
+            assert health.status_code == 200
+            coordinator = app.state.deepsearch_recovery_coordinator
+            assert coordinator is not None
+            assert coordinator.running is False
+
+        runtime = next(item for item in health.json()["providers"] if item["name"] == "openai_agents_sdk")
+        assert runtime["skill_orchestration_mode"] == "off"
+        assert runtime["deepsearch_recovery_running"] is False
 
     def test_skill_search_index_health_degrades_when_a_definition_is_missing(
         self,

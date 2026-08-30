@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 from agents.testing import ScriptedModel, assistant_message
@@ -76,6 +77,46 @@ def test_intent_analyzer_keeps_explicit_skill_selection_user_controlled() -> Non
     model.assert_complete()
 
 
+def test_intent_analyzer_redacts_all_outbound_text(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    async def fake_run(_agent, input_value, **_kwargs):  # noqa: ANN001, ANN202
+        captured["payload"] = input_value
+        return SimpleNamespace(
+            final_output={
+                "goal": "Summarize the request",
+                "primary_stage": "pre_design",
+                "input_kinds": ["design_requirement"],
+                "deliverables": ["design_analysis"],
+                "constraints": {"external_write": False, "project_scope": "current"},
+                "explicit_skill_names": [],
+                "complexity": "direct",
+            }
+        )
+
+    monkeypatch.setattr("agentmesh.skill_runtime.planner.Agent", lambda **_kwargs: object())
+    monkeypatch.setattr("agentmesh.skill_runtime.planner.Runner.run", fake_run)
+    secret = "Bearer planner-secret-token"
+    email = "private@example.com"
+    local_path = "/Users/private/research.md"
+
+    asyncio.run(
+        SkillIntentAnalyzer().analyze(
+            f"Review {secret}",
+            model=object(),  # type: ignore[arg-type]
+            project_summary=f"Contact {email}",
+            thread_summary=f"Read {local_path}",
+        )
+    )
+
+    assert secret not in captured["payload"]
+    assert email not in captured["payload"]
+    assert local_path not in captured["payload"]
+    assert "[REDACTED_CREDENTIAL]" in captured["payload"]
+    assert "[REDACTED_EMAIL]" in captured["payload"]
+    assert "[REDACTED_LOCAL_PATH]" in captured["payload"]
+
+
 def test_planner_receives_the_exact_symbolic_contract_protocol(tmp_path, configure_pilot_wiki) -> None:
     repository, catalog = _catalog(tmp_path, configure_pilot_wiki)
     intent = deterministic_intent("制定研究计划和访谈提纲")
@@ -147,9 +188,19 @@ def test_intent_distinguishes_design_decision_priority_from_issue_prioritization
 def test_builtin_and_legacy_profiles_are_persisted_and_current(tmp_path, configure_pilot_wiki) -> None:
     repository, catalog = _catalog(tmp_path, configure_pilot_wiki)
     domain_profiles = [profile for profile in repository.skill_capability_profiles if profile.planner_eligible]
-    legacy_profiles = [profile for profile in repository.skill_capability_profiles if not profile.planner_eligible]
+    draft_profiles = [
+        profile
+        for profile in repository.skill_capability_profiles
+        if not profile.planner_eligible and not profile.id.startswith("legacy:")
+    ]
+    legacy_profiles = [
+        profile
+        for profile in repository.skill_capability_profiles
+        if profile.id.startswith("legacy:")
+    ]
 
     assert len(domain_profiles) == 10
+    assert len(draft_profiles) == 74
     assert len(legacy_profiles) == 11
     assert not [diagnostic for diagnostic in catalog.diagnostics if diagnostic.level == "error"]
     for profile in domain_profiles:
@@ -304,8 +355,70 @@ def test_recommendations_api_returns_only_safe_profile_metadata(tmp_path, config
     assert response.status_code == 200
     payload = response.json()
     assert payload["candidates"][0]["skill_name"] == "prd-feasibility"
+    assert "profile" not in payload["candidates"][0]
+    assert "required_resources" not in payload["candidates"][0]["capability_card"]
     assert "instructions" not in response.text
+    assert payload["outcome_code"] == "legacy_trust_fallback"
+    assert "skill_profile_trust_unavailable" in payload["diagnostics"]
     assert len(payload["candidates"]) <= 12
+
+
+def test_recommendations_api_uses_universal_search_only_when_release_trust_is_available(
+    tmp_path,
+    monkeypatch,
+    configure_pilot_wiki,
+) -> None:
+    repository, catalog = _catalog(tmp_path, configure_pilot_wiki)
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+    intent = deterministic_intent("生成研究计划")
+    candidates, _diagnostics = SkillCandidateRetriever(repository, catalog).recommend(USER, intent)
+    candidate = candidates[0]
+    calls = 0
+
+    class Analyzer:
+        async def analyze(self, *_args, **_kwargs):
+            return intent, []
+
+    class Universal:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def search(self, *_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            return SimpleNamespace(
+                selectable_candidates=(candidate,),
+                blocked_matches=(),
+                retrieval_policy_version="policy-test",
+                outcome_code="ok",
+                searchable_count=1,
+                required_coverage_atoms=(),
+                required_synthesis_output_ids=("summary",),
+                capability_gaps=(),
+                diagnostics=(),
+            )
+
+    monkeypatch.setattr(skill_routes, "store", repository)
+    monkeypatch.setattr(skill_routes, "catalog_service", lambda: catalog)
+    monkeypatch.setattr(skill_routes, "_intent_analyzer", Analyzer())
+    monkeypatch.setattr(skill_routes, "runtime_profile_trust_verifier", lambda: SimpleNamespace(available=True))
+    monkeypatch.setattr(skill_routes, "UniversalSkillSearchService", Universal)
+    before_events = len(repository.audit_events)
+
+    response = asyncio.run(
+        skill_routes.recommend_skills(
+            SkillRecommendationRequest(content="生成研究计划"),
+            user=USER,
+        )
+    )
+
+    assert calls == 1
+    assert response.retrieval_policy_version == "policy-test"
+    assert response.candidates[0].skill_name == candidate.skill_name
+    assert response.candidates[0].capability_card
+    assert response.blocked_matches == []
+    assert len(repository.audit_events) == before_events
 
 
 @pytest.mark.parametrize("project_state", ["missing", "wrong_workspace", "revoked"])

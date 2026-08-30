@@ -1,0 +1,39 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 53dac6e1923184fa34acc8b86c9db581eb4fc03bfacd9194b0159bd815246870
+profile_version: '1'
+display_description: 清理设计稿中的隐藏、空白和无效视觉节点，并输出验收结果。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: transformation
+input_kinds:
+- design_artifact
+- cleanup_scope
+output_kinds:
+- clean_design_artifact
+- cleanup_report
+examples:
+- 清理这个 Zero 画板里的隐藏图层
+- 删除透明噪音和空节点并验收
+- 检查多选界面是否还残留无效效果
+negative_examples:
+- 评审业务策略
+- 生成调查问卷
+required_capabilities: &id001 []
+task_types:
+- clean_design_artifact
+- cleanup_report
+archetypes:
+- transformation
+required_tools:
+- zero_design
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

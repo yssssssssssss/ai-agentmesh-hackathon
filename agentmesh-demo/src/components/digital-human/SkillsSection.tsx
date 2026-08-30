@@ -126,7 +126,17 @@ export function SkillsSection() {
         {recommendations.isError ? <p role="alert" className="mt-3 text-xs text-rose">预检失败，请稍后重试。</p> : null}
         {recommendations.data ? (
           <div className="mt-4 border-t border-white/[0.06] pt-4">
-            <p className="text-xs text-slate-400">识别目标：<span className="text-slate-200">{recommendations.data.intent.goal}</span></p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-slate-400">识别目标：<span className="text-slate-200">{recommendations.data.intent.goal}</span></p>
+              {recommendations.data.retrieval_policy_version ? (
+                <span className="font-mono text-[10px] text-slate-500">{recommendations.data.retrieval_policy_version}</span>
+              ) : null}
+            </div>
+            {recommendations.data.searchable_count != null ? (
+              <p className="mt-2 text-[11px] text-slate-500">
+                可检索 {recommendations.data.searchable_count} · 可选择 {recommendations.data.selectable_count ?? 0} · 受阻 {recommendations.data.blocked_match_count ?? 0}
+              </p>
+            ) : null}
             <ol className="mt-3 space-y-2">
               {recommendations.data.candidates.slice(0, 5).map((candidate, index) => (
                 <li key={candidate.skill_id} className="flex items-start gap-3 rounded-soft bg-base px-3.5 py-3">
@@ -141,6 +151,29 @@ export function SkillsSection() {
                 </li>
               ))}
             </ol>
+            {(recommendations.data.capability_gaps ?? []).length > 0 ? (
+              <div className="mt-3 rounded-soft border border-amber-400/20 bg-amber-400/[0.06] px-3.5 py-3">
+                <p className="text-xs font-semibold text-amber-200">尚未覆盖的必要能力</p>
+                <ul className="mt-1.5 space-y-1 text-xs text-amber-100/80">
+                  {(recommendations.data.capability_gaps ?? []).map((gap) => (
+                    <li key={gap.requirement_id}>{gap.label}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {(recommendations.data.blocked_matches ?? []).length > 0 ? (
+              <div className="mt-3">
+                <p className="text-xs font-semibold text-slate-300">相关但暂不可用</p>
+                <ul className="mt-2 space-y-1.5">
+                  {(recommendations.data.blocked_matches ?? []).map((candidate) => (
+                    <li key={candidate.skill_id} className="flex flex-wrap items-center gap-x-2 rounded-soft bg-base/60 px-3 py-2 text-xs">
+                      <span className="font-medium text-slate-300">{candidate.title}</span>
+                      <span className="text-amber-300">{(candidate.diagnostics ?? []).join(' · ')}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </section>

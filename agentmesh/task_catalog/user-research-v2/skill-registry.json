@@ -1,0 +1,552 @@
+[
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "竞品策略分析 Skill 适用场景 用于把输入材料转化为可评审的体验策略判断。 执行流程 1. 定界对象、场景、目标、边界与成功标准。 2. 按用户、竞品、业务、数据进行证据盘点。 3. 读取相关 methods、domain pack 与 case library。 4. 归纳问题、根因、策略层和设计动作。 5. 输",
+    "id": "ds-skill-competitor-strategy-analysis",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "3408b0ba7e3406e280b62510e5cfd6a98fa60358ed9005aa1677543a17338fc2",
+    "source_path": "02-skills-技能/设计策略/竞品策略分析/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "design-strategy",
+      "skill"
+    ],
+    "task_types": [
+      "competitor-strategy-analysis"
+    ],
+    "title": "竞品策略分析 Skill"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "基于问题、根因和约束生成可落到触点、流程、文案、状态或规则的解决方向，并输出风险、依赖和验证口径。",
+    "id": "ds-skill-solution-generation",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "4f464cef5cc1c2b52a8a6ab2260d55e1994bdad5f1cee6b88742463927252afd",
+    "source_path": "02-skills-技能/设计策略/解决方案生成/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "design-strategy",
+      "solution-generation"
+    ],
+    "task_types": [
+      "solution-generation"
+    ],
+    "title": "解决方案生成 Skill"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "设计策略地图生成 Skill 适用场景 用于把输入材料转化为可评审的体验策略判断。 执行流程 1. 定界对象、场景、目标、边界与成功标准。 2. 按用户、竞品、业务、数据进行证据盘点。 3. 读取相关 methods、domain pack 与 case library。 4. 归纳问题、根因、策略层和设计动作。 5.",
+    "id": "ds-skill-strategy-map-generation",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "cfada728fe4d441da4eaf96807350b56077160becb2e423ac7f30296e5cc5e4e",
+    "source_path": "02-skills-技能/设计策略/设计策略地图生成/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "design-strategy",
+      "skill"
+    ],
+    "task_types": [
+      "strategy-map-generation"
+    ],
+    "title": "设计策略地图生成 Skill"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "从用户、竞品、业务、数据、技术和体验表达中识别变化信号，区分事实、观察、推断和待验证假设。",
+    "id": "ds-skill-trend-change-scan",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "953ac3cc8b46bdda988654f8880e767ca489202e6b26a8afee561e39f1ed07e1",
+    "source_path": "02-skills-技能/设计策略/趋势变化扫描/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "design-strategy",
+      "trend-scan"
+    ],
+    "task_types": [
+      "trend-change-identification"
+    ],
+    "title": "趋势与变化扫描 Skill"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "design-strategy"
+    ],
+    "dependencies": [],
+    "description": "用户洞察综合分析 Skill 适用场景 用于把输入材料转化为可评审的体验策略判断。 执行流程 1. 定界对象、场景、目标、边界与成功标准。 2. 按用户、竞品、业务、数据进行证据盘点。 3. 读取相关 methods、domain pack 与 case library。 4. 归纳问题、根因、策略层和设计动作。 5.",
+    "id": "ds-skill-user-insight-synthesis",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "0f1c0e8ff7ddaaba6f88fb0ec2c5cc0045dd2ea8b25d07330d85e1c734463708",
+    "source_path": "02-skills-技能/设计策略/用户洞察综合分析/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "design-strategy",
+      "skill"
+    ],
+    "task_types": [
+      "user-insight-synthesis"
+    ],
+    "title": "用户洞察综合分析 Skill"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "无障碍走查 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 无障碍走查 · 输出骨架与模板 本文件是 accessibility review skill 自己的产出结构 ，不是 wiki 正典。 POUR 四原则的内涵、9 类控件规范、A/B/C ",
+    "id": "ur-skill-accessibility-review",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "3e37eab2ff4849fa0c26fd6103d8318f565da7129b53dfd2fc3e2da9d93554cb",
+    "source_path": "02-skills-技能/用户研究/无障碍审查/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "accessibility-review"
+    ],
+    "title": "无障碍走查 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "满意度诊断 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 满意度诊断 · 输出骨架与模板 本文件是 analyze satisfaction skill 自己的产出结构 ，不是 wiki 正典。 KDA 的派生重要性三层做法、四分图/Kano/AH",
+    "id": "ur-skill-analyze-satisfaction",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "e3e36e07eccdad65b218999fcc400295ca838e2ba4e1bb6f070a20481e8abbcc",
+    "source_path": "02-skills-技能/用户研究/满意度诊断/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "analyze-satisfaction"
+    ],
+    "title": "满意度诊断 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "体验度量体系 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 体验度量体系 · 输出骨架与模板 本文件是 build experience metrics skill 自己的产出结构 ，不是 wiki 正典。 HEART 五维定义、GSM 三步、基准",
+    "id": "ur-skill-build-experience-metrics",
+    "related_items": [],
+    "runtime_skill_name": "build-experience-metrics",
+    "source_hash": "067805998baa752108086bce294c429fcbdeee2d030fcab98350254277967a21",
+    "source_path": "02-skills-技能/用户研究/体验度量体系/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "build-experience-metrics"
+    ],
+    "title": "体验度量体系 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "短反馈编码 · 输出骨架与模板（结论先行） 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 短反馈编码 · 输出骨架与模板（结论先行） 本文件是 code open feedback skill 自己的产出结构 ，不是 wiki 正典。 VOC 的文本分析流水线、 标签",
+    "id": "ur-skill-code-open-feedback",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "a795d4db54bc7fc1bd7ebb6bfed5e0204743454c4fad3ae635c9eb739fce6ed0",
+    "source_path": "02-skills-技能/用户研究/VOC反馈编码/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "code-open-feedback"
+    ],
+    "title": "短反馈编码 · 输出骨架与模板（结论先行）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "竞品分析 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 竞品分析 · 输出骨架与模板 本文件是 competitive analysis skill 自己的产出结构 ，不是 wiki 正典。 战略意图四问的问法、AARRR 五环节的定义与典型功能、",
+    "id": "ur-skill-competitive-analysis",
+    "related_items": [],
+    "runtime_skill_name": "competitive-analysis",
+    "source_hash": "d86607f5c9b0a936dea339df437f1e6ecaf890114b228fbdcb42b0c50b4b2060",
+    "source_path": "02-skills-技能/用户研究/竞品分析/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "competitive-analysis"
+    ],
+    "title": "竞品分析 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "转化漏斗分析 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 转化漏斗分析 · 输出骨架与模板 本文件是 conversion funnel analysis skill 自己的产出结构 ，不是 wiki 正典。 分步转化率/流失率算法、总转化率连乘",
+    "id": "ur-skill-conversion-funnel-analysis",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "e47cfc98fa766f70a51bbdc801e278f9d039d777191571da7a2fc92e527b50dc",
+    "source_path": "02-skills-技能/用户研究/转化漏斗分析/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "conversion-funnel-analysis"
+    ],
+    "title": "转化漏斗分析 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "基于页面、截图、流程描述或模块说明识别体验问题、证据位置、影响范围和待验证项。",
+    "id": "ur-skill-experience-walkthrough",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "99c1b0a3790963c83a2fc9a4f906a8593d8140df3a7651ceac7b1cb92dd835e4",
+    "source_path": "02-skills-技能/用户研究/体验走查/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "walkthrough"
+    ],
+    "task_types": [
+      "experience-walkthrough"
+    ],
+    "title": "页面与链路体验走查 Skill"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "功能采纳诊断 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 功能采纳诊断 · 输出骨架与模板 本文件是 feature adoption analysis skill 自己的产出结构 ，不是 wiki 正典。四段漏斗划分、五维指标公式、分段病因、c",
+    "id": "ur-skill-feature-adoption-analysis",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "bf0c6d8383b60a36df6f09f44fabca280a1b7e93bea2fb6766a90b0ba9dbd234",
+    "source_path": "02-skills-技能/用户研究/功能采纳分析/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "feature-adoption-analysis"
+    ],
+    "title": "功能采纳诊断 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "访谈提纲 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 访谈提纲 · 输出骨架与模板 本文件是 generate interview guide skill 自己的产出结构 ，不是 wiki 正典。 访谈方法、ORID 内涵、偏误清单等正典内容 一",
+    "id": "ur-skill-generate-interview-guide",
+    "related_items": [],
+    "runtime_skill_name": "generate-interview-guide",
+    "source_hash": "96e577e915b4fd65411636429a859d14df712247bdeb14bc7e1575c416ae3661",
+    "source_path": "02-skills-技能/用户研究/生成访谈提纲/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "generate-interview-guide"
+    ],
+    "title": "访谈提纲 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "人物角色（Persona）· 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 人物角色（Persona）· 输出骨架与模板 本文件是 generate persona skill 自己的产出结构 ，不是 wiki 正典。 人物角色的创建方法、描摹模板内涵",
+    "id": "ur-skill-generate-persona",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "427c768943b4c3f343dee96827bad2b7cf2e522170bba95f8fe6811b434afbe1",
+    "source_path": "02-skills-技能/用户研究/用户画像/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "generate-persona"
+    ],
+    "title": "人物角色（Persona）· 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "研究 brief · 输出骨架与模板（阶段一产出） 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 研究 brief · 输出骨架与模板（阶段一产出） 本文件是 generate research plan skill 自己的产出结构 ，不是 wiki 正典。 需求沟通",
+    "id": "ur-skill-generate-research-plan",
+    "related_items": [],
+    "runtime_skill_name": "generate-research-plan",
+    "source_hash": "6553c721ddca05dd68bdac892b4a9e51cd36a116ce56b043820726e55c83f3db",
+    "source_path": "02-skills-技能/用户研究/生成研究方案/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "generate-research-plan"
+    ],
+    "title": "研究 brief · 输出骨架与模板（阶段一产出）"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问卷 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 问卷 · 输出骨架与模板 本文件是 generate survey skill 自己的产出结构 ，不是 wiki 正典。 问卷设计规范、量表题干与计分口径、检查清单等正典内容 一律运行时从 res",
+    "id": "ur-skill-generate-survey",
+    "related_items": [],
+    "runtime_skill_name": "generate-survey",
+    "source_hash": "d6e9c4a708d92ac389cdae4d92d05f3ee27cbd40ca0fd55d65f6c1fe6722df4e",
+    "source_path": "02-skills-技能/用户研究/生成问卷/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "generate-survey"
+    ],
+    "title": "问卷 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "可用性测试执行包 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 可用性测试执行包 · 输出骨架与模板 本文件是 generate usability test skill 自己的产出结构 ，不是 wiki 正典。 任务设计原则、量表题干/点数/计分",
+    "id": "ur-skill-generate-usability-test",
+    "related_items": [],
+    "runtime_skill_name": "generate-usability-test",
+    "source_hash": "7520f2aecaede3c471d71147ed1605d27f6f8dcf5d129e6fd78f7b94890297a3",
+    "source_path": "02-skills-技能/用户研究/可用性测试/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "generate-usability-test"
+    ],
+    "title": "可用性测试执行包 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "问题分层与优先级 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 问题分层与优先级 · 输出骨架与模板 本文件是 issue prioritization skill 自己的产出结构 ，不是 wiki 正典。 P0–P3 的分层定义、0–4 严重度的",
+    "id": "ur-skill-issue-prioritization",
+    "related_items": [],
+    "runtime_skill_name": "issue-prioritization",
+    "source_hash": "aa8cb702912cb3e6c0a2af2c6d4dbba511bea67a58affdaf18168cfa9f134d04",
+    "source_path": "02-skills-技能/用户研究/问题分层与优先级/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "issue-prioritization"
+    ],
+    "title": "问题分层与优先级 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "JTBD 需求定义（Jobs To Be Done）· 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 JTBD 需求定义（Jobs To Be Done）· 输出骨架与模板 本文件是 jobs to be done skill 自己的产出结构 ，不是 ",
+    "id": "ur-skill-jobs-to-be-done",
+    "related_items": [],
+    "runtime_skill_name": "jobs-to-be-done",
+    "source_hash": "b6525a1f96b89ae4401a37652ed9ada5d35965a74087c870553d8005a0f05a94",
+    "source_path": "02-skills-技能/用户研究/需求定义JTBD/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "jobs-to-be-done"
+    ],
+    "title": "JTBD 需求定义（Jobs To Be Done）· 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "用户体验旅程图 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 用户体验旅程图 · 输出骨架与模板 本文件是 journey map skill 自己的产出结构 ，不是 wiki 正典。 体验地图的构成清单、洞察绘制五步、需求评级标准、洞察定义、同理",
+    "id": "ur-skill-journey-map",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "c85b6279eea205110f8c9cb8051d9473ab366f0c8f1a1faa923fc38facd0ea3e",
+    "source_path": "02-skills-技能/用户研究/体验旅程图/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "journey-map"
+    ],
+    "title": "用户体验旅程图 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "安全与隐私边界 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 安全与隐私边界 Research Screenshot Analyzer 当前基于 DesignPeek 运行，面向竞品截图和用研材料管理，默认采用本地优先策略。上传到 design wiki 或分发给同事",
+    "id": "ur-skill-research-screenshot-analyzer",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "81b6b5e6090303c8c9ee9e695731c9f90c18c8d1e3dc869875ef693643d6cea0",
+    "source_path": "02-skills-技能/用户研究/研究截图采集与分析/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "research-screenshot-analyzer"
+    ],
+    "title": "安全与隐私边界"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "启发式评估 · 输出骨架与模板 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 启发式评估 · 输出骨架与模板 本文件是 run heuristic evaluation skill 自己的产出结构 ，不是 wiki 正典。 十大启发式的条目文字、0–4 严重度的档位定",
+    "id": "ur-skill-run-heuristic-evaluation",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "0f5ce2259194d4da9bd625d98890199b161963f0610b2009944ec518194f0935",
+    "source_path": "02-skills-技能/用户研究/启发式评估/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "run-heuristic-evaluation"
+    ],
+    "title": "启发式评估 · 输出骨架与模板"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "访谈小结 · 产出骨架与组装规则 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 访谈小结 · 产出骨架与组装规则 本文件只放 骨架与组装规则 ，是本 skill 自带的产出说明， 不是 Wiki 正典 。 各框架的定义、各字段的细则、选型判据—— 一律运行时从 Wik",
+    "id": "ur-skill-structure-interview-transcript",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "d38dd69147da78cb592fa489a25790f7f12a021a43ccacb25fec3d69fa35bfe3",
+    "source_path": "02-skills-技能/用户研究/单场访谈小结/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "structure-interview-transcript"
+    ],
+    "title": "访谈小结 · 产出骨架与组装规则"
+  },
+  {
+    "business_domain": "general",
+    "capability_domain": [
+      "user-research"
+    ],
+    "dependencies": [],
+    "description": "分析底稿（后置附录）· 主题归纳 + 结构化洞察 + 运行说明骨架 来源重构说明 本 Skill 由原用研技能文件迁移，保留原执行步骤、输入输出、提示词和质量要求。 分析底稿（后置附录）· 主题归纳 + 结构化洞察 + 运行说明骨架 本文件是 synthesize qualitative insights skill ",
+    "id": "ur-skill-synthesize-qualitative-insights",
+    "related_items": [],
+    "runtime_skill_name": null,
+    "source_hash": "ab2c8edc9fdbb94b341d3bdfe18b186a2506a08b3423cd85b229b9fab5d55415",
+    "source_path": "02-skills-技能/用户研究/定性归纳与洞察/SKILL.md",
+    "status": "draft",
+    "tags": [
+      "user-research",
+      "skill"
+    ],
+    "task_types": [
+      "synthesize-qualitative-insights"
+    ],
+    "title": "分析底稿（后置附录）· 主题归纳 + 结构化洞察 + 运行说明骨架"
+  }
+]

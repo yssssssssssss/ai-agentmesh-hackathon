@@ -1,0 +1,42 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 8edfe73414ec0bfaf42c8a2db35cb2d7222b9942951e5dc1a77b7bec6bca33aa
+profile_version: '1'
+display_description: 将单组件 design.md bundle 转换为包含四要素的 HTML 规范页。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- design_markdown_bundle
+output_kinds:
+- component_spec_page
+- html_document
+examples:
+- 把这个组件 bundle 生成规范长页
+- 从 design.md 输出 HTML spec 页面
+- 生成包含结构、变体、行为和示例的规范页
+negative_examples:
+- 在 Relay 中创建组件
+- 分析功能采纳
+required_capabilities: &id001 []
+task_types:
+- component_spec_page
+- html_document
+archetypes:
+- delivery
+required_tools:
+- Bash
+- Read
+- Write
+- Edit
+- Glob
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

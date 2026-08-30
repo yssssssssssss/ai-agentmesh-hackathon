@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,20 +11,27 @@ from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, Field
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
+from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.models import (
     AgentPlanningMode,
     AgentRunStatus,
     Artifact,
     AuditEvent,
+    RuntimeToolCallClaimV1,
+    RuntimeToolCallOutcomeV1,
     SkillDefinition,
     ToolDefinition,
     User,
 )
-from agentmesh.store import SQLiteStore
+from agentmesh.runtime_admission import current_orchestration_admission
+from agentmesh.runtime_capacity import RuntimeCapacityController, current_runtime_capacity
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
+from agentmesh.store import RuntimeToolCallConflict, SQLiteStore
 from agentmesh.tool_runtime.guardrails import contains_credential, unsafe_tool_output_reason
 from agentmesh.tools import list_agent_tools
 
 _MAX_MCP_OUTPUT_BYTES = 50 * 1024
+_MAX_MCP_PROVIDER_OUTPUT_BYTES = 1024 * 1024
 
 
 def _is_deepsearch_context(repository: SQLiteStore, context: AgentMeshRunContext) -> bool:
@@ -83,6 +91,8 @@ class GovernedMCPServer(MCPServer):
         context: AgentMeshRunContext,
         definition: ToolDefinition,
         allowed_tool_names: set[str],
+        admission: OrchestrationQuiesceController | None = None,
+        capacity: RuntimeCapacityController | None = None,
     ):
         super().__init__(require_approval="always")
         self.inner = inner
@@ -90,6 +100,8 @@ class GovernedMCPServer(MCPServer):
         self.context = context
         self.definition = definition
         self.allowed_tool_names = allowed_tool_names
+        self.admission = admission or current_orchestration_admission()
+        self.capacity = capacity or current_runtime_capacity()
 
     @property
     def name(self) -> str:
@@ -113,6 +125,47 @@ class GovernedMCPServer(MCPServer):
             return []
         tools = await self.inner.list_tools(run_context, agent)
         return [tool for tool in tools if tool.name in self.allowed_tool_names]
+
+    def _claim(self, tool_name: str, arguments: dict[str, Any], meta: dict[str, Any] | None) -> RuntimeToolCallClaimV1:
+        arguments_hash = hashlib.sha256(
+            json.dumps(arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        raw_call_id = (meta or {}).get("call_id")
+        call_id = raw_call_id if isinstance(raw_call_id, str) and raw_call_id else "mcp_call_" + canonical_json_sha256(
+            {
+                "run_id": self.context.run_id,
+                "plan_id": self.context.plan_id,
+                "node_id": self.context.node_id,
+                "tool_definition_id": self.definition.id,
+                "tool_name": tool_name,
+                "arguments_hash": arguments_hash,
+                "ordinal": self.context.tool_call_count,
+            }
+        )[:24]
+        return RuntimeToolCallClaimV1(
+            call_id=call_id,
+            run_id=self.context.run_id,
+            plan_id=self.context.plan_id,
+            node_id=self.context.node_id,
+            tool_definition_id=self.definition.id,
+            tool_name=tool_name,
+            implementation_id=self.definition.implementation_id or f"mcp:{self.name}",
+            implementation_version=self.definition.implementation_version,
+            side_effect=self.definition.side_effect,
+            operation_identity=canonical_json_sha256(
+                {
+                    "run_id": self.context.run_id,
+                    "plan_id": self.context.plan_id,
+                    "node_id": self.context.node_id,
+                    "call_id": call_id,
+                    "tool_definition_id": self.definition.id,
+                    "tool_name": tool_name,
+                    "arguments_hash": arguments_hash,
+                }
+            ),
+        )
 
     async def call_tool(
         self,
@@ -142,25 +195,39 @@ class GovernedMCPServer(MCPServer):
         raw_arguments = json.dumps(arguments or {}, ensure_ascii=False, default=str)
         if contains_credential(raw_arguments):
             return CallToolResult(content=[TextContent(text="MCP tool arguments were withheld by policy.")], isError=True)
-        self.repository.add_audit_event(
-            AuditEvent(
-                actor=self.context.user_id,
-                action="sdk_mcp_tool_started",
-                target_type="tool_definition",
-                target_id=self.definition.id,
-                workspace_id=self.context.workspace_id,
-                project_id=self.context.project_id,
-                metadata={"run_id": self.context.run_id, "server": self.name, "tool_name": tool_name},
-            )
-        )
-        result = await self.inner.call_tool(tool_name, arguments, meta)
-        output = result.model_dump_json(by_alias=True)
-        unsafe_reason = unsafe_tool_output_reason(output)
-        if unsafe_reason is not None:
+        claim = self._claim(tool_name, arguments or {}, meta)
+        await self.capacity.acquire_tool()
+        try:
+            if not self.repository.user_can_execute_agent_run(
+                self.context.user_id,
+                self.context.run_id,
+                allowed_statuses={AgentRunStatus.RUNNING},
+            ):
+                raise PermissionError("Agent run project access was revoked")
+            current_user = self.repository.get_user(self.context.user_id)
+            if current_user is None or not any(
+                tool.id == self.definition.id
+                for tool in list_agent_tools(
+                    self.repository,
+                    current_user.personal_agent_id,
+                )
+            ):
+                raise PermissionError("Agent tool grant was revoked")
+            if tool_name not in self.allowed_tool_names:
+                raise PermissionError("MCP tool is not granted by AgentMesh")
+            with self.admission.permit():
+                claimed = self.repository.claim_runtime_tool_call(claim)
+        except BaseException:
+            self.capacity.release_tool()
+            raise
+        if not claimed:
+            self.capacity.release_tool()
+            raise RuntimeToolCallConflict("tool_call_already_claimed")
+        try:
             self.repository.add_audit_event(
                 AuditEvent(
                     actor=self.context.user_id,
-                    action="sdk_mcp_tool_output_withheld",
+                    action="sdk_mcp_tool_started",
                     target_type="tool_definition",
                     target_id=self.definition.id,
                     workspace_id=self.context.workspace_id,
@@ -169,47 +236,117 @@ class GovernedMCPServer(MCPServer):
                         "run_id": self.context.run_id,
                         "server": self.name,
                         "tool_name": tool_name,
-                        "reason": unsafe_reason,
                     },
                 )
             )
-            return CallToolResult(content=[TextContent(text="MCP tool output was withheld by AgentMesh policy.")], isError=True)
-        artifact_id = ""
-        if len(output.encode("utf-8")) > _MAX_MCP_OUTPUT_BYTES:
-            artifact = self.repository.save_artifact(
-                Artifact(
-                    run_id=self.context.run_id,
+        except BaseException:
+            try:
+                self.repository.finish_runtime_tool_call(
+                    RuntimeToolCallOutcomeV1(
+                        call_id=claim.call_id,
+                        run_id=claim.run_id,
+                        outcome=("abandoned" if self.definition.side_effect == "read" else "outcome_unknown"),
+                        error_code=(
+                            "process_restarted"
+                            if self.definition.side_effect == "read"
+                            else "external_outcome_unknown"
+                        ),
+                    )
+                )
+            finally:
+                self.capacity.release_tool()
+            raise
+        try:
+            result = await self.inner.call_tool(tool_name, arguments, meta)
+            output = result.model_dump_json(by_alias=True)
+            if len(output.encode("utf-8")) > _MAX_MCP_PROVIDER_OUTPUT_BYTES:
+                raise RuntimeError("mcp_output_limit_exceeded")
+            unsafe_reason = unsafe_tool_output_reason(output)
+            if unsafe_reason is not None:
+                self.repository.add_audit_event(
+                    AuditEvent(
+                        actor=self.context.user_id,
+                        action="sdk_mcp_tool_output_withheld",
+                        target_type="tool_definition",
+                        target_id=self.definition.id,
+                        workspace_id=self.context.workspace_id,
+                        project_id=self.context.project_id,
+                        metadata={
+                            "run_id": self.context.run_id,
+                            "server": self.name,
+                            "tool_name": tool_name,
+                            "reason": unsafe_reason,
+                        },
+                    )
+                )
+                result = CallToolResult(
+                    content=[TextContent(text="MCP tool output was withheld by AgentMesh policy.")],
+                    isError=True,
+                )
+            artifact_id = ""
+            if unsafe_reason is None and len(output.encode("utf-8")) > _MAX_MCP_OUTPUT_BYTES:
+                artifact = self.repository.save_artifact(
+                    Artifact(
+                        run_id=self.context.run_id,
+                        workspace_id=self.context.workspace_id,
+                        project_id=self.context.project_id,
+                        user_id=self.context.user_id,
+                        artifact_type="mcp_tool_output",
+                        content_type="application/json",
+                        content=output,
+                        truncated=True,
+                    )
+                )
+                artifact_id = artifact.id
+                visible = output.encode("utf-8")[:_MAX_MCP_OUTPUT_BYTES].decode("utf-8", errors="ignore")
+                result = CallToolResult(
+                    content=[TextContent(text=f"{visible}\n\n[Output truncated. Full result artifact: {artifact.id}]")],
+                    isError=result.is_error,
+                )
+            self.repository.add_audit_event(
+                AuditEvent(
+                    actor=self.context.user_id,
+                    action="sdk_mcp_tool_completed",
+                    target_type="tool_definition",
+                    target_id=self.definition.id,
                     workspace_id=self.context.workspace_id,
                     project_id=self.context.project_id,
-                    user_id=self.context.user_id,
-                    artifact_type="mcp_tool_output",
-                    content_type="application/json",
-                    content=output,
-                    truncated=True,
+                    metadata={
+                        "run_id": self.context.run_id,
+                        "server": self.name,
+                        "tool_name": tool_name,
+                        "artifact_id": artifact_id,
+                    },
                 )
             )
-            artifact_id = artifact.id
-            visible = output.encode("utf-8")[:_MAX_MCP_OUTPUT_BYTES].decode("utf-8", errors="ignore")
-            result = CallToolResult(
-                content=[TextContent(text=f"{visible}\n\n[Output truncated. Full result artifact: {artifact.id}]")],
-                isError=result.is_error,
+        except BaseException:
+            try:
+                self.repository.finish_runtime_tool_call(
+                    RuntimeToolCallOutcomeV1(
+                        call_id=claim.call_id,
+                        run_id=claim.run_id,
+                        outcome=("abandoned" if self.definition.side_effect == "read" else "outcome_unknown"),
+                        error_code=(
+                            "process_restarted"
+                            if self.definition.side_effect == "read"
+                            else "external_outcome_unknown"
+                        ),
+                    )
+                )
+            finally:
+                self.capacity.release_tool()
+            raise
+        try:
+            self.repository.finish_runtime_tool_call(
+                RuntimeToolCallOutcomeV1(
+                    call_id=claim.call_id,
+                    run_id=claim.run_id,
+                    outcome="settled",
+                    result_hash=hashlib.sha256(output.encode("utf-8")).hexdigest(),
+                )
             )
-        self.repository.add_audit_event(
-            AuditEvent(
-                actor=self.context.user_id,
-                action="sdk_mcp_tool_completed",
-                target_type="tool_definition",
-                target_id=self.definition.id,
-                workspace_id=self.context.workspace_id,
-                project_id=self.context.project_id,
-                metadata={
-                    "run_id": self.context.run_id,
-                    "server": self.name,
-                    "tool_name": tool_name,
-                    "artifact_id": artifact_id,
-                },
-            )
-        )
+        finally:
+            self.capacity.release_tool()
         return result
 
     async def list_prompts(self):  # noqa: ANN201
@@ -229,9 +366,23 @@ class GovernedMCPServer(MCPServer):
 
 
 class AgentMeshMCPFactory:
-    def __init__(self, repository: SQLiteStore, config: MCPConfigFile | None = None):
+    def __init__(
+        self,
+        repository: SQLiteStore,
+        config: MCPConfigFile | None = None,
+        admission: OrchestrationQuiesceController | None = None,
+        capacity: RuntimeCapacityController | None = None,
+    ):
         self.repository = repository
         self.config = config or load_mcp_config()
+        self.admission = admission or current_orchestration_admission()
+        self.capacity = capacity or current_runtime_capacity()
+
+    def set_capacity_controller(self, capacity: RuntimeCapacityController) -> None:
+        self.capacity = capacity
+
+    def set_admission_controller(self, admission: OrchestrationQuiesceController) -> None:
+        self.admission = admission
 
     def build(
         self,
@@ -283,6 +434,8 @@ class AgentMeshMCPFactory:
                     context=context,
                     definition=definition,
                     allowed_tool_names=set(config.allowed_tool_names),
+                    admission=self.admission,
+                    capacity=self.capacity,
                 )
             )
         return servers

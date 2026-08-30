@@ -35,7 +35,17 @@ from agentmesh.deepsearch.planning import (
     RequirementRefiner,
     plan_content_hash,
 )
-from agentmesh.models import AgentPlanningMode, AgentRun, AgentRunStatus, SkillPlan, new_id, now_utc
+from agentmesh.models import (
+    AgentPlanningContractVersion,
+    AgentPlanningMode,
+    AgentRun,
+    AgentRunStatus,
+    SkillPlan,
+    SkillPlanStatus,
+    new_id,
+    now_utc,
+)
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
 from agentmesh.store import ResearchStoreConflict, SQLiteStore
 
 
@@ -122,12 +132,14 @@ class DeepSearchPlanningService:
         clock: Callable[[], datetime] = now_utc,
         can_refine: Callable[[], bool] = lambda: True,
         planning_pipeline: DeepSearchPlanningPipeline | None = None,
+        admission: OrchestrationQuiesceController | None = None,
     ) -> None:
         self._repository = repository
         self._refiner = refiner
         self._clock = clock
         self._can_refine = can_refine
         self._planning_pipeline = planning_pipeline
+        self._admission = admission or OrchestrationQuiesceController()
 
     def get_state(self, run: AgentRun) -> DeepSearchStateResponse:
         snapshot = self._repository.get_deepsearch_state_snapshot(run.id)
@@ -140,8 +152,22 @@ class DeepSearchPlanningService:
         ):
             raise DeepSearchRequirementIntegrityError("DeepSearch Run ownership changed")
         run = snapshot.run
-        if (snapshot.plan is None) != (run.plan_id is None) or (
-            snapshot.plan is not None and snapshot.plan.id != run.plan_id
+        planning_skeleton = bool(
+            snapshot.plan is not None
+            and run.status is AgentRunStatus.PLANNING
+            and run.planning_contract_version
+            is AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+            and snapshot.plan.status is SkillPlanStatus.PLANNING
+            and snapshot.plan.candidate_snapshot is not None
+            and not snapshot.plan.nodes
+            and run.plan_id == snapshot.plan.id
+        )
+        if (
+            not planning_skeleton
+            and (
+                (snapshot.plan is None) != (run.plan_id is None)
+                or (snapshot.plan is not None and snapshot.plan.id != run.plan_id)
+            )
         ):
             raise DeepSearchRequirementIntegrityError(
                 "DeepSearch Run and Plan identity do not match"
@@ -152,7 +178,19 @@ class DeepSearchPlanningService:
                 if snapshot.requirement is not None
                 else None
             )
-            problem_graph = _verified_problem_graph(requirement, snapshot.plan)
+            if planning_skeleton:
+                assert snapshot.plan is not None
+                if requirement is None:
+                    raise ValueError("DeepSearch planning skeleton requires Requirement")
+                problem_graph = ProblemGraphV1.model_validate(snapshot.plan.problem_graph)
+                validate_problem_graph_against_requirement(
+                    graph=problem_graph,
+                    requirement=requirement,
+                )
+                if snapshot.plan.problem_graph_hash != problem_graph.content_hash:
+                    raise ValueError("DeepSearch planning skeleton graph hash is invalid")
+            else:
+                problem_graph = _verified_problem_graph(requirement, snapshot.plan)
         except ValidationError as error:
             raise DeepSearchRequirementIntegrityError(
                 "DeepSearch Requirement failed integrity verification"
@@ -194,15 +232,19 @@ class DeepSearchPlanningService:
             problem_graph=problem_graph,
             plan=(
                 DeepSearchPlanViewV1.from_plan(snapshot.plan)
-                if snapshot.plan is not None
+                if snapshot.plan is not None and not planning_skeleton
                 else None
             ),
             evidence_coverage=(
-                snapshot.plan.evidence_coverage if snapshot.plan is not None else None
+                snapshot.plan.evidence_coverage
+                if snapshot.plan is not None and not planning_skeleton
+                else None
             ),
             report_review=(
                 DeepSearchReviewViewV1.from_outcome(snapshot.plan.review_outcomes[-1])
-                if snapshot.plan is not None and snapshot.plan.review_outcomes
+                if snapshot.plan is not None
+                and not planning_skeleton
+                and snapshot.plan.review_outcomes
                 else None
             ),
             retry_disposition=deepsearch_retry_disposition(run),
@@ -220,15 +262,16 @@ class DeepSearchPlanningService:
         if not request_key or not request_hash:
             raise DeepSearchRequirementIntegrityError("DeepSearch Run creation identity is incomplete")
         checked_at = self._clock()
-        prepared = self._repository.prepare_deepsearch_requirement_append(
-            run_id=run.id,
-            user_id=run.user_id,
-            request_key=request_key,
-            request_hash=request_hash,
-            expected_requirement_version=None,
-            expected_run_status=AgentRunStatus.PLANNING,
-            checked_at=checked_at,
-        )
+        with self._admission.permit():
+            prepared = self._repository.prepare_deepsearch_requirement_append(
+                run_id=run.id,
+                user_id=run.user_id,
+                request_key=request_key,
+                request_hash=request_hash,
+                expected_requirement_version=None,
+                expected_run_status=AgentRunStatus.PLANNING,
+                checked_at=checked_at,
+            )
         if prepared is None:
             raise LookupError("DeepSearch Run not found")
         if prepared.replayed:
@@ -271,15 +314,16 @@ class DeepSearchPlanningService:
             )
         except ValueError as error:
             raise DeepSearchRequirementInvalid(str(error)) from error
-        prepared = self._repository.prepare_deepsearch_requirement_append(
-            run_id=run.id,
-            user_id=run.user_id,
-            request_key=request.client_turn_id,
-            request_hash=request_hash,
-            expected_requirement_version=request.expected_requirement_version,
-            expected_run_status=AgentRunStatus.WAITING_CLARIFICATION,
-            checked_at=self._clock(),
-        )
+        with self._admission.permit():
+            prepared = self._repository.prepare_deepsearch_requirement_append(
+                run_id=run.id,
+                user_id=run.user_id,
+                request_key=request.client_turn_id,
+                request_hash=request_hash,
+                expected_requirement_version=request.expected_requirement_version,
+                expected_run_status=AgentRunStatus.WAITING_CLARIFICATION,
+                checked_at=self._clock(),
+            )
         if prepared is None:
             raise LookupError("DeepSearch Run not found")
         if prepared.replayed:
@@ -437,18 +481,19 @@ class DeepSearchPlanningService:
             if next_status is AgentRunStatus.WAITING_CLARIFICATION
             else None
         )
-        result = self._repository.append_deepsearch_requirement_and_transition(
-            run_id=run.id,
-            user_id=run.user_id,
-            requirement=requirement.model_dump(mode="json"),
-            expected_requirement_version=previous.version if previous is not None else None,
-            expected_run_status=run.status,
-            next_run_status=next_status,
-            interaction_expires_at=interaction_expires_at,
-            error_code=error_code,
-            events=events,
-            checked_at=checked_at,
-        )
+        with self._admission.permit():
+            result = self._repository.append_deepsearch_requirement_and_transition(
+                run_id=run.id,
+                user_id=run.user_id,
+                requirement=requirement.model_dump(mode="json"),
+                expected_requirement_version=previous.version if previous is not None else None,
+                expected_run_status=run.status,
+                next_run_status=next_status,
+                interaction_expires_at=interaction_expires_at,
+                error_code=error_code,
+                events=events,
+                checked_at=checked_at,
+            )
         if result is None:
             raise LookupError("DeepSearch Run not found")
         if result.replayed:
@@ -474,6 +519,8 @@ class DeepSearchPlanningService:
             or any(ambiguity.blocking for ambiguity in requirement.payload.ambiguities)
         ):
             return state
+        if not self._can_refine():
+            raise DeepSearchExecutionUnavailable("DeepSearch execution mode is unavailable")
         user = self._repository.get_user(state.run.user_id)
         if (
             user is None
@@ -490,14 +537,19 @@ class DeepSearchPlanningService:
             created_at=created_at,
         )
         try:
-            committed = self._repository.save_deepsearch_plan_and_transition(
-                run_id=state.run.id,
-                user_id=state.run.user_id,
-                expected_requirement_version=requirement.version,
-                plan=plan,
-                plan_snapshot=snapshot,
-                checked_at=created_at,
-            )
+            with self._admission.permit():
+                if not self._can_refine():
+                    raise DeepSearchExecutionUnavailable(
+                        "DeepSearch execution mode is unavailable"
+                    )
+                committed = self._repository.save_deepsearch_plan_and_transition(
+                    run_id=state.run.id,
+                    user_id=state.run.user_id,
+                    expected_requirement_version=requirement.version,
+                    plan=plan,
+                    plan_snapshot=snapshot,
+                    checked_at=created_at,
+                )
         except ResearchStoreConflict:
             current = self.get_state(self._current_run(state.run.id))
             if (

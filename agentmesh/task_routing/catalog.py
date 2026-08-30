@@ -15,13 +15,27 @@ from agentmesh.canonical_json import strict_json_loads
 from agentmesh.task_routing.compiler import canonical_sha256
 from agentmesh.task_routing.contracts import (
     CatalogManifest,
+    CatalogManifestV2,
     KnowledgeCatalogEntry,
     ScenarioCatalogEntry,
+    ScenarioCatalogEntryV2,
     SkillCatalogEntry,
     TaskCatalogEntry,
     TaskSkillMappingEntry,
 )
 
+_CATALOG_V1 = "user-research-v1"
+_CATALOG_V2 = "user-research-v2"
+_SUPPORTED_MANIFEST_SCHEMAS = {
+    "task-catalog-manifest-v1": CatalogManifest,
+    "task-catalog-manifest-v2": CatalogManifestV2,
+}
+_CATALOG_VERSION_BY_PLANNING_CONTRACT = {
+    "standard_legacy_v1": _CATALOG_V1,
+    "standard_universal_v1": _CATALOG_V2,
+    "deepsearch_frozen_v1": _CATALOG_V1,
+    "deepsearch_frozen_v2": _CATALOG_V2,
+}
 _DATA_FILES = {
     "tasks.json",
     "scenarios.json",
@@ -40,6 +54,8 @@ class TaskCatalogLoadError(ValueError):
 
 @dataclass(frozen=True)
 class TaskCatalog:
+    """Loaded Task Catalog v1. String Scenario outputs remain legacy-only."""
+
     manifest: CatalogManifest
     tasks: tuple[TaskCatalogEntry, ...]
     scenarios: tuple[ScenarioCatalogEntry, ...]
@@ -71,11 +87,53 @@ class TaskCatalog:
         return tuple(scenario for scenario in self.scenarios if scenario.parent_task == task_id)
 
 
-def _default_catalog_root() -> Path:
-    root = files("agentmesh").joinpath("task_catalog", "user-research-v1")
+@dataclass(frozen=True)
+class TaskCatalogV2:
+    manifest: CatalogManifestV2
+    tasks: tuple[TaskCatalogEntry, ...]
+    scenarios: tuple[ScenarioCatalogEntryV2, ...]
+    mappings: tuple[TaskSkillMappingEntry, ...]
+    skills: tuple[SkillCatalogEntry, ...]
+    knowledge: tuple[KnowledgeCatalogEntry, ...]
+    _tasks_by_id: Mapping[str, TaskCatalogEntry]
+    _scenarios_by_id: Mapping[str, ScenarioCatalogEntryV2]
+    _mappings_by_scenario_id: Mapping[str, TaskSkillMappingEntry]
+    _skills_by_id: Mapping[str, SkillCatalogEntry]
+    _knowledge_by_id: Mapping[str, KnowledgeCatalogEntry]
+
+    def get_task(self, task_id: str) -> TaskCatalogEntry | None:
+        return self._tasks_by_id.get(task_id)
+
+    def get_scenario(self, scenario_id: str) -> ScenarioCatalogEntryV2 | None:
+        return self._scenarios_by_id.get(scenario_id)
+
+    def get_mapping(self, scenario_id: str) -> TaskSkillMappingEntry | None:
+        return self._mappings_by_scenario_id.get(scenario_id)
+
+    def get_skill(self, skill_id: str) -> SkillCatalogEntry | None:
+        return self._skills_by_id.get(skill_id)
+
+    def get_knowledge(self, knowledge_id: str) -> KnowledgeCatalogEntry | None:
+        return self._knowledge_by_id.get(knowledge_id)
+
+    def scenarios_for_task(self, task_id: str) -> tuple[ScenarioCatalogEntryV2, ...]:
+        return tuple(scenario for scenario in self.scenarios if scenario.parent_task == task_id)
+
+
+VersionedTaskCatalog = TaskCatalog | TaskCatalogV2
+
+
+def _catalog_root(catalog_version: str) -> Path:
+    if catalog_version not in {_CATALOG_V1, _CATALOG_V2}:
+        raise TaskCatalogLoadError(f"catalog_version_unsupported:{catalog_version}")
+    root = files("agentmesh").joinpath("task_catalog", catalog_version)
     if not isinstance(root, Path):
         raise TaskCatalogLoadError("catalog_resources_not_filesystem_backed")
     return root
+
+
+def _default_catalog_root() -> Path:
+    return _catalog_root(_CATALOG_V1)
 
 
 def _safe_relative_path(relative_path: str) -> PurePosixPath:
@@ -155,11 +213,13 @@ def _index[T](items: tuple[T, ...], *, label: str, key: Callable[[T], str]) -> M
     return MappingProxyType(result)
 
 
-def _manifest_body(manifest: CatalogManifest) -> dict[str, Any]:
+def _manifest_body(manifest: CatalogManifest | CatalogManifestV2) -> dict[str, Any]:
     return manifest.model_dump(mode="json", exclude={"catalog_hash"})
 
 
-def _validate_scenario_dependencies(scenarios: Mapping[str, ScenarioCatalogEntry]) -> None:
+def _validate_scenario_dependencies(
+    scenarios: Mapping[str, ScenarioCatalogEntry | ScenarioCatalogEntryV2],
+) -> None:
     visiting: set[str] = set()
     visited: set[str] = set()
 
@@ -182,14 +242,33 @@ def _validate_scenario_dependencies(scenarios: Mapping[str, ScenarioCatalogEntry
         visit(scenario_id)
 
 
-def load_task_catalog(root: Path | None = None) -> TaskCatalog:
+def _validate_v2_scenario_outputs(scenarios: tuple[ScenarioCatalogEntryV2, ...]) -> None:
+    for scenario in scenarios:
+        output_ids = [output.id for output in scenario.outputs]
+        if len(output_ids) != len(set(output_ids)):
+            raise TaskCatalogLoadError(f"catalog_scenario_output_duplicate:{scenario.id}")
+        for output in scenario.outputs:
+            if len(output.compatible_output_kinds) != len(set(output.compatible_output_kinds)):
+                raise TaskCatalogLoadError(
+                    f"catalog_scenario_output_kind_duplicate:{scenario.id}:{output.id}"
+                )
+
+
+def load_task_catalog(root: Path | None = None) -> VersionedTaskCatalog:
     catalog_root = (root or _default_catalog_root()).resolve()
     inventory = _preflight_inventory(catalog_root)
     manifest_payload = _parse_json(_read_bytes(catalog_root, "catalog.json", inventory), "catalog.json")
+    if not isinstance(manifest_payload, dict):
+        raise TaskCatalogLoadError("catalog_manifest_invalid")
+    manifest_type = _SUPPORTED_MANIFEST_SCHEMAS.get(manifest_payload.get("schema_version"))
+    if manifest_type is None:
+        raise TaskCatalogLoadError("catalog_manifest_version_unsupported")
     try:
-        manifest = CatalogManifest.model_validate(manifest_payload)
+        manifest = manifest_type.model_validate(manifest_payload)
     except ValidationError as error:
         raise TaskCatalogLoadError("catalog_manifest_invalid") from error
+    if catalog_root.name != manifest.catalog_version:
+        raise TaskCatalogLoadError("catalog_directory_version_mismatch")
     if canonical_sha256(_manifest_body(manifest)) != manifest.catalog_hash:
         raise TaskCatalogLoadError("catalog_manifest_hash_mismatch")
     if not _DATA_FILES.issubset(manifest.files):
@@ -207,7 +286,12 @@ def load_task_catalog(root: Path | None = None) -> TaskCatalog:
         raise TaskCatalogLoadError("catalog_inventory_changed")
 
     tasks = _load_list(payloads["tasks.json"], "tasks.json", TaskCatalogEntry)
-    scenarios = _load_list(payloads["scenarios.json"], "scenarios.json", ScenarioCatalogEntry)
+    if isinstance(manifest, CatalogManifestV2):
+        scenarios_v2 = _load_list(payloads["scenarios.json"], "scenarios.json", ScenarioCatalogEntryV2)
+        _validate_v2_scenario_outputs(scenarios_v2)
+        scenarios: tuple[ScenarioCatalogEntry, ...] | tuple[ScenarioCatalogEntryV2, ...] = scenarios_v2
+    else:
+        scenarios = _load_list(payloads["scenarios.json"], "scenarios.json", ScenarioCatalogEntry)
     mappings = _load_list(payloads["task-skill-mapping.json"], "task-skill-mapping.json", TaskSkillMappingEntry)
     skills = _load_list(payloads["skill-registry.json"], "skill-registry.json", SkillCatalogEntry)
     knowledge = _load_list(payloads["knowledge-registry.json"], "knowledge-registry.json", KnowledgeCatalogEntry)
@@ -281,7 +365,8 @@ def load_task_catalog(root: Path | None = None) -> TaskCatalog:
             if knowledge_id not in knowledge_index:
                 raise TaskCatalogLoadError(f"catalog_mapping_knowledge_missing:{knowledge_id}")
 
-    return TaskCatalog(
+    catalog_type = TaskCatalogV2 if isinstance(manifest, CatalogManifestV2) else TaskCatalog
+    return catalog_type(
         manifest=manifest,
         tasks=tasks,
         scenarios=scenarios,
@@ -297,4 +382,36 @@ def load_task_catalog(root: Path | None = None) -> TaskCatalog:
 
 
 def load_default_task_catalog() -> TaskCatalog:
-    return load_task_catalog()
+    catalog = load_task_catalog(_catalog_root(_CATALOG_V1))
+    if not isinstance(catalog, TaskCatalog):
+        raise TaskCatalogLoadError("catalog_version_mismatch:user-research-v1")
+    return catalog
+
+
+def load_universal_task_catalog() -> TaskCatalogV2:
+    catalog = load_task_catalog(_catalog_root(_CATALOG_V2))
+    if not isinstance(catalog, TaskCatalogV2):
+        raise TaskCatalogLoadError("catalog_version_mismatch:user-research-v2")
+    return catalog
+
+
+def load_task_catalog_by_identity(catalog_version: str, catalog_hash: str) -> VersionedTaskCatalog:
+    try:
+        catalog = load_task_catalog(_catalog_root(catalog_version))
+    except TaskCatalogLoadError as error:
+        raise TaskCatalogLoadError("task_catalog_snapshot_unavailable") from error
+    if catalog.manifest.catalog_version != catalog_version or catalog.manifest.catalog_hash != catalog_hash:
+        raise TaskCatalogLoadError("task_catalog_snapshot_unavailable")
+    return catalog
+
+
+def resolve_task_catalog(
+    *,
+    planning_contract_version: str,
+    catalog_version: str,
+    catalog_hash: str,
+) -> VersionedTaskCatalog:
+    expected_version = _CATALOG_VERSION_BY_PLANNING_CONTRACT.get(planning_contract_version)
+    if expected_version is None or catalog_version != expected_version:
+        raise TaskCatalogLoadError("task_catalog_snapshot_unavailable")
+    return load_task_catalog_by_identity(catalog_version, catalog_hash)

@@ -1,0 +1,49 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 0447a04ecc3caa2d6c94a69638ae5544ef3370b99b2dd979b918315b14029b3d
+profile_version: '1'
+display_description: 结合需求、设计稿和历史依据形成可追溯的设计建议与边界说明。
+primary_stage: pre_design
+lifecycle_tags:
+- pre_design
+capability_type: synthesis
+input_kinds:
+- design_requirement
+- design_artifact
+- historical_cases
+output_kinds:
+- design_strategy
+- design_recommendation
+- research_evidence
+examples:
+- 根据新需求和历史案例给设计建议
+- 先输出设计建议提纲再展开依据
+- 结合 PRD 与设计稿说明方案边界
+negative_examples:
+- 只登记一个案例链接
+- 把设计稿转换成 React 代码
+required_capabilities: &id001 []
+task_types:
+- design_strategy
+- design_recommendation
+- research_evidence
+archetypes:
+- synthesis
+required_tools:
+- mcp__zero-design__get_design_metadata
+- mcp__zero-design__get_design_context
+- mcp__zero-design__get_screenshot
+- mcp__zero-design__get_variables
+- Bash
+- Read
+- Write
+- Edit
+required_resources: *id001
+produces_factual_claims: true
+report_policy: default
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

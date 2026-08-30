@@ -35,6 +35,7 @@ from agentmesh.models import (
     SkillPlanNode,
     SkillPlanNodeStatus,
     SkillPlanStatus,
+    SkillPlanUpdateRequest,
     SkillPlanVersionRequest,
     SkillSideEffect,
     now_utc,
@@ -1014,7 +1015,47 @@ def test_orchestration_rechecks_project_access_after_intent(tmp_path) -> None:
     assert repository.get_skill_plan_for_run(run.id) is None
 
 
-def test_plan_approval_cancels_waiting_run_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
+def test_plan_update_drops_carried_assignment_for_removed_optional_node() -> None:
+    plan = SkillPlan(
+        id="plan_remove_assigned_optional",
+        run_id="run_remove_assigned_optional",
+        status=SkillPlanStatus.WAITING_APPROVAL,
+        intent=SkillIntent(goal="Keep only the required analysis"),
+        candidate_skill_ids=["skill_required", "skill_optional"],
+        preferred_order=["skill_required", "skill_optional"],
+        nodes=[
+            SkillPlanNode(
+                id="node_required",
+                skill_id="skill_required",
+                skill_version="1",
+                skill_content_hash="a" * 64,
+                reason="required",
+                required=True,
+                scenario_id="scenario-required",
+            ),
+            SkillPlanNode(
+                id="node_optional",
+                skill_id="skill_optional",
+                skill_version="1",
+                skill_content_hash="b" * 64,
+                reason="optional",
+                required=False,
+                scenario_id="scenario-optional",
+            ),
+        ],
+    )
+    request = SkillPlanUpdateRequest(
+        expected_version=plan.version,
+        selected_skill_ids=["skill_required"],
+        preferred_order=["skill_required"],
+    )
+
+    assignments = agent_run_routes._scenario_assignments_for_update(plan, request)
+
+    assert assignments == {"skill_required": "scenario-required"}
+
+
+def test_plan_approval_is_rejected_without_mutation_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
     repository = SQLiteStore(tmp_path / "approval-off.sqlite3")
     run, plan, candidate = _approval_plan(repository, suffix="off")
     monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "off")
@@ -1031,8 +1072,58 @@ def test_plan_approval_cancels_waiting_run_when_orchestration_is_off(tmp_path, m
         )
 
     assert error.value.status_code == 409
-    assert repository.get_agent_run(run.id).status == AgentRunStatus.CANCELLED  # type: ignore[union-attr]
-    assert repository.get_skill_plan(plan.id).status == SkillPlanStatus.CANCELLED  # type: ignore[union-attr]
+    assert error.value.detail == {"code": "skill_orchestration_disabled"}
+    assert repository.get_agent_run(run.id).status == AgentRunStatus.WAITING_PLAN_APPROVAL  # type: ignore[union-attr]
+    assert repository.get_skill_plan(plan.id).status == SkillPlanStatus.WAITING_APPROVAL  # type: ignore[union-attr]
+
+
+def test_plan_rejection_projects_terminal_message_once(tmp_path, monkeypatch) -> None:
+    repository = SQLiteStore(tmp_path / "rejection-projection.sqlite3")
+    run, plan, _candidate = _approval_plan(repository, suffix="reject_projection")
+    runtime = AgentRuntimeService(
+        repository,
+        model=ScriptedModel([]),
+        enabled=True,
+    )
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "execute")
+    monkeypatch.setattr(agent_run_routes, "store", repository)
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", runtime)
+
+    response = agent_run_routes.reject_agent_run_plan(
+        run.id,
+        SkillPlanVersionRequest(expected_version=plan.version),
+        user=USER,
+    )
+
+    assert response.run.status is AgentRunStatus.REJECTED
+    receipt = repository.get_run_output_projection(run.id)
+    assert receipt is not None and receipt.disposition == "message"
+    assert receipt.terminal_status is AgentRunStatus.REJECTED
+    messages = repository.list_thread_messages(run.thread_id)
+    assert len([message for message in messages if message.role.value == "assistant"]) == 1
+    _events, _stored_run, projection_ready, has_dispatch = (
+        repository.read_agent_run_event_page(run.id, after_sequence=0, limit=100)
+    )
+    assert projection_ready is True
+    assert has_dispatch is False
+
+
+def test_plan_rejection_is_rejected_without_mutation_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
+    repository = SQLiteStore(tmp_path / "rejection-off.sqlite3")
+    run, plan, _candidate = _approval_plan(repository, suffix="reject_off")
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "off")
+    monkeypatch.setattr(agent_run_routes, "store", repository)
+
+    with pytest.raises(HTTPException) as error:
+        agent_run_routes.reject_agent_run_plan(
+            run.id,
+            SkillPlanVersionRequest(expected_version=plan.version),
+            user=USER,
+        )
+
+    assert error.value.detail == {"code": "skill_orchestration_disabled"}
+    assert repository.get_agent_run(run.id).status == AgentRunStatus.WAITING_PLAN_APPROVAL  # type: ignore[union-attr]
+    assert repository.get_skill_plan(plan.id).status == SkillPlanStatus.WAITING_APPROVAL  # type: ignore[union-attr]
 
 
 def test_plan_approval_cancels_waiting_run_when_runtime_is_disabled(tmp_path, monkeypatch) -> None:

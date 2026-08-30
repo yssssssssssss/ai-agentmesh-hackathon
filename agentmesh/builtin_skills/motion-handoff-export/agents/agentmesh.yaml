@@ -1,0 +1,39 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: c69b05390227b19121a9af6db15243431ab5efe946b5a12ef43a5fdcc58c1c51
+profile_version: '1'
+display_description: 将本地 Web Demo 动效导出为可追溯的单文件 HTML 交付。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- web_demo
+- motion_scope
+output_kinds:
+- motion_handoff
+- html_document
+examples:
+- 导出这个页面的动效交付文档
+- 生成多轨动画时间轴和重播卡片
+- 把 React Demo 动效整理为单文件 HTML
+negative_examples:
+- 创建用户研究计划
+- 分析行业格局
+required_capabilities: &id001 []
+task_types:
+- motion_handoff
+- html_document
+archetypes:
+- delivery
+required_tools:
+- filesystem_write
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: local_write
+planner_eligible: false

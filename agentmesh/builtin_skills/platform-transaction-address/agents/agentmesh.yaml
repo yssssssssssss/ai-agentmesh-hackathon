@@ -1,0 +1,38 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 66b02759cd44bedf18c082d46b79e917c01178edf3e68233a80ab8c04ef0614a
+profile_version: '1'
+display_description: 按平台交易地址场域规则校验输入并路由地址设计任务。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: planning
+input_kinds:
+- address_requirement
+- transaction_context
+output_kinds:
+- field_task_route
+- address_design_brief
+examples:
+- 规划地址新增流程设计任务
+- 路由地址编辑体验需求
+- 按场域方法拆解地址管理改版
+negative_examples:
+- 分析直播封面
+- 整理访谈逐字稿
+required_capabilities: &id001 []
+task_types:
+- field_task_route
+- address_design_brief
+archetypes:
+- planning
+required_tools: []
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: low
+risk_level: low
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

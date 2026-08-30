@@ -1,0 +1,53 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 9b82c5a7d359f61152092aab27131171d74433f5812bccca91d2d5fc5f946782
+profile_version: '1'
+display_description: 编排 Relay 业务组件从知识抽取、组件封装到规范页和校验的全流程。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: planning
+input_kinds:
+- relay_component
+- pipeline_scope
+output_kinds:
+- design_markdown_bundle
+- component_set
+- relay_spec_page
+- component_spec_page
+examples:
+- 执行 Relay 到组件规范的完整管线
+- 从一个业务组件生成 wiki bundle 和规范页
+- 编排组件封装、长图、HTML 与校验
+negative_examples:
+- 分析用户满意度
+- 生成访谈提纲
+required_capabilities: &id001 []
+task_types:
+- design_markdown_bundle
+- component_set
+- relay_spec_page
+archetypes:
+- planning
+required_tools:
+- Agent
+- mcp__zero-design__get_design_metadata
+- mcp__zero-design__get_design_context
+- mcp__zero-design__get_screenshot
+- mcp__zero-design__get_variables
+- mcp__zero-design__use_design_script
+- mcp__zero-design__resources_list
+- mcp__zero-design__resources_read
+- Bash
+- Read
+- Write
+- Edit
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

@@ -1,0 +1,34 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 5c2d7c198e9bb9cdd4a063b81c5dc46aa297a2ff2137c72ab892871fc46a0a60
+profile_version: "1"
+display_description: 从用户反馈、客诉或 VoC 数据中归类问题、提取原声证据、还原旅程痛点并提出优化方向。
+primary_stage: post_design
+lifecycle_tags: [pre_design, post_design]
+capability_type: synthesis
+input_kinds: [voc_feedback, customer_complaints, feedback_dataset]
+output_kinds: [feedback_insights, pain_point_taxonomy, journey_findings]
+examples:
+  - 分析这批用户反馈并归类主要体验问题
+  - 从客诉原声里找出高频痛点和影响环节
+  - 把 CSV 反馈按用户旅程和严重度做成洞察报告
+  - 结合反馈 ID 提炼真实用户原声与优化建议
+  - 对全量 VoC 做问题分类占比和分组分布
+  - 比较不同用户角色的反馈差异与服务痛点
+negative_examples:
+  - 整理一场用户访谈的逐字稿
+  - 横向综合多场访谈形成研究洞察
+  - 根据满意度属性分数计算关键驱动因素
+required_capabilities: []
+task_types: [voc-analysis, feedback-synthesis]
+archetypes: [taxonomy, evidence-synthesis]
+required_tools: []
+required_resources: []
+produces_factual_claims: true
+report_policy: default
+cost_level: medium
+risk_level: medium
+owner: research-platform
+side_effect: draft
+review_state: draft
+planner_eligible: false

@@ -1,0 +1,33 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 1391a304924b82b87d46225beb67c6d0b095721c96295db821511834f0472e8c
+profile_version: "1"
+display_description: 基于分步人数、转化率和分群数据定位关键路径的最大流失环节，并提出验证与优化方向。
+primary_stage: post_design
+lifecycle_tags: [during_design, post_design]
+capability_type: analysis
+input_kinds: [funnel_metrics, conversion_events, segment_data]
+output_kinds: [conversion_funnel_analysis, dropoff_diagnosis, improvement_priorities]
+examples:
+  - 分析注册到首单的漏斗，看看用户主要掉在哪一步
+  - 用分步人数计算下单流程各环节转化率
+  - 对比新老版本支付漏斗并定位转化下降原因
+  - 按渠道和新老用户拆解开通流程流失
+  - 只有流程没有数据时帮我设计漏斗口径和埋点
+negative_examples:
+  - 分析新功能曝光后是否持续被用户采用
+  - 解释满意度指标下降的关键驱动因素
+  - 对多个设计方案做 AB 实验结论复盘
+required_capabilities: [wiki.corpus]
+task_types: [conversion-diagnosis, funnel-design]
+archetypes: [funnel-analysis, root-cause-analysis]
+required_tools: []
+required_resources: [wiki.corpus]
+produces_factual_claims: true
+report_policy: default
+cost_level: medium
+risk_level: low
+owner: research-platform
+side_effect: draft
+review_state: draft
+planner_eligible: false

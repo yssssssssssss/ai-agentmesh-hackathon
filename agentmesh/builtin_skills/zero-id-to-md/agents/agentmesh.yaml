@@ -1,0 +1,46 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 1a743f2aa8efda398a66fcbe8496024e55431fea6c3f460b158857821f9a73cf
+profile_version: '1'
+display_description: 将 Relay/Zero 组件节点录入为可检索、可实例化的 Markdown 组件知识。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: transformation
+input_kinds:
+- relay_component
+output_kinds:
+- design_markdown_bundle
+- component_identity_binding
+examples:
+- 把这个 Zero 组件 ID 转成 Markdown
+- 提取组件结构并绑定 importKey
+- 录入团队库组件为可检索知识
+negative_examples:
+- 从 Markdown 生成设计稿
+- 分析用户旅程
+required_capabilities: &id001 []
+task_types:
+- design_markdown_bundle
+- component_identity_binding
+archetypes:
+- transformation
+required_tools:
+- mcp__zero-design__get_design_metadata
+- mcp__zero-design__get_design_context
+- mcp__zero-design__get_screenshot
+- mcp__zero-design__get_variables
+- mcp__zero-design__use_design_script
+- Bash
+- Read
+- Write
+- Edit
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

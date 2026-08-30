@@ -1,0 +1,44 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: d67b7f57461541a1b77e961d422810d2ead52b236f651e3ed0d861afdddb0d26
+profile_version: '1'
+display_description: 编排风格、构图和文案知识生成直播封面设计蓝图与素材。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: generation
+input_kinds:
+- livestream_type
+- campaign_theme
+- asset_description
+output_kinds:
+- design_blueprint
+- livestream_cover
+examples:
+- 为采销直播生成封面施工蓝图
+- 结合主播和商品素材设计直播封面
+- 按品牌主题产出构图与文案方案
+negative_examples:
+- 分析访谈主题
+- 校验组件属性
+required_capabilities: &id001 []
+task_types:
+- design_blueprint
+- livestream_cover
+archetypes:
+- generation
+required_tools:
+- Bash
+- Read
+- Write
+- Edit
+- Grep
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

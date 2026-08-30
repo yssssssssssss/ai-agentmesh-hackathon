@@ -1,0 +1,48 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: bbad09950beac4d685ed6f0dd170c33c79beadc1683c909587d6f0ba52ee041e
+profile_version: '1'
+display_description: 依据 Zero 导航组件库生成像素级 React、Tailwind 与 TypeScript 导航实现。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: generation
+input_kinds:
+- relay_design
+- component_requirement
+output_kinds:
+- react_component
+- navbar_implementation
+examples:
+- 从 Zero Navbar 组件库生成代码
+- 实现导航栏全部变体状态
+- 按 Relay 节点还原 React 导航组件
+negative_examples:
+- 评估满意度数据
+- 录入历史案例
+required_capabilities: &id001 []
+task_types:
+- react_component
+- navbar_implementation
+archetypes:
+- generation
+required_tools:
+- Read
+- Write
+- Edit
+- Glob
+- Grep
+- Bash
+- mcp__zero-design__get_design_context
+- mcp__zero-design__get_screenshot
+- mcp__zero-design__get_design_metadata
+- mcp__zero-design__get_variables
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

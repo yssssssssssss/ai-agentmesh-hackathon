@@ -1,0 +1,38 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 072afc2228acf5ae92f9fef634ab6ef706054c566b25c346faa52ad452259d48
+profile_version: '1'
+display_description: 按平台交易结算场域规则校验输入并路由结算设计任务。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: planning
+input_kinds:
+- settlement_requirement
+- transaction_context
+output_kinds:
+- field_task_route
+- settlement_design_brief
+examples:
+- 规划订单结算页改版
+- 路由优惠与地址组合需求
+- 按场域方法拆解结算流程
+negative_examples:
+- 生成直播封面
+- 分析开放反馈
+required_capabilities: &id001 []
+task_types:
+- field_task_route
+- settlement_design_brief
+archetypes:
+- planning
+required_tools: []
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: low
+risk_level: low
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

@@ -1,0 +1,42 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: bd03f26701b568b728f19f4a80777e189e95ff13bae30db78439b05d3a0c268e
+profile_version: '1'
+display_description: 执行实例标签新增、更新、删除和合并，并维护待处理与归档数据。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: transformation
+input_kinds:
+- instance_operations
+- instance_registry
+output_kinds:
+- instance_registry_update
+- operation_report
+examples:
+- 执行这份实例标签操作清单
+- 合并重复实例并归档
+- 更新 instances.json 并移除已处理项
+negative_examples:
+- 只给实例命名建议
+- 生成用户画像
+required_capabilities: &id001 []
+task_types:
+- instance_registry_update
+- operation_report
+archetypes:
+- transformation
+required_tools:
+- Bash
+- Read
+- Edit
+- Write
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: local_write
+planner_eligible: false

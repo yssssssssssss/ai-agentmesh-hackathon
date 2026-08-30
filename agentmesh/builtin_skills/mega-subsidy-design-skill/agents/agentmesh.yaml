@@ -1,0 +1,46 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: cbbd35eafc872196c078b2fc66bb420e42d4ae812542d3c371a37271bee64ace
+profile_version: '1'
+display_description: 依据 Zero 百亿补贴组件库生成像素级 React、Tailwind 与 TypeScript 代码。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: generation
+input_kinds:
+- relay_design
+- component_requirement
+output_kinds:
+- react_component
+- component_implementation
+examples:
+- 把百亿补贴 Relay 节点生成 React 组件
+- 按组件库还原补贴卡片代码
+- 生成可运行的 Tailwind 百亿补贴页面
+negative_examples:
+- 评审无障碍问题
+- 总结用户反馈
+required_capabilities: &id001 []
+task_types:
+- react_component
+- component_implementation
+archetypes:
+- generation
+required_tools:
+- mcp__zero-design__get_design_context
+- mcp__zero-design__get_design_metadata
+- mcp__zero-design__get_variables
+- mcp__zero-design__get_screenshot
+- Read
+- Write
+- Edit
+- Bash
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

@@ -1735,7 +1735,7 @@ def test_plan_node_high_risk_tool_confirmation_resumes_node_then_remaining_dag(
     assert [call.model_settings.max_tokens for call in model.calls if call.streamed] == [8_192, 8_192]
 
 
-def test_plan_node_approval_is_cancelled_when_orchestration_rolls_back(tmp_path, monkeypatch) -> None:
+def test_plan_node_approval_is_refused_without_mutation_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
     repository = SQLiteStore(tmp_path / "approval-rollback.sqlite3")
     node = _node("approval_rollback", output_contract=["analysis"])
     plan, run = _persist_plan(
@@ -1785,9 +1785,9 @@ def test_plan_node_approval_is_cancelled_when_orchestration_rolls_back(tmp_path,
             decisions={},
         )
 
-    assert repository.get_agent_run(run.id).status == AgentRunStatus.CANCELLED  # type: ignore[union-attr]
-    assert repository.get_skill_plan(plan.id).status == SkillPlanStatus.CANCELLED  # type: ignore[union-attr]
-    assert repository.get_inbox_item(inbox.id).status == "resolved"  # type: ignore[union-attr]
+    assert repository.get_agent_run(run.id).status == AgentRunStatus.WAITING_APPROVAL  # type: ignore[union-attr]
+    assert repository.get_skill_plan(plan.id).status == SkillPlanStatus.RUNNING  # type: ignore[union-attr]
+    assert repository.get_inbox_item(inbox.id).status == "open"  # type: ignore[union-attr]
 
 
 def test_revoked_grant_fails_waiting_plan_and_resolves_inbox(
@@ -2089,5 +2089,9 @@ def test_revoked_grant_fails_optional_waiting_node_and_continues_partial_plan(
     event_types = [event.event_type for event in repository.list_agent_run_events(run.id)]
     assert "node_failed" in event_types
     assert "node_skipped" in event_types
-    assert event_types[-2:] == ["synthesis_completed", "run_partial"]
+    assert event_types[-3:] == [
+        "synthesis_completed",
+        "run_partial",
+        "run_output_projected",
+    ]
     model.assert_complete()

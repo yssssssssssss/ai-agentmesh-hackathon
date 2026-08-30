@@ -55,7 +55,6 @@ function node(status: SkillPlanNode['status'] = 'pending'): SkillPlanNode {
     id: 'node-1',
     skill_id: skill.id,
     skill_version: '1',
-    skill_content_hash: 'hash',
     reason: '先确认需求是否可落地',
     required: true,
     depends_on: [],
@@ -119,6 +118,12 @@ describe('Skill orchestration views', () => {
   it('shows versioned preview without implying tool approval', () => {
     const preview = detail()
     preview.plan.candidate_skill_ids = [skill.id, candidateSkill.id]
+    preview.blocked_matches = [{
+      skill_id: 'skill-blocked',
+      skill_name: 'blocked-skill',
+      title: '暂不可用能力',
+      reason_codes: ['tool_grant_missing'],
+    }]
     const html = renderToStaticMarkup(
       <SkillPlanPreview
         detail={preview}
@@ -138,6 +143,9 @@ describe('Skill orchestration views', () => {
     expect(html).toContain('可添加候选')
     expect(html).toContain('用户访谈提纲')
     expect(html).toContain('加入计划')
+    expect(html).toContain('其他相关能力暂不可用')
+    expect(html).toContain('暂不可用能力')
+    expect(html).toContain('缺少工具授权')
   })
 
   it('shows Task, Scenario, evidence, and capability gaps in route plans', () => {
@@ -197,6 +205,68 @@ describe('Skill orchestration views', () => {
     expect(html).toContain('候选能力尚未接入')
     expect(html).toContain('web_research')
     expect(html).toContain('完成标准：结论有来源')
+  })
+
+  it('requires explicit assignment when a selected Skill matches multiple scenarios', () => {
+    const preview = detail()
+    preview.scenario_assignment_options = {
+      [skill.id]: [
+        {
+          scenario_id: 'scenario-one',
+          title: '场景一',
+          output_ids: ['analysis_result'],
+          output_labels: ['分析结论'],
+        },
+        {
+          scenario_id: 'scenario-two',
+          title: '场景二',
+          output_ids: ['analysis_result'],
+          output_labels: ['对比结论'],
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(
+      <SkillPlanPreview
+        detail={preview}
+        candidates={[skill]}
+        orchestrationMode="execute"
+        pendingAction={null}
+        error={null}
+        onUpdate={vi.fn()}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('确认场景归属')
+    expect(html).toContain('场景一')
+    expect(html).toContain('场景二')
+    expect(html).toContain('请选择所有多义节点的场景归属')
+    const approval = html.match(/<button([^>]*)>确认并开始执行<\/button>/)
+    expect(approval?.[1] ?? '').toMatch(/\sdisabled(?:=|$)/)
+  })
+
+  it('allows approving a DeepSearch plan that retains blocking capability gaps', () => {
+    const preview = detail()
+    preview.plan.capability_gaps = ['deliverable:unavailable_output']
+
+    const html = renderToStaticMarkup(
+      <SkillPlanPreview
+        detail={preview}
+        candidates={[skill]}
+        orchestrationMode="execute"
+        pendingAction={null}
+        error={null}
+        onUpdate={vi.fn()}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('能力缺口')
+    const approval = html.match(/<button([^>]*)>确认并开始执行<\/button>/)
+    expect(approval?.[1] ?? '').not.toMatch(/\sdisabled(?:=|$)/)
   })
 
   it('moves preview controls below node content on narrow screens', () => {

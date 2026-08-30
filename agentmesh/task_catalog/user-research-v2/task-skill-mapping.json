@@ -1,0 +1,371 @@
+[
+  {
+    "default_skill_ids": [
+      "ds-skill-competitor-strategy-analysis"
+    ],
+    "optional_knowledge_descriptors": [
+      "场域知识包：经验知识（按需）"
+    ],
+    "optional_knowledge_ids": [
+      "ds-method-competitor-02-comparison-dimensions",
+      "ds-method-competitor-03-pattern-analysis",
+      "ds-method-competitor-04-opportunity-and-risk",
+      "ds-method-competitor-05-insight-output",
+      "ur-method-methods-toolbox-analysis-competitive-analysis"
+    ],
+    "optional_skill_ids": [
+      "ur-skill-competitive-analysis"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [],
+    "required_knowledge_ids": [
+      "ds-method-competitor-00-module-overview",
+      "ds-method-competitor-01-competitor-selection"
+    ],
+    "scenario_id": "competitor-benchmark-research",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "find-direction"
+  },
+  {
+    "default_skill_ids": [
+      "ur-skill-conversion-funnel-analysis"
+    ],
+    "optional_knowledge_descriptors": [
+      "当前项目资料"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ur-skill-feature-adoption-analysis",
+      "ur-skill-build-experience-metrics",
+      "ur-skill-analyze-satisfaction"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "用户研究知识：转化漏斗/行为数据/体验度量",
+      "场域知识包：指标口径"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "data-behavior-diagnosis",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "find-problems"
+  },
+  {
+    "default_skill_ids": [
+      "ur-skill-run-heuristic-evaluation"
+    ],
+    "optional_knowledge_descriptors": [
+      "当前项目资料"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ur-skill-research-screenshot-analyzer",
+      "ur-skill-experience-walkthrough"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "用户研究知识：启发式评估/可用性",
+      "场域知识包：基础知识"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "experience-walkthrough",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "find-problems"
+  },
+  {
+    "default_skill_ids": [
+      "ur-skill-code-open-feedback"
+    ],
+    "optional_knowledge_descriptors": [
+      "场域知识包：洞察知识（按需）"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ur-skill-synthesize-qualitative-insights",
+      "ur-skill-issue-prioritization"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "用户研究知识：VOC/文本分析/质性编码",
+      "当前项目资料"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "feedback-issue-clustering",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "find-problems"
+  },
+  {
+    "default_skill_ids": [
+      "ur-skill-build-experience-metrics"
+    ],
+    "optional_knowledge_descriptors": [
+      "当前项目资料"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ur-skill-conversion-funnel-analysis",
+      "ur-skill-feature-adoption-analysis",
+      "ur-skill-analyze-satisfaction"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "用户研究知识：体验度量/漏斗/功能采纳",
+      "场域知识包：指标口径"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "metrics-validation",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "define-strategy"
+  },
+  {
+    "default_skill_ids": [
+      "ds-skill-strategy-map-generation"
+    ],
+    "optional_knowledge_descriptors": [
+      "当前项目资料",
+      "场域知识包：洞察知识（按需）"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ur-skill-issue-prioritization"
+    ],
+    "planned_skill_ids": [
+      "planned-opportunity-evaluation-skill"
+    ],
+    "required_knowledge_descriptors": [
+      "设计策略方法：策略推导",
+      "用户研究知识：机会点研究"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "opportunity-direction-evaluation",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "find-direction"
+  },
+  {
+    "default_skill_ids": [
+      "ur-skill-issue-prioritization"
+    ],
+    "optional_knowledge_descriptors": [
+      "当前项目资料",
+      "场域知识包：约束条件"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ds-skill-strategy-map-generation",
+      "ur-skill-build-experience-metrics"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "设计策略方法：优先路线",
+      "用户研究知识：优先级框架"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "priority-roadmap",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "define-strategy"
+  },
+  {
+    "default_skill_ids": [
+      "ds-skill-user-insight-synthesis"
+    ],
+    "optional_knowledge_descriptors": [
+      "场域知识包：基础与洞察知识"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ds-skill-strategy-map-generation",
+      "ur-skill-jobs-to-be-done"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "设计策略方法：问题定义/痛点诊断",
+      "用户研究知识：用户需求/JTBD"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "root-cause-analysis",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "solve-problems"
+  },
+  {
+    "default_skill_ids": [
+      "ur-skill-issue-prioritization"
+    ],
+    "optional_knowledge_descriptors": [
+      "场域知识包：约束条件"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ds-skill-strategy-map-generation",
+      "ur-skill-build-experience-metrics"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "设计策略方法：优先路线/评审验证",
+      "用户研究知识：优先级框架"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "solution-comparison",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "solve-problems"
+  },
+  {
+    "default_skill_ids": [
+      "ds-skill-strategy-map-generation"
+    ],
+    "optional_knowledge_descriptors": [
+      "当前项目资料"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ds-skill-competitor-strategy-analysis",
+      "ds-skill-solution-generation"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "设计策略方法：策略地图",
+      "场域知识包：经验知识"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "solution-generation",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "solve-problems"
+  },
+  {
+    "default_skill_ids": [
+      "ds-skill-strategy-map-generation"
+    ],
+    "optional_knowledge_descriptors": [
+      "当前项目资料",
+      "场域知识包：洞察与经验知识（按需）"
+    ],
+    "optional_knowledge_ids": [
+      "ds-method-strategy-04-priority-and-roadmap",
+      "ds-method-strategy-05-review-and-validation",
+      "ur-method-models-pyramid-principle"
+    ],
+    "optional_skill_ids": [
+      "ds-skill-user-insight-synthesis",
+      "ds-skill-competitor-strategy-analysis"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [],
+    "required_knowledge_ids": [
+      "ds-method-strategy-00-module-overview",
+      "ds-method-strategy-02-strategy-map"
+    ],
+    "scenario_id": "strategy-synthesis",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "define-strategy"
+  },
+  {
+    "default_skill_ids": [
+      "ds-skill-trend-change-scan"
+    ],
+    "optional_knowledge_descriptors": [
+      "场域知识包：基础知识（按需）"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ds-skill-competitor-strategy-analysis",
+      "ds-skill-user-insight-synthesis"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "当前项目资料"
+    ],
+    "required_knowledge_ids": [
+      "ux-method-experience-diagnosis-framework"
+    ],
+    "scenario_id": "trend-change-identification",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "find-direction"
+  },
+  {
+    "default_skill_ids": [
+      "ur-skill-journey-map"
+    ],
+    "optional_knowledge_descriptors": [
+      "场域知识包：用户旅程（按需）"
+    ],
+    "optional_knowledge_ids": [
+      "ds-method-user-03-journey-and-tasks",
+      "ds-method-user-04-painpoint-diagnosis",
+      "ds-method-user-05-insight-output",
+      "ur-method-models-user-personas-segmentation",
+      "ur-method-models-user-insight",
+      "ur-method-methods-toolbox-analysis-journey-map"
+    ],
+    "optional_skill_ids": [
+      "ur-skill-jobs-to-be-done",
+      "ds-skill-user-insight-synthesis"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [],
+    "required_knowledge_ids": [
+      "ds-method-user-00-module-overview",
+      "ds-method-user-02-user-segmentation"
+    ],
+    "scenario_id": "user-journey-insight",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "understand-users"
+  },
+  {
+    "default_skill_ids": [
+      "ur-skill-synthesize-qualitative-insights"
+    ],
+    "optional_knowledge_descriptors": [
+      "场域知识包：洞察知识（按需）"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ur-skill-code-open-feedback",
+      "ds-skill-user-insight-synthesis"
+    ],
+    "planned_skill_ids": [],
+    "required_knowledge_descriptors": [
+      "用户研究知识：定性归纳、文本分析",
+      "当前项目资料"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "user-material-synthesis",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "understand-users"
+  },
+  {
+    "default_skill_ids": [
+      "ur-skill-generate-persona"
+    ],
+    "optional_knowledge_descriptors": [
+      "当前项目资料"
+    ],
+    "optional_knowledge_ids": [],
+    "optional_skill_ids": [
+      "ds-skill-user-insight-synthesis"
+    ],
+    "planned_skill_ids": [
+      "planned-segmentation-analysis-skill"
+    ],
+    "required_knowledge_descriptors": [
+      "用户研究知识：用户画像/分层/分群",
+      "设计策略方法：用户分析"
+    ],
+    "required_knowledge_ids": [],
+    "scenario_id": "user-segmentation",
+    "source_hash": "3596a427492c152b8c1f0e75b729cede6997dfbfa19e112b6459f9c75507f83f",
+    "source_path": "01-task-任务/task-skill-knowledge-mapping.md",
+    "task_id": "understand-users"
+  }
+]

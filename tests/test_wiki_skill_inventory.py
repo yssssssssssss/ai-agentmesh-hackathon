@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -11,13 +13,23 @@ import yaml
 from agentmesh.models import SkillActivationPolicy, SkillSourceScope
 from agentmesh.skill_runtime.discovery import SkillRoot, discover_skills
 from agentmesh.skill_runtime.parser import parse_skill_file
+from agentmesh.skill_runtime.profiles import load_capability_profile_record
 from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
-from scripts.sync_wiki_skills import build_sync_plan, check_sync
+from scripts.build_skill_profile_provenance import build_profile_provenance
+from scripts.sync_wiki_skills import (
+    CanonicalSkill,
+    SourceSkill,
+    SyncPlan,
+    build_sync_plan,
+    check_sync,
+    generate_profile_stubs,
+)
 
 ROOT = Path(__file__).parents[1]
 BUILTIN_ROOT = ROOT / "agentmesh" / "builtin_skills"
 MANIFEST_PATH = BUILTIN_ROOT / "wiki-skill-provenance.json"
+REVIEW_ROSTER_PATH = ROOT / "docs" / "verification" / "skill-profile-review-roster.yaml"
 WIKI_ROOT = ROOT / "2C-DesignWiki"
 requires_wiki_source = pytest.mark.skipif(
     not WIKI_ROOT.is_dir(),
@@ -75,6 +87,55 @@ def test_builtin_wiki_inventory_has_84_unique_valid_skills() -> None:
     assert not [diagnostic for diagnostic in result.diagnostics if diagnostic.code == "skill_name_collision"]
 
 
+def test_generate_profile_stubs_is_create_only_and_does_not_guess_safety_fields(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "source" / "SKILL.md"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("source", encoding="utf-8")
+    source = SourceSkill(
+        path=source_path,
+        relative_path="source/SKILL.md",
+        source_sha256=hashlib.sha256(b"source").hexdigest(),
+        frontmatter={"name": "journey-map"},
+        body="# Source\n",
+    )
+    plan = SyncPlan(
+        source_file_count=1,
+        skills=(CanonicalSkill(name="journey-map", source=source, adapter=None),),
+        duplicate_groups={},
+    )
+    builtin_root = tmp_path / "builtin"
+    skill_path = builtin_root / "journey-map" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text(
+        """---
+name: journey-map
+description: Journey map draft
+metadata:
+  version: "1"
+  short-description: Journey map draft
+  agentmesh-stage: pre_design
+---
+# Journey map
+""",
+        encoding="utf-8",
+    )
+
+    created = generate_profile_stubs(plan, builtin_root)
+    sidecar = builtin_root / "journey-map" / "agents" / "agentmesh.yaml"
+    payload = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+
+    assert created == [sidecar]
+    assert payload["review_state"] == "draft"
+    assert payload["planner_eligible"] is False
+    assert payload["skill_content_hash"] == hashlib.sha256(skill_path.read_bytes()).hexdigest()
+    assert "capability_type" not in payload
+    original = sidecar.read_bytes()
+    assert generate_profile_stubs(plan, builtin_root) == []
+    assert sidecar.read_bytes() == original
+
+
 @requires_wiki_source
 def test_vendored_wiki_snapshot_is_current() -> None:
     assert check_sync(build_sync_plan(WIKI_ROOT), BUILTIN_ROOT) == []
@@ -115,6 +176,7 @@ def test_wiki_skill_provenance_is_complete_and_selects_a_single_source() -> None
         for item in manifest["duplicate_groups"]
     }
     assert duplicate_selections == EXPECTED_DUPLICATE_SELECTIONS
+    profile_examples: list[str] = []
 
     for name, item in rows.items():
         destination = ROOT / str(item["destination"])
@@ -129,20 +191,173 @@ def test_wiki_skill_provenance_is_complete_and_selects_a_single_source() -> None
         assert parsed.skill.metadata["source"] == item["source"]
         assert parsed.skill.activation_policy == SkillActivationPolicy.EXPLICIT_ONLY
 
+        profile_path = destination.parent / "agents" / "agentmesh.yaml"
+        assert profile_path.is_file()
+        profile_document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+        assert isinstance(profile_document, dict)
+        loaded_profile = load_capability_profile_record(parsed.skill)
+        assert loaded_profile.profile.skill_content_hash == item["builtin_sha256"]
+        assert loaded_profile.profile.skill_version == parsed.skill.version
+        assert len(loaded_profile.profile.examples) >= 3
+        assert len(loaded_profile.profile.negative_examples) >= 2
+        assert loaded_profile.profile.input_kinds
+        assert loaded_profile.profile.output_kinds
+        profile_examples.extend(loaded_profile.profile.examples)
         if item["mode"] == "generated":
+            assert loaded_profile.review_state == "draft"
+            assert loaded_profile.declared_planner_eligible is False
+            assert loaded_profile.profile.planner_eligible is False
+            assert "owner" in profile_document
             assert parsed.skill.metadata["agentmesh-wiki-import"] == "true"
             assert parsed.skill.metadata["agentmesh-stage"] == item["stage"]
             assert parsed.skill.metadata["agentmesh-activation"] == "explicit_only"
             assert parsed.skill.metadata["author"]
             assert 1 <= len(parsed.skill.metadata["short-description"]) <= 100
         else:
-            profile_path = destination.parent / "agents" / "agentmesh.yaml"
-            profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+            profile = profile_document
             assert profile["primary_stage"] == item["stage"]
             assert profile["skill_content_hash"] == item["builtin_sha256"]
 
+    assert len(profile_examples) == len(set(profile_examples))
 
-def test_catalog_uses_stage_metadata_for_unprofiled_wiki_imports(tmp_path: Path) -> None:
+
+def test_profile_review_roster_is_complete_and_explicitly_blocked() -> None:
+    roster = yaml.safe_load(REVIEW_ROSTER_PATH.read_text(encoding="utf-8"))
+    items = roster["items"]
+
+    assert roster["schema_version"] == "skill-profile-review-roster-v1"
+    assert roster["baseline_count"] == 84
+    assert roster["production_gate"] == "blocked"
+    assert len(items) == 84
+    assert len({item["skill_name"] for item in items}) == 84
+    assert {item["skill_name"] for item in items} == {
+        path.parent.name for path in BUILTIN_ROOT.glob("*/SKILL.md")
+    }
+    assert all(item["status"] == "blocked_no_independent_reviewer" for item in items)
+    assert all(item["reviewers"] == [] for item in items)
+    assert all(item["review_due_at"] is None for item in items)
+    assert {item["required_reviewers"] for item in items} == {1, 2}
+
+
+def test_catalog_report_separates_draft_coverage_from_release_eligibility() -> None:
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "skill_catalog_report.py"),
+        str(BUILTIN_ROOT),
+    ]
+    development = subprocess.run(command, check=False, capture_output=True, text=True)
+    release = subprocess.run([*command, "--release-gate"], check=False, capture_output=True, text=True)
+
+    payload = json.loads(development.stdout)
+    release_payload = json.loads(release.stdout)
+    assert development.returncode == 0
+    assert payload["profile_coverage"] == "84/84"
+    assert payload["draft_profiles"] == 74
+    assert payload["release_gate_eligible"] is False
+    assert release.returncode == 1
+    assert "profiles_not_approved:0/84" in release_payload["release_blockers"]
+    assert "codeowners_missing" not in release_payload["release_blockers"]
+    assert "profile_provenance_v2_missing" in release_payload["release_blockers"]
+
+
+def test_catalog_release_gate_can_graduate_all_reviewed_profiles(tmp_path: Path) -> None:
+    catalog_root = tmp_path / "builtin_skills"
+    shutil.copytree(BUILTIN_ROOT, catalog_root)
+    for sidecar in catalog_root.glob("*/agents/agentmesh.yaml"):
+        profile = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+        profile["review_state"] = "approved"
+        profile["planner_eligible"] = True
+        sidecar.write_text(
+            yaml.safe_dump(profile, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+
+    roster = yaml.safe_load(REVIEW_ROSTER_PATH.read_text(encoding="utf-8"))
+    for item in roster["items"]:
+        item["author"] = "@profile-author"
+        item["reviewers"] = ["@reviewer-one", "@reviewer-two"]
+        item["confirmed_at"] = "2026-08-30"
+        item["review_due_at"] = "2099-01-01"
+        item["status"] = "approved"
+    roster_path = tmp_path / "review-roster.yaml"
+    roster_path.write_text(
+        yaml.safe_dump(roster, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    codeowners_path = tmp_path / "CODEOWNERS"
+    codeowners_path.write_text("* @reviewer-one @reviewer-two\n", encoding="utf-8")
+    provenance_path = tmp_path / "profile-provenance.json"
+    reviewed_tree_sha = "c" * 40
+    evidence_path = tmp_path / "review-evidence.json"
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "profile-review-evidence-v1",
+                "repository": "yssssssssssss/ai-agentmesh-hackathon",
+                "release_commit": "b" * 40,
+                "reviewed_tree_sha": reviewed_tree_sha,
+                "profiles": [
+                    {
+                        "skill_name": sidecar.parents[1].name,
+                        "author": "@profile-author",
+                        "reviewers": ["@reviewer-one", "@reviewer-two"],
+                        "reviewed_head_sha": "d" * 40,
+                        "reviewed_tree_sha": reviewed_tree_sha,
+                        "reviewed_blob_sha256": hashlib.sha256(
+                            sidecar.read_bytes()
+                        ).hexdigest(),
+                    }
+                    for sidecar in sorted(
+                        catalog_root.glob("*/agents/agentmesh.yaml")
+                    )
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    provenance = build_profile_provenance(
+        builtin_root=catalog_root,
+        evidence_path=evidence_path,
+        codeowners_path=codeowners_path,
+        expected_profile_count=84,
+    )
+    provenance_path.write_text(
+        json.dumps(
+            provenance.model_dump(mode="json"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    release = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "skill_catalog_report.py"),
+            str(catalog_root),
+            "--release-gate",
+            "--review-roster",
+            str(roster_path),
+            "--codeowners",
+            str(codeowners_path),
+            "--profile-provenance",
+            str(provenance_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(release.stdout)
+    assert release.returncode == 0, release.stdout
+    assert payload["release_gate_eligible"] is True
+    assert payload["release_blockers"] == []
+    assert payload["planner_profiles"] == 84
+    assert payload["draft_profiles"] == 0
+    assert payload["errors"] == 0
+
+
+def test_catalog_uses_stage_metadata_without_exposing_draft_profile_fields(tmp_path: Path) -> None:
     expected = {
         "design-advisor": "pre_design",
         "prototype-generation": "during_design",

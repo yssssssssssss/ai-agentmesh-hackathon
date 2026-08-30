@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from agentmesh.agent_runtime.settings import skill_orchestration_mode
 from agentmesh.deepsearch.recovery import DeepSearchRecoveryCoordinator
 from agentmesh.marketplace import (
     start_market_publish_worker,
@@ -19,9 +20,11 @@ from agentmesh.marketplace import (
 )
 from agentmesh.model_registry import ensure_model_seed_data
 from agentmesh.permissions import ensure_permission_policy_seed_data
+from agentmesh.request_limits import RequestBodyLimitMiddleware
 from agentmesh.research_orchestration.v2_artifact_history import V2ArtifactHistoryReader
 from agentmesh.research_orchestration.v2_history import V2HistoryAdapter
 from agentmesh.risk import ensure_risk_policy_seed_data
+from agentmesh.routes.admin_orchestration import router as admin_orchestration_router
 from agentmesh.routes.agent_runs import router as agent_runs_router
 from agentmesh.routes.agents import router as agents_router
 from agentmesh.routes.artifacts import router as artifacts_router
@@ -49,6 +52,8 @@ from agentmesh.routes.risk import router as risk_router
 from agentmesh.routes.skills import router as skills_router
 from agentmesh.routes.users import router as users_router
 from agentmesh.routes.workspace import router as workspace_router
+from agentmesh.runtime_admission import install_orchestration_admission
+from agentmesh.runtime_capacity import RuntimeCapacityController, install_runtime_capacity
 from agentmesh.seed import (
     demo_mode_enabled,
     ensure_base_workspace_data,
@@ -57,6 +62,7 @@ from agentmesh.seed import (
     ensure_graph_demo_data,
     ensure_initial_blackboard_data,
 )
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController, OrchestrationQuiescingError
 from agentmesh.skill_runtime.service import ensure_skill_catalog
 from agentmesh.store import SQLiteStore, store
 from agentmesh.tools import ensure_tool_seed_data
@@ -68,6 +74,7 @@ FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 
 
 def initialize_application_data(repository: SQLiteStore) -> None:
+    repository.reconcile_run_dispatches_for_startup()
     repository.reconcile_orphaned_agent_runs()
     ensure_base_workspace_data(repository)
     ensure_tool_seed_data(repository, granted_by="system")
@@ -85,16 +92,46 @@ def initialize_application_data(repository: SQLiteStore) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    store.initialize()
     initialize_application_data(store)
     research_v2_history_reader = V2HistoryAdapter(store, V2ArtifactHistoryReader(store))
     app.state.research_v2_history_reader = research_v2_history_reader
     runtime = chat_agent.agent_runtime
+    orchestration_admission = install_orchestration_admission(
+        OrchestrationQuiesceController()
+    )
+    runtime_capacity = install_runtime_capacity(RuntimeCapacityController())
+    if runtime is not None:
+        runtime.set_admission_controller(orchestration_admission)
+        set_capacity = getattr(runtime, "set_capacity_controller", None)
+        if callable(set_capacity):
+            set_capacity(runtime_capacity)
+        start_dispatch_pump = getattr(runtime, "start_dispatch_pump", None)
+        if callable(start_dispatch_pump):
+            await start_dispatch_pump()
+    app.state.orchestration_quiesce_controller = orchestration_admission
     deepsearch_recovery = (
-        DeepSearchRecoveryCoordinator(store, runtime)
+        DeepSearchRecoveryCoordinator(
+            store,
+            runtime,
+            admission=orchestration_admission,
+            mode_provider=skill_orchestration_mode,
+        )
         if runtime is not None
         else None
     )
     app.state.deepsearch_recovery_coordinator = deepsearch_recovery
+    if runtime is not None:
+        set_recovery_wakeup = getattr(
+            runtime,
+            "set_deepsearch_recovery_wakeup",
+            None,
+        )
+        if callable(set_recovery_wakeup):
+            recovery_wakeup = getattr(deepsearch_recovery, "wake", None)
+            set_recovery_wakeup(
+                recovery_wakeup if callable(recovery_wakeup) else None
+            )
     try:
         if deepsearch_recovery is not None:
             await deepsearch_recovery.start()
@@ -106,6 +143,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         try:
+            if runtime is not None:
+                stop_dispatch_pump = getattr(runtime, "stop_dispatch_pump", None)
+                if callable(stop_dispatch_pump):
+                    await stop_dispatch_pump()
             if deepsearch_recovery is not None:
                 await deepsearch_recovery.stop()
             await stop_market_scout_worker()
@@ -121,14 +162,48 @@ async def lifespan(app: FastAPI):
                 is deepsearch_recovery
             ):
                 del app.state.deepsearch_recovery_coordinator
+            if (
+                getattr(app.state, "orchestration_quiesce_controller", None)
+                is orchestration_admission
+            ):
+                del app.state.orchestration_quiesce_controller
+            if runtime is not None:
+                set_recovery_wakeup = getattr(
+                    runtime,
+                    "set_deepsearch_recovery_wakeup",
+                    None,
+                )
+                if callable(set_recovery_wakeup):
+                    set_recovery_wakeup(None)
+            replacement_admission = install_orchestration_admission(
+                OrchestrationQuiesceController()
+            )
+            replacement_capacity = install_runtime_capacity(
+                RuntimeCapacityController()
+            )
+            if runtime is not None:
+                runtime.set_admission_controller(replacement_admission)
+                set_capacity = getattr(runtime, "set_capacity_controller", None)
+                if callable(set_capacity):
+                    set_capacity(replacement_capacity)
             await asyncio.to_thread(ingestion_service.shutdown)
 
 
 app = FastAPI(title="AgentMesh", version="0.1.0", lifespan=lifespan)
+app.add_middleware(RequestBodyLimitMiddleware)
+
+
+@app.exception_handler(OrchestrationQuiescingError)
+async def orchestration_quiescing_handler(_request, _error):  # noqa: ANN001
+    return JSONResponse(
+        status_code=503,
+        content={"detail": {"code": OrchestrationQuiescingError.code}},
+    )
 
 
 # 注册路由模块
 app.include_router(auth_router)
+app.include_router(admin_orchestration_router)
 app.include_router(users_router)
 app.include_router(agent_runs_router)
 app.include_router(deepsearch_router)

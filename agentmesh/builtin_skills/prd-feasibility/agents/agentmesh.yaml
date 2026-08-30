@@ -11,6 +11,7 @@ output_kinds: [feasibility_review, risk_analysis]
 examples:
   - 评审这份 PRD 的业务逻辑可行性和风险
   - 分析产品方案是否合理以及上线后的数据影响
+  - 检查这份需求的场景闭环、边界条件与业务风险
 negative_examples:
   - 从测试覆盖角度评审需求
   - 只检查代码技术实现

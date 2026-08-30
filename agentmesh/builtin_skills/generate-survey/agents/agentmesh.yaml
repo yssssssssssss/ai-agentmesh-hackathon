@@ -11,6 +11,7 @@ output_kinds: [survey]
 examples:
   - 生成一份可直接投放的用户调研问卷
   - 把体验指标落成带跳转逻辑的问卷题目
+  - 为下单体验设计量表、选项和跳转逻辑
 negative_examples:
   - 生成访谈提纲
   - 设计可用性测试任务脚本

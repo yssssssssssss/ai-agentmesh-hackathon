@@ -16,9 +16,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.models import (
     AgentRun,
+    BlockedSkillMatchPublicV1,
+    CandidateSnapshotPublicViewV1,
+    CapabilityGapV1,
     DeepSearchEvidenceCoverageV1,
     DeepSearchFinalizationStage,
     DeepSearchReviewOutcomeV1,
+    ScenarioAssignmentOptionV1,
     SkillIntent,
     SkillNodeResult,
     SkillPlan,
@@ -870,6 +874,7 @@ class DeepSearchPlanViewV1(_FrozenContract):
     intent: SkillIntent
     routing_result: TaskRoutingResult | None = None
     candidate_skill_ids: list[str]
+    candidate_snapshot: CandidateSnapshotPublicViewV1 | None = None
     output_contract: list[str]
     synthesis_output_contract: list[str]
     capability_gaps: list[str]
@@ -893,8 +898,16 @@ class DeepSearchPlanViewV1(_FrozenContract):
 
     @classmethod
     def from_plan(cls, plan: SkillPlan) -> DeepSearchPlanViewV1:
-        payload = plan.model_dump(mode="python", include=set(cls.model_fields) - {"nodes"})
+        payload = plan.model_dump(
+            mode="python",
+            include=set(cls.model_fields) - {"nodes", "candidate_snapshot"},
+        )
         payload["nodes"] = [DeepSearchPlanNodeViewV1.from_plan_node(node) for node in plan.nodes]
+        payload["candidate_snapshot"] = (
+            CandidateSnapshotPublicViewV1.from_snapshot(plan.candidate_snapshot)
+            if plan.candidate_snapshot is not None
+            else None
+        )
         return cls.model_validate(payload)
 
 
@@ -904,6 +917,17 @@ class DeepSearchPlanDetailResponse(_FrozenContract):
     plan: DeepSearchPlanViewV1
     results: list[SkillNodeResult] = Field(default_factory=list)
     synthesis: None = None
+    scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
+        default_factory=dict
+    )
+    blocked_matches: list[BlockedSkillMatchPublicV1] = Field(
+        default_factory=list,
+        max_length=5,
+    )
+    capability_gap_details: list[CapabilityGapV1] = Field(
+        default_factory=list,
+        max_length=24,
+    )
 
 
 class DeepSearchPlanTransitionResponse(_FrozenContract):
@@ -949,4 +973,15 @@ class DeepSearchStateResponse(_FrozenContract):
     plan: DeepSearchPlanViewV1 | None = None
     evidence_coverage: DeepSearchEvidenceCoverageV1 | None = None
     report_review: DeepSearchReviewViewV1 | None = None
+    scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
+        default_factory=dict
+    )
+    blocked_matches: list[BlockedSkillMatchPublicV1] = Field(
+        default_factory=list,
+        max_length=5,
+    )
+    capability_gap_details: list[CapabilityGapV1] = Field(
+        default_factory=list,
+        max_length=24,
+    )
     retry_disposition: DeepSearchRetryDisposition = DeepSearchRetryDisposition.NONE

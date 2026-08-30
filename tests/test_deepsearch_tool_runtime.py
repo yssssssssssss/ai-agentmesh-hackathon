@@ -830,6 +830,7 @@ def test_factory_routes_deepsearch_through_gateway_invocation_seam_before_handle
         status=AgentRunStatus.RUNNING,
         planning_mode=AgentPlanningMode.DEEPSEARCH,
     )
+    repository.save_agent_run(run.model_copy(update={"planning_mode": AgentPlanningMode.STANDARD}))
     monkeypatch.setattr(repository, "get_agent_run", lambda _run_id: run)
     monkeypatch.setattr(repository, "user_can_execute_agent_run", lambda *_args, **_kwargs: True)
     handler_calls: list[str] = []

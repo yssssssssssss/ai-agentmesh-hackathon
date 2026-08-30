@@ -248,7 +248,15 @@ def test_background_run_persists_stream_events(tmp_path) -> None:
         )
         for _ in range(50):
             current = repository.get_agent_run(run.id)
-            if current is not None and current.status in {"completed", "failed", "cancelled"}:
+            receipt = repository.get_run_dispatch(
+                runtime._dispatch_operation_key(run.id, "standard_direct")
+            )
+            if (
+                current is not None
+                and current.status in {"completed", "failed", "cancelled"}
+                and receipt is not None
+                and receipt.state.value == "settled"
+            ):
                 break
             await asyncio.sleep(0.01)
         current = repository.get_agent_run(run.id)
@@ -257,6 +265,7 @@ def test_background_run_persists_stream_events(tmp_path) -> None:
         events = repository.list_agent_run_events(run.id)
         assert events[0].event_type == "run_started"
         assert any(event.event_type == "sdk_stream_event" for event in events)
-        assert events[-1].event_type == "run_completed"
+        assert "run_completed" in [event.event_type for event in events]
+        assert events[-1].event_type == "run_dispatch_settled"
 
     asyncio.run(scenario())

@@ -1,0 +1,41 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 8db9c58a245fc5f964de5af68c485fddcdefc0270192a627214fd48e6c0d9884
+profile_version: '1'
+display_description: 按京东 252 超品通栏规范审核营销图片并标注问题点。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: review
+input_kinds:
+- banner_image
+- audit_scope
+output_kinds:
+- banner_audit
+- design_findings
+- annotated_image
+examples:
+- 审核这张 252 超品通栏
+- 检查营销通栏视觉并标注问题
+- 按规范输出通栏问题清单
+negative_examples:
+- 批量替换 Banner 素材
+- 分析行业趋势
+required_capabilities: &id001 []
+task_types:
+- banner_audit
+- design_findings
+- annotated_image
+archetypes:
+- review
+required_tools:
+- zero_design
+required_resources: *id001
+produces_factual_claims: true
+report_policy: default
+cost_level: high
+risk_level: high
+owner: design-quality
+review_state: draft
+side_effect: draft
+planner_eligible: false

@@ -36,7 +36,78 @@ def test_task_routing_preview_returns_catalog_bound_route() -> None:
         *result["scenario"]["supporting_scenarios"],
     }
     assert payload["diagnostics"][0] == "deterministic_task_router"
+    assert payload["planning_contract_version"] == "standard_legacy_v1"
+    assert payload["catalog_version"] == "user-research-v1"
     assert "instructions" not in response.text
+
+
+def test_task_routing_preview_projects_universal_v2_identity_when_enabled(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    repository = SQLiteStore(tmp_path / "routing-preview-universal.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+
+    class Runtime:
+        enabled = True
+
+        @staticmethod
+        def planning_contract_for(**_kwargs):
+            from agentmesh.models import AgentPlanningContractVersion
+
+            return AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+
+    from agentmesh.routes import chat as chat_routes
+
+    monkeypatch.setattr(skill_routes, "store", repository)
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", Runtime())
+
+    response = skill_routes.preview_task_routing(
+        TaskRoutingPreviewRequest(content="帮我看看竞品"),
+        user=USER,
+    )
+
+    assert response.planning_contract_version == "standard_universal_v1"
+    assert response.execution_contract_version is None
+    assert response.catalog_version == "user-research-v2"
+    assert response.routing_result.catalog_version == "user-research-v2"
+
+
+def test_task_routing_preview_projects_deepsearch_v2_identity_when_enabled(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    repository = SQLiteStore(tmp_path / "routing-preview-deepsearch-v2.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+
+    class Runtime:
+        enabled = True
+
+        @staticmethod
+        def planning_contract_for(**_kwargs):
+            from agentmesh.models import AgentPlanningContractVersion
+
+            return AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+
+    from agentmesh.routes import chat as chat_routes
+
+    monkeypatch.setattr(skill_routes, "store", repository)
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", Runtime())
+
+    response = skill_routes.preview_task_routing(
+        TaskRoutingPreviewRequest(
+            content="帮我研究竞品",
+            planning_mode="deepsearch",
+        ),
+        user=USER,
+    )
+
+    assert response.planning_contract_version == "deepsearch_frozen_v2"
+    assert response.execution_contract_version is None
+    assert response.catalog_version == "user-research-v2"
+    assert response.routing_result.catalog_version == "user-research-v2"
 
 
 def test_task_routing_preview_rejects_foreign_thread(tmp_path, monkeypatch) -> None:

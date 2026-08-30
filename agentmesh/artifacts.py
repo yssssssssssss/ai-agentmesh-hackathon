@@ -12,14 +12,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256, strict_json_loads
 from agentmesh.models import (
+    AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRun,
     Artifact,
     ArtifactVerificationState,
+    CandidateSnapshotV1,
     SkillIntent,
     SkillPlanKnowledgeBindings,
     SkillResourceManifestV1,
     SkillSideEffect,
+    SkillSynthesisResult,
 )
 from agentmesh.task_routing.contracts import TaskRoutingResult
 
@@ -108,6 +111,74 @@ class DeepSearchPlanSnapshotV1(BaseModel):
         return self
 
 
+class RoutingCatalogIdentityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    catalog_version: str = Field(min_length=1, max_length=120)
+    catalog_hash: str = Field(pattern=_HASH_PATTERN)
+
+
+class DeepSearchFrozenPlanV2(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["deepsearch-plan-v2"] = "deepsearch-plan-v2"
+    requirement_version_id: str = Field(min_length=1, max_length=120)
+    requirement_content_hash: str = Field(pattern=_HASH_PATTERN)
+    problem_graph_hash: str = Field(pattern=_HASH_PATTERN)
+    intent: SkillIntent
+    routing_result: TaskRoutingResult | None = None
+    routing_catalog_identity: RoutingCatalogIdentityV1 | None = None
+    candidate_skill_ids: list[str] = Field(default_factory=list, max_length=12)
+    candidate_snapshot: CandidateSnapshotV1
+    output_contract: list[str] = Field(default_factory=list, max_length=20)
+    synthesis_output_contract: list[str] = Field(default_factory=list, max_length=20)
+    capability_gaps: list[str] = Field(default_factory=list, max_length=100)
+    preferred_order: list[str] = Field(default_factory=list, max_length=6)
+    nodes: list[DeepSearchFrozenPlanNodeV1] = Field(default_factory=list, max_length=6)
+
+    @model_validator(mode="after")
+    def validate_snapshot_and_routing(self) -> DeepSearchFrozenPlanV2:
+        if self.candidate_skill_ids != [
+            candidate.skill_id for candidate in self.candidate_snapshot.candidates
+        ]:
+            raise ValueError("candidate_skill_ids do not match Candidate Snapshot")
+        expected_identity = (
+            RoutingCatalogIdentityV1(
+                catalog_version=self.routing_result.catalog_version,
+                catalog_hash=self.routing_result.catalog_hash,
+            )
+            if self.routing_result is not None
+            else None
+        )
+        if self.routing_catalog_identity != expected_identity:
+            raise ValueError("routing_catalog_identity does not match routing_result")
+        return self
+
+
+class DeepSearchPlanSnapshotV2(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["deepsearch-plan-snapshot-v2"]
+    run_id: str = Field(min_length=1, max_length=120)
+    requirement_version_id: str = Field(min_length=1, max_length=120)
+    requirement_content_hash: str = Field(pattern=_HASH_PATTERN)
+    plan_id: str = Field(min_length=1, max_length=120)
+    plan_version: int = Field(ge=1)
+    plan_content_hash: str = Field(pattern=_HASH_PATTERN)
+    frozen_plan: DeepSearchFrozenPlanV2
+
+    @model_validator(mode="after")
+    def validate_frozen_plan(self) -> DeepSearchPlanSnapshotV2:
+        if self.requirement_version_id != self.frozen_plan.requirement_version_id:
+            raise ValueError("requirement_version_id does not match frozen_plan")
+        if self.requirement_content_hash != self.frozen_plan.requirement_content_hash:
+            raise ValueError("requirement_content_hash does not match frozen_plan")
+        expected_hash = canonical_json_sha256(self.frozen_plan.model_dump(mode="python"))
+        if self.plan_content_hash != expected_hash:
+            raise ValueError("plan_content_hash does not match frozen_plan")
+        return self
+
+
 class TrustedEvidenceEnvelopeV1(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -115,6 +186,7 @@ class TrustedEvidenceEnvelopeV1(BaseModel):
         "deepsearch-tool-evidence-v1",
         "deepsearch-user-evidence-v1",
         "deepsearch-knowledge-evidence-v1",
+        "universal-tool-evidence-v1",
     ]
     origin_type: Literal["tool", "user_input", "knowledge"]
     run_id: str = Field(min_length=1, max_length=120)
@@ -124,7 +196,7 @@ class TrustedEvidenceEnvelopeV1(BaseModel):
     node_id: str | None = Field(default=None, max_length=120)
     attempt: int | None = Field(default=None, ge=1)
     tool_name: str | None = Field(default=None, max_length=160)
-    tool_implementation_id: str | None = Field(default=None, max_length=160)
+    tool_implementation_id: str | None = Field(default=None, max_length=240)
     tool_implementation_version: str | None = Field(default=None, max_length=120)
     execution_mode: Literal["real", "fake", "fallback"] | None = None
     content_provider: str | None = Field(default=None, max_length=160)
@@ -148,6 +220,7 @@ class TrustedEvidenceEnvelopeV1(BaseModel):
             "deepsearch-tool-evidence-v1": "tool",
             "deepsearch-user-evidence-v1": "user_input",
             "deepsearch-knowledge-evidence-v1": "knowledge",
+            "universal-tool-evidence-v1": "tool",
         }[self.schema_version]
         if self.origin_type != expected_origin:
             raise ValueError("evidence schema and origin_type mismatch")
@@ -185,6 +258,17 @@ class TrustedEvidenceEnvelopeV1(BaseModel):
         ):
             raise ValueError("non-tool evidence cannot carry tool invocation lineage")
         return self
+
+
+class UniversalSynthesisEnvelopeV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["universal-synthesis-v1"] = "universal-synthesis-v1"
+    run_id: str = Field(min_length=1, max_length=120)
+    requirement_version_id: str = Field(min_length=1, max_length=120)
+    plan_id: str = Field(min_length=1, max_length=120)
+    plan_version: int = Field(ge=1)
+    synthesis: SkillSynthesisResult
 
 
 class DeepSearchEvidenceManifestItemV1(BaseModel):
@@ -350,9 +434,12 @@ class DeepSearchArtifactSchemaRegistry:
 
     _schemas: dict[tuple[str, str], type[BaseModel]] = {
         ("deepsearch_plan_snapshot", "deepsearch-plan-snapshot-v1"): DeepSearchPlanSnapshotV1,
+        ("deepsearch_plan_snapshot", "deepsearch-plan-snapshot-v2"): DeepSearchPlanSnapshotV2,
         ("deepsearch_tool_evidence", "deepsearch-tool-evidence-v1"): TrustedEvidenceEnvelopeV1,
         ("deepsearch_user_evidence", "deepsearch-user-evidence-v1"): TrustedEvidenceEnvelopeV1,
         ("deepsearch_knowledge_evidence", "deepsearch-knowledge-evidence-v1"): TrustedEvidenceEnvelopeV1,
+        ("universal_tool_evidence", "universal-tool-evidence-v1"): TrustedEvidenceEnvelopeV1,
+        ("universal_synthesis", "universal-synthesis-v1"): UniversalSynthesisEnvelopeV1,
         ("deepsearch_evidence_manifest", "deepsearch-evidence-manifest-v1"): DeepSearchEvidenceManifestV1,
         ("deepsearch_report", "deepsearch-report-v1"): DeepSearchReportV1,
     }
@@ -451,9 +538,24 @@ def _validate_verified_outer_artifact(
     *,
     enforce_writable_state: bool = False,
 ) -> None:
+    deepsearch_artifact = (
+        run.planning_mode is AgentPlanningMode.DEEPSEARCH
+        and artifact.artifact_type
+        not in {"universal_tool_evidence", "universal_synthesis"}
+    )
+    universal_artifact = (
+        run.planning_contract_version
+        is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+        and (
+            artifact.artifact_type == "universal_tool_evidence"
+            and artifact.schema_version == "universal-tool-evidence-v1"
+            or artifact.artifact_type == "universal_synthesis"
+            and artifact.schema_version == "universal-synthesis-v1"
+        )
+    )
     if (
         run.orchestration_version != "v1"
-        or run.planning_mode != AgentPlanningMode.DEEPSEARCH
+        or not (deepsearch_artifact or universal_artifact)
         or artifact.run_id != run.id
         or artifact.user_id != run.user_id
         or artifact.workspace_id != run.workspace_id
@@ -470,11 +572,16 @@ def _validate_verified_outer_artifact(
         "deepsearch_tool_evidence",
         "deepsearch_evidence_manifest",
         "deepsearch_report",
+        "universal_tool_evidence",
+        "universal_synthesis",
     }
     if requires_plan != (artifact.plan_version_id is not None):
         raise ArtifactAccessError("artifact_integrity_failed")
 
-    is_tool_evidence = artifact.artifact_type == "deepsearch_tool_evidence"
+    is_tool_evidence = artifact.artifact_type in {
+        "deepsearch_tool_evidence",
+        "universal_tool_evidence",
+    }
     if is_tool_evidence != (artifact.attempt_id is not None and artifact.step_number is not None):
         raise ArtifactAccessError("artifact_integrity_failed")
     if not is_tool_evidence and (artifact.attempt_id is not None or artifact.step_number is not None):
@@ -761,10 +868,19 @@ class V1VerifiedArtifactStore:
             run = AgentRun.model_validate_json(row["payload"])
         except (TypeError, ValueError):
             raise ArtifactAccessError("artifact_integrity_failed") from None
+        verified_runtime = (
+            run.planning_mode is AgentPlanningMode.DEEPSEARCH
+            or (
+                run.planning_contract_version
+                is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
+                and artifact.artifact_type
+                in {"universal_tool_evidence", "universal_synthesis"}
+            )
+        )
         if (
             row["orchestration_version"] != "v1"
             or run.orchestration_version != "v1"
-            or run.planning_mode != AgentPlanningMode.DEEPSEARCH
+            or not verified_runtime
             or run.user_id != artifact.user_id
             or run.workspace_id != artifact.workspace_id
             or run.project_id != artifact.project_id

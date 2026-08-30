@@ -1,0 +1,36 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: 5ed81421ad8ab0407719de0d2db373e623b648105effdb049e4f6fba2b0600c6
+profile_version: "1"
+display_description: 根据访谈、调研数据和用户洞察聚类典型用户，生成人物角色、分型依据、需求痛点和用户故事。
+primary_stage: pre_design
+lifecycle_tags: [pre_design]
+capability_type: synthesis
+input_kinds: [qualitative_research, research_findings, user_quotes]
+output_kinds: [persona, user_segments]
+examples:
+  - 根据这些访谈记录生成三类典型用户画像
+  - 把调研数据聚类成可用于产品决策的人物角色
+  - 为每类用户补充典型语录、行为、需求和痛点
+  - 从用户共性与差异中选择核心分型变量
+  - 将已有研究洞察转成团队可代入的 persona
+  - Build evidence-based user personas from interview findings
+  - Segment users by goals, behaviors and unmet needs
+  - 融合定量分群与定性研究描述核心用户原型
+negative_examples:
+  - 横向归纳访谈主题但不要生成拟人化角色
+  - 画用户完成购买任务的旅程图
+  - 为招募访谈对象设计筛选问题
+required_capabilities: [wiki.corpus]
+task_types: [persona-generation, user-segmentation]
+archetypes: [segmentation, synthesis]
+required_tools: []
+required_resources: [wiki.corpus]
+produces_factual_claims: false
+report_policy: on_request
+cost_level: medium
+risk_level: low
+owner: research-platform
+side_effect: draft
+review_state: draft
+planner_eligible: false

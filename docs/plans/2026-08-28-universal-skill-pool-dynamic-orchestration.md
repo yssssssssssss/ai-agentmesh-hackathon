@@ -1,6 +1,6 @@
 # 全量内置 Runtime Skill 候选池与 LLM 动态编排开发方案
 
-- 状态：待确认
+- 状态：已批准；Phase 0 本地工程验证完成，Phase 1A 离线 Profile/检索、Task Catalog v2、coverage/readiness/batch-embedding 骨架已通过，Phase 1B 已完成 84/84 本地 Profile 起草但独立审签未完成；生产 Preview/执行仍受发布拓扑、独立审查人与预发布演练门禁阻断
 - 日期：2026-08-28
 - 适用范围：Agent Runtime v2、Standard、DeepSearch 运行时 v1（FrozenPlan v1/v2）
 - 预计工期：核心工程 27~42 个工作日，另需 8~15 个 Profile 审查人日；27 个缺失工具适配另计 3~6 周
@@ -320,6 +320,8 @@ Profile 与 Planner 投影必须有硬边界：单个 sidecar 的 UTF-8 原文�
 9. `scripts/skill_catalog_report.py` 对 84/84 覆盖、Profile schema、Skill version/hash、Profile hash、工具名、资源声明、owner 能否解析到 CODEOWNERS、单审/双审状态和 roster `review_due_at` fail closed；缺失或已逾期项不能获得发布资格。
 10. 当前 84 个内置 Skill 经审查后全部设置 `planner_eligible=true`；加载时的有效值还必须满足 builtin source、manifest attestation 和 `review_state=approved`。
 11. 非 builtin 或缺少已审 Profile 的 Skill 仍可按现有 direct explicit 路径调用，但不得参加自然语言 Planner。
+
+单人 Hackathon 开发边界：在当前仓库只有一名维护者、无法满足作者与审查人分离时，允许继续 Phase 1A/1B 的本地实现、draft Profile 起草和离线评测；这不产生生产信任，不得把自审 Profile 标记为生产 `approved`，也不得扩大公开 recommendation 或 Agent Run Planner 候选。独立 CODEOWNER 审查、attestation 和预发布演练继续作为 Phase 2A 生产 Preview 切流门禁。若项目最终只交付本地 Hackathon 演示而不进入生产，该未满足项必须在验收记录中明确列为限制，不能伪装为已通过。
 
 `review_state` 只存在于文件级 `_ProfileDocument`；运行时仍投影到现有 `SkillCapabilityProfile.planner_eligible`，不增加数据库列。`wiki-skill-provenance.json` 根 `schema_version` 从 1 升为 2；它与单个 Profile 的 `profile_version` 是两个独立版本，校验和文档不得混用。这个数字也与已退役 Research v2 无关。
 
@@ -924,9 +926,9 @@ ADR 同时记录 Candidate Snapshot v1、Task Catalog v1/v2 读取边界、DeepS
 3. 用 thread-safe 共享 admission gate 和可控 barrier 证明 admin quiesce 与 `recover_once()`、`asyncio.to_thread(resume_sync)`、node/Tool claim 并发时，响应后不会再产生新 claim/schedule，且 `off` 启动不创建恢复调度器。
 4. 在预发布部署环境走通受保护 PR/merge queue、reviewed blob、wheel attestation、不可变 release/marker、ingress 管理 ACL、关闭自动重启、force-stop、SQLite 独占 dry-run/apply 和 `off` 健康检查；非 PR、squash/rebase、伪造 Header 与错误 digest 必须 fail closed。
 5. 用生产形态 SQLite 和最大 Candidate Snapshot/Tool 事件负载完成 3.3 的 30 分钟并发 soak，记录锁等待、WAL/checkpoint、每 Run p99 增量及 90 天容量；任何门槛不满足时先改存储方案或范围，不把风险推迟到 Phase 2A。
-6. 冻结 84 项初始 owner roster，并由列名 reviewer 书面确认 Phase 1B 的审查窗口、单审/双审职责和可用性；确认不了的项在 Phase 0 出口即阻断排期。若业务决定永久移除或替换无法核实的 builtin Skill，必须另立 ADR、先完成目录变更再重新计算验收基线，不能在本发布中临时豁免或部分切流。
+6. 冻结 84 项初始 owner roster，并由列名 reviewer 书面确认 Phase 1B 的审查窗口、单审/双审职责和可用性；确认不了的项在 Phase 0 出口即阻断生产发布排期。单人 Hackathon 可在所有新增 Profile 保持 draft、且不进入公开 recommendation 或 Agent Run Planner 的前提下继续离线 Phase 1A/1B，但不得据此进入 Phase 2A。若业务决定永久移除或替换无法核实的 builtin Skill，必须另立 ADR、先完成目录变更再重新计算验收基线，不能在本发布中临时豁免或部分切流。
 
-Spike 不接生产流量、不写生产新语义记录。产出是接受或修订替代 ADR、冻结 v1/v2 消费点清单、保存 CI/部署演练证据，并根据实际改动面重新估算 Phase 2A/2B/3、确认实现 owner 和退出门槛。任一纵切无法在单进程 SQLite 与唯一发布拓扑前提下闭合时停止实施；不得用放宽兼容、审签或回滚验收条件换取排期。
+Spike 不接生产流量、不写生产新语义记录。产出是接受或修订替代 ADR、冻结 v1/v2 消费点清单、保存 CI/部署演练证据，并根据实际改动面重新估算 Phase 2A/2B/3、确认实现 owner 和退出门槛。单人 Hackathon 在外部发布拓扑或独立审查无法闭合时，只能继续 draft Profile 与离线检索开发；任一纵切无法在单进程 SQLite 前提下闭合时仍须停止实施，不得用放宽兼容、安全或回滚验收条件换取排期。
 
 ### Phase 1A：检索、审签与评测骨架（5~8 个工程日）
 
@@ -1193,6 +1195,7 @@ Spike 不接生产流量、不写生产新语义记录。产出是接受或修�
 .venv/bin/python scripts/sync_wiki_skills.py --check
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
 .venv/bin/python eval/run_skill_retrieval_eval.py
+.venv/bin/python eval/run_universal_skill_retrieval_eval.py
 .venv/bin/python -m pytest
 .venv/bin/ruff check agentmesh tests scripts eval
 npm --prefix agentmesh-demo test -- --run

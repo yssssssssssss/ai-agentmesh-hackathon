@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentmesh.artifacts import DeepSearchPlanSnapshotV1
-from agentmesh.canonical_json import canonical_json_bytes, strict_json_loads
+from agentmesh.artifacts import DeepSearchPlanSnapshotV1, DeepSearchPlanSnapshotV2
+from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256, strict_json_loads
 from agentmesh.deepsearch.contracts import (
     ClarificationQuestionDraftV1,
     ProblemGraphV1,
@@ -37,9 +37,13 @@ from agentmesh.deepsearch.planning import (
     plan_content_hash,
 )
 from agentmesh.models import (
+    AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRun,
     ArtifactVerificationState,
+    CandidateIdentityV1,
+    CandidateSnapshotV1,
+    DeliverableAtomV1,
     SkillCandidate,
     SkillCandidateScore,
     SkillCapabilityProfile,
@@ -58,6 +62,8 @@ from agentmesh.models import (
     User,
 )
 from agentmesh.skill_runtime.plan_validation import PlanValidationError
+from agentmesh.skill_runtime.profiles import skill_capability_card
+from agentmesh.task_routing.catalog import load_universal_task_catalog
 from agentmesh.task_routing.router import TaskScenarioRouter
 
 _EMPTY_SKILL_PATH = Path(__file__).resolve().parent / "fixtures" / "deepsearch_empty_skill" / "SKILL.md"
@@ -984,3 +990,82 @@ def test_planning_pipeline_uses_one_canonical_requirement_input_and_builds_one_w
     assert plan.routing_result is not None
     assert plan.plan_content_hash == plan_content_hash(plan)
     assert snapshot.plan_version_id == f"{plan.id}:v1"
+
+
+def _v2_candidate_snapshot() -> CandidateSnapshotV1:
+    candidate = _candidate()
+    skill = _skill_definition()
+    card = skill_capability_card(skill, candidate.profile)
+    atom = DeliverableAtomV1(
+        id="deliverable:research_report",
+        label="Research report",
+        output_kind="research_report",
+    )
+    identity = CandidateIdentityV1(
+        skill_id=candidate.skill_id,
+        skill_name=candidate.skill_name,
+        skill_version=candidate.profile.skill_version,
+        skill_content_hash=candidate.profile.skill_content_hash,
+        profile_version=candidate.profile.profile_version,
+        profile_content_hash=candidate.profile.profile_content_hash,
+        capability_card=card,
+        capability_card_hash=canonical_json_sha256(card),
+        match_reason_codes=("profile_fts",),
+        covered_requirement_ids=(atom.id,),
+    )
+    body = {
+        "schema_version": "candidate-snapshot-v1",
+        "retrieval_policy_version": "universal-profile-rrf-v2",
+        "required_coverage_atoms": [atom.model_dump(mode="json")],
+        "plannable_coverage_atom_ids": [atom.id],
+        "required_synthesis_output_ids": [],
+        "coverage_witness_skill_ids": [candidate.skill_id],
+        "candidates": [identity.model_dump(mode="json")],
+    }
+    return CandidateSnapshotV1(**body, content_hash=canonical_json_sha256(body))
+
+
+def test_deepsearch_v2_snapshot_freezes_candidate_and_null_routing_identity() -> None:
+    snapshot = _v2_candidate_snapshot()
+    plan = _compiled_deepsearch_plan().model_copy(
+        update={"candidate_snapshot": snapshot}
+    )
+    plan.plan_content_hash = plan_content_hash(plan)
+    run = _deepsearch_run().model_copy(
+        update={
+            "planning_contract_version": AgentPlanningContractVersion.DEEPSEARCH_FROZEN_V2
+        }
+    )
+    created_at = datetime(2026, 8, 29, 9, 0, tzinfo=UTC)
+
+    artifact = build_deepsearch_plan_snapshot(run=run, plan=plan, created_at=created_at)
+    parsed = DeepSearchPlanSnapshotV2.model_validate(strict_json_loads(artifact.content))
+
+    assert artifact.schema_version == "deepsearch-plan-snapshot-v2"
+    assert parsed.frozen_plan.candidate_snapshot == snapshot
+    assert parsed.frozen_plan.candidate_skill_ids == [snapshot.candidates[0].skill_id]
+    assert parsed.frozen_plan.routing_catalog_identity is None
+    assert parsed.plan_content_hash == plan.plan_content_hash
+
+
+def test_deepsearch_v2_hash_changes_with_routing_catalog_identity() -> None:
+    snapshot = _v2_candidate_snapshot()
+    catalog = load_universal_task_catalog()
+    routing, _diagnostics = TaskScenarioRouter().route("对比竞品并形成研究报告")
+    routing = routing.model_copy(
+        update={
+            "catalog_version": catalog.manifest.catalog_version,
+            "catalog_hash": catalog.manifest.catalog_hash,
+        }
+    )
+    unrouted = _compiled_deepsearch_plan().model_copy(
+        update={"candidate_snapshot": snapshot}
+    )
+    routed = unrouted.model_copy(update={"routing_result": routing})
+    unrouted.plan_content_hash = plan_content_hash(unrouted)
+    routed.plan_content_hash = plan_content_hash(routed)
+
+    assert routed.plan_content_hash != unrouted.plan_content_hash
+    changed = routing.model_copy(update={"catalog_hash": "f" * 64})
+    changed_plan = routed.model_copy(update={"routing_result": changed})
+    assert plan_content_hash(changed_plan) != routed.plan_content_hash

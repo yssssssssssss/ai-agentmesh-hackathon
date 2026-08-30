@@ -1,0 +1,41 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 7076d94fc3ba8515f7e15f6da96c6552912b8f6cc0c3b7f6ee99ccd6bd0c3a98
+profile_version: '1'
+display_description: 评估页面、原型或设计稿的无障碍问题，并按 POUR 原则给出整改建议。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: review
+input_kinds:
+- design_artifact
+- accessibility_scope
+output_kinds:
+- accessibility_review
+- design_findings
+- prioritized_issues
+examples:
+- 检查这个页面的键盘操作和读屏体验
+- 按 POUR 原则走查移动端设计稿
+- 评估颜色对比、焦点顺序与可点击区域
+negative_examples:
+- 生成营销视觉稿
+- 分析转化漏斗
+required_capabilities: &id001
+- wiki.corpus
+task_types:
+- accessibility_review
+- design_findings
+- prioritized_issues
+archetypes:
+- review
+required_tools: []
+required_resources: *id001
+produces_factual_claims: true
+report_policy: default
+cost_level: low
+risk_level: medium
+owner: design-quality
+review_state: draft
+side_effect: draft
+planner_eligible: false

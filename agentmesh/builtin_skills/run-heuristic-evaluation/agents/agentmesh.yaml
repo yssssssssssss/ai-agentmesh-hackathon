@@ -1,0 +1,41 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: d66e872e7bc0a90f0d7f8b13524939c22855f5ad138c9fdf19ccddafccce80e8
+profile_version: '1'
+display_description: 按尼尔森启发式与严重度规则评估产品、页面或原型。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: review
+input_kinds:
+- design_artifact
+- evaluation_scope
+output_kinds:
+- heuristic_evaluation
+- design_findings
+- prioritized_issues
+examples:
+- 对这个产品做尼尔森启发式评估
+- 按严重度整理页面问题
+- 两遍走查原型并输出优先级建议
+negative_examples:
+- 生成高保真原型
+- 分析市场规模
+required_capabilities: &id001
+- wiki.corpus
+task_types:
+- heuristic_evaluation
+- design_findings
+- prioritized_issues
+archetypes:
+- review
+required_tools: []
+required_resources: *id001
+produces_factual_claims: true
+report_policy: default
+cost_level: low
+risk_level: medium
+owner: design-quality
+review_state: draft
+side_effect: draft
+planner_eligible: false

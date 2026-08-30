@@ -535,6 +535,30 @@ def check_sync(plan: SyncPlan, builtin_root: Path = DEFAULT_BUILTIN_ROOT) -> lis
         expected = render_skill(skill)
         if destination.read_bytes() != expected:
             problems.append(f"generated builtin is stale: {skill.name}")
+        frontmatter, _body = _split_frontmatter(destination.read_text(encoding="utf-8"))
+        metadata = frontmatter.get("metadata") if isinstance(frontmatter, dict) else None
+        skill_version = str(metadata.get("version", "1")) if isinstance(metadata, dict) else "1"
+        sidecar = destination.parent / "agents" / "agentmesh.yaml"
+        if not sidecar.is_file():
+            problems.append(f"generated builtin profile is missing: {skill.name}")
+            continue
+        try:
+            profile = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, yaml.YAMLError):
+            profile = None
+        if not isinstance(profile, dict) or profile.get("primary_stage") != SKILL_STAGES[skill.name]:
+            problems.append(f"generated builtin profile stage differs from stage mapping: {skill.name}")
+        if not isinstance(profile, dict) or profile.get("review_state") != "draft":
+            problems.append(f"generated builtin profile must remain draft: {skill.name}")
+        if not isinstance(profile, dict) or profile.get("planner_eligible") is not False:
+            problems.append(f"generated builtin profile planner eligibility is enabled: {skill.name}")
+        if not isinstance(profile, dict) or profile.get("skill_version") != skill_version:
+            problems.append(f"generated builtin profile version differs from Skill metadata: {skill.name}")
+        if not isinstance(profile, dict) or profile.get("skill_content_hash") != _destination_hash(
+            skill,
+            builtin_root,
+        ):
+            problems.append(f"generated builtin profile hash is stale: {skill.name}")
 
     manifest_path = builtin_root / MANIFEST_FILENAME
     if not manifest_path.is_file():
@@ -567,9 +591,59 @@ def sync(plan: SyncPlan, builtin_root: Path = DEFAULT_BUILTIN_ROOT) -> None:
     (builtin_root / MANIFEST_FILENAME).write_bytes(_manifest_bytes(manifest))
 
 
+def generate_profile_stubs(
+    plan: SyncPlan,
+    builtin_root: Path = DEFAULT_BUILTIN_ROOT,
+) -> list[Path]:
+    """Create identity-only draft sidecars without guessing capability or safety fields."""
+
+    created: list[Path] = []
+    for skill in plan.skills:
+        destination = builtin_root / skill.destination_relative_path
+        if not destination.is_file():
+            raise SyncError(f"cannot create Profile stub before Skill sync: {skill.name}")
+        sidecar = destination.parent / "agents" / "agentmesh.yaml"
+        if sidecar.exists():
+            continue
+        frontmatter, _body = _split_frontmatter(destination.read_text(encoding="utf-8"))
+        metadata = frontmatter.get("metadata") if isinstance(frontmatter, dict) else None
+        if not isinstance(metadata, dict):
+            raise SyncError(f"generated Skill metadata is missing: {skill.name}")
+        description = " ".join(
+            str(metadata.get("short-description") or frontmatter.get("description") or "").split()
+        )
+        payload = {
+            "skill_id": "auto",
+            "skill_version": str(metadata.get("version", "1")),
+            "skill_content_hash": _sha256(destination.read_bytes()),
+            "profile_version": "1",
+            "display_description": description[:_ROUTING_SUMMARY_LIMIT],
+            "primary_stage": SKILL_STAGES[skill.name],
+            "review_state": "draft",
+            "planner_eligible": False,
+        }
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        content = (
+            "# Draft scaffold. Add reviewed capability, input/output, Tool, resource, risk, and side-effect fields.\n"
+            + yaml.safe_dump(payload, allow_unicode=True, sort_keys=False, width=120)
+        )
+        try:
+            with sidecar.open("x", encoding="utf-8") as stream:
+                stream.write(content)
+        except FileExistsError:
+            continue
+        created.append(sidecar)
+    return created
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Verify the vendored snapshot without writing files")
+    parser.add_argument(
+        "--generate-profile-stubs",
+        action="store_true",
+        help="Create identity-only draft Profile sidecars when absent; never overwrite existing files",
+    )
     parser.add_argument("--wiki-root", type=Path, default=DEFAULT_WIKI_ROOT)
     parser.add_argument("--builtin-root", type=Path, default=DEFAULT_BUILTIN_ROOT)
     return parser
@@ -577,6 +651,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.check and args.generate_profile_stubs:
+        print("wiki Skill sync failed: --check and --generate-profile-stubs are mutually exclusive", file=sys.stderr)
+        return 2
     try:
         plan = build_sync_plan(args.wiki_root)
         if args.check:
@@ -587,6 +664,11 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
         else:
             sync(plan, args.builtin_root)
+            created_stubs = (
+                generate_profile_stubs(plan, args.builtin_root)
+                if args.generate_profile_stubs
+                else []
+            )
             problems = check_sync(plan, args.builtin_root)
             if problems:
                 raise SyncError("; ".join(problems))
@@ -597,6 +679,11 @@ def main(argv: list[str] | None = None) -> int:
         f"Wiki Skill snapshot is current: {len(plan.skills)} total, "
         f"{len(PRESERVED_BUILTIN_NAMES)} preserved, "
         f"{len(plan.skills) - len(PRESERVED_BUILTIN_NAMES)} generated"
+        + (
+            f", {len(created_stubs)} Profile stubs created"
+            if not args.check and args.generate_profile_stubs
+            else ""
+        )
     )
     return 0
 

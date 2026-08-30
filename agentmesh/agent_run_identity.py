@@ -3,11 +3,30 @@
 from __future__ import annotations
 
 from agentmesh.canonical_json import canonical_json_sha256
-from agentmesh.models import AgentPlanningMode, AgentRun, SkillOrchestrationRequestMode
+from agentmesh.models import (
+    AgentExecutionContractVersion,
+    AgentPlanningContractVersion,
+    AgentPlanningMode,
+    AgentRun,
+    SkillOrchestrationRequestMode,
+)
 
 
-def _enum_value(value: str | AgentPlanningMode | SkillOrchestrationRequestMode | None) -> str | None:
-    return value.value if isinstance(value, (AgentPlanningMode, SkillOrchestrationRequestMode)) else value
+def _enum_value(
+    value: str
+    | AgentExecutionContractVersion
+    | AgentPlanningContractVersion
+    | AgentPlanningMode
+    | SkillOrchestrationRequestMode
+    | None,
+) -> str | None:
+    enum_types = (
+        AgentExecutionContractVersion,
+        AgentPlanningContractVersion,
+        AgentPlanningMode,
+        SkillOrchestrationRequestMode,
+    )
+    return value.value if isinstance(value, enum_types) else value
 
 
 def agent_run_create_request_hash(
@@ -20,21 +39,32 @@ def agent_run_create_request_hash(
     orchestration_mode: str | SkillOrchestrationRequestMode | None,
     planning_mode: str | AgentPlanningMode,
     retry_of_run_id: str | None,
+    planning_contract_version: str | AgentPlanningContractVersion | None = None,
+    execution_contract_version: str | AgentExecutionContractVersion | None = None,
 ) -> str:
-    """Hash exactly the fields that define one durable create request."""
+    """Hash exactly the fields that define one durable create request.
 
-    return canonical_json_sha256(
-        {
-            "client_turn_id": client_turn_id,
-            "content": content,
-            "orchestration_mode": _enum_value(orchestration_mode),
-            "planning_mode": _enum_value(planning_mode),
-            "retry_of_run_id": retry_of_run_id,
-            "skill_name": skill_name,
-            "thread_id": thread_id,
-            "user_id": user_id,
-        }
-    )
+    Contract markers are omitted for legacy runs. Standard Universal includes
+    its execution marker even when it is explicitly null, so a Preview Run can
+    never be replayed as an execution-capable Run.
+    """
+
+    identity = {
+        "client_turn_id": client_turn_id,
+        "content": content,
+        "orchestration_mode": _enum_value(orchestration_mode),
+        "planning_mode": _enum_value(planning_mode),
+        "retry_of_run_id": retry_of_run_id,
+        "skill_name": skill_name,
+        "thread_id": thread_id,
+        "user_id": user_id,
+    }
+    planning_contract = _enum_value(planning_contract_version)
+    if planning_contract is not None:
+        identity["planning_contract_version"] = planning_contract
+    if planning_contract == AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1.value:
+        identity["execution_contract_version"] = _enum_value(execution_contract_version)
+    return canonical_json_sha256(identity)
 
 
 def expected_agent_run_create_request_hash(run: AgentRun) -> str | None:
@@ -49,6 +79,8 @@ def expected_agent_run_create_request_hash(run: AgentRun) -> str | None:
         orchestration_mode=run.requested_orchestration_mode,
         planning_mode=run.planning_mode,
         retry_of_run_id=run.retry_of_run_id,
+        planning_contract_version=run.planning_contract_version,
+        execution_contract_version=run.execution_contract_version,
     )
 
 
@@ -71,8 +103,10 @@ def agent_run_create_request_matches(
     orchestration_mode: str | SkillOrchestrationRequestMode | None,
     planning_mode: str | AgentPlanningMode,
     retry_of_run_id: str | None,
+    planning_contract_version: str | AgentPlanningContractVersion | None = None,
+    execution_contract_version: str | AgentExecutionContractVersion | None = None,
 ) -> bool:
-    """Compare a replay against either the new hash or a legacy Run payload."""
+    """Compare a replay against either the current hash or a legacy Run payload."""
 
     if run.create_request_hash is not None:
         return (
@@ -92,6 +126,8 @@ def agent_run_create_request_matches(
         and run.skill_id == skill_id
         and run.skill_name == skill_name
         and run.planning_mode == planning_mode
+        and run.planning_contract_version == planning_contract_version
+        and run.execution_contract_version == execution_contract_version
         and run.retry_of_run_id == retry_of_run_id
         and mode_matches
     )

@@ -1,0 +1,33 @@
+skill_id: auto
+skill_version: "1"
+skill_content_hash: c155343d0f8d9d04d34d1a08f8b95008742e388f58bc345f9ea467106e487b64
+profile_version: "1"
+display_description: 对照设计实验组与控制组，结合方案差异和实验数据判断效果、风险及下一步动作。
+primary_stage: post_design
+lifecycle_tags: [during_design, post_design]
+capability_type: analysis
+input_kinds: [experiment_results, design_variants, design_screenshots]
+output_kinds: [ab_test_analysis, variant_comparison, optimization_recommendations]
+examples:
+  - 分析这个设计 AB 实验为什么实验组转化下降
+  - 对比控制组和两个 UI 方案的指标与体验差异
+  - 复盘新版商详上线后的 AB 测试结果
+  - 结合截图和实验数据判断哪个方案更优
+  - 版本数据与用户反馈方向相反时判断实验是否应继续
+negative_examples:
+  - 查询历史上类似组件做过哪些实验
+  - 为尚未上线的方案生成完整实验注册单
+  - 只检查一个页面是否符合可用性原则
+required_capabilities: []
+task_types: [experiment-analysis, solution-comparison]
+archetypes: [causal-comparison, validation]
+required_tools: []
+required_resources: []
+produces_factual_claims: true
+report_policy: default
+cost_level: medium
+risk_level: low
+owner: design-research
+side_effect: draft
+review_state: draft
+planner_eligible: false

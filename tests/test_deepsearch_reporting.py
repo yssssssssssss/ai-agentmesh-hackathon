@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,6 +20,7 @@ from agentmesh.deepsearch.contracts import (
     problem_question_id,
     requirement_content_hash,
 )
+from agentmesh.deepsearch.finalization import _with_required_synthesis_sections
 from agentmesh.deepsearch.planning import plan_content_hash
 from agentmesh.deepsearch.reporting import (
     DEEPSEARCH_EVIDENCE_MANIFEST_MAX_BYTES,
@@ -594,6 +596,34 @@ def test_model_claim_drafts_receive_ids_and_can_form_a_complete_report() -> None
     assert report.report_status == "complete"
     assert report.review_outcome == "pass"
     assert report.limitations == []
+    projected = _with_required_synthesis_sections(
+        plan=SimpleNamespace(
+            candidate_snapshot=SimpleNamespace(
+                required_synthesis_output_ids=("strategy_map", "roadmap")
+            )
+        ),  # type: ignore[arg-type]
+        report=report,
+    )
+    assert {
+        "synthesis_output:strategy_map",
+        "synthesis_output:roadmap",
+    }.issubset({section.section_id for section in projected.sections})
+    assert "## 策略地图" in projected.rendered_text
+    assert "## 实施路径" in projected.rendered_text
+    missing = _with_required_synthesis_sections(
+        plan=SimpleNamespace(
+            candidate_snapshot=SimpleNamespace(
+                required_synthesis_output_ids=("strategy_map", "unsupported_output")
+            )
+        ),  # type: ignore[arg-type]
+        report=report,
+    )
+    assert "synthesis_output:strategy_map" in {
+        section.section_id for section in missing.sections
+    }
+    assert "synthesis_output:unsupported_output" not in {
+        section.section_id for section in missing.sections
+    }
     assert decide_deepsearch_terminal(
         plan=plan,
         synthesis=synthesis,
@@ -602,6 +632,19 @@ def test_model_claim_drafts_receive_ids_and_can_form_a_complete_report() -> None
         safe_partial_report=True,
         report_available=True,
     ).status is AgentRunStatus.COMPLETED
+    gapped_plan = plan.model_copy(
+        update={"capability_gaps": ["deliverable:unavailable_output"]}
+    )
+    gapped = decide_deepsearch_terminal(
+        plan=gapped_plan,
+        synthesis=synthesis,
+        coverage=coverage,
+        review_outcome=review_outcome,
+        safe_partial_report=True,
+        report_available=True,
+    )
+    assert gapped.status is AgentRunStatus.PARTIAL
+    assert gapped.error_code == "deepsearch_required_coverage_incomplete"
 
 
 def test_review_draft_cannot_mint_lineage_or_reference_unknown_claims() -> None:

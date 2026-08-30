@@ -2,13 +2,22 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from threading import Event
 
 import pytest
 
+from agentmesh.agent_runtime.settings import SkillOrchestrationMode
 from agentmesh.deepsearch.recovery import DeepSearchRecoveryCoordinator
 from agentmesh.models import AgentPlanningMode, AgentRun, AgentRunStatus
+from agentmesh.runtime_capacity import RuntimeCapacityError
+from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
 
 NOW = datetime(2026, 8, 27, 8, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _enable_recovery_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", SkillOrchestrationMode.EXECUTE.value)
 
 
 def _run(
@@ -40,9 +49,17 @@ class _Repository:
         self.runs = runs
         self.expired = expired or set()
         self.expiry_calls: list[str] = []
+        self.list_calls = 0
 
-    def list_recoverable_deepsearch_runs(self) -> list[AgentRun]:
-        return [run.model_copy(deep=True) for run in self.runs]
+    def list_recoverable_deepsearch_runs(
+        self,
+        *,
+        limit: int = 50,
+        after: tuple[str, str] | None = None,
+    ) -> list[AgentRun]:
+        del after
+        self.list_calls += 1
+        return [run.model_copy(deep=True) for run in self.runs[:limit]]
 
     def expire_deepsearch_run_if_needed(
         self,
@@ -199,6 +216,58 @@ def test_repeated_scan_keeps_only_one_managed_task_per_run() -> None:
     assert calls == ["running"]
 
 
+def test_recovery_completion_wakes_next_bounded_worker_immediately() -> None:
+    repository = _Repository(
+        [
+            _run("first", AgentRunStatus.RUNNING),
+            _run("second", AgentRunStatus.RUNNING),
+            _run("third", AgentRunStatus.RUNNING),
+        ]
+    )
+
+    class WakingRuntime:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+            self.release = {
+                "first": asyncio.Event(),
+                "second": asyncio.Event(),
+            }
+            self.third_started = asyncio.Event()
+
+        async def recover_deepsearch_run(self, run_id: str) -> AgentRun | None:
+            self.calls.append(run_id)
+            if run_id == "third":
+                self.third_started.set()
+            else:
+                await self.release[run_id].wait()
+            stored = next(item for item in repository.runs if item.id == run_id)
+            stored.status = AgentRunStatus.COMPLETED
+            return stored
+
+    async def exercise() -> list[str]:
+        runtime = WakingRuntime()
+        coordinator = DeepSearchRecoveryCoordinator(
+            repository,
+            runtime,
+            interval_seconds=60,
+            clock=lambda: NOW,
+        )
+        await coordinator.start()
+        for _ in range(50):
+            if len(runtime.calls) == 2:
+                break
+            await asyncio.sleep(0.01)
+        assert runtime.calls == ["first", "second"]
+        runtime.release["first"].set()
+        await asyncio.wait_for(runtime.third_started.wait(), timeout=1)
+        calls = list(runtime.calls)
+        runtime.release["second"].set()
+        await coordinator.stop()
+        return calls
+
+    assert asyncio.run(exercise()) == ["first", "second", "third"]
+
+
 def test_application_lifespan_starts_recovery_after_general_reconciliation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,7 +276,7 @@ def test_application_lifespan_starts_recovery_after_general_reconciliation(
     events: list[str] = []
 
     class RecordingCoordinator:
-        def __init__(self, _repository: object, _runtime: object) -> None:
+        def __init__(self, _repository: object, _runtime: object, **_kwargs: object) -> None:
             events.append("coordinator_created")
 
         async def start(self) -> None:
@@ -251,3 +320,286 @@ def test_application_lifespan_starts_recovery_after_general_reconciliation(
     asyncio.run(exercise())
 
     assert events[-1] == "coordinator_stopped"
+
+
+def test_application_lifespan_keeps_real_recovery_task_absent_in_off_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agentmesh.app as application
+
+    events: list[str] = []
+
+    async def no_op() -> None:
+        return None
+
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", SkillOrchestrationMode.OFF.value)
+    monkeypatch.setattr(application, "initialize_application_data", lambda _repository: None)
+    for name in (
+        "start_auto_post_worker",
+        "start_daily_memory_worker",
+        "start_research_dispatch_worker",
+        "start_market_publish_worker",
+        "start_market_scout_worker",
+        "stop_market_scout_worker",
+        "stop_market_publish_worker",
+        "stop_research_dispatch_worker",
+        "stop_daily_memory_worker",
+        "stop_auto_post_worker",
+    ):
+        monkeypatch.setattr(application, name, no_op)
+    monkeypatch.setattr(application.ingestion_service, "shutdown", lambda: events.append("shutdown"))
+
+    async def exercise() -> None:
+        async with application.lifespan(application.app):
+            coordinator = application.app.state.deepsearch_recovery_coordinator
+            assert isinstance(coordinator, DeepSearchRecoveryCoordinator)
+            assert coordinator.running is False
+
+    asyncio.run(exercise())
+
+    assert events == ["shutdown"]
+
+
+def test_off_mode_never_enumerates_or_starts_recovery() -> None:
+    repository = _Repository([_run("running", AgentRunStatus.RUNNING)])
+    runtime = _Runtime()
+    coordinator = DeepSearchRecoveryCoordinator(
+        repository,
+        runtime,
+        mode_provider=lambda: SkillOrchestrationMode.OFF,
+        clock=lambda: NOW,
+    )
+
+    async def exercise() -> tuple[int, bool]:
+        recovered = await coordinator.recover_once()
+        await coordinator.start()
+        return recovered, coordinator.running
+
+    recovered, running = asyncio.run(exercise())
+
+    assert recovered == 0
+    assert running is False
+    assert repository.list_calls == 0
+    assert runtime.calls == []
+
+
+def test_preview_mode_never_enumerates_or_starts_recovery() -> None:
+    repository = _Repository([_run("running", AgentRunStatus.RUNNING)])
+    runtime = _Runtime()
+    coordinator = DeepSearchRecoveryCoordinator(
+        repository,
+        runtime,
+        mode_provider=lambda: SkillOrchestrationMode.PREVIEW,
+        clock=lambda: NOW,
+    )
+
+    async def exercise() -> tuple[int, bool]:
+        recovered = await coordinator.recover_once()
+        await coordinator.start()
+        return recovered, coordinator.running
+
+    recovered, running = asyncio.run(exercise())
+
+    assert recovered == 0
+    assert running is False
+    assert repository.list_calls == 0
+    assert runtime.calls == []
+
+
+def test_capacity_pressure_defers_without_immediate_recovery_wakeup() -> None:
+    repository = _Repository([_run("running", AgentRunStatus.RUNNING)])
+
+    class SaturatedRuntime(_Runtime):
+        async def recover_deepsearch_run(self, run_id: str) -> AgentRun | None:
+            self.calls.append(run_id)
+            raise RuntimeCapacityError("run")
+
+    runtime = SaturatedRuntime()
+    coordinator = DeepSearchRecoveryCoordinator(
+        repository,
+        runtime,
+        interval_seconds=60,
+        clock=lambda: NOW,
+    )
+
+    async def exercise() -> None:
+        assert await coordinator.recover_once() == 1
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    asyncio.run(exercise())
+
+    assert runtime.calls == ["running"]
+    assert coordinator._cursor is None
+    assert coordinator._wake.is_set() is False
+
+
+@pytest.mark.parametrize(
+    "blocked_mode",
+    [SkillOrchestrationMode.OFF, SkillOrchestrationMode.PREVIEW],
+)
+def test_mode_is_rechecked_after_enumeration_before_each_schedule(
+    blocked_mode: SkillOrchestrationMode,
+) -> None:
+    repository = _Repository([_run("running", AgentRunStatus.RUNNING)])
+    runtime = _Runtime()
+    checks = 0
+
+    def mode_provider() -> SkillOrchestrationMode:
+        nonlocal checks
+        checks += 1
+        return (
+            SkillOrchestrationMode.EXECUTE
+            if checks <= 2
+            else blocked_mode
+        )
+
+    coordinator = DeepSearchRecoveryCoordinator(
+        repository,
+        runtime,
+        mode_provider=mode_provider,
+        clock=lambda: NOW,
+    )
+
+    recovered = asyncio.run(coordinator.recover_once())
+
+    assert recovered == 0
+    assert repository.list_calls == 1
+    assert runtime.calls == []
+
+
+@pytest.mark.parametrize(
+    "blocked_mode",
+    [SkillOrchestrationMode.OFF, SkillOrchestrationMode.PREVIEW],
+)
+def test_start_rechecks_mode_after_initial_scan_before_creating_periodic_task(
+    blocked_mode: SkillOrchestrationMode,
+) -> None:
+    repository = _Repository([])
+    runtime = _Runtime()
+    checks = 0
+
+    def mode_provider() -> SkillOrchestrationMode:
+        nonlocal checks
+        checks += 1
+        return (
+            SkillOrchestrationMode.EXECUTE
+            if checks <= 3
+            else blocked_mode
+        )
+
+    coordinator = DeepSearchRecoveryCoordinator(
+        repository,
+        runtime,
+        mode_provider=mode_provider,
+        clock=lambda: NOW,
+    )
+
+    async def exercise() -> bool:
+        await coordinator.start()
+        running = coordinator.running
+        await coordinator.stop()
+        return running
+
+    running = asyncio.run(exercise())
+
+    assert repository.list_calls == 1
+    assert running is False
+
+
+def test_quiesce_before_scan_prevents_repository_enumeration() -> None:
+    repository = _Repository([_run("running", AgentRunStatus.RUNNING)])
+    runtime = _Runtime()
+    controller = OrchestrationQuiesceController()
+    coordinator = DeepSearchRecoveryCoordinator(
+        repository,
+        runtime,
+        admission=controller,
+        clock=lambda: NOW,
+    )
+
+    async def exercise() -> int:
+        await controller.begin_quiesce(coordinator.begin_quiesce)
+        return await coordinator.recover_once()
+
+    recovered = asyncio.run(exercise())
+
+    assert recovered == 0
+    assert repository.list_calls == 0
+    assert runtime.calls == []
+
+
+def test_recovery_cursor_does_not_skip_transient_repository_failure() -> None:
+    class TransientRepository(_Repository):
+        def __init__(self):
+            super().__init__([_run("transient", AgentRunStatus.RUNNING)])
+            self.fail_once = True
+
+        def expire_deepsearch_run_if_needed(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+            if self.fail_once:
+                self.fail_once = False
+                raise RuntimeError("temporary database failure")
+            return super().expire_deepsearch_run_if_needed(*args, **kwargs)
+
+    repository = TransientRepository()
+    runtime = _Runtime()
+    coordinator = DeepSearchRecoveryCoordinator(
+        repository,
+        runtime,
+        clock=lambda: NOW,
+    )
+
+    async def exercise() -> tuple[int, int]:
+        first = await coordinator.recover_once()
+        second = await coordinator.recover_once()
+        await asyncio.sleep(0)
+        return first, second
+
+    assert asyncio.run(exercise()) == (0, 1)
+    assert runtime.calls == ["transient"]
+
+
+def test_quiesce_after_scan_prevents_every_recovery_schedule() -> None:
+    listed = Event()
+    release_list = Event()
+
+    class BlockingRepository(_Repository):
+        def list_recoverable_deepsearch_runs(
+            self,
+            *,
+            limit: int = 50,
+            after: tuple[str, str] | None = None,
+        ) -> list[AgentRun]:
+            result = super().list_recoverable_deepsearch_runs(
+                limit=limit,
+                after=after,
+            )
+            listed.set()
+            assert release_list.wait(timeout=2)
+            return result
+
+    repository = BlockingRepository([_run("running", AgentRunStatus.RUNNING)])
+    runtime = _Runtime()
+    controller = OrchestrationQuiesceController()
+    coordinator = DeepSearchRecoveryCoordinator(
+        repository,
+        runtime,
+        admission=controller,
+        clock=lambda: NOW,
+    )
+
+    async def exercise() -> int:
+        recovery = asyncio.create_task(coordinator.recover_once())
+        assert await asyncio.to_thread(listed.wait, 2)
+        quiesce = asyncio.create_task(controller.begin_quiesce(coordinator.begin_quiesce))
+        assert await asyncio.to_thread(controller.wait_until_quiescing, 2)
+        release_list.set()
+        recovered = await recovery
+        await asyncio.wait_for(quiesce, timeout=2)
+        return recovered
+
+    recovered = asyncio.run(exercise())
+
+    assert recovered == 0
+    assert repository.list_calls == 1
+    assert runtime.calls == []

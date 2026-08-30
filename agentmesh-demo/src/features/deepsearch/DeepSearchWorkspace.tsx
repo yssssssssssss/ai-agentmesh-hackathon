@@ -2,6 +2,7 @@ import { BrainCircuit, RotateCcw, Square, TriangleAlert } from 'lucide-react'
 
 import { SkillPlanPreview } from '../../components/workspace/SkillPlanPreview'
 import { SkillPlanProgress } from '../../components/workspace/SkillPlanProgress'
+import { blockedMatchReason } from '../../components/workspace/skillPlanPresentation'
 import { Button } from '../../components/ui/Button'
 import type {
   DeepSearchPlanDetailResponse,
@@ -10,7 +11,7 @@ import type {
   SkillPlanVersionRequest,
 } from '../workspace/types'
 import { activeDeepSearchStage } from './presentation'
-import type { DeepSearchClarifyRequest, DeepSearchPlan, DeepSearchReport, DeepSearchState } from './types'
+import type { DeepSearchClarifyRequest, DeepSearchReport, DeepSearchState } from './types'
 import { DeepSearchEvidenceStatus, DeepSearchReportView } from './DeepSearchEvidenceReport'
 import { DeepSearchRequirementPanel } from './DeepSearchRequirementPanel'
 import { DeepSearchStageRail } from './DeepSearchStageRail'
@@ -50,11 +51,15 @@ const FAILURE_COPY: Record<string, string> = {
   deepsearch_review_not_passed: '报告审核未通过。只有已排除争议结论的安全部分报告才会发布。',
 }
 
-function planDetailFromAggregate(plan: DeepSearchPlan): DeepSearchPlanDetailResponse {
+function planDetailFromAggregate(state: DeepSearchState): DeepSearchPlanDetailResponse | null {
+  if (!state.plan) return null
   return {
-    plan,
+    plan: state.plan,
     results: [],
     synthesis: null,
+    scenario_assignment_options: state.scenario_assignment_options ?? {},
+    blocked_matches: state.blocked_matches ?? [],
+    capability_gap_details: state.capability_gap_details ?? [],
   }
 }
 
@@ -145,7 +150,9 @@ export function DeepSearchWorkspace({
   const run = state.run
   const terminal = TERMINAL_STATUSES.has(run.status)
   const activeStage = activeDeepSearchStage(state)
-  const mergedPlanDetail = state.plan ? planDetailFromAggregate(state.plan) : null
+  const mergedPlanDetail = planDetailFromAggregate(state)
+  const blockedMatches = state.blocked_matches ?? []
+  const capabilityGapDetails = state.capability_gap_details ?? []
   const skillsById = new Map(skills.map((skill) => [skill.id, skill]))
   const finalizationStarted = state.plan?.finalization_stage !== undefined
     && state.plan.finalization_stage !== 'none'
@@ -190,6 +197,34 @@ export function DeepSearchWorkspace({
         </div>
       ) : null}
 
+      {!state.plan && capabilityGapDetails.length > 0 ? (
+        <section aria-label="未覆盖的必要能力" className="mt-4 rounded-soft border border-rose/20 bg-rose/10 px-5 py-4 shadow-card">
+          <h2 className="text-sm font-semibold text-rose">仍有必要能力未覆盖</h2>
+          <ul className="mt-2 space-y-1.5">
+            {capabilityGapDetails.map((gap) => (
+              <li key={gap.requirement_id} className="text-xs leading-5 text-slate-300">
+                <span>{gap.label}</span>
+                <code className="ml-2 text-[11px] text-slate-400">{gap.requirement_id}</code>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {!state.plan && blockedMatches.length > 0 ? (
+        <section aria-label="暂不可用的候选能力" className="mt-4 rounded-soft border border-white/[0.06] bg-surface-1 px-5 py-4 shadow-card">
+          <h2 className="text-sm font-semibold text-slate-200">相关能力当前不可执行</h2>
+          <ul className="mt-2 space-y-1.5">
+            {blockedMatches.map((candidate) => (
+              <li key={candidate.skill_id} className="text-xs leading-5 text-slate-400">
+                <span className="font-medium text-slate-200">{candidate.title}</span>
+                <span>：{blockedMatchReason(candidate.reason_codes ?? [])}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <ProblemGraphSummary state={state} />
 
       {run.status === 'waiting_plan_approval' && mergedPlanDetail ? (
@@ -198,7 +233,6 @@ export function DeepSearchWorkspace({
           detail={mergedPlanDetail}
           candidates={skills}
           orchestrationMode="execute"
-          blockApprovalForCapabilityGaps
           pendingAction={planPendingAction}
           error={planError}
           onUpdate={onUpdatePlan}

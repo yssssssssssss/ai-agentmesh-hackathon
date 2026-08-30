@@ -416,31 +416,111 @@ def test_embedding_model_change_does_not_rebuild_general_knowledge_vectors(tmp_p
     assert later.content_hash == original.content_hash
 
 
-def test_profile_vector_ranking_keeps_the_existing_no_threshold_semantics(tmp_path, monkeypatch) -> None:
+def test_profile_vector_ranking_rejects_zero_and_negative_similarity(tmp_path, monkeypatch) -> None:
     def embed(text: str, **_kwargs) -> list[float]:
-        return [0.0, 1.0] if text == "semantic-only-query" else [1.0, 0.0]
+        if text == "semantic-only-query":
+            return [0.0, 1.0]
+        if "negative-profile-skill" in text:
+            return [0.0, -1.0]
+        return [1.0, 0.0]
 
     monkeypatch.setattr("agentmesh.embedding.EMBEDDING_ENABLED", True)
     monkeypatch.setattr("agentmesh.embedding.embed_text", embed)
     repository = SQLiteStore(tmp_path / "profile-vector-threshold.sqlite3")
-    skill = _skill("planner-profile-skill")
-    profile = SkillCapabilityProfile(
-        id=skill.id,
-        skill_id=skill.id,
-        skill_name=skill.name,
-        skill_version=skill.version,
-        skill_content_hash=skill.content_hash,
-        profile_version="1",
-        profile_content_hash="profile-hash",
-        primary_stage=SkillLifecycleStage.PRE_DESIGN,
-        capability_type=SkillCapabilityType.RESEARCH,
+    skills = [_skill("zero-profile-skill"), _skill("negative-profile-skill")]
+    for skill in skills:
+        profile = SkillCapabilityProfile(
+            id=skill.id,
+            skill_id=skill.id,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skill_content_hash=skill.content_hash,
+            profile_version="1",
+            profile_content_hash=f"profile-hash-{skill.name}",
+            primary_stage=SkillLifecycleStage.PRE_DESIGN,
+            capability_type=SkillCapabilityType.RESEARCH,
+        )
+        repository.save_skill_capability_profile(profile)
+
+    _fts_ids, vector_ids, diagnostics = repository.rank_skill_profiles(
+        "semantic-only-query",
+        {skill.id for skill in skills},
     )
-    repository.save_skill_capability_profile(profile)
 
-    _fts_ids, vector_ids, diagnostics = repository.rank_skill_profiles("semantic-only-query", {skill.id})
-
-    assert vector_ids == [skill.id]
+    assert vector_ids == []
     assert diagnostics == []
+
+
+def test_profile_batch_ranking_uses_one_embedding_call_and_preserves_query_order(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("agentmesh.embedding.EMBEDDING_ENABLED", True)
+    monkeypatch.setattr("agentmesh.embedding.embed_text", lambda text, **_kwargs: [1.0, 0.0])
+    repository = SQLiteStore(tmp_path / "profile-vector-batch.sqlite3")
+    skill = _skill("batch-profile-skill")
+    repository.save_skill_capability_profile(
+        SkillCapabilityProfile(
+            id=skill.id,
+            skill_id=skill.id,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skill_content_hash=skill.content_hash,
+            profile_version="1",
+            profile_content_hash="profile-hash-batch",
+            primary_stage=SkillLifecycleStage.PRE_DESIGN,
+            capability_type=SkillCapabilityType.RESEARCH,
+        )
+    )
+    calls: list[tuple[list[str], float | None]] = []
+
+    def embed_batch(texts: list[str], *, timeout_seconds: float | None = None):  # noqa: ANN202
+        calls.append((texts, timeout_seconds))
+        return [[1.0, 0.0], [0.0, 1.0]]
+
+    monkeypatch.setattr("agentmesh.embedding.embed_texts", embed_batch)
+
+    rankings = repository.rank_skill_profiles_batch(
+        ["semantic-first", "semantic-second"],
+        {skill.id},
+    )
+
+    assert calls == [(["semantic-first", "semantic-second"], 0.35)]
+    assert rankings[0][1] == [skill.id]
+    assert rankings[1][1] == []
+    assert rankings[0][2] == []
+
+
+def test_profile_batch_ranking_discards_all_vectors_when_one_embedding_is_missing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("agentmesh.embedding.EMBEDDING_ENABLED", True)
+    monkeypatch.setattr("agentmesh.embedding.embed_text", lambda text, **_kwargs: [1.0, 0.0])
+    repository = SQLiteStore(tmp_path / "profile-vector-batch-invalid.sqlite3")
+    skill = _skill("batch-invalid-profile-skill")
+    repository.save_skill_capability_profile(
+        SkillCapabilityProfile(
+            id=skill.id,
+            skill_id=skill.id,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skill_content_hash=skill.content_hash,
+            profile_version="1",
+            profile_content_hash="profile-hash-batch-invalid",
+            primary_stage=SkillLifecycleStage.PRE_DESIGN,
+            capability_type=SkillCapabilityType.RESEARCH,
+        )
+    )
+    monkeypatch.setattr(
+        "agentmesh.embedding.embed_texts",
+        lambda _texts, **_kwargs: [[1.0, 0.0], None],
+    )
+
+    rankings = repository.rank_skill_profiles_batch(["first", "second"], {skill.id})
+
+    assert rankings[0][1] == rankings[1][1] == []
+    assert "embedding_unavailable" in rankings[0][2]
 
 
 def test_background_skill_index_skips_one_bad_record_and_retries_it_on_the_next_run(

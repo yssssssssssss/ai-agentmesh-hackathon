@@ -21,6 +21,9 @@ Set presentation_outputs to the requested presentation requirements actually ren
 Preserve limitations and degradation. Return the required structured schema.
 """
 _PRESENTATION_LABELS = {
+    "executive_summary": "执行摘要",
+    "summary": "总结",
+    "synthesis": "综合结论",
     "strategy_map": "策略地图",
     "mental_model": "用户心智模型",
     "design_principles": "设计原则",
@@ -170,6 +173,25 @@ def deterministic_synthesis(
     )
 
 
+def _synthesis_node_projection(node: SkillPlanNode) -> dict[str, object]:
+    return {
+        "id": node.id,
+        "skill_id": node.skill_id,
+        "reason": node.reason,
+        "task_id": node.task_id,
+        "scenario_id": node.scenario_id,
+        "required": node.required,
+        "depends_on": node.depends_on,
+        "parallel_group": node.parallel_group,
+        "input_bindings": node.input_bindings,
+        "output_contract": node.output_contract,
+        "completion_criteria": node.completion_criteria,
+        "side_effect": node.side_effect.value,
+        "status": node.status.value,
+        "error_code": node.error_code,
+    }
+
+
 class SkillSynthesisService:
     async def synthesize(
         self,
@@ -179,18 +201,28 @@ class SkillSynthesisService:
         results: list[SkillNodeResult],
         degradation: str | None,
         routing_result: TaskRoutingResult | None = None,
+        required_presentation_outputs: list[str] | None = None,
         completion_check: CompletionCheckResult | None = None,
         plan_nodes: list[SkillPlanNode] | None = None,
     ) -> tuple[SkillSynthesisResult, bool]:
-        presentation_requirements = (
-            list(routing_result.presentation_requirements) if routing_result is not None else []
+        presentation_requirements = list(
+            dict.fromkeys(
+                [
+                    *(required_presentation_outputs or []),
+                    *(
+                        list(routing_result.presentation_requirements)
+                        if routing_result is not None
+                        else []
+                    ),
+                ]
+            )
         )
         payload = {
             "output_contract": output_contract,
             "presentation_requirements": presentation_requirements,
             "task_routing": routing_result.model_dump(mode="json") if routing_result is not None else None,
             "completion_check": completion_check.model_dump(mode="json") if completion_check is not None else None,
-            "plan_nodes": [node.model_dump(mode="json") for node in plan_nodes or []],
+            "plan_nodes": [_synthesis_node_projection(node) for node in plan_nodes or []],
             "node_results": [
                 result.model_dump(mode="json", exclude={"deliverable_markdown"})
                 for result in results

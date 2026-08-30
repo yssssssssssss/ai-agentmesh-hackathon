@@ -1,0 +1,47 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: bb981d2e3df2413cbf6619e02e89fc5273a09fd6bbc263fa20f0a72bb6b2e324
+profile_version: '1'
+display_description: 依据 design.md 规范在 Relay/Zero 中创建可编辑参考设计稿。
+primary_stage: during_design
+lifecycle_tags:
+- during_design
+capability_type: generation
+input_kinds:
+- design_markdown
+- relay_target
+output_kinds:
+- relay_design
+- design_artifact
+examples:
+- 根据 design.md 在 Relay 生成参考稿
+- 把组件规范实例化到当前 Zero 文件
+- 同步 foundation 后创建可编辑设计稿
+negative_examples:
+- 把设计稿导出成规范文档
+- 分析用户反馈
+required_capabilities: &id001 []
+task_types:
+- relay_design
+- design_artifact
+archetypes:
+- generation
+required_tools:
+- mcp__zero-design__get_design_metadata
+- mcp__zero-design__get_design_context
+- mcp__zero-design__get_screenshot
+- mcp__zero-design__get_variables
+- mcp__zero-design__use_design_script
+- Bash
+- Read
+- Write
+- Edit
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: design-platform
+review_state: draft
+side_effect: external_write
+planner_eligible: false

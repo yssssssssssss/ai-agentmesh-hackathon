@@ -1,0 +1,10 @@
+# Review routing only. Production release still requires approval from a
+# second, distinct collaborator; the change author cannot satisfy that gate.
+* @yssssssssssss
+
+# Runtime, persistence, release controls, and security-sensitive workflows.
+/agentmesh/ @yssssssssssss
+/scripts/ @yssssssssssss
+/.github/ @yssssssssssss
+/docs/adr/ @yssssssssssss
+/docs/runbooks/ @yssssssssssss

@@ -1,0 +1,37 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 3218e3b39614d6900bde8758cfb18dc0c3699a9c0349c86d9adb86288f0338d5
+profile_version: '1'
+display_description: 在设计知识库和素材登记表中检索历史案例摘要与链接，不进行分析。
+primary_stage: pre_design
+lifecycle_tags:
+- pre_design
+capability_type: retrieval
+input_kinds:
+- search_query
+output_kinds:
+- case_search_results
+examples:
+- 搜索历史购物车设计案例
+- 查找与退款流程相关的设计决策
+- 快速返回素材库里的相似需求链接
+negative_examples:
+- 根据案例给设计建议
+- 修改知识库文件
+required_capabilities: &id001 []
+task_types:
+- case_search_results
+archetypes:
+- retrieval
+required_tools:
+- Bash
+- Read
+required_resources: *id001
+produces_factual_claims: true
+report_policy: on_request
+cost_level: high
+risk_level: high
+owner: knowledge-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

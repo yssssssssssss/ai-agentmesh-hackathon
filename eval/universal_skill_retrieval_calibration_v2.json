@@ -1,0 +1,95 @@
+{
+  "schema_version": "universal-skill-retrieval-dataset-v2",
+  "dataset_version": "phase1a-calibration-v2",
+  "partition": "calibration",
+  "description": "Phase 1A calibration set for twelve adjacent research and analysis Skills with explicit compound deliverable obligations and boundary outcomes. These cases are independent of Profile examples and are not a release holdout.",
+  "cases": [
+    {"id":"sat-01","request":"已有总体 NSS 和各体验维度评分，帮我判断哪些属性最影响总体满意度","expected_skills":["analyze-satisfaction"],"family":"behavior-metrics","language":"zh"},
+    {"id":"sat-02","request":"最近三个月 NPS 连续下滑，想区分正常波动、异常月份以及主要掉分人群","expected_skills":["analyze-satisfaction"],"family":"behavior-metrics","language":"zh"},
+    {"id":"sat-03","request":"把属性重要性与当前表现放到四象限里，找出最该优先改善的满意度项目","expected_skills":["analyze-satisfaction"],"family":"behavior-metrics","language":"zh"},
+    {"id":"sat-04","request":"比较改版前后 CSAT 变化，并解释哪些体验维度推动了涨跌","expected_skills":["analyze-satisfaction"],"family":"behavior-metrics","language":"zh"},
+    {"id":"sat-05","request":"这张满意度明细表里是谁、在哪个模块、因为什么原因不满","expected_skills":["analyze-satisfaction"],"family":"behavior-metrics","language":"zh"},
+
+    {"id":"funnel-01","request":"这里有注册每一步的人数，请计算各步转化并找出最大的流失环节","expected_skills":["conversion-funnel-analysis"],"family":"behavior-metrics","language":"zh"},
+    {"id":"funnel-02","request":"诊断从购物车、结算到支付成功的路径，看看用户主要卡在哪里","expected_skills":["conversion-funnel-analysis"],"family":"behavior-metrics","language":"zh"},
+    {"id":"funnel-03","request":"按渠道、设备和新老用户拆开开通流程，避免平均转化率掩盖问题","expected_skills":["conversion-funnel-analysis"],"family":"behavior-metrics","language":"zh"},
+    {"id":"funnel-04","request":"改版后下单转化变差了，请对比前后版本每个步骤的掉点","expected_skills":["conversion-funnel-analysis"],"family":"behavior-metrics","language":"zh"},
+    {"id":"funnel-05","request":"目前还没有埋点，先帮我定义关键路径、互斥步骤和漏斗统计口径","expected_skills":["conversion-funnel-analysis"],"family":"behavior-metrics","language":"zh"},
+
+    {"id":"ab-01","request":"控制组和实验组的点击与成交数据已经出来了，复盘这次界面实验的效果","expected_skills":["design-abtest-analysis"],"family":"experiment-analysis","language":"zh"},
+    {"id":"ab-02","request":"两个 UI 版本同时上线测试，请结合方案差异解释指标变化","expected_skills":["design-abtest-analysis"],"family":"experiment-analysis","language":"zh"},
+    {"id":"ab-03","request":"商详页 A/B test 的实验组转化下降，分析设计因素和潜在风险","expected_skills":["design-abtest-analysis"],"family":"experiment-analysis","language":"mixed"},
+    {"id":"ab-04","request":"我有三套方案截图和对应实验结果，需要判断哪套更优以及为什么","expected_skills":["design-abtest-analysis"],"family":"experiment-analysis","language":"zh"},
+    {"id":"ab-05","request":"版本数据看起来变好，但用户抱怨增多，这次试验应该如何判断是否继续发布","expected_skills":["design-abtest-analysis"],"family":"experiment-analysis","language":"zh"},
+
+    {"id":"adoption-01","request":"新功能曝光不少但实际使用很低，判断是用户没理解、不会用还是没有价值","expected_skills":["feature-adoption-analysis"],"family":"behavior-metrics","language":"zh"},
+    {"id":"adoption-02","request":"按曝光、激活、首次使用和再次使用四段分析这个功能的接住情况","expected_skills":["feature-adoption-analysis"],"family":"behavior-metrics","language":"zh"},
+    {"id":"adoption-03","request":"用 cohort 留存表看看试用新能力的人为什么第二周就不再回来","expected_skills":["feature-adoption-analysis"],"family":"behavior-metrics","language":"mixed"},
+    {"id":"adoption-04","request":"计算功能采纳的广度、频率、深度、首次使用时间和持续使用率","expected_skills":["feature-adoption-analysis"],"family":"behavior-metrics","language":"zh"},
+    {"id":"adoption-05","request":"这个低使用率能力还值得继续投入吗，请根据采纳行为给出判断","expected_skills":["feature-adoption-analysis"],"family":"behavior-metrics","language":"zh"},
+
+    {"id":"voc-01","request":"把一万条用户客诉按问题类型、严重度和旅程环节归类","expected_skills":["feedback-insight"],"family":"qualitative-research","language":"zh"},
+    {"id":"voc-02","request":"分析应用商店评论中的高频痛点，并保留可核对的用户原声","expected_skills":["feedback-insight"],"family":"qualitative-research","language":"zh"},
+    {"id":"voc-03","request":"从这批 VoC 数据中统计分类占比，再映射到真实使用旅程","expected_skills":["feedback-insight"],"family":"qualitative-research","language":"mixed"},
+    {"id":"voc-04","request":"每个体验问题都要附反馈 ID、原话和对应页面的优化方向","expected_skills":["feedback-insight"],"family":"qualitative-research","language":"zh"},
+    {"id":"voc-05","request":"综合商家和骑手反馈，比较不同角色遇到的服务痛点","expected_skills":["feedback-insight"],"family":"qualitative-research","language":"zh"},
+
+    {"id":"persona-01","request":"根据这些访谈和调研发现，把用户聚类成几类典型人物角色","expected_skills":["generate-persona"],"family":"qualitative-research","language":"zh"},
+    {"id":"persona-02","request":"先找出能区分用户的核心行为变量，再产出每一类人的画像","expected_skills":["generate-persona"],"family":"qualitative-research","language":"zh"},
+    {"id":"persona-03","request":"Create personas with goals, behaviors, pain points and representative quotes","expected_skills":["generate-persona"],"family":"qualitative-research","language":"en"},
+    {"id":"persona-04","request":"结合问卷分群和深访材料描述我们的核心目标用户原型","expected_skills":["generate-persona"],"family":"qualitative-research","language":"zh"},
+    {"id":"persona-05","request":"把已有洞察写成团队可代入的角色名、用户故事和需求场景","expected_skills":["generate-persona"],"family":"qualitative-research","language":"zh"},
+
+    {"id":"market-01","request":"研究宠物食品行业的市场、供给和竞争格局，并形成频道设计策略","expected_skills":["industry-market-analysis"],"family":"market-research","language":"zh"},
+    {"id":"market-02","request":"为母婴垂类改版补齐市场规模、消费趋势和主要玩家分析","expected_skills":["industry-market-analysis"],"family":"market-research","language":"zh"},
+    {"id":"market-03","request":"图书频道下一版该抓哪些行业机会，请给出优先级与体验方向","expected_skills":["industry-market-analysis"],"family":"market-research","language":"zh"},
+    {"id":"market-04","request":"Analyze category size, supply structure, competitors and whitespace opportunities","expected_skills":["industry-market-analysis"],"family":"market-research","language":"en"},
+    {"id":"market-05","request":"从品类心智和市场差异推导视觉关键词、色彩及内容表达原则","expected_skills":["industry-market-analysis"],"family":"market-research","language":"zh"},
+
+    {"id":"journey-01","request":"根据研究材料梳理用户从发现商品到购买完成的全过程体验地图","expected_skills":["journey-map"],"family":"qualitative-research","language":"zh"},
+    {"id":"journey-02","request":"画出新用户首次下单各阶段的行为、触点、想法和情绪曲线","expected_skills":["journey-map"],"family":"qualitative-research","language":"zh"},
+    {"id":"journey-03","request":"把客服反馈放回对应旅程阶段，标记痛点、需求和机会点","expected_skills":["journey-map"],"family":"qualitative-research","language":"zh"},
+    {"id":"journey-04","request":"不同场景用户的路径不一样，请分别生成 customer journey map","expected_skills":["journey-map"],"family":"qualitative-research","language":"mixed"},
+    {"id":"journey-05","request":"需要一份可分享的端到端体验地图，阶段为列、研究维度为行","expected_skills":["journey-map"],"family":"qualitative-research","language":"zh"},
+
+    {"id":"screenshot-01","request":"需要建立竞品界面素材库，比较各家在核心任务上的视觉处理","expected_skills":["research-screenshot-analyzer"],"family":"visual-research","language":"zh"},
+    {"id":"screenshot-02","request":"这张页面图片包含哪些布局层级、控件和视觉特征","expected_skills":["research-screenshot-analyzer"],"family":"visual-research","language":"zh"},
+    {"id":"screenshot-03","request":"比较同一功能在苹果端和安卓端的页面画面差异","expected_skills":["research-screenshot-analyzer"],"family":"visual-research","language":"mixed"},
+    {"id":"screenshot-04","request":"Run a visual audit on pages captured through the local DesignPeek endpoint","expected_skills":["research-screenshot-analyzer"],"family":"visual-research","language":"en"},
+    {"id":"screenshot-05","request":"将一组页面图按用户任务归档，并总结其中可观察的界面模式","expected_skills":["research-screenshot-analyzer"],"family":"visual-research","language":"zh"},
+
+    {"id":"transcript-01","request":"把这一场用户访谈逐字稿整理成结构化访谈小结","expected_skills":["structure-interview-transcript"],"family":"qualitative-research","language":"zh"},
+    {"id":"transcript-02","request":"刚完成一次深访，请对这份录音转写降噪并按研究问题归档","expected_skills":["structure-interview-transcript"],"family":"qualitative-research","language":"zh"},
+    {"id":"transcript-03","request":"提取这位受访者的背景、分主题发现和可引用关键原话","expected_skills":["structure-interview-transcript"],"family":"qualitative-research","language":"zh"},
+    {"id":"transcript-04","request":"Clean up one interview transcript without synthesizing across participants","expected_skills":["structure-interview-transcript"],"family":"qualitative-research","language":"en"},
+    {"id":"transcript-05","request":"只处理当前这一位用户的记录，列出痛点和后续追问事项","expected_skills":["structure-interview-transcript"],"family":"qualitative-research","language":"zh"},
+
+    {"id":"qual-01","request":"横向综合十场访谈，归纳共性主题、代表证据和用户洞察","expected_skills":["synthesize-qualitative-insights"],"family":"qualitative-research","language":"zh"},
+    {"id":"qual-02","request":"把多份定性笔记做亲和聚类，说明反复出现的需求与矛盾","expected_skills":["synthesize-qualitative-insights"],"family":"qualitative-research","language":"zh"},
+    {"id":"qual-03","request":"综合开放题回答和客服工单，形成跨材料的研究结论","expected_skills":["synthesize-qualitative-insights"],"family":"qualitative-research","language":"zh"},
+    {"id":"qual-04","request":"Synthesize themes and insights across several interview transcripts","expected_skills":["synthesize-qualitative-insights"],"family":"qualitative-research","language":"en"},
+    {"id":"qual-05","request":"输出结论先行的定性研究报告，每条洞察附频次和代表材料","expected_skills":["synthesize-qualitative-insights"],"family":"qualitative-research","language":"zh"},
+
+    {"id":"usability-01","request":"帮我审一下这张商详设计稿，指出具体位置和可用性影响","expected_skills":["usability-review"],"family":"design-review","language":"zh"},
+    {"id":"usability-02","request":"从信息结构、转化、操作链路和场景覆盖评审这个页面方案","expected_skills":["usability-review"],"family":"design-review","language":"zh"},
+    {"id":"usability-03","request":"对这张营销页做一次 quick usability review","expected_skills":["usability-review"],"family":"design-review","language":"mixed"},
+    {"id":"usability-04","request":"每条设计问题都要写清 location、evidence、impact 和置信度","expected_skills":["usability-review"],"family":"design-review","language":"mixed"},
+    {"id":"usability-05","request":"结合可用性方法卡检查首屏和楼层是否友好，并给修改建议","expected_skills":["usability-review"],"family":"design-review","language":"zh"}
+  ],
+  "compound_cases": [
+    {"id":"compound-01","request":"研究宠物食品行业与主要竞品，再结合用户反馈形成频道表达策略","expected_skills":["industry-market-analysis","competitive-analysis","feedback-insight"],"required_deliverables":["industry_market_analysis","competitive_analysis","feedback_insights"],"expected_blocked_skills":[],"expected_outcome":"ok","family":"cross-domain","language":"zh"},
+    {"id":"compound-02","request":"先综合多场访谈提炼洞察，再生成人物角色和用户旅程图","expected_skills":["synthesize-qualitative-insights","generate-persona","journey-map"],"required_deliverables":["qualitative_insights","persona","journey_map"],"expected_blocked_skills":[],"expected_outcome":"ok","family":"qualitative-research","language":"zh"},
+    {"id":"compound-03","request":"同时分析新功能采纳漏斗和满意度下滑原因，给出改进优先级","expected_skills":["feature-adoption-analysis","analyze-satisfaction"],"required_deliverables":["feature_adoption_analysis","satisfaction_analysis","improvement_priorities"],"expected_blocked_skills":[],"expected_outcome":"ok","family":"behavior-metrics","language":"zh"},
+    {"id":"compound-04","request":"结合 AB 实验结果和下单分步数据，解释新版转化下降","expected_skills":["design-abtest-analysis","conversion-funnel-analysis"],"required_deliverables":["ab_test_analysis","conversion_funnel_analysis"],"expected_blocked_skills":[],"expected_outcome":"ok","family":"experiment-analysis","language":"mixed"},
+    {"id":"compound-05","request":"先整理每场访谈记录，再跨场归纳共同主题和研究洞察","expected_skills":["structure-interview-transcript","synthesize-qualitative-insights"],"required_deliverables":["structured_interview_summary","qualitative_insights"],"expected_blocked_skills":[],"expected_outcome":"ok","family":"qualitative-research","language":"zh"},
+    {"id":"compound-06","request":"采集竞品关键页面截图做视觉对比，并评审当前设计稿的可用性问题","expected_skills":["research-screenshot-analyzer","usability-review"],"required_deliverables":["screenshot_analysis","usability_review"],"expected_blocked_skills":[],"expected_outcome":"ok","family":"visual-research","language":"zh"}
+  ],
+  "boundary_cases": [
+    {"id":"boundary-01","request":"帮我查询明天北京的天气","expected_skills":[],"expected_outcome":"no_matching_skill","family":"out-of-domain","language":"zh"},
+    {"id":"boundary-02","request":"预订一张周五去上海的机票","expected_skills":[],"expected_outcome":"no_matching_skill","family":"out-of-domain","language":"zh"},
+    {"id":"boundary-03","request":"给我推荐一道二十分钟能做好的晚餐菜谱","expected_skills":[],"expected_outcome":"no_matching_skill","family":"out-of-domain","language":"zh"},
+    {"id":"boundary-04","request":"Predict next week's gold price for me","expected_skills":[],"expected_outcome":"no_matching_skill","family":"out-of-domain","language":"en"},
+    {"id":"boundary-05","request":"帮我生成一份晚餐菜谱","expected_skills":[],"expected_outcome":"no_matching_skill","family":"out-of-domain","language":"zh"},
+    {"id":"boundary-06","request":"Generate a dinner recipe","expected_skills":[],"expected_outcome":"no_matching_skill","family":"out-of-domain","language":"en"}
+  ]
+}

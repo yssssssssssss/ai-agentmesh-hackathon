@@ -1,0 +1,38 @@
+skill_id: auto
+skill_version: '1'
+skill_content_hash: 9aea29b0669ee118c4a895585600c10476161a818a406c4adf28dc60edae91ca
+profile_version: '1'
+display_description: 生成京东业务场域风格的横向 HTML 汇报与方案演示页。
+primary_stage: post_design
+lifecycle_tags:
+- post_design
+capability_type: delivery
+input_kinds:
+- report_content
+- presentation_goal
+output_kinds:
+- presentation_deck
+- html_document
+examples:
+- 把这份业务复盘做成京东风格 PPT
+- 生成横向翻页方案演示
+- 将设计规范整理为管理层汇报 deck
+negative_examples:
+- 分析用户逐字稿
+- 更新组件属性
+required_capabilities: &id001 []
+task_types:
+- presentation_deck
+- html_document
+archetypes:
+- delivery
+required_tools: []
+required_resources: *id001
+produces_factual_claims: false
+report_policy: on_request
+cost_level: low
+risk_level: low
+owner: design-platform
+review_state: draft
+side_effect: draft
+planner_eligible: false

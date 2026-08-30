@@ -1,0 +1,1488 @@
+[
+  {
+    "completion_criteria": [
+      "竞品选择合理",
+      "输出模式而非截图堆叠",
+      "说明不可照搬条件"
+    ],
+    "default_skills": [
+      {
+        "id": "ds-skill-competitor-strategy-analysis",
+        "status": "draft"
+      }
+    ],
+    "definition": "围绕同类任务或体验问题选择竞品和标杆，抽取可借鉴模式与不可照搬条件。",
+    "dependencies": [],
+    "fallback": [
+      "竞品资料不足时先输出比较维度和采集清单。"
+    ],
+    "human_confirmation": [
+      "竞品是否可公开引用",
+      "标杆做法是否符合本品规则"
+    ],
+    "id": "competitor-benchmark-research",
+    "knowledge_requirements": [
+      "ds-method-competitor-00-module-overview",
+      "ds-method-competitor-01-competitor-selection",
+      "ds-method-competitor-02-comparison-dimensions",
+      "ds-method-competitor-03-pattern-analysis",
+      "ds-method-competitor-04-opportunity-and-risk",
+      "ds-method-competitor-05-insight-output",
+      "ur-method-methods-toolbox-analysis-competitive-analysis",
+      "场域知识包：经验知识（按需）"
+    ],
+    "optional_inputs": [
+      "竞品截图",
+      "流程录屏",
+      "规则说明",
+      "用户任务"
+    ],
+    "optional_skills": [
+      {
+        "id": "ur-skill-competitive-analysis",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "competitive_analysis"
+        ],
+        "id": "competitor_selection_logic",
+        "label": "竞品选择逻辑"
+      },
+      {
+        "compatible_output_kinds": [
+          "competitive_analysis"
+        ],
+        "id": "pattern_comparison",
+        "label": "模式对比"
+      },
+      {
+        "compatible_output_kinds": [
+          "competitive_analysis",
+          "design_strategy",
+          "category_opportunities"
+        ],
+        "id": "benchmark_implications",
+        "label": "标杆启发"
+      },
+      {
+        "compatible_output_kinds": [
+          "risk_analysis",
+          "competitive_analysis"
+        ],
+        "id": "risks_and_limitations",
+        "label": "风险与限制"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "find-direction",
+    "required_inputs": [
+      "本品场景",
+      "要比较的问题",
+      "竞品或标杆范围"
+    ],
+    "source_hash": "531debd9853f262ab80a3c2b4b09fd657a14b8d4c6f8054115ceb855e685b4f5",
+    "source_path": "01-task-任务/01-find-direction-找方向/02-competitor-benchmark-research-竞品与标杆研究.md",
+    "status": "draft",
+    "title": "竞品与标杆研究",
+    "trigger_examples": [
+      "帮我看看竞品怎么做",
+      "找几个标杆案例",
+      "这个功能行业里有什么成熟做法"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "口径清楚",
+      "不把相关当因果",
+      "给出验证路径"
+    ],
+    "default_skills": [
+      {
+        "id": "ur-skill-conversion-funnel-analysis",
+        "status": "draft"
+      }
+    ],
+    "definition": "根据转化、点击、停留、流失、功能采纳等数据异常，判断可能发生问题的阶段和触点。",
+    "dependencies": [],
+    "fallback": [
+      "缺数据明细时输出可疑环节和需要补充的指标。"
+    ],
+    "human_confirmation": [
+      "指标口径不一致",
+      "是否存在活动/版本干扰",
+      "是否能访问真实数据"
+    ],
+    "id": "data-behavior-diagnosis",
+    "knowledge_requirements": [
+      "用户研究知识：转化漏斗/行为数据/体验度量",
+      "场域知识包：指标口径",
+      "当前项目资料"
+    ],
+    "optional_inputs": [
+      "漏斗数据",
+      "点击热区",
+      "用户反馈",
+      "版本变化"
+    ],
+    "optional_skills": [
+      {
+        "id": "ur-skill-feature-adoption-analysis",
+        "status": "draft"
+      },
+      {
+        "id": "ur-skill-build-experience-metrics",
+        "status": "draft"
+      },
+      {
+        "id": "ur-skill-analyze-satisfaction",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "conversion_funnel_analysis",
+          "feature_adoption_analysis",
+          "experience_metrics"
+        ],
+        "id": "anomaly_description",
+        "label": "异常描述"
+      },
+      {
+        "compatible_output_kinds": [
+          "journey_findings",
+          "journey_map"
+        ],
+        "id": "affected_touchpoints",
+        "label": "可能触点"
+      },
+      {
+        "compatible_output_kinds": [
+          "dropoff_diagnosis",
+          "driver_analysis"
+        ],
+        "id": "causal_hypotheses",
+        "label": "原因假设"
+      },
+      {
+        "compatible_output_kinds": [
+          "measurement_plan",
+          "research_plan"
+        ],
+        "id": "validation_recommendations",
+        "label": "验证建议"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "find-problems",
+    "required_inputs": [
+      "指标口径",
+      "异常现象",
+      "时间范围",
+      "业务动作"
+    ],
+    "source_hash": "5c1facdbb73015d8154030fe26fd69b5115e7ab6014c079ab0b27a975b6dae4c",
+    "source_path": "01-task-任务/03-find-problems-找问题/03-data-behavior-diagnosis-数据与行为异常诊断.md",
+    "status": "draft",
+    "title": "数据与行为异常诊断",
+    "trigger_examples": [
+      "数据掉了可能是什么问题？",
+      "这个按钮点击低说明什么？",
+      "转化异常帮我诊断一下"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "问题可定位",
+      "问题表述不等同解决方案",
+      "说明严重度或影响"
+    ],
+    "default_skills": [
+      {
+        "id": "ur-skill-run-heuristic-evaluation",
+        "status": "draft"
+      }
+    ],
+    "definition": "基于页面、链路、状态和规则进行体验走查，识别可描述、可定位的问题。",
+    "dependencies": [],
+    "fallback": [
+      "材料不完整时按已有页面走查，并列出无法判断的状态。"
+    ],
+    "human_confirmation": [
+      "规则是否真实上线",
+      "严重问题是否需要设计/产品确认"
+    ],
+    "id": "experience-walkthrough",
+    "knowledge_requirements": [
+      "用户研究知识：启发式评估/可用性",
+      "场域知识包：基础知识",
+      "当前项目资料"
+    ],
+    "optional_inputs": [
+      "设计稿",
+      "截图",
+      "交互说明",
+      "业务规则"
+    ],
+    "optional_skills": [
+      {
+        "id": "ur-skill-research-screenshot-analyzer",
+        "status": "draft"
+      },
+      {
+        "id": "ur-skill-experience-walkthrough",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "usability_review",
+          "design_findings",
+          "prioritized_issues"
+        ],
+        "id": "issue_list",
+        "label": "问题清单"
+      },
+      {
+        "compatible_output_kinds": [
+          "screenshot_analysis",
+          "journey_findings"
+        ],
+        "id": "touchpoint_location",
+        "label": "触点定位"
+      },
+      {
+        "compatible_output_kinds": [
+          "design_findings",
+          "experience_metrics"
+        ],
+        "id": "impact_assessment",
+        "label": "影响判断"
+      },
+      {
+        "compatible_output_kinds": [
+          "screenshot_analysis",
+          "research_evidence"
+        ],
+        "id": "screenshot_evidence",
+        "label": "证据截图说明"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "find-problems",
+    "required_inputs": [
+      "页面或流程材料",
+      "目标任务",
+      "用户场景"
+    ],
+    "source_hash": "bef132c56fb2c72e1f247064239a88c7b6202fde1d45ae2a505e7f3654ef9a61",
+    "source_path": "01-task-任务/03-find-problems-找问题/01-experience-walkthrough-页面与链路体验走查.md",
+    "status": "draft",
+    "title": "页面与链路体验走查",
+    "trigger_examples": [
+      "帮我走查这个页面",
+      "这个链路哪里不顺？",
+      "上线前帮我看体验问题"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "保留原声来源",
+      "主题互斥或有层级",
+      "不把单条反馈放大成事实"
+    ],
+    "default_skills": [
+      {
+        "id": "ur-skill-code-open-feedback",
+        "status": "draft"
+      }
+    ],
+    "definition": "将用户原声、客服反馈、评价或开放题反馈聚类成问题主题，并评估影响范围。",
+    "dependencies": [],
+    "fallback": [
+      "样本少时输出初步主题，不做高频判断。"
+    ],
+    "human_confirmation": [
+      "反馈是否可外传",
+      "敏感用户信息处理",
+      "主题命名需要业务确认"
+    ],
+    "id": "feedback-issue-clustering",
+    "knowledge_requirements": [
+      "用户研究知识：VOC/文本分析/质性编码",
+      "当前项目资料",
+      "场域知识包：洞察知识（按需）"
+    ],
+    "optional_inputs": [
+      "用户属性",
+      "触点信息",
+      "频次或样本量"
+    ],
+    "optional_skills": [
+      {
+        "id": "ur-skill-synthesize-qualitative-insights",
+        "status": "draft"
+      },
+      {
+        "id": "ur-skill-issue-prioritization",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "feedback_insights",
+          "pain_point_taxonomy",
+          "qualitative_insights"
+        ],
+        "id": "issue_themes",
+        "label": "问题主题"
+      },
+      {
+        "compatible_output_kinds": [
+          "qualitative_insights",
+          "structured_interview_summary"
+        ],
+        "id": "representative_quotes",
+        "label": "代表原声"
+      },
+      {
+        "compatible_output_kinds": [
+          "pain_point_taxonomy",
+          "prioritized_issues"
+        ],
+        "id": "frequency_and_severity",
+        "label": "频次/严重度"
+      },
+      {
+        "compatible_output_kinds": [
+          "research_plan",
+          "interview_guide",
+          "survey"
+        ],
+        "id": "follow_up_validation",
+        "label": "后续验证建议"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "find-problems",
+    "required_inputs": [
+      "反馈文本",
+      "来源与时间范围",
+      "业务对象"
+    ],
+    "source_hash": "de8c3e04e9e0fb2f535c729171704620e69fa53970fdec16ccc663e660b447f5",
+    "source_path": "01-task-任务/03-find-problems-找问题/02-feedback-issue-clustering-用户反馈问题聚类.md",
+    "status": "draft",
+    "title": "用户反馈问题聚类",
+    "trigger_examples": [
+      "这些反馈能归成几类？",
+      "用户主要抱怨什么？",
+      "帮我整理 VOC 问题"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "指标能对应策略目标",
+      "区分过程指标和结果指标",
+      "说明数据限制"
+    ],
+    "default_skills": [
+      {
+        "id": "ur-skill-build-experience-metrics",
+        "status": "draft"
+      }
+    ],
+    "definition": "为策略或方案设计上线前验证、灰度观察和上线后指标口径。",
+    "dependencies": [
+      "strategy-synthesis",
+      "priority-roadmap"
+    ],
+    "fallback": [
+      "无埋点时输出代理指标和补埋点建议。"
+    ],
+    "human_confirmation": [
+      "指标口径需要数据方确认",
+      "实验方案影响线上交易",
+      "样本量不足"
+    ],
+    "id": "metrics-validation",
+    "knowledge_requirements": [
+      "用户研究知识：体验度量/漏斗/功能采纳",
+      "场域知识包：指标口径",
+      "当前项目资料"
+    ],
+    "optional_inputs": [
+      "历史数据",
+      "埋点口径",
+      "实验条件",
+      "用户反馈渠道"
+    ],
+    "optional_skills": [
+      {
+        "id": "ur-skill-conversion-funnel-analysis",
+        "status": "draft"
+      },
+      {
+        "id": "ur-skill-feature-adoption-analysis",
+        "status": "draft"
+      },
+      {
+        "id": "ur-skill-analyze-satisfaction",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "experience_metrics"
+        ],
+        "id": "metric_tree",
+        "label": "指标树"
+      },
+      {
+        "compatible_output_kinds": [
+          "measurement_plan",
+          "research_plan"
+        ],
+        "id": "validation_plan",
+        "label": "验证计划"
+      },
+      {
+        "compatible_output_kinds": [
+          "measurement_plan"
+        ],
+        "id": "observation_window",
+        "label": "观察窗口"
+      },
+      {
+        "compatible_output_kinds": [
+          "risk_analysis",
+          "experience_metrics"
+        ],
+        "id": "risk_alerts",
+        "label": "风险预警"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "define-strategy",
+    "required_inputs": [
+      "策略或方案",
+      "目标变化",
+      "可观测指标"
+    ],
+    "source_hash": "8005b7c43ea286ff946ad792c8d7883fad62c7dc4ec50b8c4f6f479389a46472",
+    "source_path": "01-task-任务/05-define-strategy-定策略/03-metrics-validation-指标与验证计划.md",
+    "status": "draft",
+    "title": "指标与验证计划",
+    "trigger_examples": [
+      "怎么验证这个方案？",
+      "上线后看什么指标？",
+      "需要哪些实验？"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "每个方向有证据或假设标记",
+      "说明用户价值和业务价值",
+      "列出验证方式"
+    ],
+    "default_skills": [
+      {
+        "id": "ds-skill-strategy-map-generation",
+        "status": "draft"
+      }
+    ],
+    "definition": "基于趋势、用户、竞品、业务和数据线索，判断哪些方向值得优先探索。",
+    "dependencies": [
+      "trend-change-identification",
+      "competitor-benchmark-research"
+    ],
+    "fallback": [
+      "证据不足时只给机会假设和验证优先级，不给确定结论。"
+    ],
+    "human_confirmation": [
+      "方向涉及资源投入",
+      "业务目标冲突",
+      "缺少关键证据"
+    ],
+    "id": "opportunity-direction-evaluation",
+    "knowledge_requirements": [
+      "设计策略方法：策略推导",
+      "用户研究知识：机会点研究",
+      "当前项目资料",
+      "场域知识包：洞察知识（按需）"
+    ],
+    "optional_inputs": [
+      "用户反馈",
+      "业务目标",
+      "竞品启发",
+      "数据规模"
+    ],
+    "optional_skills": [
+      {
+        "id": "ur-skill-issue-prioritization",
+        "status": "draft"
+      },
+      {
+        "id": "planned-opportunity-evaluation-skill",
+        "status": "planned"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "opportunity_themes",
+          "category_opportunities",
+          "opportunity_definition"
+        ],
+        "id": "opportunity_directions",
+        "label": "机会方向清单"
+      },
+      {
+        "compatible_output_kinds": [
+          "opportunity_definition",
+          "feasibility_review"
+        ],
+        "id": "value_assessment",
+        "label": "价值判断"
+      },
+      {
+        "compatible_output_kinds": [
+          "research_plan",
+          "jtbd_analysis"
+        ],
+        "id": "validation_hypotheses",
+        "label": "验证假设"
+      },
+      {
+        "compatible_output_kinds": [
+          "prioritized_issues",
+          "improvement_priorities"
+        ],
+        "id": "exploration_priorities",
+        "label": "优先探索建议"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "find-direction",
+    "required_inputs": [
+      "候选方向",
+      "目标与约束",
+      "证据材料"
+    ],
+    "source_hash": "a62d21667d82a143111686a81c64ef4779a28ffaa9fe02c4a6b9fd38ac550943",
+    "source_path": "01-task-任务/01-find-direction-找方向/03-opportunity-direction-evaluation-机会方向判断.md",
+    "status": "draft",
+    "title": "机会方向判断",
+    "trigger_examples": [
+      "这些机会哪个值得做？",
+      "这个方向有没有价值？",
+      "帮我收敛机会点"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "优先级有标准",
+      "区分必须/应该/可后置",
+      "说明依赖和风险"
+    ],
+    "default_skills": [
+      {
+        "id": "ur-skill-issue-prioritization",
+        "status": "draft"
+      }
+    ],
+    "definition": "根据用户影响、业务影响、实现成本、上线窗口和风险，形成优先级与实施路径。",
+    "dependencies": [
+      "strategy-synthesis",
+      "solution-comparison"
+    ],
+    "fallback": [
+      "缺少成本或窗口时输出条件化路线图。"
+    ],
+    "human_confirmation": [
+      "排期需要业务/研发确认",
+      "资源投入超出设计可决策范围"
+    ],
+    "id": "priority-roadmap",
+    "knowledge_requirements": [
+      "设计策略方法：优先路线",
+      "用户研究知识：优先级框架",
+      "当前项目资料",
+      "场域知识包：约束条件"
+    ],
+    "optional_inputs": [
+      "数据规模",
+      "研发成本",
+      "业务窗口",
+      "风险等级"
+    ],
+    "optional_skills": [
+      {
+        "id": "ds-skill-strategy-map-generation",
+        "status": "draft"
+      },
+      {
+        "id": "ur-skill-build-experience-metrics",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "prioritized_issues",
+          "improvement_priorities"
+        ],
+        "id": "priority_tiers",
+        "label": "优先级分层"
+      },
+      {
+        "compatible_output_kinds": [
+          "action_plan",
+          "design_strategy"
+        ],
+        "id": "implementation_path",
+        "label": "实施路径"
+      },
+      {
+        "compatible_output_kinds": [
+          "feasibility_review",
+          "risk_analysis"
+        ],
+        "id": "dependencies",
+        "label": "依赖关系"
+      },
+      {
+        "compatible_output_kinds": [
+          "action_plan",
+          "research_plan"
+        ],
+        "id": "follow_up_plan",
+        "label": "后续计划"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "define-strategy",
+    "required_inputs": [
+      "候选策略或方案",
+      "评估维度",
+      "资源约束"
+    ],
+    "source_hash": "5d39f9e3d0d7293ae941e33b8f33bb2cefd61fe558689e27bd7ecbc9f61b3bbe",
+    "source_path": "01-task-任务/05-define-strategy-定策略/02-priority-roadmap-优先级与实施路径.md",
+    "status": "draft",
+    "title": "优先级与实施路径",
+    "trigger_examples": [
+      "优先做什么？",
+      "怎么排期？",
+      "哪些先做哪些后做？"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "根因与现象分开",
+      "每个根因有证据或待验证标记",
+      "说明影响对象"
+    ],
+    "default_skills": [
+      {
+        "id": "ds-skill-user-insight-synthesis",
+        "status": "draft"
+      }
+    ],
+    "definition": "将已识别问题拆解到心智、信息、链路、能力、规则或业务约束等根因层。",
+    "dependencies": [
+      "experience-walkthrough",
+      "feedback-issue-clustering",
+      "data-behavior-diagnosis"
+    ],
+    "fallback": [
+      "证据不足时输出根因假设树并标注验证方式。"
+    ],
+    "human_confirmation": [
+      "根因涉及业务规则归属",
+      "需要产品或研发确认能力限制"
+    ],
+    "id": "root-cause-analysis",
+    "knowledge_requirements": [
+      "设计策略方法：问题定义/痛点诊断",
+      "用户研究知识：用户需求/JTBD",
+      "场域知识包：基础与洞察知识"
+    ],
+    "optional_inputs": [
+      "用户旅程",
+      "数据异常",
+      "竞品参照",
+      "历史案例"
+    ],
+    "optional_skills": [
+      {
+        "id": "ds-skill-strategy-map-generation",
+        "status": "draft"
+      },
+      {
+        "id": "ur-skill-jobs-to-be-done",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "driver_analysis",
+          "dropoff_diagnosis",
+          "jtbd_analysis"
+        ],
+        "id": "root_cause_hypotheses",
+        "label": "根因假设"
+      },
+      {
+        "compatible_output_kinds": [
+          "research_evidence",
+          "research_report"
+        ],
+        "id": "evidence_chain",
+        "label": "证据链"
+      },
+      {
+        "compatible_output_kinds": [
+          "driver_analysis",
+          "jtbd_analysis"
+        ],
+        "id": "impact_mechanism",
+        "label": "影响机制"
+      },
+      {
+        "compatible_output_kinds": [
+          "research_plan",
+          "interview_guide"
+        ],
+        "id": "open_validation_questions",
+        "label": "待验证问题"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "solve-problems",
+    "required_inputs": [
+      "问题清单",
+      "证据材料",
+      "业务规则"
+    ],
+    "source_hash": "49954209aa22190d0bf61edf7b7cb824b1fb23780ba59e334b9583819eff332b",
+    "source_path": "01-task-任务/04-solve-problems-解问题/01-root-cause-analysis-问题根因拆解.md",
+    "status": "draft",
+    "title": "问题根因拆解",
+    "trigger_examples": [
+      "这个问题根因是什么？",
+      "为什么用户会卡住？",
+      "帮我拆一下原因"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "评估维度明确",
+      "不只比较视觉偏好",
+      "说明推荐理由和风险"
+    ],
+    "default_skills": [
+      {
+        "id": "ur-skill-issue-prioritization",
+        "status": "draft"
+      }
+    ],
+    "definition": "比较多个方案在用户价值、业务价值、实现成本、风险和验证难度上的差异。",
+    "dependencies": [
+      "solution-generation"
+    ],
+    "fallback": [
+      "缺少成本或数据时输出待确认项和条件化建议。"
+    ],
+    "human_confirmation": [
+      "优先级需要业务拍板",
+      "成本估算需要研发确认",
+      "风险影响核心交易链路"
+    ],
+    "id": "solution-comparison",
+    "knowledge_requirements": [
+      "设计策略方法：优先路线/评审验证",
+      "用户研究知识：优先级框架",
+      "场域知识包：约束条件"
+    ],
+    "optional_inputs": [
+      "用户证据",
+      "数据预估",
+      "研发成本",
+      "竞品经验"
+    ],
+    "optional_skills": [
+      {
+        "id": "ds-skill-strategy-map-generation",
+        "status": "draft"
+      },
+      {
+        "id": "ur-skill-build-experience-metrics",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "variant_comparison",
+          "competitive_analysis"
+        ],
+        "id": "solution_comparison",
+        "label": "方案对比表"
+      },
+      {
+        "compatible_output_kinds": [
+          "risk_analysis",
+          "feasibility_review"
+        ],
+        "id": "risks",
+        "label": "风险清单"
+      },
+      {
+        "compatible_output_kinds": [
+          "optimization_recommendations",
+          "design_strategy"
+        ],
+        "id": "tradeoff_recommendation",
+        "label": "推荐取舍"
+      },
+      {
+        "compatible_output_kinds": [
+          "measurement_plan",
+          "usability_test_plan",
+          "ab_test_analysis"
+        ],
+        "id": "validation_recommendation",
+        "label": "验证建议"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "solve-problems",
+    "required_inputs": [
+      "候选方案",
+      "评估维度",
+      "业务约束"
+    ],
+    "source_hash": "538af477a6f805545d8a3703c7020c176e5528337be5225e0cba3619ba1ca6a0",
+    "source_path": "01-task-任务/04-solve-problems-解问题/03-solution-comparison-方案比较与风险评估.md",
+    "status": "draft",
+    "title": "方案比较与风险评估",
+    "trigger_examples": [
+      "两个方案哪个好？",
+      "帮我评估方案风险",
+      "这个方案有什么坑"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "方案对应根因",
+      "动作具体到触点或规则",
+      "不输出空泛建议"
+    ],
+    "default_skills": [
+      {
+        "id": "ds-skill-strategy-map-generation",
+        "status": "draft"
+      }
+    ],
+    "definition": "基于根因和约束生成可落到触点、流程、文案、状态或规则的解决方向。",
+    "dependencies": [
+      "root-cause-analysis"
+    ],
+    "fallback": [
+      "可改范围不清时按低/中/高成本给方向草案。"
+    ],
+    "human_confirmation": [
+      "方案涉及规则变更",
+      "方案依赖研发能力",
+      "需要确认品牌或合规边界"
+    ],
+    "id": "solution-generation",
+    "knowledge_requirements": [
+      "设计策略方法：策略地图",
+      "场域知识包：经验知识",
+      "当前项目资料"
+    ],
+    "optional_inputs": [
+      "竞品模式",
+      "组件规范",
+      "技术限制",
+      "运营规则"
+    ],
+    "optional_skills": [
+      {
+        "id": "ds-skill-competitor-strategy-analysis",
+        "status": "draft"
+      },
+      {
+        "id": "ds-skill-solution-generation",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "design_strategy",
+          "optimization_recommendations"
+        ],
+        "id": "solution_directions",
+        "label": "解决方向"
+      },
+      {
+        "compatible_output_kinds": [
+          "action_plan",
+          "design_findings"
+        ],
+        "id": "design_actions",
+        "label": "设计动作"
+      },
+      {
+        "compatible_output_kinds": [
+          "feasibility_review"
+        ],
+        "id": "applicability_conditions",
+        "label": "适用条件"
+      },
+      {
+        "compatible_output_kinds": [
+          "risk_analysis",
+          "feasibility_review"
+        ],
+        "id": "dependencies_and_risks",
+        "label": "依赖与风险"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "solve-problems",
+    "required_inputs": [
+      "问题根因",
+      "目标与约束",
+      "可改范围"
+    ],
+    "source_hash": "008fe0c13431aca9d757886fcfd2447f2cc52b2addb21ab3ccc923365e366256",
+    "source_path": "01-task-任务/04-solve-problems-解问题/02-solution-generation-解决方案生成.md",
+    "status": "draft",
+    "title": "解决方案生成",
+    "trigger_examples": [
+      "有哪些解法？",
+      "这个问题怎么改？",
+      "帮我生成几个方案"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "结论有证据",
+      "策略从问题推导",
+      "能落到触点或规则"
+    ],
+    "default_skills": [
+      {
+        "id": "ds-skill-strategy-map-generation",
+        "status": "draft"
+      }
+    ],
+    "definition": "整合用户、竞品、业务、数据和方案判断，提炼可评审的设计策略。",
+    "dependencies": [
+      "root-cause-analysis",
+      "solution-comparison"
+    ],
+    "fallback": [
+      "结论碎片化时先输出证据矩阵和待补缺口。"
+    ],
+    "human_confirmation": [
+      "策略是否代表团队共识",
+      "高风险取舍是否需要评审确认"
+    ],
+    "id": "strategy-synthesis",
+    "knowledge_requirements": [
+      "ds-method-strategy-00-module-overview",
+      "ds-method-strategy-02-strategy-map",
+      "ds-method-strategy-04-priority-and-roadmap",
+      "ds-method-strategy-05-review-and-validation",
+      "ur-method-models-pyramid-principle",
+      "当前项目资料",
+      "场域知识包：洞察与经验知识（按需）"
+    ],
+    "optional_inputs": [
+      "方案草稿",
+      "竞品启发",
+      "数据指标",
+      "业务规则"
+    ],
+    "optional_skills": [
+      {
+        "id": "ds-skill-user-insight-synthesis",
+        "status": "draft"
+      },
+      {
+        "id": "ds-skill-competitor-strategy-analysis",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "design_strategy",
+          "research_report"
+        ],
+        "id": "strategy_summary",
+        "label": "策略摘要"
+      },
+      {
+        "compatible_output_kinds": [
+          "jtbd_analysis",
+          "pain_point_taxonomy",
+          "driver_analysis"
+        ],
+        "id": "problem_attribution",
+        "label": "问题归因"
+      },
+      {
+        "compatible_output_kinds": [
+          "design_strategy",
+          "category_opportunities"
+        ],
+        "id": "strategy_directions",
+        "label": "策略方向"
+      },
+      {
+        "compatible_output_kinds": [
+          "action_plan",
+          "design_strategy"
+        ],
+        "id": "design_actions_and_value",
+        "label": "设计动作与价值"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "define-strategy",
+    "required_inputs": [
+      "关键结论",
+      "证据材料",
+      "目标与边界"
+    ],
+    "source_hash": "ee7dde7f1a4c2c63589cf0daf13311f13b8874af2f50139de6ab3aa7f9f9afbc",
+    "source_path": "01-task-任务/05-define-strategy-定策略/01-strategy-synthesis-结论整合与策略提炼.md",
+    "status": "draft",
+    "title": "结论整合与策略提炼",
+    "trigger_examples": [
+      "帮我整理成策略",
+      "这些结论怎么讲？",
+      "评审页策略怎么写"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "信号有来源",
+      "区分事实与假设",
+      "指出需要继续验证的方向"
+    ],
+    "default_skills": [
+      {
+        "id": "ds-skill-trend-change-scan",
+        "status": "draft"
+      }
+    ],
+    "definition": "识别市场、用户、业务、技术或体验模式中的变化信号，形成方向探索的输入。",
+    "dependencies": [],
+    "fallback": [
+      "材料不足时输出信号清单和待补资料，不判断确定趋势。"
+    ],
+    "human_confirmation": [
+      "趋势来源不明",
+      "涉及业务战略取舍",
+      "需要确认是否纳入项目范围"
+    ],
+    "id": "trend-change-identification",
+    "knowledge_requirements": [
+      "ux-method-experience-diagnosis-framework",
+      "当前项目资料",
+      "场域知识包：基础知识（按需）"
+    ],
+    "optional_inputs": [
+      "行业资料",
+      "竞品变化",
+      "数据趋势",
+      "内部业务变化"
+    ],
+    "optional_skills": [
+      {
+        "id": "ds-skill-competitor-strategy-analysis",
+        "status": "draft"
+      },
+      {
+        "id": "ds-skill-user-insight-synthesis",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "industry_market_analysis",
+          "research_report"
+        ],
+        "id": "change_signal_summary",
+        "label": "变化信号摘要"
+      },
+      {
+        "compatible_output_kinds": [
+          "industry_market_analysis"
+        ],
+        "id": "trend_assessment",
+        "label": "趋势判断"
+      },
+      {
+        "compatible_output_kinds": [
+          "user_segments",
+          "persona"
+        ],
+        "id": "affected_segments",
+        "label": "影响对象"
+      },
+      {
+        "compatible_output_kinds": [
+          "category_opportunities",
+          "opportunity_themes"
+        ],
+        "id": "opportunity_hypotheses",
+        "label": "机会假设"
+      },
+      {
+        "compatible_output_kinds": [
+          "research_plan"
+        ],
+        "id": "open_validation_questions",
+        "label": "待验证问题"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "find-direction",
+    "required_inputs": [
+      "业务背景",
+      "目标用户或场景",
+      "已有材料或观察线索"
+    ],
+    "source_hash": "4a8ba893144e3b46a7d9be3bf9d351fdbe15a0261d00eb1b2f970da480f4a5c1",
+    "source_path": "01-task-任务/01-find-direction-找方向/01-trend-change-identification-趋势与变化识别.md",
+    "status": "draft",
+    "title": "趋势与变化识别",
+    "trigger_examples": [
+      "最近有什么变化值得关注？",
+      "这个赛道趋势是什么？",
+      "帮我找设计方向的变化信号"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "旅程按任务展开",
+      "洞察能追溯证据",
+      "区分需求与业务诉求"
+    ],
+    "default_skills": [
+      {
+        "id": "ur-skill-journey-map",
+        "status": "draft"
+      }
+    ],
+    "definition": "按用户任务链路梳理触点、行为、信息需求、情绪变化和关键洞察。",
+    "dependencies": [
+      "user-material-synthesis",
+      "user-segmentation"
+    ],
+    "fallback": [
+      "无法确认真实路径时输出假设旅程并标待验证。"
+    ],
+    "human_confirmation": [
+      "关键用户任务不明确",
+      "旅程阶段需要业务确认"
+    ],
+    "id": "user-journey-insight",
+    "knowledge_requirements": [
+      "ds-method-user-00-module-overview",
+      "ds-method-user-02-user-segmentation",
+      "ds-method-user-03-journey-and-tasks",
+      "ds-method-user-04-painpoint-diagnosis",
+      "ds-method-user-05-insight-output",
+      "ur-method-models-user-personas-segmentation",
+      "ur-method-models-user-insight",
+      "ur-method-methods-toolbox-analysis-journey-map",
+      "场域知识包：用户旅程（按需）"
+    ],
+    "optional_inputs": [
+      "访谈材料",
+      "行为路径",
+      "页面截图",
+      "业务规则"
+    ],
+    "optional_skills": [
+      {
+        "id": "ur-skill-jobs-to-be-done",
+        "status": "draft"
+      },
+      {
+        "id": "ds-skill-user-insight-synthesis",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "journey_map"
+        ],
+        "id": "user_journey",
+        "label": "用户旅程"
+      },
+      {
+        "compatible_output_kinds": [
+          "journey_map",
+          "journey_findings"
+        ],
+        "id": "key_touchpoints",
+        "label": "关键触点"
+      },
+      {
+        "compatible_output_kinds": [
+          "qualitative_insights",
+          "jtbd_analysis"
+        ],
+        "id": "needs_insights",
+        "label": "需求洞察"
+      },
+      {
+        "compatible_output_kinds": [
+          "experience_opportunities",
+          "pain_point_taxonomy"
+        ],
+        "id": "friction_and_opportunities",
+        "label": "卡点与机会"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "understand-users",
+    "required_inputs": [
+      "目标用户",
+      "任务场景",
+      "触点或流程"
+    ],
+    "source_hash": "23d7007234e9754f59e491c33112d9a9e773ba3277b62b41aae7a15e4aa53bbf",
+    "source_path": "01-task-任务/02-understand-users-懂用户/03-user-journey-insight-用户旅程与需求洞察.md",
+    "status": "draft",
+    "title": "用户旅程与需求洞察",
+    "trigger_examples": [
+      "帮我画用户旅程",
+      "用户在这个流程里怎么想？",
+      "这个场景的核心需求是什么？"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "不混淆原声与判断",
+      "保留来源",
+      "标注证据成熟度"
+    ],
+    "default_skills": [
+      {
+        "id": "ur-skill-synthesize-qualitative-insights",
+        "status": "draft"
+      }
+    ],
+    "definition": "把访谈、问卷、反馈、研究报告等已有用户资料归纳成可用于设计判断的主题和证据。",
+    "dependencies": [],
+    "fallback": [
+      "材料分散时先建立证据目录和主题草稿。"
+    ],
+    "human_confirmation": [
+      "样本代表性不足",
+      "资料权限或来源不清"
+    ],
+    "id": "user-material-synthesis",
+    "knowledge_requirements": [
+      "用户研究知识：定性归纳、文本分析",
+      "当前项目资料",
+      "场域知识包：洞察知识（按需）"
+    ],
+    "optional_inputs": [
+      "截图",
+      "客服反馈",
+      "问卷数据",
+      "历史报告"
+    ],
+    "optional_skills": [
+      {
+        "id": "ur-skill-code-open-feedback",
+        "status": "draft"
+      },
+      {
+        "id": "ds-skill-user-insight-synthesis",
+        "status": "draft"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "structured_interview_summary",
+          "research_report"
+        ],
+        "id": "material_summary",
+        "label": "资料摘要"
+      },
+      {
+        "compatible_output_kinds": [
+          "qualitative_insights",
+          "feedback_insights"
+        ],
+        "id": "thematic_synthesis",
+        "label": "主题归纳"
+      },
+      {
+        "compatible_output_kinds": [
+          "research_evidence",
+          "research_report"
+        ],
+        "id": "evidence_strength",
+        "label": "证据强弱"
+      },
+      {
+        "compatible_output_kinds": [
+          "research_plan"
+        ],
+        "id": "information_gaps",
+        "label": "待补信息"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "understand-users",
+    "required_inputs": [
+      "用户资料",
+      "项目问题",
+      "资料来源"
+    ],
+    "source_hash": "014d084680664f371ca13cd25bfb41b31b147170d94ab4d1f16a952e5988f599",
+    "source_path": "01-task-任务/02-understand-users-懂用户/01-user-material-synthesis-已有用户资料归纳.md",
+    "status": "draft",
+    "title": "已有用户资料归纳",
+    "trigger_examples": [
+      "帮我整理这些用户资料",
+      "这些访谈说明了什么？",
+      "已有研究能支持什么判断"
+    ],
+    "updated_at": "2026-08-05"
+  },
+  {
+    "completion_criteria": [
+      "分层维度明确",
+      "重点人群选择有理由",
+      "不把标签当洞察"
+    ],
+    "default_skills": [
+      {
+        "id": "ur-skill-generate-persona",
+        "status": "draft"
+      }
+    ],
+    "definition": "根据行为、价值、任务、心智或风险差异识别用户分层和当前应优先关注的人群。",
+    "dependencies": [
+      "user-material-synthesis"
+    ],
+    "fallback": [
+      "资料不足时输出可能分层维度和需要补充的数据。"
+    ],
+    "human_confirmation": [
+      "涉及商业目标取舍",
+      "分层口径影响后续策略"
+    ],
+    "id": "user-segmentation",
+    "knowledge_requirements": [
+      "用户研究知识：用户画像/分层/分群",
+      "设计策略方法：用户分析",
+      "当前项目资料"
+    ],
+    "optional_inputs": [
+      "行为数据",
+      "购买阶段",
+      "人群标签",
+      "访谈样本"
+    ],
+    "optional_skills": [
+      {
+        "id": "ds-skill-user-insight-synthesis",
+        "status": "draft"
+      },
+      {
+        "id": "planned-segmentation-analysis-skill",
+        "status": "planned"
+      }
+    ],
+    "outputs": [
+      {
+        "compatible_output_kinds": [
+          "user_segments",
+          "persona"
+        ],
+        "id": "user_segments",
+        "label": "用户分层"
+      },
+      {
+        "compatible_output_kinds": [
+          "user_segments",
+          "persona"
+        ],
+        "id": "priority_segments",
+        "label": "重点人群"
+      },
+      {
+        "compatible_output_kinds": [
+          "user_segments",
+          "qualitative_insights"
+        ],
+        "id": "segment_differences",
+        "label": "人群差异"
+      },
+      {
+        "compatible_output_kinds": [
+          "design_strategy",
+          "journey_findings"
+        ],
+        "id": "design_considerations",
+        "label": "设计关注点"
+      }
+    ],
+    "owner": "experience-knowledge-hub-maintainers",
+    "parent_task": "understand-users",
+    "required_inputs": [
+      "用户资料",
+      "业务目标",
+      "分层依据"
+    ],
+    "source_hash": "0950e81b5bef7359acd06f3a3297d6835a5ccd2cbe94ca836c05984f0f605f5e",
+    "source_path": "01-task-任务/02-understand-users-懂用户/02-user-segmentation-用户分层与重点人群识别.md",
+    "status": "draft",
+    "title": "用户分层与重点人群识别",
+    "trigger_examples": [
+      "用户可以分成几类？",
+      "我们重点看哪类用户？",
+      "哪些人群最受影响？"
+    ],
+    "updated_at": "2026-08-05"
+  }
+]
