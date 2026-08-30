@@ -335,12 +335,16 @@ export function SkillPlanPreview({
               expected_version: detail.plan.version,
               selected_skill_ids: selectedOrder,
               preferred_order: selectedOrder,
-              scenario_assignments: Object.fromEntries(
-                ambiguousSelections.map(({ skillId }) => [
-                  skillId,
-                  scenarioAssignments[skillId],
-                ]),
-              ),
+              ...(ambiguousSelections.length > 0
+                ? {
+                    scenario_assignments: Object.fromEntries(
+                      ambiguousSelections.map(({ skillId }) => [
+                        skillId,
+                        scenarioAssignments[skillId],
+                      ]),
+                    ),
+                  }
+                : {}),
             })}
           >
             保存调整
