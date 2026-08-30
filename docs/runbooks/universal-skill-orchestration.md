@@ -111,7 +111,7 @@ PYTHONPATH="$PWD" .venv/bin/python scripts/build_task_catalog.py \
 PYTHONPATH="$PWD" .venv/bin/python scripts/sync_wiki_skills.py --check
 PYTHONPATH="$PWD" .venv/bin/python eval/run_skill_retrieval_eval.py
 PYTHONPATH="$PWD" .venv/bin/python eval/run_universal_skill_retrieval_eval.py
-PYTHONPATH="$PWD" .venv/bin/python eval/run_universal_skill_profile_smoke.py --mode both
+PYTHONPATH="$PWD" .venv/bin/python -m eval.run_universal_skill_profile_smoke --mode both
 ```
 
 必须核对：
