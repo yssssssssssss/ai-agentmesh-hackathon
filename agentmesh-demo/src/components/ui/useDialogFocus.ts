@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 
 const FOCUSABLE = [
   'button:not([disabled])',
@@ -14,6 +14,11 @@ export function useDialogFocus(
   dialogRef: RefObject<HTMLElement>,
   onClose: () => void,
 ) {
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
   useEffect(() => {
     if (!open || !dialogRef.current) return
     const dialog = dialogRef.current
@@ -25,7 +30,7 @@ export function useDialogFocus(
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (event.key !== 'Tab') return
@@ -55,5 +60,5 @@ export function useDialogFocus(
       document.removeEventListener('keydown', handleKeyDown)
       previousFocus?.focus()
     }
-  }, [dialogRef, onClose, open])
+  }, [dialogRef, open])
 }
