@@ -257,6 +257,7 @@ def load_capability_profile_record(skill: SkillDefinition) -> LoadedCapabilityPr
         planner_eligible=(
             document.planner_eligible
             and document.review_state != "draft"
+            and skill.source_scope is SkillSourceScope.BUILTIN
         ),
     )
     try:
