@@ -2119,6 +2119,10 @@ class SkillPlanDetailResponse(BaseModel):
         default_factory=list,
         max_length=5,
     )
+    capability_gap_details: list[CapabilityGapV1] = Field(
+        default_factory=list,
+        max_length=24,
+    )
 
 
 class SkillOrchestrationRequestMode(StrEnum):

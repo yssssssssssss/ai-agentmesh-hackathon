@@ -129,12 +129,19 @@ def _with_scenario_assignment_options(
 ) -> DeepSearchStateResponse:
     from agentmesh.routes.agent_runs import (
         _blocked_matches_view,
+        _capability_gap_details_view,
         _scenario_assignment_options_view,
     )
 
     blocked_matches = _blocked_matches_view(state.run.id)
+    capability_gap_details = _capability_gap_details_view(state.run.id)
     if state.plan is None:
-        return state.model_copy(update={"blocked_matches": blocked_matches})
+        return state.model_copy(
+            update={
+                "blocked_matches": blocked_matches,
+                "capability_gap_details": capability_gap_details,
+            }
+        )
     plan = store.get_skill_plan(state.plan.id)
     if plan is None:
         return state.model_copy(update={"blocked_matches": blocked_matches})
@@ -143,6 +150,7 @@ def _with_scenario_assignment_options(
         update={
             "scenario_assignment_options": _scenario_assignment_options_view(plan),
             "blocked_matches": blocked_matches,
+            "capability_gap_details": capability_gap_details,
         }
     )
 

@@ -54,6 +54,7 @@ from agentmesh.models import (
     AgentRunStatus,
     ArtifactVerificationState,
     BlockedSkillMatchPublicV1,
+    CapabilityGapV1,
     ChatThread,
     ItemResponse,
     RuntimeToolCallClaimV1,
@@ -399,6 +400,20 @@ def _scenario_assignments_for_update(
     return assignments
 
 
+def _capability_gap_details_view(run_id: str) -> list[CapabilityGapV1]:
+    for event in reversed(store.list_agent_run_events(run_id)):
+        if event.event_type != "skill_search_completed":
+            continue
+        payload = event.payload.get("capability_gaps")
+        if not isinstance(payload, list):
+            return []
+        try:
+            return [CapabilityGapV1.model_validate(item) for item in payload[:24]]
+        except (TypeError, ValueError):
+            return []
+    return []
+
+
 def _blocked_matches_view(run_id: str) -> list[BlockedSkillMatchPublicV1]:
     for event in reversed(store.list_agent_run_events(run_id)):
         if event.event_type != "skill_search_completed":
@@ -661,6 +676,30 @@ async def start_agent_run(
                 mode=mode,
                 create_request_hash=create_request_hash,
             )
+        except PlanValidationError as error:
+            persisted = store.get_agent_run_by_client_turn(
+                user.id,
+                request.client_turn_id,
+            )
+            if (
+                persisted is not None
+                and persisted.planning_mode is AgentPlanningMode.DEEPSEARCH
+                and persisted.status
+                in {
+                    AgentRunStatus.FAILED,
+                    AgentRunStatus.PARTIAL,
+                    AgentRunStatus.CANCELLED,
+                }
+            ):
+                return ItemResponse(item=_visible_run(persisted.id, user))
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": error.codes[0]
+                    if len(error.codes) == 1
+                    else "deepsearch_planning_failed",
+                },
+            ) from error
         except RuntimeError as error:
             raise _agent_run_creation_error(error) from error
         if run.orchestration_version != "v1" or run.planning_mode != AgentPlanningMode.DEEPSEARCH:
@@ -755,6 +794,7 @@ def get_agent_run_plan(
             synthesis=None,
             scenario_assignment_options=_scenario_assignment_options_view(plan),
             blocked_matches=_blocked_matches_view(run.id),
+            capability_gap_details=_capability_gap_details_view(run.id),
         )
     return SkillPlanDetailResponse(
         plan=SkillPlanPublicView.from_plan(plan),
@@ -762,6 +802,7 @@ def get_agent_run_plan(
         synthesis=SkillSynthesisResult.model_validate(plan.synthesis) if plan.synthesis is not None else None,
         scenario_assignment_options=_scenario_assignment_options_view(plan),
         blocked_matches=_blocked_matches_view(run.id),
+        capability_gap_details=_capability_gap_details_view(run.id),
     )
 
 
@@ -866,6 +907,7 @@ def update_agent_run_plan(
                 transitioned_plan
             ),
             blocked_matches=_blocked_matches_view(run.id),
+            capability_gap_details=_capability_gap_details_view(run.id),
         )
     with current_orchestration_admission().permit():
         updated = store.compare_and_swap_skill_plan(
@@ -890,6 +932,7 @@ def update_agent_run_plan(
         synthesis=None,
         scenario_assignment_options=_scenario_assignment_options_view(adjusted),
         blocked_matches=_blocked_matches_view(run.id),
+        capability_gap_details=_capability_gap_details_view(run.id),
     )
 
 

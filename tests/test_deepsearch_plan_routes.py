@@ -402,7 +402,14 @@ def test_deepsearch_state_projects_blocked_matches_without_a_plan(
                     "title": "Blocked Skill",
                     "reason_codes": ["tool_grant_missing"],
                 }
-            ]
+            ],
+            "capability_gaps": [
+                {
+                    "requirement_id": "deliverable:research_plan",
+                    "label": "Research plan",
+                    "diagnostics": ["tool_grant_missing"],
+                }
+            ],
         },
     )
     state = DeepSearchStateResponse(
@@ -422,6 +429,10 @@ def test_deepsearch_state_projects_blocked_matches_without_a_plan(
         "skill_blocked"
     ]
     assert projected.blocked_matches[0].reason_codes == ("tool_grant_missing",)
+    assert [gap.requirement_id for gap in projected.capability_gap_details] == [
+        "deliverable:research_plan"
+    ]
+    assert projected.capability_gap_details[0].label == "Research plan"
 
 
 def test_deepsearch_plan_patch_writes_authoritative_next_snapshot_and_renews_ttl(

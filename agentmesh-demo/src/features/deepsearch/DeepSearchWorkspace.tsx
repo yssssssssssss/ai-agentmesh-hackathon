@@ -59,6 +59,7 @@ function planDetailFromAggregate(state: DeepSearchState): DeepSearchPlanDetailRe
     synthesis: null,
     scenario_assignment_options: state.scenario_assignment_options ?? {},
     blocked_matches: state.blocked_matches ?? [],
+    capability_gap_details: state.capability_gap_details ?? [],
   }
 }
 
@@ -151,6 +152,7 @@ export function DeepSearchWorkspace({
   const activeStage = activeDeepSearchStage(state)
   const mergedPlanDetail = planDetailFromAggregate(state)
   const blockedMatches = state.blocked_matches ?? []
+  const capabilityGapDetails = state.capability_gap_details ?? []
   const skillsById = new Map(skills.map((skill) => [skill.id, skill]))
   const finalizationStarted = state.plan?.finalization_stage !== undefined
     && state.plan.finalization_stage !== 'none'
@@ -193,6 +195,20 @@ export function DeepSearchWorkspace({
         <div className="mt-3 flex justify-end">
           <Button variant="danger" size="sm" loading={cancelling} onClick={onCancel}>取消 DeepSearch</Button>
         </div>
+      ) : null}
+
+      {!state.plan && capabilityGapDetails.length > 0 ? (
+        <section aria-label="未覆盖的必要能力" className="mt-4 rounded-soft border border-rose/20 bg-rose/10 px-5 py-4 shadow-card">
+          <h2 className="text-sm font-semibold text-rose">仍有必要能力未覆盖</h2>
+          <ul className="mt-2 space-y-1.5">
+            {capabilityGapDetails.map((gap) => (
+              <li key={gap.requirement_id} className="text-xs leading-5 text-slate-300">
+                <span>{gap.label}</span>
+                <code className="ml-2 text-[11px] text-slate-400">{gap.requirement_id}</code>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       {!state.plan && blockedMatches.length > 0 ? (

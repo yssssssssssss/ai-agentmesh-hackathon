@@ -125,6 +125,7 @@ export interface DeepSearchState {
   report_review: DeepSearchReportReview | null
   scenario_assignment_options?: components['schemas']['DeepSearchStateResponse']['scenario_assignment_options']
   blocked_matches?: components['schemas']['DeepSearchStateResponse']['blocked_matches']
+  capability_gap_details?: components['schemas']['DeepSearchStateResponse']['capability_gap_details']
   retry_disposition: 'retry_run' | 'revise_goal' | 'none'
 }
 

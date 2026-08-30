@@ -91,6 +91,7 @@ from agentmesh.models import (
     Artifact,
     ArtifactVerificationState,
     BlockedSkillMatchPublicV1,
+    CapabilityGapV1,
     ChatMessage,
     ChatRole,
     ChatWorkflowTrace,
@@ -1037,9 +1038,11 @@ class _UniversalPlannerUnavailable(PlannerUnavailable):
         self,
         code: str,
         blocked_matches: tuple[BlockedSkillMatchPublicV1, ...],
+        capability_gaps: tuple[CapabilityGapV1, ...],
     ) -> None:
         super().__init__(code)
         self.blocked_matches = blocked_matches
+        self.capability_gaps = capability_gaps
 
 
 class AgentRuntimeService:
@@ -1379,6 +1382,10 @@ class AgentRuntimeService:
                 "blocked_matches": [
                     blocked.model_dump(mode="json")
                     for blocked in blocked_matches
+                ],
+                "capability_gaps": [
+                    gap.model_dump(mode="json")
+                    for gap in search_result.capability_gaps
                 ],
                 "candidate_ids": [
                     candidate.skill_id
@@ -2747,6 +2754,10 @@ Follow the activated Skill for this request, subject to the platform rules above
                     blocked.model_dump(mode="json")
                     for blocked in blocked_matches
                 ],
+                "capability_gaps": [
+                    gap.model_dump(mode="json")
+                    for gap in search_result.capability_gaps
+                ],
                 "latency_ms": round((monotonic() - retrieval_started) * 1000, 3),
                 "candidate_ids": [
                     candidate.skill_id for candidate in search_result.selectable_candidates
@@ -2757,6 +2768,7 @@ Follow the activated Skill for this request, subject to the platform rules above
             raise _UniversalPlannerUnavailable(
                 search_result.outcome_code,
                 blocked_matches,
+                search_result.capability_gaps,
             )
         snapshot = build_candidate_snapshot(search_result, self.repository)
         skeleton = SkillPlan(
@@ -3230,14 +3242,20 @@ Follow the activated Skill for this request, subject to the platform rules above
                 )
                 if isinstance(error, PlannerUnavailable):
                     blocked_summary = ""
+                    gap_summary = ""
                     if isinstance(error, _UniversalPlannerUnavailable):
                         blocked_summary = "；相关但暂不可用：" + "；".join(
                             f"{match.title}（{','.join(match.reason_codes) or 'unavailable'}）"
                             for match in error.blocked_matches
                         )
+                        gap_summary = "；未覆盖需求：" + "；".join(
+                            f"{gap.label}（{gap.requirement_id}）"
+                            for gap in error.capability_gaps
+                        )
                     current.output_text = (
                         "当前无法生成可靠的多 Skill 执行计划。能力缺口："
                         f"{redact_sensitive_text(str(error))[:500]}"
+                        f"{redact_sensitive_text(gap_summary)[:1000]}"
                         f"{redact_sensitive_text(blocked_summary)[:1000]}。"
                         "系统没有降级为无工具普通回答。"
                     )

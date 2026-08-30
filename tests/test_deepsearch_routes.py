@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import agentmesh.routes.agent_runs as agent_run_routes
 import agentmesh.routes.chat as chat_routes
 from agentmesh.app import app
+from agentmesh.deepsearch.contracts import DeepSearchStateResponse
 from agentmesh.models import (
     AgentPlanningMode,
     AgentRun,
@@ -23,6 +24,7 @@ from agentmesh.models import (
     now_utc,
 )
 from agentmesh.seed import USER
+from agentmesh.skill_runtime.plan_validation import PlanValidationError
 from agentmesh.store import store
 
 
@@ -124,6 +126,89 @@ class _DeepSearchRuntime:
             )
         )
         return run
+
+
+class _NoExecutableDeepSearchRuntime(_DeepSearchRuntime):
+    class PlanningService:
+        @staticmethod
+        def get_state(run: AgentRun) -> DeepSearchStateResponse:
+            return DeepSearchStateResponse(run=run, active_requirement=None)
+
+    deepsearch_planning_service = PlanningService()
+
+    async def start_deepsearch(self, **kwargs: object) -> AgentRun:
+        run = await super().start_deepsearch(**kwargs)
+        store.append_agent_run_event(
+            run.id,
+            "skill_search_completed",
+            {
+                "outcome_code": "no_executable_skill",
+                "blocked_matches": [
+                    {
+                        "skill_id": "skill_blocked",
+                        "skill_name": "blocked-skill",
+                        "title": "Blocked Skill",
+                        "reason_codes": ["tool_grant_missing"],
+                    }
+                ],
+                "capability_gaps": [
+                    {
+                        "requirement_id": "deliverable:research_plan",
+                        "label": "Research plan",
+                        "diagnostics": ["tool_grant_missing"],
+                    }
+                ],
+            },
+        )
+        failed = store.fail_deepsearch_recovery_state(
+            run_id=run.id,
+            error_code="no_executable_skill",
+        )
+        assert failed is not None
+        raise PlanValidationError(["no_executable_skill"])
+
+
+def test_deepsearch_initial_no_executable_skill_returns_failed_run_and_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client_turn_id = "turn_deepsearch_no_executable"
+    monkeypatch.setenv("AGENTMESH_DEEPSEARCH_ENABLED", "true")
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "execute")
+    monkeypatch.setattr(
+        chat_routes.agent,
+        "agent_runtime",
+        _NoExecutableDeepSearchRuntime(),
+    )
+    client = TestClient(app)
+    _login(client)
+
+    created = client.post(
+        "/api/agent/runs",
+        json=_deepsearch_payload(client_turn_id),
+    )
+
+    assert created.status_code == 202
+    run = created.json()["item"]
+    assert run["status"] == "failed"
+    assert run["error_code"] == "no_executable_skill"
+    state = client.get(f"/api/agent/runs/{run['id']}/deepsearch")
+    assert state.status_code == 200
+    assert state.json()["plan"] is None
+    assert state.json()["blocked_matches"] == [
+        {
+            "skill_id": "skill_blocked",
+            "skill_name": "blocked-skill",
+            "title": "Blocked Skill",
+            "reason_codes": ["tool_grant_missing"],
+        }
+    ]
+    assert state.json()["capability_gap_details"] == [
+        {
+            "requirement_id": "deliverable:research_plan",
+            "label": "Research plan",
+            "diagnostics": ["tool_grant_missing"],
+        }
+    ]
 
 
 @pytest.mark.parametrize(

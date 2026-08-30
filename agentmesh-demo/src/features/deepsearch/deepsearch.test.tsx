@@ -79,6 +79,11 @@ describe('DeepSearch presentation', () => {
         title: 'Blocked research Skill',
         reason_codes: ['tool_grant_missing'],
       }],
+      capability_gap_details: [{
+        requirement_id: 'deliverable:research_plan',
+        label: 'Research plan',
+        diagnostics: ['tool_grant_missing'],
+      }],
     } as DeepSearchState
 
     const html = renderToStaticMarkup(
@@ -108,6 +113,8 @@ describe('DeepSearch presentation', () => {
     )
 
     expect(html).toContain('相关能力当前不可执行')
+    expect(html).toContain('仍有必要能力未覆盖')
+    expect(html).toContain('deliverable:research_plan')
     expect(html).toContain('Blocked research Skill')
     expect(html).toContain('缺少工具授权')
   })

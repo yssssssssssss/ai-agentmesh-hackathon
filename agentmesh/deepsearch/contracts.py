@@ -18,6 +18,7 @@ from agentmesh.models import (
     AgentRun,
     BlockedSkillMatchPublicV1,
     CandidateSnapshotPublicViewV1,
+    CapabilityGapV1,
     DeepSearchEvidenceCoverageV1,
     DeepSearchFinalizationStage,
     DeepSearchReviewOutcomeV1,
@@ -923,6 +924,10 @@ class DeepSearchPlanDetailResponse(_FrozenContract):
         default_factory=list,
         max_length=5,
     )
+    capability_gap_details: list[CapabilityGapV1] = Field(
+        default_factory=list,
+        max_length=24,
+    )
 
 
 class DeepSearchPlanTransitionResponse(_FrozenContract):
@@ -974,5 +979,9 @@ class DeepSearchStateResponse(_FrozenContract):
     blocked_matches: list[BlockedSkillMatchPublicV1] = Field(
         default_factory=list,
         max_length=5,
+    )
+    capability_gap_details: list[CapabilityGapV1] = Field(
+        default_factory=list,
+        max_length=24,
     )
     retry_disposition: DeepSearchRetryDisposition = DeepSearchRetryDisposition.NONE

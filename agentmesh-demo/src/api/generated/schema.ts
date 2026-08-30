@@ -3518,6 +3518,8 @@ export interface components {
             };
             /** Blocked Matches */
             blocked_matches?: components["schemas"]["BlockedSkillMatchPublicV1"][];
+            /** Capability Gap Details */
+            capability_gap_details?: components["schemas"]["CapabilityGapV1"][];
         };
         /**
          * DeepSearchPlanNodeViewV1
@@ -3743,6 +3745,8 @@ export interface components {
             };
             /** Blocked Matches */
             blocked_matches?: components["schemas"]["BlockedSkillMatchPublicV1"][];
+            /** Capability Gap Details */
+            capability_gap_details?: components["schemas"]["CapabilityGapV1"][];
             /** @default none */
             retry_disposition: components["schemas"]["DeepSearchRetryDisposition"];
         };
@@ -5802,6 +5806,8 @@ export interface components {
             };
             /** Blocked Matches */
             blocked_matches?: components["schemas"]["BlockedSkillMatchPublicV1"][];
+            /** Capability Gap Details */
+            capability_gap_details?: components["schemas"]["CapabilityGapV1"][];
         };
         /** SkillPlanKnowledgeBindings */
         SkillPlanKnowledgeBindings: {
