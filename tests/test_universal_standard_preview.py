@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
@@ -165,6 +166,22 @@ def test_standard_universal_preview_freezes_marker_snapshot_and_skeleton(tmp_pat
         profile_trust=trust,
         profile_ranker=lambda queries, _ids: [([], [skill.id], []) for _query in queries],
     )
+    original_search = universal_search.search
+
+    def search_with_blocked_match(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        result = original_search(*args, **kwargs)
+        blocked = result.selectable_candidates[0].model_copy(
+            update={
+                "skill_id": "skill_blocked_preview",
+                "skill_name": "blocked-preview",
+                "title": "Blocked Preview Skill",
+                "ready": False,
+                "diagnostics": ["tool_grant_missing"],
+            }
+        )
+        return replace(result, blocked_matches=(blocked,))
+
+    universal_search.search = search_with_blocked_match  # type: ignore[method-assign]
     runtime = AgentRuntimeService(
         repository,
         model=ScriptedModel([]),
@@ -205,6 +222,17 @@ def test_standard_universal_preview_freezes_marker_snapshot_and_skeleton(tmp_pat
     assert plan.version == 2
     events = repository.list_agent_run_events(run.id)
     assert [event.event_type for event in events].count("candidate_snapshot_created") == 1
+    search_event = next(
+        event for event in events if event.event_type == "skill_search_completed"
+    )
+    assert search_event.payload["blocked_matches"] == [
+        {
+            "skill_id": "skill_blocked_preview",
+            "skill_name": "blocked-preview",
+            "title": "Blocked Preview Skill",
+            "reason_codes": ["tool_grant_missing"],
+        }
+    ]
     assert not any(event.event_type == "plan_execution_started" for event in events)
 
     monkeypatch.setattr(agent_run_routes, "store", repository)
@@ -214,6 +242,10 @@ def test_standard_universal_preview_freezes_marker_snapshot_and_skeleton(tmp_pat
     detail = agent_run_routes.get_agent_run_plan(run.id, user=USER)
     serialized = detail.model_dump_json()
     assert detail.plan.candidate_snapshot is not None
+    assert [item.skill_id for item in detail.blocked_matches] == [
+        "skill_blocked_preview"
+    ]
+    assert detail.blocked_matches[0].reason_codes == ("tool_grant_missing",)
     assert "profile_content_hash" not in serialized
     assert "evidence_path_witnesses" not in serialized
     assert "resource_manifest" not in serialized

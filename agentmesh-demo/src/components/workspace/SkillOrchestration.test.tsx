@@ -118,6 +118,12 @@ describe('Skill orchestration views', () => {
   it('shows versioned preview without implying tool approval', () => {
     const preview = detail()
     preview.plan.candidate_skill_ids = [skill.id, candidateSkill.id]
+    preview.blocked_matches = [{
+      skill_id: 'skill-blocked',
+      skill_name: 'blocked-skill',
+      title: '暂不可用能力',
+      reason_codes: ['tool_grant_missing'],
+    }]
     const html = renderToStaticMarkup(
       <SkillPlanPreview
         detail={preview}
@@ -137,6 +143,9 @@ describe('Skill orchestration views', () => {
     expect(html).toContain('可添加候选')
     expect(html).toContain('用户访谈提纲')
     expect(html).toContain('加入计划')
+    expect(html).toContain('其他相关能力暂不可用')
+    expect(html).toContain('暂不可用能力')
+    expect(html).toContain('缺少工具授权')
   })
 
   it('shows Task, Scenario, evidence, and capability gaps in route plans', () => {

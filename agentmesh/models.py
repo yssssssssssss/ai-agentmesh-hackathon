@@ -2099,12 +2099,25 @@ class ScenarioAssignmentOptionV1(BaseModel):
     output_labels: tuple[str, ...] = Field(default_factory=tuple)
 
 
+class BlockedSkillMatchPublicV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    skill_id: str = Field(min_length=1, max_length=120)
+    skill_name: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=200)
+    reason_codes: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
+
+
 class SkillPlanDetailResponse(BaseModel):
     plan: SkillPlanPublicView
     results: list[SkillNodeResult] = Field(default_factory=list)
     synthesis: SkillSynthesisResult | None = None
     scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
         default_factory=dict
+    )
+    blocked_matches: list[BlockedSkillMatchPublicV1] = Field(
+        default_factory=list,
+        max_length=5,
     )
 
 

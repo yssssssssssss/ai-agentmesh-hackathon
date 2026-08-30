@@ -53,6 +53,7 @@ from agentmesh.models import (
     AgentRunRetryRequest,
     AgentRunStatus,
     ArtifactVerificationState,
+    BlockedSkillMatchPublicV1,
     ChatThread,
     ItemResponse,
     RuntimeToolCallClaimV1,
@@ -382,6 +383,23 @@ def _current_plan_candidates(
     if any(node.skill_id not in by_id for node in plan.nodes):
         raise HTTPException(status_code=409, detail="A planned Skill is no longer ready or authorized")
     return selected
+
+
+def _blocked_matches_view(run_id: str) -> list[BlockedSkillMatchPublicV1]:
+    for event in reversed(store.list_agent_run_events(run_id)):
+        if event.event_type != "skill_search_completed":
+            continue
+        payload = event.payload.get("blocked_matches")
+        if not isinstance(payload, list):
+            return []
+        try:
+            return [
+                BlockedSkillMatchPublicV1.model_validate(item)
+                for item in payload[:5]
+            ]
+        except (TypeError, ValueError):
+            return []
+    return []
 
 
 def _scenario_assignment_options_view(plan) -> dict[str, list[ScenarioAssignmentOptionV1]]:  # noqa: ANN001
@@ -722,12 +740,14 @@ def get_agent_run_plan(
             results=results,
             synthesis=None,
             scenario_assignment_options=_scenario_assignment_options_view(plan),
+            blocked_matches=_blocked_matches_view(run.id),
         )
     return SkillPlanDetailResponse(
         plan=SkillPlanPublicView.from_plan(plan),
         results=results,
         synthesis=SkillSynthesisResult.model_validate(plan.synthesis) if plan.synthesis is not None else None,
         scenario_assignment_options=_scenario_assignment_options_view(plan),
+        blocked_matches=_blocked_matches_view(run.id),
     )
 
 
@@ -836,6 +856,7 @@ def update_agent_run_plan(
             scenario_assignment_options=_scenario_assignment_options_view(
                 transitioned_plan
             ),
+            blocked_matches=_blocked_matches_view(run.id),
         )
     with current_orchestration_admission().permit():
         updated = store.compare_and_swap_skill_plan(
@@ -859,6 +880,7 @@ def update_agent_run_plan(
         results=[],
         synthesis=None,
         scenario_assignment_options=_scenario_assignment_options_view(adjusted),
+        blocked_matches=_blocked_matches_view(run.id),
     )
 
 

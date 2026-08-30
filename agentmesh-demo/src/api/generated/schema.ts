@@ -2821,6 +2821,17 @@ export interface components {
             /** Posts */
             posts: components["schemas"]["BlackboardPostView"][];
         };
+        /** BlockedSkillMatchPublicV1 */
+        BlockedSkillMatchPublicV1: {
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Name */
+            skill_name: string;
+            /** Title */
+            title: string;
+            /** Reason Codes */
+            reason_codes?: string[];
+        };
         /** Body_import_skill_package_api_skills_packages_import_post */
         Body_import_skill_package_api_skills_packages_import_post: {
             /** File */
@@ -3505,6 +3516,8 @@ export interface components {
             scenario_assignment_options?: {
                 [key: string]: components["schemas"]["ScenarioAssignmentOptionV1"][];
             };
+            /** Blocked Matches */
+            blocked_matches?: components["schemas"]["BlockedSkillMatchPublicV1"][];
         };
         /**
          * DeepSearchPlanNodeViewV1
@@ -3728,6 +3741,8 @@ export interface components {
             scenario_assignment_options?: {
                 [key: string]: components["schemas"]["ScenarioAssignmentOptionV1"][];
             };
+            /** Blocked Matches */
+            blocked_matches?: components["schemas"]["BlockedSkillMatchPublicV1"][];
             /** @default none */
             retry_disposition: components["schemas"]["DeepSearchRetryDisposition"];
         };
@@ -5785,6 +5800,8 @@ export interface components {
             scenario_assignment_options?: {
                 [key: string]: components["schemas"]["ScenarioAssignmentOptionV1"][];
             };
+            /** Blocked Matches */
+            blocked_matches?: components["schemas"]["BlockedSkillMatchPublicV1"][];
         };
         /** SkillPlanKnowledgeBindings */
         SkillPlanKnowledgeBindings: {

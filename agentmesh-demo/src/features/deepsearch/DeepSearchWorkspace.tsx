@@ -57,6 +57,7 @@ function planDetailFromAggregate(state: DeepSearchState): DeepSearchPlanDetailRe
     results: [],
     synthesis: null,
     scenario_assignment_options: state.scenario_assignment_options ?? {},
+    blocked_matches: state.blocked_matches ?? [],
   }
 }
 

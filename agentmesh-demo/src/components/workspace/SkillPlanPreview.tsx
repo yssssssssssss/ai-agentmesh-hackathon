@@ -9,7 +9,7 @@ import type {
 } from '../../features/workspace/types'
 import { Button } from '../ui/Button'
 import { SkillPlanNodeCard } from './SkillPlanNodeCard'
-import { capabilityGapLabel, degradationCopy } from './skillPlanPresentation'
+import { blockedMatchReason, capabilityGapLabel, degradationCopy } from './skillPlanPresentation'
 
 interface SkillPlanPreviewProps {
   detail: PlanDetailResponse
@@ -34,6 +34,7 @@ export function SkillPlanPreview({
 }: SkillPlanPreviewProps) {
   const nodes = detail.plan.nodes ?? []
   const route = detail.plan.routing_result
+  const blockedMatches = detail.blocked_matches ?? []
   const scenarioOptions = detail.scenario_assignment_options ?? {}
   const candidateSkillIds = detail.plan.candidate_skill_ids ?? []
   const [selected, setSelected] = useState(() => new Set(nodes.map((node) => node.skill_id)))
@@ -168,6 +169,20 @@ export function SkillPlanPreview({
             </span>
           ))}
         </div>
+      ) : null}
+
+      {blockedMatches.length > 0 ? (
+        <section aria-label="暂不可用的候选能力" className="mt-4 rounded-soft border border-white/[0.06] bg-base/60 p-3.5">
+          <h3 className="text-xs font-semibold text-slate-300">其他相关能力暂不可用</h3>
+          <ul className="mt-2 space-y-1.5">
+            {blockedMatches.map((candidate) => (
+              <li key={candidate.skill_id} className="text-xs leading-5 text-slate-400">
+                <span className="font-medium text-slate-200">{candidate.title}</span>
+                <span>：{blockedMatchReason(candidate.reason_codes ?? [])}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       <dl className="mt-5 grid gap-3 text-xs sm:grid-cols-2">

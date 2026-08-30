@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.models import (
     AgentRun,
+    BlockedSkillMatchPublicV1,
     CandidateSnapshotPublicViewV1,
     DeepSearchEvidenceCoverageV1,
     DeepSearchFinalizationStage,
@@ -918,6 +919,10 @@ class DeepSearchPlanDetailResponse(_FrozenContract):
     scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
         default_factory=dict
     )
+    blocked_matches: list[BlockedSkillMatchPublicV1] = Field(
+        default_factory=list,
+        max_length=5,
+    )
 
 
 class DeepSearchPlanTransitionResponse(_FrozenContract):
@@ -965,5 +970,9 @@ class DeepSearchStateResponse(_FrozenContract):
     report_review: DeepSearchReviewViewV1 | None = None
     scenario_assignment_options: dict[str, list[ScenarioAssignmentOptionV1]] = Field(
         default_factory=dict
+    )
+    blocked_matches: list[BlockedSkillMatchPublicV1] = Field(
+        default_factory=list,
+        max_length=5,
     )
     retry_disposition: DeepSearchRetryDisposition = DeepSearchRetryDisposition.NONE

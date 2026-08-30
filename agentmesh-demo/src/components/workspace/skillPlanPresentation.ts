@@ -166,6 +166,27 @@ export function completionGapLabel(value: string): string {
   return '有一项计划完成条件尚未满足'
 }
 
+const BLOCKED_MATCH_REASON_LABELS: Record<string, string> = {
+  profile_review_missing: '缺少 Profile 审查',
+  profile_unapproved: 'Profile 尚未批准',
+  skill_profile_trust_unavailable: '生产信任证据不可用',
+  planner_ineligible: '当前未开放自动规划',
+  profile_stale: 'Skill 或 Profile 已变化',
+  write_execution_not_released: '写入能力尚未开放',
+  public_resource_unavailable: '必需资源不可用',
+  required_tool_unavailable: '必需工具未接入',
+  required_tool_unhealthy: '必需工具当前不可用',
+  tool_grant_missing: '缺少工具授权',
+  tool_health_timeout: '工具健康检查超时',
+}
+
+export function blockedMatchReason(reasonCodes: readonly string[]): string {
+  return reasonCodes
+    .map((code) => BLOCKED_MATCH_REASON_LABELS[code] ?? '当前执行条件不满足')
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .join('；') || '当前执行条件不满足'
+}
+
 export function capabilityGapLabel(value: string): string {
   if (value.startsWith('required_knowledge_metadata_only:')) return '必需知识只有目录信息'
   if (value.startsWith('runtime_skill_unbound:')) return '场景尚未绑定可执行 Skill'

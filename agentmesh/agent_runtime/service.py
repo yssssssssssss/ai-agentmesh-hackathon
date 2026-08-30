@@ -90,6 +90,7 @@ from agentmesh.models import (
     AgentRunStatus,
     Artifact,
     ArtifactVerificationState,
+    BlockedSkillMatchPublicV1,
     ChatMessage,
     ChatRole,
     ChatWorkflowTrace,
@@ -2694,6 +2695,15 @@ Follow the activated Skill for this request, subject to the platform rules above
                 "searchable_count": search_result.searchable_count,
                 "selectable_count": len(search_result.selectable_candidates),
                 "blocked_match_count": len(search_result.blocked_matches),
+                "blocked_matches": [
+                    BlockedSkillMatchPublicV1(
+                        skill_id=candidate.skill_id,
+                        skill_name=candidate.skill_name,
+                        title=candidate.title,
+                        reason_codes=tuple(candidate.diagnostics),
+                    ).model_dump(mode="json")
+                    for candidate in search_result.blocked_matches
+                ],
                 "latency_ms": round((monotonic() - retrieval_started) * 1000, 3),
                 "candidate_ids": [
                     candidate.skill_id for candidate in search_result.selectable_candidates

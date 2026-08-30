@@ -124,6 +124,7 @@ export interface DeepSearchState {
   evidence_coverage: DeepSearchEvidenceCoverage | null
   report_review: DeepSearchReportReview | null
   scenario_assignment_options?: components['schemas']['DeepSearchStateResponse']['scenario_assignment_options']
+  blocked_matches?: components['schemas']['DeepSearchStateResponse']['blocked_matches']
   retry_disposition: 'retry_run' | 'revise_goal' | 'none'
 }
 
