@@ -36,6 +36,7 @@ The first implementation slice proves:
 26. Chat exposes an explicit `$` skill menu for memory search, Brief creation, private notes, external research, data queries, risk review, memory proposals, and system/model info.
 27. Brief drafts can be confirmed from Inbox and turned into sourced team memory candidates.
 28. Blackboard evidence, decisions, digests, archives, and memory-candidate posts can be promoted into governed team memory candidates.
+29. The React `/tasks` route provides a read-only board/list over permission-filtered Blackboard task cards and timelines; task creation, editing, assignment, and project-management metadata remain future work.
 
 ## Run Locally
 

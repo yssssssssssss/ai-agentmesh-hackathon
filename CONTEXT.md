@@ -43,6 +43,8 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
 - **溯源 / source-citation** — origin tracking on messages, posts, memory. ✅ `class Source`
   `models.py:270`, propagated through synthesis (`agents.py:653`).
 
+- **任务中心 / Task Center** — the authenticated React `/tasks` route is a read-only operational view over the current project's permission-filtered Blackboard task cards. It provides board/list views, search, status and collaboration-stage filters, task details, lock state, steps, and the visible Blackboard timeline. It does not yet create, edit, assign, archive, or schedule tasks and does not add a second project-management lifecycle.
+
 - **BBS 协作市场 / Collaboration board**: where twins post signals and collaborate. ✅
   `blackboard.py` provides the per-task board, and `marketplace.py` implements signal publishing
   plus the **marketplace scout**, which matches needs to helpers and triggers delegated answers.
