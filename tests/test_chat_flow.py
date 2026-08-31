@@ -19,6 +19,8 @@ from agentmesh.models import (
     Agent,
     AgentToolGrant,
     AutoBlackboardPostRequest,
+    BlackboardPost,
+    BlackboardPostType,
     ChatMessage,
     ChatRole,
     ChatThread,
@@ -29,6 +31,7 @@ from agentmesh.models import (
     Project,
     Scope,
     Source,
+    Task,
     ToolDefinition,
     User,
     UserMemoryItem,
@@ -1576,6 +1579,214 @@ def test_task_cards_are_scoped_by_current_user_role() -> None:
     assert lead_task not in designer_ids
     assert designer_task in lead_ids
     assert lead_task in lead_ids
+
+
+def test_task_cards_only_derive_post_fields_from_visible_posts() -> None:
+    clear_store()
+    designer_client = authenticated_client()
+    lead_client = authenticated_client(TEAM_LEAD.id)
+    thread = store.add_chat_thread(
+        ChatThread(
+            workspace_id=WORKSPACE.id,
+            project_id=PROJECT.id,
+            user_id=USER.id,
+            title="Mixed visibility task",
+        )
+    )
+    task = store.add_task(Task(thread_id=thread.id, intent=Intent.GENERAL_CHAT, title="Mixed visibility task"))
+    public_post = store.add_blackboard_post(
+        BlackboardPost(
+            task_id=task.id,
+            post_type=BlackboardPostType.REQUEST,
+            actor="agent_data",
+            title="Visible update",
+            content="Visible task progress",
+            scope=Scope.PROJECT,
+            permission="project_visible",
+            current_owner_agent_id="agent_data",
+            current_owner_label="Visible Data Agent",
+            done_when="Visible completion condition",
+        )
+    )
+    private_post = store.add_blackboard_post(
+        BlackboardPost(
+            task_id=task.id,
+            post_type=BlackboardPostType.EVIDENCE,
+            actor="agent_research",
+            title="Hidden update",
+            content="private-task-card-marker",
+            scope=Scope.PRIVATE,
+            permission="private_visible",
+        )
+    )
+    lock_response = lead_client.post(
+        f"/api/blackboard/posts/{private_post.id}/lock",
+        json={"owner_agent_id": "agent_research"},
+    )
+    assert lock_response.status_code == 200
+
+    designer_response = designer_client.get(
+        "/api/blackboard/task-cards",
+        params={"project_id": PROJECT.id},
+    )
+    lead_response = lead_client.get(
+        "/api/blackboard/task-cards",
+        params={"project_id": PROJECT.id},
+    )
+    assert designer_response.status_code == 200
+    assert lead_response.status_code == 200
+
+    designer_card = next(
+        item for item in designer_response.json()["items"] if item["task"]["id"] == task.id
+    )
+    lead_card = next(
+        item
+        for item in lead_response.json()["items"]
+        if item["task"]["id"] == task.id
+    )
+
+    assert designer_card["latest_post"]["id"] == public_post.id
+    assert designer_card["post_count"] == 1
+    assert designer_card["stage"] == "execution"
+    assert designer_card["owner"] == "research_agent"
+    assert designer_card["done_when"] is None
+    assert designer_card["active_lock"]["owner_agent_id"] == "agent_research"
+    assert designer_card["claimed_by_personal_agent"] is False
+    assert designer_card["upstream_agents"] == ["agent_data"]
+    assert designer_card["downstream_agents"] == ["research_agent", "Visible Data Agent"]
+    assert designer_card["target_post_id"] is None
+    assert designer_card["allowed_actions"] == []
+    assert "private-task-card-marker" not in designer_response.text
+    assert "Hidden update" not in designer_response.text
+    assert lead_card["latest_post"]["id"] == private_post.id
+    assert lead_card["post_count"] == 2
+    assert lead_card["stage"] == "execution"
+    assert lead_card["owner"] == "research_agent"
+    assert lead_card["active_lock"]["owner_agent_id"] == "agent_research"
+    assert lead_card["upstream_agents"] == ["agent_data", "agent_research"]
+    assert lead_card["target_post_id"] == private_post.id
+    assert lead_card["allowed_actions"] == ["read", "reply", "unlock", "handoff"]
+
+    handoff_response = lead_client.post(
+        f"/api/blackboard/posts/{private_post.id}/handoff",
+        json={
+            "goal": "Move the hidden task to risk review",
+            "current_result": "Private research is complete",
+            "done_when": "Confirm the private source can be used",
+            "next_owner_agent_id": "agent_risk",
+            "blockers": [],
+            "requires_input_from": [],
+        },
+    )
+    assert handoff_response.status_code == 200
+
+    designer_handoff_response = designer_client.get(
+        "/api/blackboard/task-cards",
+        params={"project_id": PROJECT.id},
+    )
+    designer_handoff_card = next(
+        item for item in designer_handoff_response.json()["items"] if item["task"]["id"] == task.id
+    )
+    assert designer_handoff_card["latest_post"]["id"] == public_post.id
+    assert designer_handoff_card["post_count"] == 1
+    assert designer_handoff_card["stage"] == "discussion"
+    assert designer_handoff_card["owner"] == "risk_agent"
+    assert designer_handoff_card["done_when"] == "Confirm the private source can be used"
+    assert designer_handoff_card["active_lock"] is None
+    assert designer_handoff_card["target_post_id"] is None
+    assert designer_handoff_card["allowed_actions"] == []
+    assert "Move the hidden task to risk review" not in designer_handoff_response.text
+    assert "Private research is complete" not in designer_handoff_response.text
+
+
+def test_private_legacy_personal_agent_post_is_visible_only_to_task_initiator() -> None:
+    clear_store()
+    initiator_client = authenticated_client()
+    member = store.save_user(
+        User(
+            id="usr_collaboration_member",
+            workspace_id=WORKSPACE.id,
+            default_project_id=PROJECT.id,
+            name="Collaboration member",
+            role="user",
+            personal_agent_id="agent_collaboration_member",
+        )
+    )
+    store.save_agent(
+        Agent(
+            id=member.personal_agent_id,
+            workspace_id=WORKSPACE.id,
+            name="Collaboration member Agent",
+            agent_type="personal",
+            description="Cross-user private post regression Agent",
+            owner_user_id=member.id,
+        )
+    )
+    project = store.get_project(PROJECT.id)
+    assert project is not None
+    project.member_ids.append(member.id)
+    store.save_project(project)
+    _, token = issue_session(store, member)
+    member_client = TestClient(app)
+    member_client.cookies.set(SESSION_COOKIE_NAME, token)
+
+    thread = store.add_chat_thread(
+        ChatThread(
+            workspace_id=WORKSPACE.id,
+            project_id=PROJECT.id,
+            user_id=USER.id,
+            title="Legacy actor visibility",
+        )
+    )
+    task = store.add_task(Task(thread_id=thread.id, intent=Intent.GENERAL_CHAT, title="Legacy actor visibility"))
+    public_post = store.add_blackboard_post(
+        BlackboardPost(
+            task_id=task.id,
+            post_type=BlackboardPostType.REQUEST,
+            actor="agent_data",
+            title="Shared assignment",
+            content="Assign this task to the second member",
+            scope=Scope.PROJECT,
+            permission="project_visible",
+            current_owner_agent_id=member.personal_agent_id,
+            current_owner_label="Collaboration member Agent",
+        )
+    )
+    private_post = store.add_blackboard_post(
+        BlackboardPost(
+            task_id=task.id,
+            post_type=BlackboardPostType.EVIDENCE,
+            actor="personal_agent",
+            title="Initiator private note",
+            content="legacy-private-post-marker",
+            scope=Scope.PRIVATE,
+            permission="private_visible",
+        )
+    )
+
+    initiator_card = next(
+        item
+        for item in initiator_client.get(
+            "/api/blackboard/task-cards",
+            params={"project_id": PROJECT.id},
+        ).json()["items"]
+        if item["task"]["id"] == task.id
+    )
+    member_response = member_client.get(
+        "/api/blackboard/task-cards",
+        params={"project_id": PROJECT.id},
+    )
+    member_card = next(item for item in member_response.json()["items"] if item["task"]["id"] == task.id)
+    member_detail = member_client.get(f"/api/blackboard/tasks/{task.id}")
+
+    assert initiator_card["latest_post"]["id"] == private_post.id
+    assert initiator_card["post_count"] == 2
+    assert member_response.status_code == 200
+    assert member_card["latest_post"]["id"] == public_post.id
+    assert member_card["post_count"] == 1
+    assert "legacy-private-post-marker" not in member_response.text
+    assert member_detail.status_code == 200
+    assert [post["id"] for post in member_detail.json()["posts"]] == [public_post.id]
 
 
 def test_task_cards_mark_personal_agent_claims() -> None:
