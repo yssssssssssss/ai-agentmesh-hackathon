@@ -242,6 +242,8 @@ def react_index() -> FileResponse:
 @app.get("/knowledge/{spa_path:path}", include_in_schema=False)
 @app.get("/collaboration", include_in_schema=False)
 @app.get("/collaboration/{spa_path:path}", include_in_schema=False)
+@app.get("/tasks", include_in_schema=False)
+@app.get("/tasks/{spa_path:path}", include_in_schema=False)
 @app.get("/admin", include_in_schema=False)
 @app.get("/admin/{spa_path:path}", include_in_schema=False)
 def react_page(spa_path: str | None = None) -> FileResponse:
