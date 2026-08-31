@@ -1,9 +1,9 @@
 # 全量内置 Runtime Skill 候选池与 LLM 动态编排开发方案
 
-- 状态：已批准；Phase 0 本地工程验证完成，Phase 1A 离线 Profile/检索、Task Catalog v2、coverage/readiness/batch-embedding 骨架已通过，Phase 1B 已完成 84/84 本地 Profile 起草但独立审签未完成；生产 Preview/执行仍受发布拓扑、独立审查人与预发布演练门禁阻断
+- 状态：工程实现与仓库集成已完成（PR #10–#13）；生产 `preview`/`execute` 仍未获授权，必须保持 `off`，直到 Profile 审签、真实 Provider、holdout、attestation、部署和回滚门禁全部通过
 - 日期：2026-08-28
 - 适用范围：Agent Runtime v2、Standard、DeepSearch 运行时 v1（FrozenPlan v1/v2）
-- 预计工期：核心工程 27~42 个工作日，另需 8~15 个 Profile 审查人日；27 个缺失工具适配另计 3~6 周
+- 实施记录：Phase 0、1A、1B 本地起草、2A、2B、3、Runtime 平台与发布工具均已落地；最终证据见 `docs/verification/`，发布操作以 `docs/runbooks/universal-skill-orchestration.md` 为准
 - 核心目标：当前 84 个内置 Runtime Skill 全部进入检索全集，由 LLM 从最多 12 个安全、可执行候选中选择并编排最多 6 个节点的 DAG
 
 ## 1. 决策摘要
