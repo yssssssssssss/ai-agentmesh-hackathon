@@ -93,7 +93,7 @@
 .venv/bin/python -m pytest tests/test_chat_flow.py -k task_cards
 npm --prefix agentmesh-demo test -- src/features/tasks/presenter.test.ts
 npm --prefix agentmesh-demo run build
-npm --prefix agentmesh-demo run test:e2e -- task-center-readonly.spec.ts
+npm --prefix agentmesh-demo run test:e2e -- task-center.spec.ts
 .venv/bin/python -m pytest
 .venv/bin/ruff check .
 npm --prefix agentmesh-demo test

@@ -503,6 +503,7 @@ def bootstrap_state(
 ) -> BootstrapState:
     from agentmesh.agent_runtime.settings import agent_runtime_enabled, skill_orchestration_mode
     from agentmesh.deepsearch.admission import evaluate_deepsearch_availability
+    from agentmesh.task_management.settings import task_management_mode
 
     ensure_seed_data(repository)
     agents = list_agents(repository)
@@ -517,6 +518,7 @@ def bootstrap_state(
         agents=agents,
         agent_runtime_enabled=agent_runtime_enabled(),
         skill_orchestration_mode=skill_orchestration_mode().value,
+        task_management_mode=task_management_mode().value,
         deepsearch_availability=evaluate_deepsearch_availability(runtime=agent_runtime, user=user),
         capabilities=capabilities_for_user(user, repository.permission_policy_rules),
         metrics=BootstrapMetrics(

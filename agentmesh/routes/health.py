@@ -28,6 +28,7 @@ from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.skill_runtime.trust import runtime_profile_trust_verifier
 from agentmesh.skill_runtime.universal_execution import universal_standard_execution_available
 from agentmesh.store import store
+from agentmesh.task_management.settings import task_management_mode
 from agentmesh.web_research import web_research_provider_status
 
 router = APIRouter(prefix="/api/health", tags=["health"])
@@ -374,6 +375,7 @@ def _agent_runtime_status(*, deepsearch_recovery_running: bool = False) -> dict[
         "sdk_version": getattr(openai_agents, "__version__", "unknown"),
         "runtime_enabled": runtime_enabled,
         "skill_orchestration_mode": orchestration_mode.value,
+        "task_management_mode": task_management_mode().value,
         "deepsearch_recovery_running": deepsearch_recovery_running,
         "skills": len(catalog.list_enabled()),
         "planner_profiles": len(planner_profiles),

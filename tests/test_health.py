@@ -65,6 +65,7 @@ class TestProviderHealthCheck:
         assert runtime["skill_profile_trust_error"] == "skill_profile_trust_unavailable"
         assert runtime["index_health"] in {"ready", "degraded"}
         assert runtime["planner_health"] in {"disabled", "ready", "degraded"}
+        assert runtime["task_management_mode"] == "read_only"
         assert runtime["deepsearch_recovery_running"] is False
         assert not any(key.startswith("research_writer_") for key in runtime)
         assert not any(key.startswith("research_preview_") for key in runtime)
@@ -99,6 +100,25 @@ class TestProviderHealthCheck:
         runtime = next(item for item in health.json()["providers"] if item["name"] == "openai_agents_sdk")
         assert runtime["runtime_enabled"] is True
         assert runtime["skill_orchestration_mode"] == effective
+
+    @pytest.mark.parametrize(
+        ("configured", "effective"),
+        [("read_only", "read_only"), ("write", "write"), ("invalid", "read_only")],
+    )
+    def test_bootstrap_and_health_expose_the_same_fail_closed_task_management_mode(
+        self,
+        auth_client: TestClient,
+        configured: str,
+        effective: str,
+    ) -> None:
+        with patch.dict("os.environ", {"AGENTMESH_TASK_MANAGEMENT": configured}):
+            bootstrap = auth_client.get("/api/bootstrap")
+            health = auth_client.get("/api/health/providers")
+
+        assert bootstrap.status_code == 200
+        assert bootstrap.json()["task_management_mode"] == effective
+        runtime = next(item for item in health.json()["providers"] if item["name"] == "openai_agents_sdk")
+        assert runtime["task_management_mode"] == effective
 
     def test_health_projects_actual_recovery_task_state_instead_of_inferring_from_mode(
         self,
