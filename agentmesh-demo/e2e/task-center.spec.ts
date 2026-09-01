@@ -2,13 +2,13 @@ import { expect, test } from '@playwright/test'
 
 import { loginAs } from './support/auth'
 
-test.describe.serial('read-only task center', () => {
+test.describe.serial('task center', () => {
   test('shows real task cards, keeps both status axes, filters, and opens a read-only timeline', async ({ page }) => {
     await loginAs(page)
     await page.goto('/tasks')
 
     await expect(page.getByRole('heading', { name: '任务中心' })).toBeVisible()
-    await expect(page.getByText('本页只提供观察，不提供创建、编辑或分派。')).toBeVisible()
+    await expect(page.getByText('管理当前项目任务；Agent 执行与项目交付状态保持独立。')).toBeVisible()
     await expect(page.getByRole('link', { name: '任务中心' })).toHaveAttribute('aria-current', 'page')
     await expect(page.getByRole('region', { name: '任务看板' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '协作完成' })).toBeVisible()
@@ -60,7 +60,7 @@ test.describe.serial('read-only task center', () => {
     await expect(page.getByText('正在读取可见任务')).toBeAttached()
     releaseResponse()
     await expect(page.getByRole('heading', { name: '当前没有可见任务' })).toBeVisible()
-    await expect(page.getByText('只有现有 Agent 或协作流程产生')).toBeVisible()
+    await expect(page.getByText('当前项目还没有可见任务。任务可以由用户创建')).toBeVisible()
   })
 
   test('shows a recoverable list error and retries the same real endpoint', async ({ page }) => {
@@ -112,6 +112,130 @@ test.describe.serial('read-only task center', () => {
     await expect(dialog.getByRole('heading', { name: '黑板时间线' })).toBeVisible()
     await expect(dialog.getByText('摘要：首屏经验综合结论')).toBeVisible()
     expect(attempts).toBeGreaterThanOrEqual(2)
+  })
+
+  test('creates, edits, assigns, and advances a durable project task', async ({ page }) => {
+    await loginAs(page)
+    await page.goto('/tasks')
+
+    await page.getByRole('button', { name: '新建任务' }).click()
+    const createDialog = page.getByRole('dialog')
+    await createDialog.getByLabel('任务标题').fill('验证独立任务闭环')
+    await createDialog.getByLabel('任务描述').fill('不依赖外部 Provider 的项目任务')
+    await createDialog.getByLabel('优先级').selectOption('p1')
+    await createDialog.getByLabel('负责人').selectOption('user:usr_current_designer')
+    await createDialog.getByLabel('标签').fill('standalone, task')
+    await createDialog.getByRole('button', { name: '创建任务' }).click()
+
+    const card = page.locator('[data-task-id]').filter({ hasText: '验证独立任务闭环' })
+    await expect(card).toBeVisible()
+    await expect(card).toContainText('待办')
+    await expect(card).toContainText('P1')
+    await expect(card).toContainText('协作负责人')
+    await expect(card).toContainText('未指定')
+    await expect(card).toContainText('交付负责人：何云深')
+    await card.getByRole('button', { name: '管理' }).click()
+
+    const editDialog = page.getByRole('dialog')
+    await expect(editDialog.getByRole('heading', { name: '编辑任务' })).toBeVisible()
+    await editDialog.getByLabel('任务标题').fill('验证独立任务与记忆闭环')
+    await editDialog.getByRole('button', { name: '保存任务' }).click()
+
+    const updatedCard = page.locator('[data-task-id]').filter({ hasText: '验证独立任务与记忆闭环' })
+    await expect(updatedCard).toBeVisible()
+    await updatedCard.getByRole('button', { name: '管理' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
+    await expect(updatedCard).toContainText('已计划')
+  })
+
+  test('reuses the browser command ID after an ambiguous create response', async ({ page }) => {
+    await loginAs(page)
+    const commandIds: string[] = []
+    let attempts = 0
+    await page.route('**/api/tasks', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue()
+        return
+      }
+      attempts += 1
+      commandIds.push(JSON.parse(route.request().postData() ?? '{}').command_id)
+      if (attempts === 1) {
+        const response = await route.fetch()
+        expect(response.ok()).toBe(true)
+        await route.abort('failed')
+        return
+      }
+      await route.continue()
+    })
+    await page.goto('/tasks')
+    await page.getByRole('button', { name: '新建任务' }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByLabel('任务标题').fill('验证幂等创建')
+    await dialog.getByRole('button', { name: '创建任务' }).click()
+    await expect(dialog.getByRole('alert')).toBeVisible()
+    await dialog.getByRole('button', { name: '创建任务' }).click()
+
+    await expect(page.locator('[data-task-id]').filter({ hasText: '验证幂等创建' })).toHaveCount(1)
+    expect(commandIds).toHaveLength(2)
+    expect(commandIds[1]).toBe(commandIds[0])
+  })
+
+  test('concurrent archive converts a stale edit dialog to read-only without losing its draft', async ({ page, request }) => {
+    await loginAs(page)
+    await page.goto('/tasks')
+    await page.getByRole('button', { name: '新建任务' }).click()
+    const createDialog = page.getByRole('dialog')
+    await createDialog.getByLabel('任务标题').fill('并发归档测试')
+    await createDialog.getByRole('button', { name: '创建任务' }).click()
+    const card = page.locator('[data-task-id]').filter({ hasText: '并发归档测试' })
+    await expect(card).toBeVisible()
+    const taskId = await card.getAttribute('data-task-id')
+    expect(taskId).toBeTruthy()
+    await card.getByRole('button', { name: '管理' }).click()
+    const editDialog = page.getByRole('dialog')
+    await editDialog.getByLabel('任务标题').fill('未提交的本地标题')
+
+    const login = await request.post('/api/auth/login', {
+      data: { user_id: 'usr_team_lead', password: 'lead123' },
+    })
+    expect(login.ok()).toBe(true)
+    let version = 1
+    for (const action of ['plan', 'start', 'submit_review', 'complete']) {
+      const transition = await request.post(`/api/tasks/${taskId}/transitions`, {
+        data: { command_id: `archive-race-${action}`, expected_version: version, action },
+      })
+      expect(transition.ok()).toBe(true)
+      version += 1
+    }
+    const archive = await request.post(`/api/tasks/${taskId}/archive`, {
+      data: { command_id: 'archive-race-final', expected_version: version },
+    })
+    expect(archive.ok()).toBe(true)
+
+    await editDialog.getByRole('button', { name: '保存任务' }).click()
+    await expect(editDialog.getByRole('alert')).toContainText('任务已在其他会话归档')
+    await expect(editDialog.getByRole('status')).toContainText('该任务已归档')
+    await expect(editDialog.getByLabel('任务标题')).toHaveValue('未提交的本地标题')
+    await expect(editDialog.getByLabel('任务标题')).toBeDisabled()
+    await expect(editDialog.getByRole('button', { name: '保存任务' })).toHaveCount(0)
+  })
+
+  test('keeps tablet and desktop task management views inside the viewport', async ({ page }) => {
+    await loginAs(page)
+    for (const viewport of [
+      { width: 768, height: 1024 },
+      { width: 1512, height: 982 },
+    ]) {
+      await page.setViewportSize(viewport)
+      await page.goto('/tasks')
+      await expect(page.getByRole('heading', { name: '任务中心' })).toBeVisible()
+      await expect(page.getByRole('button', { name: '新建任务' })).toBeVisible()
+      const documentMetrics = await page.evaluate(() => ({
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      }))
+      expect(documentMetrics.scrollWidth).toBe(documentMetrics.clientWidth)
+    }
   })
 
   test('keeps the board and drawer inside a 390px viewport', async ({ page }) => {

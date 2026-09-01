@@ -36,7 +36,7 @@ The first implementation slice proves:
 26. Chat exposes an explicit `$` skill menu for memory search, Brief creation, private notes, external research, data queries, risk review, memory proposals, and system/model info.
 27. Brief drafts can be confirmed from Inbox and turned into sourced team memory candidates.
 28. Blackboard evidence, decisions, digests, archives, and memory-candidate posts can be promoted into governed team memory candidates.
-29. The React `/tasks` route provides a read-only board/list over permission-filtered Blackboard task cards and timelines; task creation, editing, assignment, and project-management metadata remain future work.
+29. The React `/tasks` route provides a project board/list over permission-filtered Task and Blackboard data. It stays read-only by default; `AGENTMESH_TASK_MANAGEMENT=write` enables versioned creation, editing, assignment, delivery transitions, blocking, cancellation, and archival.
 
 ## Run Locally
 
@@ -73,6 +73,12 @@ AGENTMESH_DEMO_MODE=1 AGENTMESH_DB_PATH=data/agentmesh-demo.sqlite3 \
 ```
 
 Demo mode creates deterministic fixture accounts and content with known local-only credentials. Never enable it for a shared or production database.
+
+Task Center mutations are fail-closed. The default `read_only` mode keeps the current board and details available without accepting project-task writes. Enable the approved Slice 1 mutation contract explicitly in a local or controlled environment:
+
+```bash
+export AGENTMESH_TASK_MANAGEMENT=write
+```
 
 Port `8000` is intentionally avoided because it may already be used by another local backend.
 If `8010` is already in use, first check whether AgentMesh is already running:

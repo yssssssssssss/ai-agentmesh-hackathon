@@ -53,6 +53,7 @@ from agentmesh.models import (
     ChatResponse,
     ChatRole,
     ChatThread,
+    ChatThreadKind,
     ChatTurnReceipt,
     ChatTurnReceiptStatus,
     ChatTurnTrace,
@@ -105,6 +106,7 @@ from agentmesh.models import (
     SkillSynthesisResult,
     Source,
     Task,
+    TaskAssigneeKind,
     Team,
     TeamMembership,
     ToolDefinition,
@@ -128,6 +130,10 @@ from agentmesh.research_orchestration.contracts import (
     canonical_sha256,
 )
 from agentmesh.skill_runtime.universal_policy import universal_retrieval_policy
+from agentmesh.task_management.contracts import (
+    TaskCommandAuthorizationV1,
+    TaskCommandReceiptV1,
+)
 from agentmesh.vector_index import VectorIndex, VectorState, VectorStatus, VectorWork
 
 if TYPE_CHECKING:
@@ -186,6 +192,21 @@ class DeepSearchEvidenceConflict(ResearchStoreConflict):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+class TaskCommandConflict(RuntimeError):
+    """A task command identity or optimistic-concurrency precondition failed."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCommandResult:
+    task: Task
+    receipt: TaskCommandReceiptV1
+    replayed: bool
 
 
 @dataclass(slots=True)
@@ -1703,9 +1724,303 @@ class SQLiteStore:
         self._upsert("tasks", task)
         return task
 
+    @staticmethod
+    def _task_command_receipt_from_connection(
+        connection: sqlite3.Connection,
+        receipt_id: str,
+    ) -> TaskCommandReceiptV1 | None:
+        row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("task_command_receipts", receipt_id),
+        ).fetchone()
+        return TaskCommandReceiptV1.model_validate_json(row["payload"]) if row is not None else None
+
+    @staticmethod
+    def _validate_task_command_replay(
+        current: TaskCommandReceiptV1,
+        proposed: TaskCommandReceiptV1,
+    ) -> None:
+        if (
+            current.user_id != proposed.user_id
+            or current.command_id != proposed.command_id
+            or current.operation != proposed.operation
+            or current.request_hash != proposed.request_hash
+        ):
+            raise TaskCommandConflict("task_command_conflict")
+
+    def get_task_command_receipt(self, receipt_id: str) -> TaskCommandReceiptV1 | None:
+        with self._connect() as connection:
+            return self._task_command_receipt_from_connection(connection, receipt_id)
+
+    def _authorize_task_command(
+        self,
+        connection: sqlite3.Connection,
+        authorization: TaskCommandAuthorizationV1,
+        *,
+        task: Task | None = None,
+        thread: ChatThread | None = None,
+    ) -> None:
+        from agentmesh.permissions import ACTION_MANAGE_PROJECT_TASKS, has_permission
+        from agentmesh.seed import AGENTS
+        from agentmesh.task_management.settings import TaskManagementMode, task_management_mode
+
+        if task_management_mode() is not TaskManagementMode.WRITE:
+            raise TaskCommandConflict("task_management_read_only")
+        actor_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("users", authorization.actor_id),
+        ).fetchone()
+        actor = User.model_validate_json(actor_row["payload"]) if actor_row is not None else None
+        if (
+            actor is None
+            or actor.status != "active"
+            or actor.workspace_id != authorization.workspace_id
+        ):
+            raise TaskCommandConflict("task_actor_not_authorized")
+        project_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("projects", authorization.project_id),
+        ).fetchone()
+        if project_row is None:
+            raise TaskCommandConflict("project_not_found")
+        project = Project.model_validate_json(project_row["payload"])
+        if (
+            project.workspace_id != actor.workspace_id
+            or (project.member_ids and actor.id not in project.member_ids)
+        ):
+            raise TaskCommandConflict("project_not_found")
+        rule_rows = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? ORDER BY created_order",
+            ("permission_policy_rules",),
+        ).fetchall()
+        rules = [PermissionPolicyRule.model_validate_json(row["payload"]) for row in rule_rows]
+        project_manager = has_permission(actor, ACTION_MANAGE_PROJECT_TASKS, rules)
+        if task is not None:
+            if thread is None or thread.workspace_id != actor.workspace_id or thread.project_id != project.id:
+                raise TaskCommandConflict("task_not_found")
+            management = task.management
+            created_by = management.created_by if management is not None else thread.user_id
+            assigned_to_actor = False
+            if management is not None and management.assignee_id is not None:
+                if management.assignee_kind == TaskAssigneeKind.USER:
+                    assigned_to_actor = management.assignee_id == actor.id
+                elif management.assignee_kind == TaskAssigneeKind.AGENT:
+                    if management.assignee_id == actor.personal_agent_id:
+                        assigned_to_actor = True
+                    else:
+                        assigned_agent_row = connection.execute(
+                            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                            ("agents", management.assignee_id),
+                        ).fetchone()
+                        assigned_agent = (
+                            Agent.model_validate_json(assigned_agent_row["payload"])
+                            if assigned_agent_row is not None
+                            else next(
+                                (candidate for candidate in AGENTS if candidate.id == management.assignee_id),
+                                None,
+                            )
+                        )
+                        assigned_to_actor = assigned_agent is not None and assigned_agent.owner_user_id == actor.id
+            can_manage = project_manager or created_by == actor.id or assigned_to_actor
+            if authorization.require_project_manager and not project_manager:
+                raise TaskCommandConflict("task_action_forbidden")
+            if not authorization.require_project_manager and not can_manage:
+                raise TaskCommandConflict("task_action_forbidden")
+            if management is not None and management.archived_at is not None:
+                raise TaskCommandConflict("task_archived")
+        if not authorization.validate_assignee or authorization.assignee_id is None:
+            return
+        if authorization.assignee_kind == TaskAssigneeKind.USER:
+            assignee_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("users", authorization.assignee_id),
+            ).fetchone()
+            assignee = User.model_validate_json(assignee_row["payload"]) if assignee_row is not None else None
+            if (
+                assignee is None
+                or assignee.status != "active"
+                or assignee.workspace_id != project.workspace_id
+                or (project.member_ids and assignee.id not in project.member_ids)
+            ):
+                raise TaskCommandConflict("task_assignee_not_found")
+            if assignee.id != actor.id and not project_manager:
+                raise TaskCommandConflict("task_assignment_forbidden")
+            return
+        if authorization.assignee_kind != TaskAssigneeKind.AGENT:
+            raise TaskCommandConflict("task_assignee_invalid")
+        agent_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("agents", authorization.assignee_id),
+        ).fetchone()
+        agent = Agent.model_validate_json(agent_row["payload"]) if agent_row is not None else next(
+            (candidate for candidate in AGENTS if candidate.id == authorization.assignee_id),
+            None,
+        )
+        if agent is None or agent.status != "online" or agent.workspace_id != project.workspace_id:
+            raise TaskCommandConflict("task_assignee_not_found")
+        if agent.owner_user_id == actor.id:
+            return
+        if agent.owner_user_id is None and project_manager:
+            return
+        raise TaskCommandConflict("task_assignment_forbidden")
+
+    def create_managed_task(
+        self,
+        *,
+        thread: ChatThread,
+        task: Task,
+        audit: AuditEvent,
+        receipt: TaskCommandReceiptV1,
+        authorization: TaskCommandAuthorizationV1,
+    ) -> TaskCommandResult:
+        if receipt.task_id != task.id or receipt.result_task != task:
+            raise TaskCommandConflict("task_receipt_payload_invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current_receipt = self._task_command_receipt_from_connection(connection, receipt.id)
+            if current_receipt is not None:
+                self._validate_task_command_replay(current_receipt, receipt)
+                return TaskCommandResult(
+                    task=current_receipt.result_task.model_copy(deep=True),
+                    receipt=current_receipt,
+                    replayed=True,
+                )
+            self._authorize_task_command(connection, authorization)
+            if (
+                thread.workspace_id != authorization.workspace_id
+                or thread.project_id != authorization.project_id
+                or thread.user_id != authorization.actor_id
+                or task.thread_id != thread.id
+            ):
+                raise TaskCommandConflict("task_context_invalid")
+            for collection, record_id in (("chat_threads", thread.id), ("tasks", task.id)):
+                exists = connection.execute(
+                    "SELECT 1 FROM records WHERE collection = ? AND id = ?",
+                    (collection, record_id),
+                ).fetchone()
+                if exists is not None:
+                    raise TaskCommandConflict("task_identity_conflict")
+            for collection, item in (
+                ("chat_threads", thread),
+                ("tasks", task),
+                ("audit_events", audit),
+                ("task_command_receipts", receipt),
+            ):
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                    (collection, item.id, item.model_dump_json()),
+                )
+        return TaskCommandResult(task=task, receipt=receipt, replayed=False)
+
+    def save_managed_task_command(
+        self,
+        *,
+        task: Task,
+        expected_version: int,
+        audit: AuditEvent,
+        receipt: TaskCommandReceiptV1,
+        authorization: TaskCommandAuthorizationV1,
+        thread: ChatThread | None = None,
+    ) -> TaskCommandResult:
+        if receipt.task_id != task.id or receipt.result_task != task:
+            raise TaskCommandConflict("task_receipt_payload_invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current_receipt = self._task_command_receipt_from_connection(connection, receipt.id)
+            if current_receipt is not None:
+                self._validate_task_command_replay(current_receipt, receipt)
+                return TaskCommandResult(
+                    task=current_receipt.result_task.model_copy(deep=True),
+                    receipt=current_receipt,
+                    replayed=True,
+                )
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("tasks", task.id),
+            ).fetchone()
+            if row is None:
+                raise TaskCommandConflict("task_not_found")
+            current_task = Task.model_validate_json(row["payload"])
+            thread_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("chat_threads", current_task.thread_id),
+            ).fetchone()
+            if thread_row is None:
+                raise TaskCommandConflict("task_not_found")
+            current_thread = ChatThread.model_validate_json(thread_row["payload"])
+            self._authorize_task_command(
+                connection,
+                authorization,
+                task=current_task,
+                thread=current_thread,
+            )
+            current_version = current_task.management.version if current_task.management is not None else 1
+            if current_version != expected_version:
+                raise TaskCommandConflict("task_version_conflict")
+            if task.management is None or task.management.version != expected_version + 1:
+                raise TaskCommandConflict("task_version_invalid")
+            merged_task = current_task.model_copy(
+                update={
+                    "title": task.title,
+                    "management": task.management,
+                    "updated_at": max(current_task.updated_at, task.updated_at),
+                },
+                deep=True,
+            )
+            persisted_receipt = receipt.model_copy(update={"result_task": merged_task})
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = ? AND id = ?",
+                (merged_task.model_dump_json(), "tasks", merged_task.id),
+            )
+            if thread is not None:
+                if thread.id != task.thread_id:
+                    raise TaskCommandConflict("task_thread_identity_conflict")
+                thread_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("chat_threads", thread.id),
+                ).fetchone()
+                if thread_row is None:
+                    raise TaskCommandConflict("task_thread_identity_conflict")
+                current_thread.title = thread.title
+                current_thread.updated_at = thread.updated_at
+                connection.execute(
+                    "UPDATE records SET payload = ? WHERE collection = ? AND id = ?",
+                    (current_thread.model_dump_json(), "chat_threads", current_thread.id),
+                )
+            for collection, item in (
+                ("audit_events", audit),
+                ("task_command_receipts", persisted_receipt),
+            ):
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                    (collection, item.id, item.model_dump_json()),
+                )
+        return TaskCommandResult(task=merged_task, receipt=persisted_receipt, replayed=False)
+
     def save_task(self, task: Task) -> Task:
-        self._upsert("tasks", task)
-        return task
+        persisted = task.model_copy(deep=True)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("tasks", task.id),
+            ).fetchone()
+            if row is not None:
+                current = Task.model_validate_json(row["payload"])
+                if current.management is not None:
+                    persisted.management = current.management
+                    persisted.title = current.title
+                    persisted.updated_at = max(current.updated_at, persisted.updated_at)
+            connection.execute(
+                """
+                INSERT INTO records(collection, id, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(collection, id)
+                DO UPDATE SET payload = excluded.payload
+                """,
+                ("tasks", persisted.id, persisted.model_dump_json()),
+            )
+        return persisted
 
     def add_blackboard_post(self, post: BlackboardPost) -> BlackboardPost:
         self._upsert("blackboard_posts", post)
@@ -11273,7 +11588,9 @@ class SQLiteStore:
         items = [
             thread
             for thread in self.chat_threads
-            if thread.user_id == user_id and thread.status == "active"
+            if thread.user_id == user_id
+            and thread.status == "active"
+            and thread.kind == ChatThreadKind.CONVERSATION
         ]
         if workspace_id is not None:
             items = [thread for thread in items if thread.workspace_id == workspace_id]

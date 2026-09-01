@@ -20,6 +20,7 @@ from agentmesh.models import (
     BlackboardTaskCard,
     BlackboardTaskCardsResponse,
     BlackboardTaskDetail,
+    ChatThreadKind,
     CollaborationStage,
     DrainAutoPostsResponse,
     ExecutionLock,
@@ -47,6 +48,7 @@ from agentmesh.routes.agents import agent_display_name
 from agentmesh.routes.deps import create_audit_event, current_user
 from agentmesh.seed import AGENTS
 from agentmesh.store import store
+from agentmesh.task_management.access import task_assigned_to_user
 
 router = APIRouter(prefix="/api/blackboard", tags=["blackboard"])
 
@@ -291,6 +293,7 @@ def blackboard_task_cards(
         if (thread := store.get_chat_thread(task.thread_id)) is not None
         and thread.project_id == project_id
         and thread.workspace_id == user.workspace_id
+        and (task.management is None or task.management.archived_at is None)
         and (card := build_task_card(task, posts_by_task.get(task.id, []), user)) is not None
     ]
     return BlackboardTaskCardsResponse(items=cards)
@@ -313,7 +316,7 @@ def blackboard_task_detail(task_id: str, user: User = Depends(current_user)) -> 
 
 
 def build_task_card(task, task_posts: list[BlackboardPost], user: User) -> BlackboardTaskCard | None:
-    if not task_visible_to_user(task.thread_id, task_posts, user):
+    if not task_visible_to_user(task, task_posts, user):
         return None
     visible_posts = task_posts_visible_to_user(task, task_posts, user)
     visible_post_ids = {post.id for post in visible_posts}
@@ -397,18 +400,22 @@ def unique_non_empty(values) -> list[str]:
     return result
 
 
-def task_visible_to_user(thread_id: str, posts: list[BlackboardPost], user: User) -> bool:
-    thread = store.get_chat_thread(thread_id)
+def task_visible_to_user(task: Task, posts: list[BlackboardPost], user: User) -> bool:
+    thread = store.get_chat_thread(task.thread_id)
     if thread is not None:
         if thread.workspace_id != user.workspace_id or not store.user_can_access_project(user.id, thread.project_id):
             return False
         if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
             return True
-        if thread.user_id == user.id:
+        if thread.kind == ChatThreadKind.TASK:
+            return True
+        if thread.user_id == user.id or task_assigned_to_user(task, user, store):
             return True
         personal_agent_ids = {user.personal_agent_id}
     else:
         if user.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
+            return True
+        if task_assigned_to_user(task, user, store):
             return True
         personal_agent_ids = {"personal_agent", user.personal_agent_id}
     for post in posts:
@@ -443,7 +450,7 @@ def task_post_visible_to_user(post: BlackboardPost, initiator_user_id: str | Non
 def post_visible_to_user(post: BlackboardPost, task_posts: list[BlackboardPost], user: User) -> bool:
     task = store.get_task(post.task_id)
     if task is not None:
-        if not task_visible_to_user(task.thread_id, task_posts, user):
+        if not task_visible_to_user(task, task_posts, user):
             return False
         thread = store.get_chat_thread(task.thread_id)
         initiator_user_id = thread.user_id if thread is not None else None

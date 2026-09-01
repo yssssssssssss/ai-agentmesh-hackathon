@@ -74,6 +74,42 @@ class TaskStatus(StrEnum):
     FAILED = "failed"
 
 
+class ChatThreadKind(StrEnum):
+    CONVERSATION = "conversation"
+    TASK = "task"
+
+
+class TaskDeliveryStage(StrEnum):
+    BACKLOG = "backlog"
+    PLANNED = "planned"
+    IN_PROGRESS = "in_progress"
+    REVIEW = "review"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class TaskPriority(StrEnum):
+    P0 = "p0"
+    P1 = "p1"
+    P2 = "p2"
+    P3 = "p3"
+
+
+class TaskType(StrEnum):
+    DESIGN = "design"
+    RESEARCH = "research"
+    DATA = "data"
+    RISK = "risk"
+    REVIEW = "review"
+    PROJECT_ACTION = "project_action"
+    MILESTONE = "milestone"
+
+
+class TaskAssigneeKind(StrEnum):
+    USER = "user"
+    AGENT = "agent"
+
+
 class CollaborationStage(StrEnum):
     DISCUSSION = "discussion"
     EXECUTION = "execution"
@@ -547,6 +583,7 @@ class ChatThread(BaseModel):
     project_id: str
     user_id: str
     title: str
+    kind: ChatThreadKind = ChatThreadKind.CONVERSATION
     pinned: bool = False
     status: str = "active"
     created_at: datetime = Field(default_factory=now_utc)
@@ -674,6 +711,36 @@ class ChatThreadDetailResponse(BaseModel):
     latest_research_run_id: str | None = None
 
 
+class TaskManagementMetadataV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["task-management-v1"] = "task-management-v1"
+    description: str = Field(default="", max_length=4000)
+    task_type: TaskType = TaskType.PROJECT_ACTION
+    delivery_stage: TaskDeliveryStage = TaskDeliveryStage.BACKLOG
+    priority: TaskPriority | None = None
+    due_at: datetime | None = None
+    assignee_kind: TaskAssigneeKind | None = None
+    assignee_id: str | None = Field(default=None, max_length=120)
+    tags: list[str] = Field(default_factory=list, max_length=12)
+    blocked_reason: str | None = Field(default=None, max_length=1000)
+    blocked_at: datetime | None = None
+    version: int = Field(default=1, ge=1)
+    archived_at: datetime | None = None
+    created_by: str = Field(min_length=1, max_length=120)
+    updated_by: str = Field(min_length=1, max_length=120)
+
+    @model_validator(mode="after")
+    def validate_assignee(self) -> TaskManagementMetadataV1:
+        if (self.assignee_kind is None) != (self.assignee_id is None):
+            raise ValueError("assignee_kind and assignee_id must be set together")
+        if self.blocked_at is not None and self.blocked_reason is None:
+            raise ValueError("blocked_at requires blocked_reason")
+        if self.due_at is not None and self.due_at.utcoffset() is None:
+            raise ValueError("due_at must include a timezone")
+        return self
+
+
 class Task(BaseModel):
     id: str = Field(default_factory=lambda: new_id("task"))
     thread_id: str
@@ -686,6 +753,7 @@ class Task(BaseModel):
     done_when: str | None = None
     title: str
     steps: list[str] = Field(default_factory=list)
+    management: TaskManagementMetadataV1 | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
 
@@ -2541,6 +2609,7 @@ class BootstrapState(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     agent_runtime_enabled: bool = False
     skill_orchestration_mode: Literal["off", "preview", "execute"] = "off"
+    task_management_mode: Literal["read_only", "write"] = "read_only"
     deepsearch_availability: DeepSearchAvailability
 
 

@@ -45,6 +45,9 @@ export const queryKeys = {
   tasks: {
     root: queryRoots.tasks,
     cards: (context: QueryScope) => [...queryRoots.tasks, 'cards', ...scope(context)] as const,
+    management: (context: QueryScope) => [...queryRoots.tasks, 'management', ...scope(context)] as const,
+    managedDetail: (context: QueryScope, taskId: string) =>
+      [...queryRoots.tasks, 'management-detail', ...scope(context), taskId] as const,
     detail: (context: QueryScope, taskId: string) =>
       [...queryRoots.tasks, 'detail', ...scope(context), taskId] as const,
   },

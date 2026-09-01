@@ -17,6 +17,18 @@ def test_agent_run_mutation_is_rejected_before_json_parsing_over_64_kib() -> Non
     assert response.json() == {"detail": {"code": "request_body_too_large"}}
 
 
+def test_task_mutation_is_rejected_before_json_parsing_over_64_kib() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/api/tasks",
+        content=b"x" * (64 * 1024 + 1),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": {"code": "request_body_too_large"}}
+
+
 def test_deepsearch_clarification_has_a_16_kib_wire_limit() -> None:
     client = TestClient(app)
     response = client.post(

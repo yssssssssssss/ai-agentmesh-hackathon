@@ -23,6 +23,8 @@ def _body_limit(scope: dict[str, Any]) -> tuple[int, str] | None:
         return _UNIVERSAL_BODY_LIMIT, "request_body_too_large"
     if path == "/api/agent/runs" or path.startswith("/api/agent/runs/"):
         return _UNIVERSAL_BODY_LIMIT, "request_body_too_large"
+    if path == "/api/tasks" or path.startswith("/api/tasks/"):
+        return _UNIVERSAL_BODY_LIMIT, "request_body_too_large"
     return None
 
 

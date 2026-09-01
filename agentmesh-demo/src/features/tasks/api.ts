@@ -1,0 +1,53 @@
+import { apiRequest } from '../../api/client'
+import type {
+  ManagedTask,
+  ManagedTaskPage,
+  TaskArchivePayload,
+  TaskCreatePayload,
+  TaskTransitionPayload,
+  TaskUpdatePayload,
+} from './types'
+
+export interface ManagedTaskResponse {
+  item: ManagedTask
+}
+
+export const taskManagementApi = {
+  list: async (projectId: string) => {
+    const pageSize = 100
+    const items: ManagedTask[] = []
+    let page = 1
+    let response: ManagedTaskPage
+    do {
+      response = await apiRequest<ManagedTaskPage>(
+        `/api/tasks?project_id=${encodeURIComponent(projectId)}&page=${page}&page_size=${pageSize}`,
+      )
+      items.push(...response.items)
+      page += 1
+    } while (response.has_next && page <= 100)
+    if (response.has_next) throw new Error('task_page_limit_exceeded')
+    return { ...response, items, page: 1, page_size: pageSize, has_next: false }
+  },
+  get: (taskId: string) =>
+    apiRequest<ManagedTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}`),
+  create: (payload: TaskCreatePayload) =>
+    apiRequest<ManagedTaskResponse>('/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  update: (taskId: string, payload: TaskUpdatePayload) =>
+    apiRequest<ManagedTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  transition: (taskId: string, payload: TaskTransitionPayload) =>
+    apiRequest<ManagedTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}/transitions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  archive: (taskId: string, payload: TaskArchivePayload) =>
+    apiRequest<ManagedTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}/archive`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+}

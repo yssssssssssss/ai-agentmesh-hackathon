@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   ChevronRight,
@@ -8,17 +8,25 @@ import {
   ListChecks,
   LockKeyhole,
   MessageSquareText,
+  Pencil,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
 } from 'lucide-react'
 
 import { TaskDetailDrawer } from '../components/tasks/TaskDetailDrawer'
+import { TaskFormDialog, type TaskFormValues } from '../components/tasks/TaskFormDialog'
+import { ApiError } from '../api/client'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { PageHeader } from '../components/ui/PageHeader'
 import { useAuth } from '../features/auth/AuthProvider'
 import { collaborationErrorMessage, useTaskCards } from '../features/collaboration/queries'
+import { taskManagementApi } from '../features/tasks/api'
+import { TASK_PRIORITY_LABELS, taskDeliveryStageLabel } from '../features/tasks/managementPresentation'
+import { taskManagementErrorMessage, useManagedTasks, useTaskManagementMutations } from '../features/tasks/queries'
+import type { ManagedTask, TaskManagementAction, TaskTransitionPayload } from '../features/tasks/types'
 import {
   buildTaskCenterViewModel,
   TASK_STAGE_OPTIONS,
@@ -44,15 +52,61 @@ function formatDate(value: string | null): string {
   return value ? DATE_TIME_FORMAT.format(new Date(value)) : '暂无时间'
 }
 
+function commandId(operation: string): string {
+  return `task-${operation}-${crypto.randomUUID()}`
+}
+
 export function Tasks() {
-  const { user } = useAuth()
+  const { user, bootstrap } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
+  const [taskFormOpen, setTaskFormOpen] = useState(false)
+  const [editingTask, setEditingTask] = useState<ManagedTask | null>(null)
+  const [mutationError, setMutationError] = useState<string | null>(null)
+  const saveCommandId = useRef<string | null>(null)
+  const actionCommand = useRef<{ action: TaskManagementAction; id: string } | null>(null)
   const context = {
     userId: user?.id ?? '',
     workspaceId: user?.workspace_id ?? '',
     projectId: user?.default_project_id ?? '',
   }
   const cardsQuery = useTaskCards(context)
+  const managedQuery = useManagedTasks(context)
+  const mutations = useTaskManagementMutations(context)
+  const managedByTaskId = useMemo(
+    () => new Map((managedQuery.data?.items ?? []).map((item) => [item.task.id, item])),
+    [managedQuery.data?.items],
+  )
+  const writeEnabled = bootstrap?.task_management_mode === 'write'
+  const canManageProjectTasks = (bootstrap?.capabilities ?? []).includes('manage_project_tasks')
+  const projectMemberIds = new Set(bootstrap?.project.member_ids ?? [])
+  const projectUsers = (bootstrap?.users ?? []).filter((candidate) => (
+    candidate.workspace_id === user?.workspace_id
+    && candidate.status === 'active'
+    && (projectMemberIds.size === 0 || projectMemberIds.has(candidate.id as string))
+  ))
+  const assignableUsers = canManageProjectTasks
+    ? projectUsers
+    : projectUsers.filter((candidate) => candidate.id === user?.id)
+  const assignableAgents = (bootstrap?.agents ?? []).filter((candidate) => (
+    candidate.workspace_id === user?.workspace_id
+    && candidate.status === 'online'
+    && (
+      candidate.owner_user_id === user?.id
+      || (canManageProjectTasks && candidate.owner_user_id == null && candidate.agent_type !== 'personal')
+    )
+  ))
+  const managementAssigneeByTaskId = useMemo(() => {
+    const labels = new Map<string, string>()
+    for (const managed of managedQuery.data?.items ?? []) {
+      const assigneeId = managed.management.assignee_id
+      if (!assigneeId) continue
+      const label = managed.management.assignee_kind === 'user'
+        ? bootstrap?.users.find((candidate) => candidate.id === assigneeId)?.name
+        : bootstrap?.agents.find((candidate) => candidate.id === assigneeId)?.name
+      if (label) labels.set(managed.task.id, label)
+    }
+    return labels
+  }, [bootstrap?.agents, bootstrap?.users, managedQuery.data?.items])
   const query = searchParams.get('q') ?? ''
   const viewMode: ViewMode = searchParams.get('view') === 'list' ? 'list' : 'board'
   const requestedFilters: Partial<TaskCenterFilters> = {
@@ -83,32 +137,155 @@ export function Tasks() {
 
   const openTask = (taskId: string) => setParameter('task', taskId)
   const closeTask = () => setParameter('task', '')
+  const openCreate = () => {
+    setEditingTask(null)
+    setMutationError(null)
+    saveCommandId.current = null
+    actionCommand.current = null
+    setTaskFormOpen(true)
+  }
+  const openEdit = (task: ManagedTask) => {
+    setEditingTask(task)
+    setMutationError(null)
+    saveCommandId.current = null
+    actionCommand.current = null
+    setTaskFormOpen(true)
+  }
+  const closeForm = () => {
+    setTaskFormOpen(false)
+    setMutationError(null)
+    saveCommandId.current = null
+    actionCommand.current = null
+  }
+  const refreshEditingTaskAfterConflict = async (error: unknown) => {
+    if (!(error instanceof ApiError) || error.status !== 409 || !editingTask) return
+    const refreshed = await managedQuery.refetch()
+    const latest = refreshed.data?.items.find((item) => item.task.id === editingTask.task.id)
+    if (latest) {
+      setEditingTask(latest)
+      return
+    }
+    try {
+      const detail = await taskManagementApi.get(editingTask.task.id)
+      setEditingTask(detail.item)
+    } catch (refreshError) {
+      if (refreshError instanceof ApiError && refreshError.status === 404) closeForm()
+    }
+  }
+  const saveTask = async (values: TaskFormValues) => {
+    setMutationError(null)
+    const stableCommandId = saveCommandId.current ?? commandId(editingTask ? 'update' : 'create')
+    saveCommandId.current = stableCommandId
+    try {
+      if (editingTask) {
+        await mutations.update.mutateAsync({
+          taskId: editingTask.task.id,
+          payload: {
+            command_id: stableCommandId,
+            expected_version: editingTask.management.version,
+            title: values.title,
+            description: values.description,
+            task_type: values.taskType,
+            priority: values.priority,
+            due_at: values.dueAt,
+            assignee_kind: values.assigneeKind,
+            assignee_id: values.assigneeId,
+            tags: values.tags,
+          },
+        })
+      } else {
+        await mutations.create.mutateAsync({
+          command_id: stableCommandId,
+          title: values.title,
+          description: values.description,
+          task_type: values.taskType,
+          priority: values.priority,
+          due_at: values.dueAt,
+          assignee_kind: values.assigneeKind,
+          assignee_id: values.assigneeId,
+          tags: values.tags,
+        })
+      }
+      await Promise.all([cardsQuery.refetch(), managedQuery.refetch()])
+      closeForm()
+    } catch (error) {
+      await refreshEditingTaskAfterConflict(error)
+      setMutationError(taskManagementErrorMessage(error))
+    }
+  }
+  const applyTaskAction = async (action: TaskManagementAction, reason?: string) => {
+    if (!editingTask) return
+    setMutationError(null)
+    const stableCommand = actionCommand.current?.action === action
+      ? actionCommand.current
+      : { action, id: commandId(action) }
+    actionCommand.current = stableCommand
+    try {
+      if (action === 'archive') {
+        await mutations.archive.mutateAsync({
+          taskId: editingTask.task.id,
+          payload: {
+            command_id: stableCommand.id,
+            expected_version: editingTask.management.version,
+          },
+        })
+      } else {
+        await mutations.transition.mutateAsync({
+          taskId: editingTask.task.id,
+          payload: {
+            command_id: stableCommand.id,
+            expected_version: editingTask.management.version,
+            action: action as TaskTransitionPayload['action'],
+            reason: reason ?? null,
+          },
+        })
+      }
+      await Promise.all([cardsQuery.refetch(), managedQuery.refetch()])
+      closeForm()
+    } catch (error) {
+      await refreshEditingTaskAfterConflict(error)
+      setMutationError(taskManagementErrorMessage(error))
+    }
+  }
+  const mutationPending = mutations.create.isPending
+    || mutations.update.isPending
+    || mutations.transition.isPending
+    || mutations.archive.isPending
 
   return (
     <div className="space-y-6" lang="zh-CN">
       <PageHeader
         title="任务中心"
-        subtitle="查看现有 Agent 与协作流程产生、且当前账号可见的任务。本页只提供观察，不提供创建、编辑或分派。"
-        actions={<ViewSwitcher value={viewMode} onChange={(mode) => setParameter('view', mode, 'board')} />}
+        subtitle={writeEnabled
+          ? '管理当前项目任务；Agent 执行与项目交付状态保持独立。'
+          : '查看现有 Agent 与协作流程产生、且当前账号可见的任务。任务写入当前未开放。'}
+        actions={(
+          <div className="flex flex-wrap items-center gap-2">
+            {writeEnabled ? <Button icon={<Plus className="h-4 w-4" />} onClick={openCreate}>新建任务</Button> : null}
+            <ViewSwitcher value={viewMode} onChange={(mode) => setParameter('view', mode, 'board')} />
+          </div>
+        )}
       />
 
-      {cardsQuery.error ? (
+      {cardsQuery.error || managedQuery.error ? (
         <section role="alert" className="flex flex-wrap items-center justify-between gap-4 rounded-[12px] border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
           <div>
             <p className="font-medium">任务列表读取失败</p>
-            <p className="mt-1 text-xs leading-5 text-rose/80">{collaborationErrorMessage(cardsQuery.error)}</p>
+            <p className="mt-1 text-xs leading-5 text-rose/80">
+              {collaborationErrorMessage(cardsQuery.error ?? managedQuery.error)}
+            </p>
           </div>
           <Button
             size="sm"
             variant="subtle"
             icon={<RefreshCw className="h-4 w-4" />}
-            loading={cardsQuery.isFetching}
-            onClick={() => void cardsQuery.refetch()}
+            loading={cardsQuery.isFetching || managedQuery.isFetching}
+            onClick={() => void Promise.all([cardsQuery.refetch(), managedQuery.refetch()])}
           >
             重试
           </Button>
         </section>
-      ) : cardsQuery.isLoading ? (
+      ) : cardsQuery.isLoading || managedQuery.isLoading ? (
         <TaskCenterLoading />
       ) : (
         <>
@@ -134,12 +311,36 @@ export function Tasks() {
           {view.emptyReason ? (
             <TaskCenterEmpty filtered={view.emptyReason === 'no-filter-matches'} onClear={clearFilters} />
           ) : viewMode === 'board' ? (
-            <TaskBoard groups={view.groups} onOpenTask={openTask} />
+            <TaskBoard
+              groups={view.groups}
+              managedByTaskId={managedByTaskId}
+              managementAssigneeByTaskId={managementAssigneeByTaskId}
+              onOpenTask={openTask}
+              onManageTask={openEdit}
+            />
           ) : (
-            <TaskList items={view.items} onOpenTask={openTask} />
+            <TaskList
+              items={view.items}
+              managedByTaskId={managedByTaskId}
+              managementAssigneeByTaskId={managementAssigneeByTaskId}
+              onOpenTask={openTask}
+              onManageTask={openEdit}
+            />
           )}
         </>
       )}
+
+      <TaskFormDialog
+        open={taskFormOpen}
+        task={editingTask}
+        users={assignableUsers}
+        agents={assignableAgents}
+        submitting={mutationPending}
+        error={mutationError}
+        onClose={closeForm}
+        onSubmit={(values) => void saveTask(values)}
+        onAction={(action, reason) => void applyTaskAction(action, reason)}
+      />
 
       <TaskDetailDrawer
         open={selectedTaskId !== null}
@@ -288,7 +489,19 @@ function TaskFilters({
   )
 }
 
-function TaskBoard({ groups, onOpenTask }: { groups: ReturnType<typeof buildTaskCenterViewModel>['groups']; onOpenTask: (taskId: string) => void }) {
+function TaskBoard({
+  groups,
+  managedByTaskId,
+  managementAssigneeByTaskId,
+  onOpenTask,
+  onManageTask,
+}: {
+  groups: ReturnType<typeof buildTaskCenterViewModel>['groups']
+  managedByTaskId: Map<string, ManagedTask>
+  managementAssigneeByTaskId: Map<string, string>
+  onOpenTask: (taskId: string) => void
+  onManageTask: (task: ManagedTask) => void
+}) {
   return (
     <section aria-label="任务看板" className="-mx-4 overflow-x-auto px-4 pb-3 md:-mx-8 md:px-8">
       <div className="flex min-w-max items-start gap-4">
@@ -302,7 +515,16 @@ function TaskBoard({ groups, onOpenTask }: { groups: ReturnType<typeof buildTask
               <span className="rounded-pill bg-white/[0.05] px-2 py-0.5 text-[11px] tabular-nums text-slate-500">{group.items.length}</span>
             </header>
             <div className="space-y-2.5">
-              {group.items.map((item) => <TaskBoardCard key={item.id} item={item} onOpen={() => onOpenTask(item.id)} />)}
+              {group.items.map((item) => (
+                <TaskBoardCard
+                  key={item.id}
+                  item={item}
+                  managedTask={managedByTaskId.get(item.id) ?? null}
+                  managementAssignee={managementAssigneeByTaskId.get(item.id) ?? null}
+                  onOpen={() => onOpenTask(item.id)}
+                  onManage={onManageTask}
+                />
+              ))}
               {group.items.length === 0 ? (
                 <div className="flex min-h-24 items-center justify-center rounded-[10px] border border-dashed border-white/[0.07] px-4 text-center text-xs text-slate-600">当前阶段无任务</div>
               ) : null}
@@ -314,7 +536,19 @@ function TaskBoard({ groups, onOpenTask }: { groups: ReturnType<typeof buildTask
   )
 }
 
-function TaskBoardCard({ item, onOpen }: { item: TaskCenterItem; onOpen: () => void }) {
+function TaskBoardCard({
+  item,
+  managedTask,
+  managementAssignee,
+  onOpen,
+  onManage,
+}: {
+  item: TaskCenterItem
+  managedTask: ManagedTask | null
+  managementAssignee: string | null
+  onOpen: () => void
+  onManage: (task: ManagedTask) => void
+}) {
   return (
     <article
       data-task-id={item.id}
@@ -345,6 +579,26 @@ function TaskBoardCard({ item, onOpen }: { item: TaskCenterItem; onOpen: () => v
           <dd className="mt-1 leading-5 text-slate-400">{item.doneWhen ?? '服务端暂未设置'}</dd>
         </div>
       </dl>
+      {managedTask ? (
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/[0.05] pt-3">
+          <div className="flex flex-col items-start gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="neutral">{taskDeliveryStageLabel(managedTask.management.delivery_stage)}</Badge>
+              {managedTask.management.priority ? (
+                <Badge tone={managedTask.management.priority === 'p0' ? 'rose' : 'remind'}>
+                  {TASK_PRIORITY_LABELS[managedTask.management.priority]}
+                </Badge>
+              ) : null}
+            </div>
+            {managementAssignee ? <span className="text-[11px] text-slate-500">交付负责人：{managementAssignee}</span> : null}
+          </div>
+          {managedTask.allowed_actions.length > 0 ? (
+            <Button size="sm" variant="ghost" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => onManage(managedTask)}>
+              管理
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/[0.05] pt-3 text-[11px] text-slate-500">
         <span className="inline-flex items-center gap-1.5"><MessageSquareText className="h-3.5 w-3.5" aria-hidden="true" />{item.postCount} 条可见动态</span>
         <span className="inline-flex items-center gap-1.5"><Clock3 className="h-3.5 w-3.5" aria-hidden="true" />{formatDate(item.lastActivityAt)}</span>
@@ -353,11 +607,32 @@ function TaskBoardCard({ item, onOpen }: { item: TaskCenterItem; onOpen: () => v
   )
 }
 
-function TaskList({ items, onOpenTask }: { items: TaskCenterItem[]; onOpenTask: (taskId: string) => void }) {
+function TaskList({
+  items,
+  managedByTaskId,
+  managementAssigneeByTaskId,
+  onOpenTask,
+  onManageTask,
+}: {
+  items: TaskCenterItem[]
+  managedByTaskId: Map<string, ManagedTask>
+  managementAssigneeByTaskId: Map<string, string>
+  onOpenTask: (taskId: string) => void
+  onManageTask: (task: ManagedTask) => void
+}) {
   return (
     <section aria-label="任务列表">
       <div className="space-y-3 md:hidden">
-        {items.map((item) => <TaskListMobileCard key={item.id} item={item} onOpen={() => onOpenTask(item.id)} />)}
+        {items.map((item) => (
+          <TaskListMobileCard
+            key={item.id}
+            item={item}
+            managedTask={managedByTaskId.get(item.id) ?? null}
+            managementAssignee={managementAssigneeByTaskId.get(item.id) ?? null}
+            onOpen={() => onOpenTask(item.id)}
+            onManage={onManageTask}
+          />
+        ))}
       </div>
       <div className="card-base hidden overflow-x-auto md:block">
         <table className="w-full min-w-[860px] border-collapse text-left text-sm">
@@ -367,7 +642,9 @@ function TaskList({ items, onOpenTask }: { items: TaskCenterItem[]; onOpenTask: 
               <th scope="col" className="px-4 py-3">执行状态</th>
               <th scope="col" className="px-4 py-3">协作阶段</th>
               <th scope="col" className="px-4 py-3">协作负责人</th>
+              <th scope="col" className="px-4 py-3">交付负责人</th>
               <th scope="col" className="px-4 py-3">最近活动</th>
+              <th scope="col" className="px-4 py-3">交付阶段</th>
               <th scope="col" className="px-4 py-3 text-right">可见动态</th>
               <th scope="col" className="w-14 px-4 py-3"><span className="sr-only">详情</span></th>
             </tr>
@@ -384,12 +661,27 @@ function TaskList({ items, onOpenTask }: { items: TaskCenterItem[]; onOpenTask: 
                 <td className="px-4 py-4 align-top"><Badge tone={item.executionStatus.tone} dot>{item.executionStatus.label}</Badge></td>
                 <td className="px-4 py-4 align-top"><Badge tone={item.collaborationStage.tone}>{item.collaborationStage.label}</Badge></td>
                 <td className="px-4 py-4 align-top text-slate-300">{item.owner ?? '未指定'}</td>
+                <td className="px-4 py-4 align-top text-slate-300">{managementAssigneeByTaskId.get(item.id) ?? '未指定'}</td>
                 <td className="whitespace-nowrap px-4 py-4 align-top text-xs tabular-nums text-slate-500">{formatDate(item.lastActivityAt)}</td>
+                <td className="px-4 py-4 align-top">
+                  {managedByTaskId.get(item.id) ? (
+                    <Badge tone="neutral">
+                      {taskDeliveryStageLabel((managedByTaskId.get(item.id) as ManagedTask).management.delivery_stage)}
+                    </Badge>
+                  ) : '—'}
+                </td>
                 <td className="px-4 py-4 text-right align-top tabular-nums text-slate-400">{item.postCount}</td>
                 <td className="px-4 py-4 align-top">
-                  <button type="button" aria-label={`查看任务：${item.title}`} onClick={() => onOpenTask(item.id)} className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 transition-[transform,background-color,color] duration-150 hover:bg-white/[0.06] hover:text-slate-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">
-                    <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                  </button>
+                  <div className="flex items-center justify-end gap-1">
+                    {managedByTaskId.get(item.id)?.allowed_actions.length ? (
+                      <button type="button" aria-label={`管理任务：${item.title}`} onClick={() => onManageTask(managedByTaskId.get(item.id) as ManagedTask)} className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 transition-[transform,background-color,color] duration-150 hover:bg-white/[0.06] hover:text-slate-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    ) : null}
+                    <button type="button" aria-label={`查看任务：${item.title}`} onClick={() => onOpenTask(item.id)} className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 transition-[transform,background-color,color] duration-150 hover:bg-white/[0.06] hover:text-slate-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50">
+                      <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -400,7 +692,19 @@ function TaskList({ items, onOpenTask }: { items: TaskCenterItem[]; onOpenTask: 
   )
 }
 
-function TaskListMobileCard({ item, onOpen }: { item: TaskCenterItem; onOpen: () => void }) {
+function TaskListMobileCard({
+  item,
+  managedTask,
+  managementAssignee,
+  onOpen,
+  onManage,
+}: {
+  item: TaskCenterItem
+  managedTask: ManagedTask | null
+  managementAssignee: string | null
+  onOpen: () => void
+  onManage: (task: ManagedTask) => void
+}) {
   return (
     <article data-task-id={item.id} className="card-base w-full p-4 text-left">
       <div className="flex items-start justify-between gap-3">
@@ -418,6 +722,26 @@ function TaskListMobileCard({ item, onOpen }: { item: TaskCenterItem; onOpen: ()
         <span>{item.owner ?? '未指定负责人'}</span>
         <span className="tabular-nums">{formatDate(item.lastActivityAt)}</span>
       </div>
+      {managedTask ? (
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/[0.05] pt-3">
+          <div className="flex flex-col items-start gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="neutral">{taskDeliveryStageLabel(managedTask.management.delivery_stage)}</Badge>
+              {managedTask.management.priority ? (
+                <Badge tone={managedTask.management.priority === 'p0' ? 'rose' : 'remind'}>
+                  {TASK_PRIORITY_LABELS[managedTask.management.priority]}
+                </Badge>
+              ) : null}
+            </div>
+            {managementAssignee ? <span className="text-[11px] text-slate-500">交付负责人：{managementAssignee}</span> : null}
+          </div>
+          {managedTask.allowed_actions.length > 0 ? (
+            <Button size="sm" variant="ghost" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => onManage(managedTask)}>
+              管理
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   )
 }
@@ -444,7 +768,7 @@ function TaskCenterEmpty({ filtered, onClear }: { filtered: boolean; onClear: ()
       <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
         {filtered
           ? '调整标题、执行状态或协作阶段后再试。'
-          : '只有现有 Agent 或协作流程产生，并且当前账号有权查看的任务才会出现在这里。'}
+          : '当前项目还没有可见任务。任务可以由用户创建，也可以由 Agent 或协作流程产生。'}
       </p>
       {filtered ? <Button className="mt-5" size="sm" variant="secondary" onClick={onClear}>清除筛选</Button> : null}
     </section>
