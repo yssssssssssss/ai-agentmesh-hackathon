@@ -107,6 +107,7 @@ from agentmesh.models import (
     Source,
     Task,
     TaskAssigneeKind,
+    TaskDeliveryStage,
     Team,
     TeamMembership,
     ToolDefinition,
@@ -684,7 +685,8 @@ class SQLiteStore:
                 id TEXT PRIMARY KEY,
                 payload TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                orchestration_version TEXT NOT NULL DEFAULT 'v1'
+                orchestration_version TEXT NOT NULL DEFAULT 'v1',
+                task_id TEXT
             )
             """
         )
@@ -693,6 +695,18 @@ class SQLiteStore:
             "agent_runs",
             "orchestration_version",
             "TEXT NOT NULL DEFAULT 'v1'",
+        )
+        SQLiteStore._ensure_column(
+            connection,
+            "agent_runs",
+            "task_id",
+            "TEXT",
+        )
+        connection.execute(
+            "UPDATE agent_runs SET task_id = json_extract(payload, '$.task_id') WHERE task_id IS NULL"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_runs_task_id ON agent_runs(task_id, updated_at)"
         )
         connection.execute(
             """
@@ -1710,6 +1724,40 @@ class SQLiteStore:
     def add_chat_thread(self, thread: ChatThread) -> ChatThread:
         self._upsert("chat_threads", thread)
         return thread
+
+    def delete_unused_task_run_thread(self, thread_id: str, *, user_id: str) -> bool:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("chat_threads", thread_id),
+            ).fetchone()
+            if row is None:
+                return False
+            thread = ChatThread.model_validate_json(row["payload"])
+            if thread.user_id != user_id or thread.kind is not ChatThreadKind.TASK:
+                return False
+            references = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM records
+                     WHERE collection = 'chat_messages'
+                       AND json_extract(payload, '$.thread_id') = ?) AS messages,
+                    (SELECT COUNT(*) FROM records
+                     WHERE collection = 'tasks'
+                       AND json_extract(payload, '$.thread_id') = ?) AS tasks,
+                    (SELECT COUNT(*) FROM agent_runs
+                     WHERE json_extract(payload, '$.thread_id') = ?) AS runs
+                """,
+                (thread_id, thread_id, thread_id),
+            ).fetchone()
+            if any(int(references[key]) > 0 for key in ("messages", "tasks", "runs")):
+                return False
+            deleted = connection.execute(
+                "DELETE FROM records WHERE collection = ? AND id = ?",
+                ("chat_threads", thread_id),
+            )
+            return deleted.rowcount == 1
 
     def add_chat_turn_trace(self, trace: ChatTurnTrace) -> ChatTurnTrace:
         self._upsert("chat_turn_traces", trace)
@@ -2791,6 +2839,7 @@ class SQLiteStore:
         fields = (
             "id",
             "thread_id",
+            "task_id",
             "user_id",
             "workspace_id",
             "project_id",
@@ -2816,6 +2865,8 @@ class SQLiteStore:
     @staticmethod
     def _decode_agent_run_row(row: sqlite3.Row) -> AgentRun:
         run = AgentRun.model_validate_json(row["payload"])
+        if "task_id" in set(row.keys()) and row["task_id"] != run.task_id:
+            raise ResearchStoreConflict("Agent run task identity failed integrity verification")
         stored_version = row["orchestration_version"]
         if stored_version in {"research-v2", "research-v3"} and stored_version != run.orchestration_version:
             return run.model_copy(update={"orchestration_version": stored_version})
@@ -7917,13 +7968,20 @@ class SQLiteStore:
                 raise ResearchStoreConflict("Agent run orchestration_version is immutable")
             connection.execute(
                 """
-                INSERT INTO agent_runs(id, payload, updated_at, orchestration_version)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO agent_runs(id, payload, updated_at, orchestration_version, task_id)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     payload = excluded.payload,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    task_id = excluded.task_id
                 """,
-                (run.id, run.model_dump_json(), run.updated_at.isoformat(), run.orchestration_version),
+                (
+                    run.id,
+                    run.model_dump_json(),
+                    run.updated_at.isoformat(),
+                    run.orchestration_version,
+                    run.task_id,
+                ),
             )
         return run
 
@@ -8353,7 +8411,7 @@ class SQLiteStore:
         if receipt is None:
             return None
         row = connection.execute(
-            "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+            "SELECT payload, orchestration_version, task_id FROM agent_runs WHERE id = ?",
             (receipt["run_id"],),
         ).fetchone()
         if row is None:
@@ -8372,6 +8430,7 @@ class SQLiteStore:
                 client_turn_id=run.client_turn_id,
                 thread_id=run.thread_id,
                 content=run.input_text,
+                task_id=run.task_id,
                 skill_id=run.skill_id,
                 skill_name=run.skill_name,
                 orchestration_mode=run.requested_orchestration_mode,
@@ -8458,8 +8517,8 @@ class SQLiteStore:
         if run.orchestration_version == "research-v3":
             raise ResearchStoreConflict("research-v3 writer is retired")
         connection.execute(
-            "INSERT INTO agent_runs(id, payload, updated_at, orchestration_version) VALUES (?, ?, ?, ?)",
-            (run.id, run.model_dump_json(), run.updated_at.isoformat(), run.orchestration_version),
+            "INSERT INTO agent_runs(id, payload, updated_at, orchestration_version, task_id) VALUES (?, ?, ?, ?, ?)",
+            (run.id, run.model_dump_json(), run.updated_at.isoformat(), run.orchestration_version, run.task_id),
         )
         if run.client_turn_id:
             connection.execute(
@@ -8615,6 +8674,128 @@ class SQLiteStore:
             ],
         )
 
+    def _require_retry_parent_identity(
+        self,
+        connection: sqlite3.Connection,
+        run: AgentRun,
+    ) -> None:
+        if run.retry_of_run_id is None:
+            return
+        row = connection.execute(
+            "SELECT payload, orchestration_version, task_id FROM agent_runs WHERE id = ?",
+            (run.retry_of_run_id,),
+        ).fetchone()
+        if row is None:
+            if run.task_id is not None:
+                raise ResearchStoreConflict("agent_run_retry_parent_not_found")
+            return
+        parent = self._decode_agent_run_row(row)
+        if parent.task_id is None and run.task_id is None:
+            return
+        if (
+            parent.id == run.id
+            or parent.user_id != run.user_id
+            or parent.workspace_id != run.workspace_id
+            or parent.project_id != run.project_id
+            or parent.thread_id != run.thread_id
+            or parent.task_id != run.task_id
+        ):
+            raise ResearchStoreConflict("agent_run_retry_identity_invalid")
+
+    def _require_agent_run_task_available(
+        self,
+        connection: sqlite3.Connection,
+        run: AgentRun,
+    ) -> None:
+        if run.task_id is None:
+            return
+        row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("tasks", run.task_id),
+        ).fetchone()
+        if row is None:
+            raise ResearchStoreConflict("task_not_found")
+        task = Task.model_validate_json(row["payload"])
+        thread_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("chat_threads", task.thread_id),
+        ).fetchone()
+        if thread_row is None:
+            raise ResearchStoreConflict("task_not_found")
+        thread = ChatThread.model_validate_json(thread_row["payload"])
+        try:
+            self._authorize_task_command(
+                connection,
+                TaskCommandAuthorizationV1(
+                    actor_id=run.user_id,
+                    workspace_id=run.workspace_id,
+                    project_id=run.project_id,
+                ),
+                task=task,
+                thread=thread,
+            )
+        except TaskCommandConflict as error:
+            raise ResearchStoreConflict(error.code) from error
+        management = task.management
+        if management is None or management.delivery_stage is not TaskDeliveryStage.IN_PROGRESS:
+            raise ResearchStoreConflict("task_agent_run_requires_in_progress")
+        if management.blocked_reason is not None:
+            raise ResearchStoreConflict("task_blocked")
+        personal_assignment = management.assignee_kind is None and management.created_by == run.user_id
+        if management.assignee_kind == TaskAssigneeKind.USER:
+            personal_assignment = management.assignee_id == run.user_id
+        elif management.assignee_kind == TaskAssigneeKind.AGENT and management.assignee_id is not None:
+            from agentmesh.seed import AGENTS
+
+            assigned_agent_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("agents", management.assignee_id),
+            ).fetchone()
+            assigned_agent = (
+                Agent.model_validate_json(assigned_agent_row["payload"])
+                if assigned_agent_row is not None
+                else next(
+                    (candidate for candidate in AGENTS if candidate.id == management.assignee_id),
+                    None,
+                )
+            )
+            personal_assignment = assigned_agent is not None and assigned_agent.owner_user_id == run.user_id
+        if not personal_assignment:
+            raise ResearchStoreConflict("task_agent_assignment_not_executable")
+        active_run = connection.execute(
+            """
+            SELECT 1 FROM agent_runs
+            WHERE task_id = ?
+              AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?)
+            LIMIT 1
+            """,
+            (
+                run.task_id,
+                AgentRunStatus.CREATED.value,
+                AgentRunStatus.PLANNING.value,
+                AgentRunStatus.WAITING_CLARIFICATION.value,
+                AgentRunStatus.RUNNING.value,
+                AgentRunStatus.WAITING_PLAN_APPROVAL.value,
+                AgentRunStatus.WAITING_APPROVAL.value,
+            ),
+        ).fetchone()
+        if active_run is not None:
+            raise ResearchStoreConflict("task_agent_run_already_active")
+        run_thread_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("chat_threads", run.thread_id),
+        ).fetchone()
+        if run_thread_row is None:
+            raise ResearchStoreConflict("task_run_thread_invalid")
+        run_thread = ChatThread.model_validate_json(run_thread_row["payload"])
+        if (
+            run_thread.status != "active"
+            or run_thread.user_id != run.user_id
+            or run_thread.workspace_id != run.workspace_id
+            or run_thread.project_id != run.project_id
+        ):
+            raise ResearchStoreConflict("task_run_thread_invalid")
+
     def claim_new_agent_run(
         self,
         run: AgentRun,
@@ -8629,18 +8810,21 @@ class SQLiteStore:
         if dispatch is not None and dispatch.run_id != run.id:
             raise ResearchStoreConflict("run_dispatch_identity_invalid")
         if not run.client_turn_id:
-            if dispatch is None:
+            if dispatch is None and run.task_id is None and run.retry_of_run_id is None:
                 return self.save_agent_run(run), True
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                self._require_retry_parent_identity(connection, run)
+                self._require_agent_run_task_available(connection, run)
                 self._require_agent_run_thread_available(connection, run)
                 self._insert_agent_run_claim(connection, run)
-                self._append_agent_run_events(
-                    connection,
-                    run.id,
-                    [("run_started", {"skill_name": run.skill_name or ""})],
-                )
-                self._insert_run_dispatch_in_transaction(connection, dispatch)
+                if dispatch is not None:
+                    self._append_agent_run_events(
+                        connection,
+                        run.id,
+                        [("run_started", {"skill_name": run.skill_name or ""})],
+                    )
+                    self._insert_run_dispatch_in_transaction(connection, dispatch)
             return run, True
         expected_hash = agent_run_create_request_hash_for_run(run)
         if expected_hash is None:
@@ -8653,6 +8837,8 @@ class SQLiteStore:
             existing = self._replay_agent_run_claim(connection, run)
             if existing is not None:
                 return existing, False
+            self._require_retry_parent_identity(connection, run)
+            self._require_agent_run_task_available(connection, run)
             self._require_agent_run_thread_available(connection, run)
             self._insert_agent_run_claim(connection, run)
             if dispatch is not None:
@@ -8866,7 +9052,7 @@ class SQLiteStore:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT ar.payload, ar.orchestration_version
+                SELECT ar.payload, ar.orchestration_version, ar.task_id
                 FROM agent_run_receipts receipt
                 JOIN agent_runs ar ON ar.id = receipt.run_id
                 WHERE receipt.user_id = ? AND receipt.client_turn_id = ?
@@ -10162,7 +10348,7 @@ class SQLiteStore:
     def get_agent_run(self, run_id: str) -> AgentRun | None:
         with self._read_connect() as connection:
             row = connection.execute(
-                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                "SELECT payload, orchestration_version, task_id FROM agent_runs WHERE id = ?",
                 (run_id,),
             ).fetchone()
         return self._decode_agent_run_row(row) if row is not None else None
@@ -10171,7 +10357,7 @@ class SQLiteStore:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT payload, orchestration_version FROM agent_runs
+                SELECT payload, orchestration_version, task_id FROM agent_runs
                 WHERE (
                     orchestration_version = 'research-v2'
                     OR (
@@ -10203,10 +10389,14 @@ class SQLiteStore:
             return False
         project = self.get_project(run.project_id)
         thread = self.get_chat_thread(run.thread_id)
+        linked_task = self.get_task(run.task_id) if run.task_id is not None else None
         thread_matches = thread is None or (
-            thread.user_id == user.id
-            and thread.workspace_id == run.workspace_id
+            thread.workspace_id == run.workspace_id
             and thread.project_id == run.project_id
+            and (
+                thread.user_id == user.id
+                or (linked_task is not None and linked_task.thread_id == thread.id)
+            )
         )
         return bool(
             project is not None
@@ -10215,10 +10405,47 @@ class SQLiteStore:
             and thread_matches
         )
 
+    def has_active_agent_run_for_task(self, task_id: str) -> bool:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM agent_runs
+                WHERE task_id = ?
+                  AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?)
+                LIMIT 1
+                """,
+                (
+                    task_id,
+                    AgentRunStatus.CREATED.value,
+                    AgentRunStatus.PLANNING.value,
+                    AgentRunStatus.WAITING_CLARIFICATION.value,
+                    AgentRunStatus.RUNNING.value,
+                    AgentRunStatus.WAITING_PLAN_APPROVAL.value,
+                    AgentRunStatus.WAITING_APPROVAL.value,
+                ),
+            ).fetchone()
+        return row is not None
+
+    def list_agent_runs_for_task(self, task_id: str, *, limit: int = 50) -> list[AgentRun]:
+        if not task_id or not 1 <= limit <= 51:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload, orchestration_version, task_id
+                FROM agent_runs
+                WHERE task_id = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (task_id, limit),
+            ).fetchall()
+        return [self._decode_agent_run_row(row) for row in rows]
+
     def list_agent_runs(self, user_id: str | None = None) -> list[AgentRun]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT payload, orchestration_version FROM agent_runs ORDER BY updated_at"
+                "SELECT payload, orchestration_version, task_id FROM agent_runs ORDER BY updated_at"
             ).fetchall()
         runs = [self._decode_agent_run_row(row) for row in rows]
         return [run for run in runs if user_id is None or run.user_id == user_id]
@@ -11190,6 +11417,36 @@ class SQLiteStore:
                 updated_at=now,
             )
         return artifact if replayed_artifact is None else replayed_artifact
+
+    def list_sealed_artifact_refs_for_runs(
+        self,
+        run_ids: list[str],
+        *,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[tuple[str, str]]:
+        unique_run_ids = list(dict.fromkeys(run_ids))
+        if not unique_run_ids or not 1 <= limit <= 200 or offset < 0:
+            return []
+        placeholders = ",".join("?" for _ in unique_run_ids)
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, run_id FROM artifacts
+                WHERE run_id IN ({placeholders})
+                  AND verification_state = ?
+                  AND purged_at IS NULL
+                ORDER BY created_at DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (
+                    *unique_run_ids,
+                    ArtifactVerificationState.SEALED.value,
+                    limit,
+                    offset,
+                ),
+            ).fetchall()
+        return [(str(row["id"]), str(row["run_id"])) for row in rows]
 
     def get_artifact(self, artifact_id: str) -> Artifact | None:
         with self._connect() as connection:

@@ -78,7 +78,7 @@ def create_task(
 @router.get("/{task_id}", response_model=TaskManagementDetailV1)
 def get_task(task_id: str, user: User = Depends(current_user)) -> TaskManagementDetailV1:
     try:
-        return TaskManagementDetailV1(item=service.get_task(task_id, user))
+        return service.get_task_detail(task_id, user)
     except TaskManagementError as error:
         raise _http_error(error) from error
 

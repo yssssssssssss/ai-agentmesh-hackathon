@@ -13,7 +13,12 @@ import type {
 
 export function taskManagementErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return error instanceof Error ? error.message : '请求失败，请稍后重试。'
-  const detail = typeof error.detail === 'string' ? error.detail : `请求失败（${error.status}）`
+  const rawDetail = error.detail
+  const detail = typeof rawDetail === 'string'
+    ? rawDetail
+    : rawDetail && typeof rawDetail === 'object' && 'code' in rawDetail
+      ? String((rawDetail as { code: unknown }).code)
+      : `请求失败（${error.status}）`
   const messages: Record<string, string> = {
     task_management_read_only: '任务中心当前为只读模式。',
     task_command_conflict: '该操作标识已经用于不同请求，请重新操作。',
@@ -26,6 +31,9 @@ export function taskManagementErrorMessage(error: unknown): string {
     task_archived: '任务已在其他会话归档，当前表单已切换为只读。',
     task_block_reason_required: '阻塞任务时必须填写原因。',
     task_assignment_forbidden: '没有权限执行该分派。',
+    task_agent_run_requires_in_progress: '任务进入“进行中”后才能启动 AgentRun。',
+    task_agent_assignment_not_executable: '当前负责人不能通过个人 Agent 执行该任务。',
+    task_thread_identity_conflict: '任务上下文已变化，请刷新后重试。',
     task_action_forbidden: '没有权限修改该任务。',
     task_assignee_not_found: '负责人不存在或不在当前项目。',
   }
@@ -49,6 +57,14 @@ export function useManagedTasks(context: QueryScope) {
   return useQuery({
     queryKey: queryKeys.tasks.management(context),
     queryFn: () => taskManagementApi.list(context.projectId),
+  })
+}
+
+export function useManagedTaskDetail(context: QueryScope, taskId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.tasks.managedDetail(context, taskId ?? 'none'),
+    queryFn: () => taskManagementApi.get(taskId as string),
+    enabled: taskId !== null,
   })
 }
 

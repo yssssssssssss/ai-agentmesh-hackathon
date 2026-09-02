@@ -39,6 +39,7 @@ def agent_run_create_request_hash(
     orchestration_mode: str | SkillOrchestrationRequestMode | None,
     planning_mode: str | AgentPlanningMode,
     retry_of_run_id: str | None,
+    task_id: str | None = None,
     planning_contract_version: str | AgentPlanningContractVersion | None = None,
     execution_contract_version: str | AgentExecutionContractVersion | None = None,
 ) -> str:
@@ -59,6 +60,8 @@ def agent_run_create_request_hash(
         "thread_id": thread_id,
         "user_id": user_id,
     }
+    if task_id is not None:
+        identity["task_id"] = task_id
     planning_contract = _enum_value(planning_contract_version)
     if planning_contract is not None:
         identity["planning_contract_version"] = planning_contract
@@ -75,6 +78,7 @@ def expected_agent_run_create_request_hash(run: AgentRun) -> str | None:
         thread_id=run.thread_id,
         client_turn_id=run.client_turn_id,
         content=run.input_text,
+        task_id=run.task_id,
         skill_name=run.skill_name,
         orchestration_mode=run.requested_orchestration_mode,
         planning_mode=run.planning_mode,
@@ -103,6 +107,7 @@ def agent_run_create_request_matches(
     orchestration_mode: str | SkillOrchestrationRequestMode | None,
     planning_mode: str | AgentPlanningMode,
     retry_of_run_id: str | None,
+    task_id: str | None = None,
     planning_contract_version: str | AgentPlanningContractVersion | None = None,
     execution_contract_version: str | AgentExecutionContractVersion | None = None,
 ) -> bool:
@@ -123,6 +128,7 @@ def agent_run_create_request_matches(
         and run.client_turn_id == client_turn_id
         and run.thread_id == thread_id
         and run.input_text == content
+        and run.task_id == task_id
         and run.skill_id == skill_id
         and run.skill_name == skill_name
         and run.planning_mode == planning_mode

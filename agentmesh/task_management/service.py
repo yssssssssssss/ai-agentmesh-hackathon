@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import quote
 
+from agentmesh.artifacts import ArtifactAccessError, ArtifactAccessScope, V1ArtifactReader
 from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.models import (
     Agent,
@@ -27,12 +29,15 @@ from agentmesh.store import SQLiteStore, TaskCommandConflict
 from agentmesh.task_management.access import task_assigned_to_user
 from agentmesh.task_management.contracts import (
     TaskArchiveRequest,
+    TaskArtifactSummaryV1,
     TaskCommandAuthorizationV1,
     TaskCommandReceiptV1,
     TaskCreateRequest,
     TaskManagementAction,
+    TaskManagementDetailV1,
     TaskManagementPageV1,
     TaskManagementViewV1,
+    TaskRunSummaryV1,
     TaskTransitionAction,
     TaskTransitionRequest,
     TaskUpdateRequest,
@@ -218,6 +223,126 @@ class TaskManagementService:
     def get_task(self, task_id: str, user: User) -> TaskManagementViewV1:
         task, thread = self._visible_task(task_id, user)
         return self.view(task, user, thread=thread)
+
+    def get_task_detail(self, task_id: str, user: User) -> TaskManagementDetailV1:
+        task, thread = self._visible_task(task_id, user)
+        fetched_runs = self.repository.list_agent_runs_for_task(task.id, limit=51)
+        runs_truncated = len(fetched_runs) > 50
+        runs = fetched_runs[:50]
+        run_by_id = {run.id: run for run in runs}
+        artifact_reader = V1ArtifactReader(self.repository)
+        artifacts = []
+        offset = 0
+        while len(artifacts) <= 200:
+            refs = self.repository.list_sealed_artifact_refs_for_runs(
+                list(run_by_id),
+                limit=200,
+                offset=offset,
+            )
+            if not refs:
+                break
+            for artifact_id, run_id in refs:
+                run = run_by_id.get(run_id)
+                if run is None:
+                    continue
+                try:
+                    artifact = artifact_reader.read_for_owner(
+                        artifact_id,
+                        reader_scope=ArtifactAccessScope(
+                            user_id=run.user_id,
+                            workspace_id=run.workspace_id,
+                            project_id=run.project_id,
+                            run_id=run.id,
+                        ),
+                    )
+                except ArtifactAccessError:
+                    continue
+                artifacts.append(artifact)
+                if len(artifacts) > 200:
+                    break
+            offset += len(refs)
+            if len(refs) < 200:
+                break
+        artifacts_truncated = len(artifacts) > 200
+        artifacts = artifacts[:200]
+        artifacts = [
+            artifact
+            for artifact in artifacts
+            if artifact.workspace_id == thread.workspace_id
+            and artifact.project_id == thread.project_id
+            and artifact.run_id in run_by_id
+        ]
+        artifact_counts: dict[str, int] = {}
+        for artifact in artifacts:
+            artifact_counts[artifact.run_id] = artifact_counts.get(artifact.run_id, 0) + 1
+        item = self.view(task, user, thread=thread)
+        if self.repository.has_active_agent_run_for_task(task.id):
+            item = item.model_copy(
+                update={
+                    "allowed_actions": [
+                        action
+                        for action in item.allowed_actions
+                        if action is not TaskManagementAction.START_AGENT_RUN
+                    ]
+                }
+            )
+        return TaskManagementDetailV1(
+            item=item,
+            runs=[
+                TaskRunSummaryV1(
+                    id=run.id,
+                    status=run.status,
+                    planning_mode=run.planning_mode,
+                    artifact_count=artifact_counts.get(run.id, 0),
+                    navigation_href=(
+                        f"/workspace/thread/{quote(run.thread_id, safe='')}?run={quote(run.id, safe='')}"
+                        if run.user_id == user.id
+                        else None
+                    ),
+                    created_at=run.created_at,
+                    updated_at=run.updated_at,
+                )
+                for run in runs
+            ],
+            artifacts=[
+                TaskArtifactSummaryV1(
+                    id=artifact.id,
+                    run_id=artifact.run_id,
+                    artifact_type=artifact.artifact_type,
+                    content_type=artifact.content_type,
+                    verification_state=artifact.verification_state,
+                    content_hash=artifact.content_hash,
+                    size_bytes=artifact.size_bytes,
+                    download_href=(
+                        f"/api/artifacts/{quote(artifact.id, safe='')}"
+                        if artifact.user_id == user.id
+                        else None
+                    ),
+                    created_at=artifact.created_at,
+                )
+                for artifact in artifacts
+            ],
+            runs_truncated=runs_truncated,
+            artifacts_truncated=artifacts_truncated,
+        )
+
+    def require_agent_run_start(
+        self,
+        task_id: str,
+        user: User,
+    ) -> Task:
+        self._require_write_mode()
+        task, thread = self._visible_task(task_id, user)
+        management = self.management_for(task, thread)
+        self._require_manage(user, management)
+        self._require_not_archived(management)
+        if not self._can_start_personal_agent(user, management):
+            raise TaskManagementError("task_agent_assignment_not_executable")
+        if management.blocked_reason is not None:
+            raise TaskManagementError("task_blocked")
+        if management.delivery_stage is not TaskDeliveryStage.IN_PROGRESS:
+            raise TaskManagementError("task_agent_run_requires_in_progress")
+        return task
 
     def update_task(self, task_id: str, request: TaskUpdateRequest, user: User) -> TaskManagementViewV1:
         request_hash = canonical_json_sha256(
@@ -450,6 +575,11 @@ class TaskManagementService:
             return list(dict.fromkeys(actions))
         if management.delivery_stage not in {TaskDeliveryStage.DONE, TaskDeliveryStage.CANCELLED}:
             actions.append(TaskManagementAction.BLOCK)
+        if (
+            management.delivery_stage is TaskDeliveryStage.IN_PROGRESS
+            and self._can_start_personal_agent(user, management)
+        ):
+            actions.append(TaskManagementAction.START_AGENT_RUN)
         transitions = _TRANSITIONS.get(management.delivery_stage, {})
         actions.extend(
             TaskManagementAction(action.value)
@@ -506,6 +636,16 @@ class TaskManagementService:
             return True
         if management.assignee_kind == TaskAssigneeKind.USER and management.assignee_id == user.id:
             return True
+        if management.assignee_kind == TaskAssigneeKind.AGENT and management.assignee_id:
+            agent = self._resolve_agent(management.assignee_id)
+            return agent is not None and agent.owner_user_id == user.id
+        return False
+
+    def _can_start_personal_agent(self, user: User, management: TaskManagementMetadataV1) -> bool:
+        if management.assignee_kind is None:
+            return management.created_by == user.id
+        if management.assignee_kind == TaskAssigneeKind.USER:
+            return management.assignee_id == user.id
         if management.assignee_kind == TaskAssigneeKind.AGENT and management.assignee_id:
             agent = self._resolve_agent(management.assignee_id)
             return agent is not None and agent.owner_user_id == user.id

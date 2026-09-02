@@ -129,6 +129,33 @@ describe('Skill matching API', () => {
 })
 
 describe('Agent Run creation API', () => {
+  it('links a Task-started run without changing the existing run endpoint', async () => {
+    const response = { item: { id: 'run-task', task_id: 'task-1' } }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 202,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await workspaceApi.startAgentRun({
+      threadId: null,
+      taskId: 'task-1',
+      content: '执行项目任务',
+      clientTurnId: 'task-run-1',
+      orchestrationMode: 'single',
+      planningMode: 'standard',
+    })
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({
+      thread_id: null,
+      task_id: 'task-1',
+      content: '执行项目任务',
+      client_turn_id: 'task-run-1',
+      orchestration_mode: 'single',
+      planning_mode: 'standard',
+    })
+  })
+
   it('sends an explicit DeepSearch planning mode without an explicit Skill', async () => {
     const response = { item: { id: 'run-deepsearch' } }
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), {

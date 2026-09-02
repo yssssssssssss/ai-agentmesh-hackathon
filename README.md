@@ -37,6 +37,7 @@ The first implementation slice proves:
 27. Brief drafts can be confirmed from Inbox and turned into sourced team memory candidates.
 28. Blackboard evidence, decisions, digests, archives, and memory-candidate posts can be promoted into governed team memory candidates.
 29. The React `/tasks` route provides a project board/list over permission-filtered Task and Blackboard data. It stays read-only by default; `AGENTMESH_TASK_MANAGEMENT=write` enables versioned creation, editing, assignment, delivery transitions, blocking, cancellation, and archival.
+30. In-progress project Tasks can create Agent Runtime v2 Runs with an immutable `task_id`; Task detail exposes safe Run and Artifact summaries while retry preserves the Task link.
 
 ## Run Locally
 

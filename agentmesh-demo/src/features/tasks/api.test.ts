@@ -39,6 +39,19 @@ describe('task management API', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/api/tasks?project_id=project%2F1&page=2&page_size=100')
   })
 
+  it('loads linked run and Artifact summaries from task detail', async () => {
+    const response = {
+      item: { task: { id: 'task-1' }, management: {}, allowed_actions: [] },
+      runs: [{ id: 'run-1', status: 'completed', planning_mode: 'standard', artifact_count: 1 }],
+      artifacts: [{ id: 'artifact-1', run_id: 'run-1', artifact_type: 'task_output' }],
+    }
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(taskManagementApi.get('task/1')).resolves.toEqual(response)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/task%2F1')
+  })
+
   it('creates a task with a stable command payload', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ item: { task: { id: 'task-1' } } }))
     vi.stubGlobal('fetch', fetchMock)

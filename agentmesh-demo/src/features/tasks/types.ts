@@ -13,6 +13,11 @@ export type ManagedTask = Omit<GeneratedManagedTask, 'task' | 'management' | 'al
 export type ManagedTaskPage = Omit<components['schemas']['TaskManagementPageV1'], 'items'> & {
   items: ManagedTask[]
 }
+export type ManagedTaskDetail = Omit<components['schemas']['TaskManagementDetailV1'], 'item'> & {
+  item: ManagedTask
+}
+export type TaskRunSummary = components['schemas']['TaskRunSummaryV1']
+export type TaskArtifactSummary = components['schemas']['TaskArtifactSummaryV1']
 export type TaskCreatePayload = components['schemas']['TaskCreateRequest']
 export type TaskUpdatePayload = components['schemas']['TaskUpdateRequest']
 export type TaskTransitionPayload = components['schemas']['TaskTransitionRequest']

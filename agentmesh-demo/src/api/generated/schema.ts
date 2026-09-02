@@ -2429,6 +2429,8 @@ export interface components {
             id?: string;
             /** Thread Id */
             thread_id: string;
+            /** Task Id */
+            task_id?: string | null;
             /** User Id */
             user_id: string;
             /** Workspace Id */
@@ -2519,6 +2521,8 @@ export interface components {
             client_turn_id: string;
             /** Thread Id */
             thread_id?: string | null;
+            /** Task Id */
+            task_id?: string | null;
             /** Skill Name */
             skill_name?: string | null;
             /** Explicit Skill Name */
@@ -2584,6 +2588,11 @@ export interface components {
             /** Items */
             items: components["schemas"]["Agent"][];
         };
+        /**
+         * ArtifactVerificationState
+         * @enum {string}
+         */
+        ArtifactVerificationState: "staging" | "sealed" | "failed" | "legacy_unverified" | "purged";
         /** AuditEvent */
         AuditEvent: {
             /** Id */
@@ -2946,6 +2955,11 @@ export interface components {
              * @default false
              */
             agent_runtime_enabled: boolean;
+            /**
+             * Agent Runtime Ready
+             * @default false
+             */
+            agent_runtime_ready: boolean;
             /**
              * Skill Orchestration Mode
              * @default off
@@ -6311,6 +6325,29 @@ export interface components {
             /** Expected Version */
             expected_version: number;
         };
+        /** TaskArtifactSummaryV1 */
+        TaskArtifactSummaryV1: {
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Artifact Type */
+            artifact_type: string;
+            /** Content Type */
+            content_type: string;
+            verification_state?: components["schemas"]["ArtifactVerificationState"] | null;
+            /** Content Hash */
+            content_hash?: string | null;
+            /** Size Bytes */
+            size_bytes?: number | null;
+            /** Download Href */
+            download_href?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /**
          * TaskAssigneeKind
          * @enum {string}
@@ -6347,10 +6384,24 @@ export interface components {
          * TaskManagementAction
          * @enum {string}
          */
-        TaskManagementAction: "edit" | "assign" | "plan" | "start" | "submit_review" | "complete" | "reopen" | "block" | "unblock" | "cancel" | "archive";
+        TaskManagementAction: "edit" | "assign" | "plan" | "start" | "submit_review" | "complete" | "reopen" | "block" | "unblock" | "cancel" | "archive" | "start_agent_run";
         /** TaskManagementDetailV1 */
         TaskManagementDetailV1: {
             item: components["schemas"]["TaskManagementViewV1"];
+            /** Runs */
+            runs?: components["schemas"]["TaskRunSummaryV1"][];
+            /** Artifacts */
+            artifacts?: components["schemas"]["TaskArtifactSummaryV1"][];
+            /**
+             * Runs Truncated
+             * @default false
+             */
+            runs_truncated: boolean;
+            /**
+             * Artifacts Truncated
+             * @default false
+             */
+            artifacts_truncated: boolean;
         };
         /** TaskManagementItemResponse */
         TaskManagementItemResponse: {
@@ -6487,6 +6538,27 @@ export interface components {
             presentation_requirements?: string[];
             completion_check?: components["schemas"]["CompletionCheckResult"];
             human_confirmation?: components["schemas"]["HumanConfirmationDecision"];
+        };
+        /** TaskRunSummaryV1 */
+        TaskRunSummaryV1: {
+            /** Id */
+            id: string;
+            status: components["schemas"]["AgentRunStatus"];
+            planning_mode: components["schemas"]["AgentPlanningMode"];
+            /** Artifact Count */
+            artifact_count: number;
+            /** Navigation Href */
+            navigation_href?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /**
          * TaskStatus

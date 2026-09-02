@@ -7,6 +7,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentmesh.models import (
+    AgentPlanningMode,
+    AgentRunStatus,
+    ArtifactVerificationState,
     Task,
     TaskAssigneeKind,
     TaskDeliveryStage,
@@ -29,6 +32,7 @@ class TaskManagementAction(StrEnum):
     UNBLOCK = "unblock"
     CANCEL = "cancel"
     ARCHIVE = "archive"
+    START_AGENT_RUN = "start_agent_run"
 
 
 class TaskTransitionAction(StrEnum):
@@ -163,5 +167,31 @@ class TaskManagementPageV1(BaseModel):
     counts: dict[TaskDeliveryStage, int] = Field(default_factory=dict)
 
 
+class TaskRunSummaryV1(BaseModel):
+    id: str
+    status: AgentRunStatus
+    planning_mode: AgentPlanningMode
+    artifact_count: int = Field(ge=0)
+    navigation_href: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskArtifactSummaryV1(BaseModel):
+    id: str
+    run_id: str
+    artifact_type: str
+    content_type: str
+    verification_state: ArtifactVerificationState | None = None
+    content_hash: str | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
+    download_href: str | None = None
+    created_at: datetime
+
+
 class TaskManagementDetailV1(BaseModel):
     item: TaskManagementViewV1
+    runs: list[TaskRunSummaryV1] = Field(default_factory=list)
+    artifacts: list[TaskArtifactSummaryV1] = Field(default_factory=list)
+    runs_truncated: bool = False
+    artifacts_truncated: bool = False

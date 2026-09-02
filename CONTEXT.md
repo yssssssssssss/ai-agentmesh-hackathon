@@ -43,7 +43,7 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
 - **溯源 / source-citation** — origin tracking on messages, posts, memory. ✅ `class Source`
   `models.py:270`, propagated through synthesis (`agents.py:653`).
 
-- **任务中心 / Task Center** — the authenticated React `/tasks` route is a project work view over permission-filtered Task and Blackboard data. It is read-only by default; `AGENTMESH_TASK_MANAGEMENT=write` enables server-authoritative creation, editing, assignment, delivery transitions, blocking, cancellation, and archival with optimistic versions. Agent execution remains a separate lifecycle and Task-to-Run linkage belongs to the next delivery slice.
+- **任务中心 / Task Center** — the authenticated React `/tasks` route is a project work view over permission-filtered Task and Blackboard data. It is read-only by default; `AGENTMESH_TASK_MANAGEMENT=write` enables server-authoritative creation, editing, assignment, delivery transitions, blocking, cancellation, and archival with optimistic versions. In-progress Tasks may create Agent Runtime v2 Runs through immutable `task_id` links; retry inherits the link, and Task detail exposes safe Run and Artifact summaries without publishing Run input/output or Artifact content.
 
 - **BBS 协作市场 / Collaboration board**: where twins post signals and collaborate. ✅
   `blackboard.py` provides the per-task board, and `marketplace.py` implements signal publishing
