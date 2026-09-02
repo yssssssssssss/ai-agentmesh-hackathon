@@ -490,7 +490,11 @@ class SQLiteStore:
                 self._init_schema()
                 self._backfill_artifact_projections()
                 self._backfill_fts()
+                if enforce_writer_lock:
+                    self._checkpoint_initialization()
                 self._backfill_vec()
+                if enforce_writer_lock and self._skill_vector_thread is None:
+                    self._checkpoint_initialization()
         except BaseException:
             self.close()
             raise
@@ -567,6 +571,14 @@ class SQLiteStore:
                 raise RuntimeError("SQLite WAL mode is required")
             connection.execute("PRAGMA synchronous = NORMAL")
             self._ensure_schema(connection)
+
+    def _checkpoint_initialization(self) -> None:
+        """Flush startup schema/backfills before exposing the process-owned writer."""
+        with sqlite3.connect(self.db_path, timeout=_SQLITE_BUSY_TIMEOUT_SECONDS) as connection:
+            connection.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS}")
+            result = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if result is None or int(result[0]) != 0:
+                raise RuntimeError("sqlite_initialization_checkpoint_failed")
 
     def _backfill_artifact_projections(self) -> None:
         with sqlite3.connect(self.db_path) as connection:
