@@ -200,20 +200,22 @@ test.describe.serial('task center', () => {
     expect(attempts).toBeGreaterThanOrEqual(2)
   })
 
-  test('creates, edits, assigns, and advances a durable project task', async ({ page }) => {
+  test('creates, edits, assigns, and advances a durable project task', async ({ page }, testInfo) => {
+    const initialTitle = `验证独立任务闭环-${testInfo.retry}`
+    const updatedTitle = `验证独立任务与记忆闭环-${testInfo.retry}`
     await loginAs(page)
     await page.goto('/tasks')
 
     await page.getByRole('button', { name: '新建任务' }).click()
     const createDialog = page.getByRole('dialog')
-    await createDialog.getByLabel('任务标题').fill('验证独立任务闭环')
+    await createDialog.getByLabel('任务标题').fill(initialTitle)
     await createDialog.getByLabel('任务描述').fill('不依赖外部 Provider 的项目任务')
     await createDialog.getByLabel('优先级').selectOption('p1')
     await createDialog.getByLabel('负责人').selectOption('user:usr_current_designer')
     await createDialog.getByLabel('标签').fill('standalone, task')
     await createDialog.getByRole('button', { name: '创建任务' }).click()
 
-    const card = page.locator('[data-task-id]').filter({ hasText: '验证独立任务闭环' })
+    const card = page.locator('[data-task-id]').filter({ hasText: initialTitle })
     await expect(card).toBeVisible()
     await expect(card).toContainText('待办')
     await expect(card).toContainText('P1')
@@ -224,15 +226,17 @@ test.describe.serial('task center', () => {
 
     const editDialog = page.getByRole('dialog')
     await expect(editDialog.getByRole('heading', { name: '编辑任务' })).toBeVisible()
-    await editDialog.getByLabel('任务标题').fill('验证独立任务与记忆闭环')
+    await editDialog.getByLabel('任务标题').fill(updatedTitle)
     await editDialog.getByRole('button', { name: '保存任务' }).click()
 
-    const updatedCard = page.locator('[data-task-id]').filter({ hasText: '验证独立任务与记忆闭环' })
+    const updatedCard = page.locator('[data-task-id]').filter({ hasText: updatedTitle })
     await expect(updatedCard).toBeVisible()
     await updatedCard.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '进入计划' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
     await expect(updatedCard).toContainText('已计划')
     await updatedCard.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '开始任务' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
     await expect(updatedCard).toContainText('进行中')
     await updatedCard.getByRole('button', { name: '管理' }).click()
@@ -240,17 +244,20 @@ test.describe.serial('task center', () => {
     await page.getByRole('dialog').getByRole('button', { name: '关闭' }).click()
   })
 
-  test('suppresses detail-dependent review actions until linked execution eligibility loads', async ({ page }) => {
+  test('suppresses detail-dependent review actions until linked execution eligibility loads', async ({ page }, testInfo) => {
+    const title = `等待审核资格加载-${testInfo.retry}`
     await loginAs(page)
     await page.goto('/tasks')
     await page.getByRole('button', { name: '新建任务' }).click()
-    await page.getByRole('dialog').getByLabel('任务标题').fill('等待审核资格加载')
+    await page.getByRole('dialog').getByLabel('任务标题').fill(title)
     await page.getByRole('dialog').getByRole('button', { name: '创建任务' }).click()
-    const card = page.locator('[data-task-id]').filter({ hasText: '等待审核资格加载' })
+    const card = page.locator('[data-task-id]').filter({ hasText: title })
     await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '进入计划' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
     await expect(card).toContainText('已计划')
     await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '开始任务' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
     await expect(card).toContainText('进行中')
 
@@ -325,7 +332,8 @@ test.describe.serial('task center', () => {
     await expect(dialog.getByRole('button', { name: '提交审核' })).toHaveCount(0)
   })
 
-  test('starts a linked Run when the runtime is ready and removes the duplicate-start action', async ({ page }) => {
+  test('starts a linked Run when the runtime is ready and removes the duplicate-start action', async ({ page }, testInfo) => {
+    const title = `启动关联 Run-${testInfo.retry}`
     let runStarted = false
     await page.route('**/api/bootstrap', async (route) => {
       const response = await route.fetch()
@@ -385,13 +393,15 @@ test.describe.serial('task center', () => {
     await loginAs(page)
     await page.goto('/tasks')
     await page.getByRole('button', { name: '新建任务' }).click()
-    await page.getByRole('dialog').getByLabel('任务标题').fill('启动关联 Run')
+    await page.getByRole('dialog').getByLabel('任务标题').fill(title)
     await page.getByRole('dialog').getByRole('button', { name: '创建任务' }).click()
-    const card = page.locator('[data-task-id]').filter({ hasText: '启动关联 Run' })
+    const card = page.locator('[data-task-id]').filter({ hasText: title })
     await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '进入计划' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
     await expect(card).toContainText('已计划')
     await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '开始任务' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
     await expect(card).toContainText('进行中')
     await card.getByRole('button', { name: '管理' }).click()
@@ -405,7 +415,8 @@ test.describe.serial('task center', () => {
     await expect(dialog.getByRole('button', { name: '启动个人 Agent' })).toHaveCount(0)
   })
 
-  test('submits frozen artifacts and accepts the assigned Task Review', async ({ page }) => {
+  test('submits frozen artifacts and accepts the assigned Task Review', async ({ page }, testInfo) => {
+    const title = `审核封存交付物-${testInfo.retry}`
     let taskId = ''
     let state: 'ready' | 'pending' | 'accepted' = 'ready'
     let baseItem: Record<string, any> | null = null
@@ -530,15 +541,17 @@ test.describe.serial('task center', () => {
     await loginAs(page, 'usr_team_lead', 'lead123')
     await page.goto('/tasks')
     await page.getByRole('button', { name: '新建任务' }).click()
-    await page.getByRole('dialog').getByLabel('任务标题').fill('审核封存交付物')
+    await page.getByRole('dialog').getByLabel('任务标题').fill(title)
     await page.getByRole('dialog').getByRole('button', { name: '创建任务' }).click()
-    const card = page.locator('[data-task-id]').filter({ hasText: '审核封存交付物' })
+    const card = page.locator('[data-task-id]').filter({ hasText: title })
     taskId = await card.getAttribute('data-task-id') ?? ''
     expect(taskId).not.toBe('')
     await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '进入计划' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
     await expect(card).toContainText('已计划')
     await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '开始任务' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
     await expect(card).toContainText('进行中')
     await card.getByRole('button', { name: '管理' }).click()
@@ -661,7 +674,8 @@ test.describe.serial('task center', () => {
     await expect(dialog.getByText('第 1 轮 · 待审核')).toBeVisible()
   })
 
-  test('reuses the browser command ID after an ambiguous create response', async ({ page }) => {
+  test('reuses the browser command ID after an ambiguous create response', async ({ page }, testInfo) => {
+    const title = `验证幂等创建-${testInfo.retry}`
     await loginAs(page)
     const commandIds: string[] = []
     let attempts = 0
@@ -683,24 +697,25 @@ test.describe.serial('task center', () => {
     await page.goto('/tasks')
     await page.getByRole('button', { name: '新建任务' }).click()
     const dialog = page.getByRole('dialog')
-    await dialog.getByLabel('任务标题').fill('验证幂等创建')
+    await dialog.getByLabel('任务标题').fill(title)
     await dialog.getByRole('button', { name: '创建任务' }).click()
     await expect(dialog.getByRole('alert')).toBeVisible()
     await dialog.getByRole('button', { name: '创建任务' }).click()
 
-    await expect(page.locator('[data-task-id]').filter({ hasText: '验证幂等创建' })).toHaveCount(1)
+    await expect(page.locator('[data-task-id]').filter({ hasText: title })).toHaveCount(1)
     expect(commandIds).toHaveLength(2)
     expect(commandIds[1]).toBe(commandIds[0])
   })
 
-  test('concurrent archive converts a stale edit dialog to read-only without losing its draft', async ({ page, request }) => {
+  test('concurrent archive converts a stale edit dialog to read-only without losing its draft', async ({ page, request }, testInfo) => {
+    const title = `并发归档测试-${testInfo.retry}`
     await loginAs(page)
     await page.goto('/tasks')
     await page.getByRole('button', { name: '新建任务' }).click()
     const createDialog = page.getByRole('dialog')
-    await createDialog.getByLabel('任务标题').fill('并发归档测试')
+    await createDialog.getByLabel('任务标题').fill(title)
     await createDialog.getByRole('button', { name: '创建任务' }).click()
-    const card = page.locator('[data-task-id]').filter({ hasText: '并发归档测试' })
+    const card = page.locator('[data-task-id]').filter({ hasText: title })
     await expect(card).toBeVisible()
     const taskId = await card.getAttribute('data-task-id')
     expect(taskId).toBeTruthy()
@@ -715,13 +730,13 @@ test.describe.serial('task center', () => {
     let version = 1
     for (const action of ['plan', 'start', 'submit_review', 'complete']) {
       const transition = await request.post(`/api/tasks/${taskId}/transitions`, {
-        data: { command_id: `archive-race-${action}`, expected_version: version, action },
+        data: { command_id: `archive-race-${testInfo.retry}-${action}`, expected_version: version, action },
       })
       expect(transition.ok()).toBe(true)
       version += 1
     }
     const archive = await request.post(`/api/tasks/${taskId}/archive`, {
-      data: { command_id: 'archive-race-final', expected_version: version },
+      data: { command_id: `archive-race-final-${testInfo.retry}`, expected_version: version },
     })
     expect(archive.ok()).toBe(true)
 
