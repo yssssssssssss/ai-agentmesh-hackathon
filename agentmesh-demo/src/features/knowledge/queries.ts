@@ -97,5 +97,16 @@ export function useKnowledgeMutations() {
     mutationFn: knowledgeApi.acceptMemory,
     ...options,
   })
-  return { updateInbox, confirmBrief, resolveInjection, resolveToolApproval, acceptMemory }
+  const decideMemoryReview = useMutation({
+    mutationFn: knowledgeApi.decideMemoryReview,
+    ...options,
+  })
+  return {
+    updateInbox,
+    confirmBrief,
+    resolveInjection,
+    resolveToolApproval,
+    acceptMemory,
+    decideMemoryReview,
+  }
 }

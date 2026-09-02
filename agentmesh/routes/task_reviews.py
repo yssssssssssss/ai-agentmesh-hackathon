@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
+from agentmesh.memory_governance.contracts import MemoryCaptureResponseV1, TaskReviewMemoryCaptureRequest
+from agentmesh.memory_governance.service import MemoryGovernanceError, MemoryGovernanceService
 from agentmesh.models import User
 from agentmesh.routes.deps import current_user
 from agentmesh.store import store
@@ -16,6 +18,7 @@ from agentmesh.task_review.service import TaskCompletionService, TaskReviewError
 
 router = APIRouter(prefix="/api", tags=["task-reviews"])
 service = TaskCompletionService(store)
+memory_service = MemoryGovernanceService(store)
 
 
 def _http_error(error: TaskReviewError) -> HTTPException:
@@ -36,6 +39,22 @@ def submit_task_review(
         return service.submit_review(task_id, request, user)
     except TaskReviewError as error:
         raise _http_error(error) from error
+
+
+@router.post(
+    "/task-reviews/{review_id}/memory-candidates",
+    response_model=MemoryCaptureResponseV1,
+    status_code=status.HTTP_201_CREATED,
+)
+def capture_review_memory(
+    review_id: str,
+    request: TaskReviewMemoryCaptureRequest,
+    user: User = Depends(current_user),
+) -> MemoryCaptureResponseV1:
+    try:
+        return memory_service.capture_from_task_review(review_id, request, user)
+    except MemoryGovernanceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
 
 
 @router.get("/task-reviews/{review_id}/artifacts/{artifact_id}")

@@ -8,6 +8,7 @@ import type {
   TaskArchivePayload,
   TaskCreatePayload,
   TaskReviewDecisionPayload,
+  TaskReviewMemoryCapturePayload,
   TaskReviewSubmitPayload,
   TaskTransitionPayload,
   TaskUpdatePayload,
@@ -55,6 +56,10 @@ export function taskManagementErrorMessage(error: unknown): string {
     task_review_artifact_integrity_failed: '已冻结产物未通过完整性复核，审核已停止。',
     task_review_inbox_invalid: '审核待办状态异常，决策已安全停止。',
     task_review_integrity_failed: '审核记录未通过完整性校验。',
+    memory_source_review_not_found: '只有当前账号拥有的已接受 Task Review 可以沉淀记忆。',
+    memory_capture_forbidden: '不能从其他人的交付审核创建记忆。',
+    memory_reviewer_unavailable: '当前项目没有可用的团队记忆审核人。',
+    memory_governance_command_conflict: '该记忆操作标识已经用于不同请求。',
   }
   return messages[detail] ?? detail
 }
@@ -121,5 +126,15 @@ export function useTaskManagementMutations(context: QueryScope) {
       taskManagementApi.decideReview(reviewId, payload),
     onSettled: settled,
   })
-  return { create, update, transition, archive, submitReview, decideReview }
+  const captureMemory = useMutation({
+    mutationFn: ({ reviewId, payload }: { reviewId: string; payload: TaskReviewMemoryCapturePayload }) =>
+      taskManagementApi.captureMemory(reviewId, payload),
+    onSettled: async () => {
+      await Promise.all([
+        settled(),
+        queryClient.invalidateQueries({ queryKey: queryKeys.memory.root }),
+      ])
+    },
+  })
+  return { create, update, transition, archive, submitReview, decideReview, captureMemory }
 }

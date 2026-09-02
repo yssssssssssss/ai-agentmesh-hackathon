@@ -27,7 +27,7 @@ from agentmesh.models import (
 )
 from agentmesh.store import DeepSearchRequirementConflict, ResearchStoreConflict, SQLiteStore
 
-_CREATED_AT = datetime(2026, 8, 26, 9, 0, tzinfo=UTC)
+_CREATED_AT = datetime.now(UTC).replace(microsecond=0)
 
 
 def _run(run_id: str, *, status: AgentRunStatus = AgentRunStatus.PLANNING) -> AgentRun:

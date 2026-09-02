@@ -103,6 +103,7 @@ const memory: MemoryOverviewResponse = {
         workspace_id: 'workspace-1',
         project_id: 'project-1',
         status: 'active',
+        version: 1,
       },
     ],
     project: [],

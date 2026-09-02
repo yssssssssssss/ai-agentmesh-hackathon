@@ -439,7 +439,8 @@ class TaskCompletionService:
         *,
         current_status: TaskReviewStatus | None = None,
     ) -> TaskReviewViewV1:
-        pending = (current_status or review.status) is TaskReviewStatus.PENDING
+        status = current_status or review.status
+        pending = status is TaskReviewStatus.PENDING
         can_decide = (
             pending
             and review.reviewer_id == user.id
@@ -459,6 +460,12 @@ class TaskCompletionService:
             if can_decide
             else []
         )
+        if (
+            status is TaskReviewStatus.ACCEPTED
+            and review.requested_by == user.id
+            and task_management_mode() is TaskManagementMode.WRITE
+        ):
+            actions.append(TaskReviewAllowedAction.CAPTURE_MEMORY)
         return TaskReviewViewV1(review=review, allowed_actions=actions)
 
     def _task_view(self, task_id: str, user: User) -> TaskManagementViewV1:

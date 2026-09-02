@@ -115,6 +115,14 @@ describe('task management API', () => {
       decision: 'changes_requested',
       decision_note: '补充证据。',
     })
+    await taskManagementApi.captureMemory('review/1', {
+      command_id: 'capture-memory-1',
+      target: 'personal',
+      title: '项目经验',
+      summary: '冻结产物后再进入审核。',
+      memory_type: 'project_experience',
+      layer: 'mid_term',
+    })
 
     expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/task%2F1/reviews')
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual(expect.objectContaining({
@@ -125,6 +133,11 @@ describe('task management API', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toEqual(expect.objectContaining({
       expected_version: 1,
       decision: 'changes_requested',
+    }))
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/task-reviews/review%2F1/memory-candidates')
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1].body))).toEqual(expect.objectContaining({
+      target: 'personal',
+      layer: 'mid_term',
     }))
   })
 })

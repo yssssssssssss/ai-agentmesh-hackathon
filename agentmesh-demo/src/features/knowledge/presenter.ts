@@ -66,6 +66,9 @@ export interface KnowledgeAssetView {
   citations: PresentedValue<KnowledgeCitation[]>
   allowedActions: PresentedValue<string[]>
   version: PresentedValue<number | null>
+  sourceTaskId: PresentedValue<string | null>
+  sourceRunId: PresentedValue<string | null>
+  sourceReviewId: PresentedValue<string | null>
 }
 
 export interface PendingKnowledgeView {
@@ -78,11 +81,15 @@ export interface PendingKnowledgeView {
   scope: PresentedValue<string>
   status: PresentedValue<string>
   sourceProject: PresentedValue<string>
+  projectId: PresentedValue<string | null>
   createdAt: PresentedValue<string>
   updatedAt: PresentedValue<string>
   documentId: PresentedValue<string | null>
   documentVersion: PresentedValue<number | null>
   taskId: PresentedValue<string | null>
+  memoryId: PresentedValue<string | null>
+  memoryVersion: PresentedValue<number | null>
+  memoryReview: PresentedValue<MemoryItem['memory_review'] | null>
   toolCalls: PresentedValue<ToolApprovalCall[]>
   allowedActions: PresentedValue<string[]>
 }
@@ -180,6 +187,7 @@ function toolApprovalCalls(item: InboxItem): ToolApprovalCall[] {
 
 function userMemoryAsset(item: UserMemoryItem, input: KnowledgeViewModelInput): KnowledgeAssetView {
   const reference = referenceAssets.get(item.id ?? '')
+  const governed = item.provenance != null
   return {
     kind: 'user_memory',
     id: presentedValue(item.id ?? item.title, 'T'),
@@ -188,23 +196,31 @@ function userMemoryAsset(item: UserMemoryItem, input: KnowledgeViewModelInput): 
     type: presentedValue(item.memory_type, 'T'),
     scope: referenceValue(reference?.scope ?? '未提供适用范围', '适用范围'),
     sourceProject: presentedValue(projectLabel(item.project_id, input), 'T'),
-    contributor: referenceValue(reference?.contributor ?? '未提供贡献者', '贡献者'),
+    contributor: governed
+      ? presentedValue(item.user_id, 'T')
+      : referenceValue(reference?.contributor ?? '未提供贡献者', '贡献者'),
     verified: presentedValue(item.status, 'T'),
     visibility: presentedValue(item.scope === 'project' ? 'project' : 'private', 'T'),
     citedBy: referenceValue(reference?.citedBy ?? 0, '引用次数'),
     updated: timeValue(item.updated_at ?? item.created_at, '更新时间'),
     hasNewFeedback: referenceValue(reference?.hasNewFeedback ?? false, '反馈状态'),
     problem: referenceValue(reference?.problem ?? '', '问题背景'),
-    evidence: referenceValue([...(reference?.evidence ?? [])], '形成依据'),
+    evidence: governed
+      ? presentedValue(item.provenance?.artifact_ids ?? [], 'T')
+      : referenceValue([...(reference?.evidence ?? [])], '形成依据'),
     limitation: referenceValue(reference?.limitation ?? '', '限制条件'),
     citations: referenceValue((reference?.citations ?? []).map((citation) => ({ ...citation })), '引用记录'),
     allowedActions: presentedValue([], 'T'),
-    version: referenceValue(null, '版本'),
+    version: governed ? presentedValue(item.version ?? 1, 'T') : referenceValue(null, '版本'),
+    sourceTaskId: presentedValue(item.provenance?.task_id ?? null, 'T'),
+    sourceRunId: presentedValue(item.provenance?.run_id ?? null, 'T'),
+    sourceReviewId: presentedValue(item.provenance?.review_id ?? null, 'T'),
   }
 }
 
 function acceptedMemoryAsset(item: MemoryItem, input: KnowledgeViewModelInput): KnowledgeAssetView {
   const reference = referenceAssets.get(item.id ?? '')
+  const governed = item.provenance != null
   return {
     kind: 'accepted_memory',
     id: presentedValue(item.id ?? item.title, 'T'),
@@ -213,18 +229,25 @@ function acceptedMemoryAsset(item: MemoryItem, input: KnowledgeViewModelInput): 
     type: presentedValue(item.memory_type, 'T'),
     scope: referenceValue(reference?.scope ?? '未提供适用范围', '适用范围'),
     sourceProject: presentedValue(projectLabel(item.project_id, input), 'T'),
-    contributor: referenceValue(reference?.contributor ?? '未提供贡献者', '贡献者'),
+    contributor: governed
+      ? presentedValue(item.owner_user_id ?? '未记录贡献者', 'T')
+      : referenceValue(reference?.contributor ?? '未提供贡献者', '贡献者'),
     verified: presentedValue(item.status, 'T'),
     visibility: presentedValue('team', 'T'),
     citedBy: referenceValue(reference?.citedBy ?? 0, '引用次数'),
-    updated: timeValue(item.created_at, '更新时间'),
+    updated: timeValue(item.updated_at ?? item.created_at, '更新时间'),
     hasNewFeedback: referenceValue(reference?.hasNewFeedback ?? false, '反馈状态'),
     problem: referenceValue(reference?.problem ?? '', '问题背景'),
-    evidence: referenceValue([...(reference?.evidence ?? [])], '形成依据'),
+    evidence: governed
+      ? presentedValue(item.provenance?.artifact_ids ?? [], 'T')
+      : referenceValue([...(reference?.evidence ?? [])], '形成依据'),
     limitation: referenceValue(reference?.limitation ?? '', '限制条件'),
     citations: referenceValue((reference?.citations ?? []).map((citation) => ({ ...citation })), '引用记录'),
     allowedActions: presentedValue([...item.allowed_actions], 'T'),
-    version: referenceValue(null, '版本'),
+    version: governed ? presentedValue(item.version ?? 1, 'T') : referenceValue(null, '版本'),
+    sourceTaskId: presentedValue(item.provenance?.task_id ?? null, 'T'),
+    sourceRunId: presentedValue(item.provenance?.run_id ?? null, 'T'),
+    sourceReviewId: presentedValue(item.provenance?.review_id ?? null, 'T'),
   }
 }
 
@@ -249,6 +272,9 @@ function documentAsset(document: DocumentRecord): KnowledgeAssetView {
     citations: referenceValue([], '引用记录'),
     allowedActions: presentedValue([], 'T'),
     version: presentedValue(document.version, 'T'),
+    sourceTaskId: presentedValue(null, 'T'),
+    sourceRunId: presentedValue(null, 'T'),
+    sourceReviewId: presentedValue(null, 'T'),
   }
 }
 
@@ -269,11 +295,15 @@ function pendingInbox(
     scope: presentedValue(item.scope, 'T'),
     status: presentedValue(item.status, 'T'),
     sourceProject: presentedValue(projectLabel(item.project_id, input), 'T'),
+    projectId: presentedValue(item.project_id ?? null, 'T'),
     createdAt: timeValue(item.created_at, '形成时间'),
     updatedAt: timeValue(item.updated_at ?? item.created_at, '更新时间'),
     documentId: presentedValue(documentId, 'T'),
     documentVersion: presentedValue(documentVersion, 'T'),
     taskId: presentedValue(item.metadata?.task_id || null, 'T'),
+    memoryId: presentedValue(item.metadata?.memory_id || null, 'T'),
+    memoryVersion: presentedValue(null, 'T'),
+    memoryReview: presentedValue(null, 'T'),
     toolCalls: presentedValue(toolApprovalCalls(item), 'T'),
     allowedActions: presentedValue([...item.allowed_actions], 'T'),
   }
@@ -290,11 +320,15 @@ function pendingCandidate(item: MemoryItem, input: KnowledgeViewModelInput): Pen
     scope: presentedValue(item.scope, 'T'),
     status: presentedValue(item.status, 'T'),
     sourceProject: presentedValue(projectLabel(item.project_id, input), 'T'),
+    projectId: presentedValue(item.project_id ?? null, 'T'),
     createdAt: timeValue(item.created_at, '形成时间'),
     updatedAt: timeValue(item.created_at, '更新时间'),
     documentId: presentedValue(null, 'T'),
     documentVersion: presentedValue(null, 'T'),
-    taskId: presentedValue(null, 'T'),
+    taskId: presentedValue(item.provenance?.task_id ?? null, 'T'),
+    memoryId: presentedValue(item.id ?? null, 'T'),
+    memoryVersion: presentedValue(item.version ?? 1, 'T'),
+    memoryReview: presentedValue(item.memory_review ?? null, 'T'),
     toolCalls: presentedValue([], 'T'),
     allowedActions: presentedValue([...item.allowed_actions], 'T'),
   }
@@ -387,6 +421,9 @@ function assetValues(asset: KnowledgeAssetView): PresentedValue<unknown>[] {
     asset.citations,
     asset.allowedActions,
     asset.version,
+    asset.sourceTaskId,
+    asset.sourceRunId,
+    asset.sourceReviewId,
   ]
 }
 

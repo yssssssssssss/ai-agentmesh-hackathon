@@ -31,6 +31,11 @@ from agentmesh.deepsearch.budget import (
     DeepSearchBudgetMutationResult,
     DeepSearchBudgetScope,
 )
+from agentmesh.memory_governance.contracts import (
+    MemoryEntryKind,
+    MemoryGovernanceAuthorizationV1,
+    MemoryGovernanceCommandReceiptV1,
+)
 from agentmesh.models import (
     ActivityLog,
     Agent,
@@ -76,6 +81,10 @@ from agentmesh.models import (
     MemoryItem,
     MemoryLayer,
     MemoryRelation,
+    MemoryReviewStatus,
+    MemoryReviewV1,
+    MemorySourceKind,
+    MemoryStatus,
     ModelDefinition,
     OrchestrationQuiesceInventoryV1,
     PermissionPolicyRule,
@@ -226,6 +235,14 @@ class BlackboardHandoffConflict(RuntimeError):
         self.code = code
 
 
+class MemoryGovernanceConflict(RuntimeError):
+    """A governed Memory command failed authorization, identity, or CAS checks."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 @dataclass(frozen=True, slots=True)
 class TaskCommandResult:
     task: Task
@@ -238,6 +255,14 @@ class TaskReviewCommandResult:
     review: TaskReviewV1
     task: Task
     receipt: TaskReviewCommandReceiptV1
+    replayed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryGovernanceCommandResult:
+    item: MemoryItem | UserMemoryItem
+    review: MemoryReviewV1 | None
+    receipt: MemoryGovernanceCommandReceiptV1
     replayed: bool
 
 
@@ -961,6 +986,26 @@ class SQLiteStore:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS memory_reviews (
+                id TEXT PRIMARY KEY,
+                memory_id TEXT NOT NULL,
+                source_task_review_id TEXT NOT NULL,
+                reviewer_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(memory_id)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memory_reviews_reviewer_status "
+            "ON memory_reviews(reviewer_id, status, updated_at DESC)"
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS skill_plans (
                 id TEXT PRIMARY KEY,
                 run_id TEXT UNIQUE NOT NULL,
@@ -1196,6 +1241,7 @@ class SQLiteStore:
             connection.execute("DELETE FROM research_plan_versions")
             connection.execute("DELETE FROM research_requirement_versions")
             connection.execute("DELETE FROM research_workflows")
+            connection.execute("DELETE FROM memory_reviews")
             connection.execute("DELETE FROM task_reviews")
             connection.execute("DELETE FROM agent_runs")
             connection.execute("DELETE FROM artifacts")
@@ -1690,14 +1736,17 @@ class SQLiteStore:
         """Search with constraints from agent's memory binding."""
         binding = self.get_binding_for_agent(agent_id)
         if binding is None:
-            return self.search(
+            results = self.search(
                 query,
-                {Scope.PRIVATE, Scope.PROJECT, Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED},
+                {Scope.PRIVATE, Scope.PROJECT, Scope.TEAM_ACCEPTED},
                 workspace_id=workspace_id,
                 project_id=project_id,
                 user_id=user_id,
+                agent_context=True,
             )
+            return self.filter_agent_memory_results(results)
         allowed_scopes = set(binding.allowed_scopes) if binding.allowed_scopes else {Scope.PRIVATE}
+        allowed_scopes.discard(Scope.TEAM_CANDIDATE)
         effective_project = binding.allowed_project_ids[0] if binding.allowed_project_ids else project_id
         results = self.search(
             query,
@@ -1706,10 +1755,45 @@ class SQLiteStore:
             project_id=effective_project,
             user_id=user_id,
             max_results=binding.max_results_per_query,
+            agent_context=True,
         )
         if binding.allowed_memory_types:
             results = [r for r in results if r.result_type in set(binding.allowed_memory_types)]
-        return results
+        return self.filter_agent_memory_results(results)
+
+    @staticmethod
+    def memory_item_eligible_for_agent(item: MemoryItem) -> bool:
+        if item.scope is Scope.TEAM_CANDIDATE:
+            return False
+        if item.status is MemoryStatus.ACCEPTED and item.scope in {Scope.PROJECT, Scope.TEAM_ACCEPTED}:
+            return True
+        return bool(
+            item.provenance is None
+            and item.scope is Scope.PROJECT
+            and item.status
+            not in {
+                MemoryStatus.DISPUTED,
+                MemoryStatus.DEPRECATED,
+                MemoryStatus.EXPIRED,
+                MemoryStatus.ARCHIVED,
+            }
+        )
+
+    def filter_agent_memory_results(self, results: list[SearchResult]) -> list[SearchResult]:
+        output: list[SearchResult] = []
+        for result in results:
+            if result.result_type == "user_memory_item":
+                item = self.get_user_memory_item(result.id)
+                if item is not None and item.status == "active":
+                    output.append(result)
+                continue
+            if result.result_type != "memory_item":
+                output.append(result)
+                continue
+            item = self.get_memory_item(result.id)
+            if item is not None and self.memory_item_eligible_for_agent(item):
+                output.append(result)
+        return output
 
     @property
     def market_participations(self) -> list[MarketParticipation]:
@@ -2895,6 +2979,628 @@ class SQLiteStore:
             receipt=persisted_receipt,
             replayed=False,
         )
+
+    @staticmethod
+    def _memory_review_from_row(row: sqlite3.Row) -> MemoryReviewV1:
+        try:
+            review = MemoryReviewV1.model_validate_json(row["payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise MemoryGovernanceConflict("memory_review_integrity_failed") from None
+        if not (
+            row["id"] == review.id
+            and row["memory_id"] == review.memory_id
+            and row["source_task_review_id"] == review.source_task_review_id
+            and row["reviewer_id"] == review.reviewer_id
+            and row["status"] == review.status.value
+            and row["version"] == review.version
+            and row["created_at"] == review.created_at.isoformat()
+            and row["updated_at"] == review.updated_at.isoformat()
+        ):
+            raise MemoryGovernanceConflict("memory_review_integrity_failed")
+        return review
+
+    @staticmethod
+    def _memory_governance_receipt_from_connection(
+        connection: sqlite3.Connection,
+        receipt_id: str,
+    ) -> MemoryGovernanceCommandReceiptV1 | None:
+        row = connection.execute(
+            "SELECT id, payload FROM records WHERE collection = 'memory_governance_command_receipts' AND id = ?",
+            (receipt_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            receipt = MemoryGovernanceCommandReceiptV1.model_validate_json(row["payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise MemoryGovernanceConflict("memory_governance_receipt_integrity_failed") from None
+        if receipt.id != row["id"]:
+            raise MemoryGovernanceConflict("memory_governance_receipt_integrity_failed")
+        return receipt
+
+    @staticmethod
+    def _validate_memory_governance_replay(
+        current: MemoryGovernanceCommandReceiptV1,
+        proposed: MemoryGovernanceCommandReceiptV1,
+    ) -> None:
+        if (
+            current.user_id != proposed.user_id
+            or current.command_id != proposed.command_id
+            or current.operation != proposed.operation
+            or current.request_hash != proposed.request_hash
+        ):
+            raise MemoryGovernanceConflict("memory_governance_command_conflict")
+
+    def get_memory_governance_receipt(
+        self,
+        receipt_id: str,
+    ) -> MemoryGovernanceCommandReceiptV1 | None:
+        with self._read_connect() as connection:
+            return self._memory_governance_receipt_from_connection(connection, receipt_id)
+
+    def get_memory_review(self, review_id: str) -> MemoryReviewV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM memory_reviews WHERE id = ?",
+                (review_id,),
+            ).fetchone()
+        return self._memory_review_from_row(row) if row is not None else None
+
+    def get_memory_review_for_memory(self, memory_id: str) -> MemoryReviewV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM memory_reviews WHERE memory_id = ?",
+                (memory_id,),
+            ).fetchone()
+        return self._memory_review_from_row(row) if row is not None else None
+
+    @staticmethod
+    def _memory_governance_actor_context(
+        connection: sqlite3.Connection,
+        authorization: MemoryGovernanceAuthorizationV1,
+    ) -> tuple[User, Project, list[PermissionPolicyRule]]:
+        actor_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'users' AND id = ?",
+            (authorization.actor_id,),
+        ).fetchone()
+        actor = User.model_validate_json(actor_row["payload"]) if actor_row is not None else None
+        project_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+            (authorization.project_id,),
+        ).fetchone()
+        project = Project.model_validate_json(project_row["payload"]) if project_row is not None else None
+        if (
+            actor is None
+            or actor.status != "active"
+            or actor.workspace_id != authorization.workspace_id
+            or project is None
+            or project.workspace_id != actor.workspace_id
+            or (project.member_ids and actor.id not in project.member_ids)
+        ):
+            raise MemoryGovernanceConflict("memory_not_found")
+        rows = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'permission_policy_rules' ORDER BY created_order"
+        ).fetchall()
+        return actor, project, [PermissionPolicyRule.model_validate_json(row["payload"]) for row in rows]
+
+    @staticmethod
+    def _select_memory_reviewer_from_connection(
+        connection: sqlite3.Connection,
+        *,
+        project: Project,
+        owner_id: str,
+        rules: list[PermissionPolicyRule],
+    ) -> User | None:
+        from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, has_permission
+
+        rows = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'users' ORDER BY id"
+        ).fetchall()
+        candidates: list[User] = []
+        for row in rows:
+            candidate = User.model_validate_json(row["payload"])
+            if (
+                candidate.status != "active"
+                or candidate.workspace_id != project.workspace_id
+                or (project.member_ids and candidate.id not in project.member_ids)
+                or not has_permission(candidate, ACTION_ACCEPT_TEAM_MEMORY, rules)
+            ):
+                continue
+            candidates.append(candidate)
+        role_order = {
+            UserRole.TEAM_LEAD.value: 0,
+            UserRole.ADMIN.value: 1,
+            UserRole.USER.value: 2,
+        }
+        candidates.sort(
+            key=lambda candidate: (
+                candidate.id == owner_id,
+                role_order.get(str(candidate.role), 3),
+                candidate.id,
+            )
+        )
+        return candidates[0] if candidates else None
+
+    def select_memory_reviewer(self, *, project_id: str, owner_id: str) -> User | None:
+        with self._read_connect() as connection:
+            project_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+                (project_id,),
+            ).fetchone()
+            if project_row is None:
+                return None
+            project = Project.model_validate_json(project_row["payload"])
+            rows = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'permission_policy_rules' ORDER BY created_order"
+            ).fetchall()
+            rules = [PermissionPolicyRule.model_validate_json(row["payload"]) for row in rows]
+            return self._select_memory_reviewer_from_connection(
+                connection,
+                project=project,
+                owner_id=owner_id,
+                rules=rules,
+            )
+
+    def capture_memory_from_task_review(
+        self,
+        *,
+        item: MemoryItem | UserMemoryItem,
+        memory_review: MemoryReviewV1 | None,
+        inbox: InboxItem | None,
+        relations: list[MemoryRelation],
+        audit: AuditEvent,
+        receipt: MemoryGovernanceCommandReceiptV1,
+        authorization: MemoryGovernanceAuthorizationV1,
+    ) -> MemoryGovernanceCommandResult:
+        collection = "user_memory_items" if isinstance(item, UserMemoryItem) else "memory_items"
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current_receipt = self._memory_governance_receipt_from_connection(connection, receipt.id)
+            if current_receipt is not None:
+                self._validate_memory_governance_replay(current_receipt, receipt)
+                stored_review: MemoryReviewV1 | None = None
+                if current_receipt.result_review is not None:
+                    review_row = connection.execute(
+                        "SELECT * FROM memory_reviews WHERE id = ?",
+                        (current_receipt.result_review.id,),
+                    ).fetchone()
+                    if review_row is None:
+                        raise MemoryGovernanceConflict("memory_governance_receipt_integrity_failed")
+                    stored_review = self._memory_review_from_row(review_row)
+                stored_collection = (
+                    "user_memory_items"
+                    if current_receipt.result_entry.kind.value == "personal"
+                    else "memory_items"
+                )
+                item_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    (stored_collection, current_receipt.memory_id),
+                ).fetchone()
+                if item_row is None:
+                    raise MemoryGovernanceConflict("memory_governance_receipt_integrity_failed")
+                stored_item = (
+                    UserMemoryItem.model_validate_json(item_row["payload"])
+                    if stored_collection == "user_memory_items"
+                    else MemoryItem.model_validate_json(item_row["payload"])
+                )
+                return MemoryGovernanceCommandResult(
+                    item=stored_item,
+                    review=stored_review,
+                    receipt=current_receipt,
+                    replayed=True,
+                )
+            actor, project, rules = self._memory_governance_actor_context(connection, authorization)
+            source_review_id = item.provenance.review_id if item.provenance is not None else None
+            source_review_row = connection.execute(
+                "SELECT * FROM task_reviews WHERE id = ?",
+                (source_review_id,),
+            ).fetchone()
+            if source_review_row is None:
+                raise MemoryGovernanceConflict("memory_source_review_not_found")
+            source_review = self._task_review_from_row(source_review_row)
+            task_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'tasks' AND id = ?",
+                (source_review.task_id,),
+            ).fetchone()
+            if task_row is None:
+                raise MemoryGovernanceConflict("memory_source_review_not_found")
+            task = Task.model_validate_json(task_row["payload"])
+            thread_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'chat_threads' AND id = ?",
+                (task.thread_id,),
+            ).fetchone()
+            thread = ChatThread.model_validate_json(thread_row["payload"]) if thread_row is not None else None
+            if (
+                source_review.status is not TaskReviewStatus.ACCEPTED
+                or source_review.requested_by != actor.id
+                or thread is None
+                or thread.workspace_id != authorization.workspace_id
+                or thread.project_id != authorization.project_id
+                or (item.owner_user_id if isinstance(item, MemoryItem) else item.user_id) != actor.id
+            ):
+                raise MemoryGovernanceConflict("memory_source_review_not_found")
+            if item.provenance is None or not (
+                item.provenance.source_kind is MemorySourceKind.TASK_ARTIFACT
+                and item.provenance.task_id == source_review.task_id
+                and item.provenance.run_id == source_review.run_id
+                and item.provenance.review_id == source_review.id
+                and item.provenance.artifact_ids == source_review.artifact_ids
+                and item.provenance.artifact_hashes == source_review.artifact_hashes
+                and item.provenance.created_by == actor.id
+            ):
+                raise MemoryGovernanceConflict("memory_provenance_invalid")
+            try:
+                validated_run = self._validate_task_review_artifacts(
+                    connection,
+                    review=source_review,
+                    workspace_id=authorization.workspace_id,
+                    project_id=authorization.project_id,
+                )
+            except TaskReviewConflict as error:
+                raise MemoryGovernanceConflict(error.code) from error
+            if validated_run.user_id != actor.id:
+                raise MemoryGovernanceConflict("memory_source_review_not_found")
+            if (
+                item.workspace_id != project.workspace_id
+                or item.project_id != project.id
+                or item.version != 1
+                or item.supersedes_memory_id is not None
+            ):
+                raise MemoryGovernanceConflict("memory_entry_invalid")
+            if isinstance(item, UserMemoryItem):
+                if (
+                    item.scope is not Scope.PRIVATE
+                    or item.status != "active"
+                    or memory_review is not None
+                    or inbox is not None
+                ):
+                    raise MemoryGovernanceConflict("memory_entry_invalid")
+            else:
+                selected_reviewer = self._select_memory_reviewer_from_connection(
+                    connection,
+                    project=project,
+                    owner_id=actor.id,
+                    rules=rules,
+                )
+                if selected_reviewer is None:
+                    raise MemoryGovernanceConflict("memory_reviewer_unavailable")
+                if not (
+                    item.scope is Scope.TEAM_CANDIDATE
+                    and item.status is MemoryStatus.PROPOSED
+                    and memory_review is not None
+                    and memory_review.memory_id == item.id
+                    and memory_review.source_task_review_id == source_review.id
+                    and memory_review.requested_by == actor.id
+                    and memory_review.reviewer_id == selected_reviewer.id
+                    and memory_review.memory_version == item.version
+                    and inbox is not None
+                    and inbox.item_type == "memory_review"
+                    and inbox.scope is Scope.PRIVATE
+                    and inbox.user_id == selected_reviewer.id
+                    and inbox.status == "open"
+                    and inbox.metadata.get("memory_review_id") == memory_review.id
+                    and inbox.metadata.get("memory_id") == item.id
+                ):
+                    raise MemoryGovernanceConflict("memory_review_side_record_invalid")
+            if not (
+                receipt.operation == "capture"
+                and receipt.user_id == actor.id
+                and receipt.memory_id == item.id
+                and receipt.result_entry.id == item.id
+                and receipt.result_review == memory_review
+                and audit.actor == actor.id
+                and audit.action == "capture_memory_from_task_review"
+                and audit.target_type == "memory"
+                and audit.target_id == item.id
+                and audit.workspace_id == project.workspace_id
+                and audit.project_id == project.id
+                and audit.metadata
+                == {
+                    "source_task_review_id": source_review.id,
+                    "target": receipt.result_entry.kind.value,
+                    "memory_version": item.version,
+                }
+            ):
+                raise MemoryGovernanceConflict("memory_governance_side_record_invalid")
+            for source_id, relation_type in [
+                (source_review.id, "derived_from_task_review"),
+                *[(artifact_id, "derived_from_artifact") for artifact_id in source_review.artifact_ids],
+            ]:
+                if not any(
+                    relation.from_memory_id == item.id
+                    and relation.to_source_id == source_id
+                    and relation.relation_type == relation_type
+                    for relation in relations
+                ):
+                    raise MemoryGovernanceConflict("memory_relation_invalid")
+            exists = connection.execute(
+                "SELECT 1 FROM records WHERE collection = ? AND id = ?",
+                (collection, item.id),
+            ).fetchone()
+            if exists is not None:
+                raise MemoryGovernanceConflict("memory_identity_conflict")
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                (collection, item.id, item.model_dump_json()),
+            )
+            self._sync_fts(connection, collection, item)
+            for relation in relations:
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES ('memory_relations', ?, ?)",
+                    (relation.id, relation.model_dump_json()),
+                )
+            if memory_review is not None:
+                connection.execute(
+                    """
+                    INSERT INTO memory_reviews(
+                        id, memory_id, source_task_review_id, reviewer_id, status,
+                        version, payload, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        memory_review.id,
+                        memory_review.memory_id,
+                        memory_review.source_task_review_id,
+                        memory_review.reviewer_id,
+                        memory_review.status.value,
+                        memory_review.version,
+                        memory_review.model_dump_json(),
+                        memory_review.created_at.isoformat(),
+                        memory_review.updated_at.isoformat(),
+                    ),
+                )
+                assert inbox is not None
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES ('inbox_items', ?, ?)",
+                    (inbox.id, inbox.model_dump_json()),
+                )
+            for collection_name, record in (
+                ("audit_events", audit),
+                ("memory_governance_command_receipts", receipt),
+            ):
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                    (collection_name, record.id, record.model_dump_json()),
+                )
+        return MemoryGovernanceCommandResult(item=item, review=memory_review, receipt=receipt, replayed=False)
+
+    def decide_memory_review(
+        self,
+        *,
+        review: MemoryReviewV1,
+        expected_memory_version: int,
+        expected_review_version: int,
+        audit: AuditEvent,
+        receipt: MemoryGovernanceCommandReceiptV1,
+        authorization: MemoryGovernanceAuthorizationV1,
+    ) -> MemoryGovernanceCommandResult:
+        from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, has_permission
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current_receipt = self._memory_governance_receipt_from_connection(connection, receipt.id)
+            if current_receipt is not None:
+                self._validate_memory_governance_replay(current_receipt, receipt)
+                item_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'memory_items' AND id = ?",
+                    (current_receipt.memory_id,),
+                ).fetchone()
+                if item_row is None:
+                    raise MemoryGovernanceConflict("memory_governance_receipt_integrity_failed")
+                return MemoryGovernanceCommandResult(
+                    item=MemoryItem.model_validate_json(item_row["payload"]),
+                    review=current_receipt.result_review,
+                    receipt=current_receipt,
+                    replayed=True,
+                )
+            review_row = connection.execute(
+                "SELECT * FROM memory_reviews WHERE id = ?",
+                (review.id,),
+            ).fetchone()
+            if review_row is None:
+                raise MemoryGovernanceConflict("memory_review_not_found")
+            current_review = self._memory_review_from_row(review_row)
+            item_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'memory_items' AND id = ?",
+                (current_review.memory_id,),
+            ).fetchone()
+            if item_row is None:
+                raise MemoryGovernanceConflict("memory_review_not_found")
+            item = MemoryItem.model_validate_json(item_row["payload"])
+            actor, project, rules = self._memory_governance_actor_context(connection, authorization)
+            if (
+                item.workspace_id != project.workspace_id
+                or item.project_id != project.id
+                or current_review.reviewer_id != actor.id
+                or not has_permission(actor, ACTION_ACCEPT_TEAM_MEMORY, rules)
+            ):
+                raise MemoryGovernanceConflict("memory_review_not_found")
+            if current_review.version != expected_review_version:
+                raise MemoryGovernanceConflict("memory_review_version_conflict")
+            if item.version != expected_memory_version:
+                raise MemoryGovernanceConflict("memory_version_conflict")
+            if (
+                current_review.status is not MemoryReviewStatus.PENDING
+                or item.status is not MemoryStatus.PROPOSED
+                or item.scope is not Scope.TEAM_CANDIDATE
+                or current_review.memory_version != item.version
+            ):
+                raise MemoryGovernanceConflict("memory_review_already_decided")
+            provenance = item.provenance
+            source_review_row = connection.execute(
+                "SELECT * FROM task_reviews WHERE id = ?",
+                (current_review.source_task_review_id,),
+            ).fetchone()
+            if source_review_row is None or provenance is None:
+                raise MemoryGovernanceConflict("memory_provenance_invalid")
+            source_review = self._task_review_from_row(source_review_row)
+            if not (
+                source_review.status is TaskReviewStatus.ACCEPTED
+                and source_review.id == provenance.review_id
+                and source_review.task_id == provenance.task_id
+                and source_review.run_id == provenance.run_id
+                and source_review.artifact_ids == provenance.artifact_ids
+                and source_review.artifact_hashes == provenance.artifact_hashes
+                and item.owner_user_id == current_review.requested_by == provenance.created_by
+            ):
+                raise MemoryGovernanceConflict("memory_provenance_invalid")
+            try:
+                self._validate_task_review_artifacts(
+                    connection,
+                    review=source_review,
+                    workspace_id=authorization.workspace_id,
+                    project_id=authorization.project_id,
+                )
+            except TaskReviewConflict as error:
+                raise MemoryGovernanceConflict(error.code) from error
+            immutable_fields = (
+                "memory_id",
+                "source_task_review_id",
+                "requested_by",
+                "reviewer_id",
+                "memory_version",
+                "created_at",
+            )
+            if any(getattr(review, field) != getattr(current_review, field) for field in immutable_fields):
+                raise MemoryGovernanceConflict("memory_review_identity_invalid")
+            if review.version != expected_review_version + 1 or review.status is MemoryReviewStatus.PENDING:
+                raise MemoryGovernanceConflict("memory_review_version_invalid")
+            updated_item = item.model_copy(deep=True)
+            updated_item.version += 1
+            updated_item.updated_at = review.decided_at or now_utc()
+            if review.status is MemoryReviewStatus.ACCEPTED:
+                updated_item.status = MemoryStatus.ACCEPTED
+                updated_item.scope = Scope.TEAM_ACCEPTED
+            else:
+                updated_item.status = MemoryStatus.DISPUTED
+                updated_item.scope = Scope.TEAM_CANDIDATE
+            inbox_rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'inbox_items'
+                  AND json_extract(payload, '$.item_type') = 'memory_review'
+                  AND json_extract(payload, '$.metadata.memory_review_id') = ?
+                """,
+                (review.id,),
+            ).fetchall()
+            if len(inbox_rows) != 1:
+                raise MemoryGovernanceConflict("memory_review_inbox_invalid")
+            inbox = InboxItem.model_validate_json(inbox_rows[0]["payload"])
+            if (
+                inbox.user_id != actor.id
+                or inbox.workspace_id != authorization.workspace_id
+                or inbox.project_id != authorization.project_id
+                or inbox.status not in {"open", "snoozed"}
+            ):
+                raise MemoryGovernanceConflict("memory_review_inbox_invalid")
+            expected_metadata = {
+                "memory_id": item.id,
+                "source_task_review_id": current_review.source_task_review_id,
+                "decision": review.status.value,
+                "memory_version": updated_item.version,
+                "memory_review_version": review.version,
+            }
+            if not (
+                audit.actor == actor.id
+                and audit.action == "decide_memory_review"
+                and audit.target_type == "memory_review"
+                and audit.target_id == review.id
+                and audit.workspace_id == project.workspace_id
+                and audit.project_id == project.id
+                and audit.metadata == expected_metadata
+                and receipt.operation == "review_decision"
+                and receipt.user_id == actor.id
+                and receipt.memory_id == item.id
+                and receipt.result_entry.id == item.id
+                and receipt.result_review == review
+            ):
+                raise MemoryGovernanceConflict("memory_governance_side_record_invalid")
+            decided_at = review.decided_at or now_utc()
+            inbox.status = "resolved"
+            inbox.acknowledged_at = inbox.acknowledged_at or decided_at
+            inbox.resolved_at = decided_at
+            inbox.updated_at = decided_at
+            inbox.snooze_until = None
+            inbox.metadata["decision"] = review.status.value
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = 'memory_items' AND id = ?",
+                (updated_item.model_dump_json(), updated_item.id),
+            )
+            self._sync_fts(connection, "memory_items", updated_item)
+            connection.execute(
+                """
+                UPDATE memory_reviews
+                SET status = ?, version = ?, payload = ?, updated_at = ?
+                WHERE id = ? AND status = 'pending' AND version = ?
+                """,
+                (
+                    review.status.value,
+                    review.version,
+                    review.model_dump_json(),
+                    review.updated_at.isoformat(),
+                    review.id,
+                    expected_review_version,
+                ),
+            )
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = 'inbox_items' AND id = ?",
+                (inbox.model_dump_json(), inbox.id),
+            )
+            persisted_receipt = receipt.model_copy(update={"result_entry": receipt.result_entry.model_copy(
+                update={
+                    "kind": (
+                        MemoryEntryKind.TEAM_KNOWLEDGE
+                        if updated_item.scope is Scope.TEAM_ACCEPTED
+                        else MemoryEntryKind.TEAM_CANDIDATE
+                    ),
+                    "scope": updated_item.scope,
+                    "status": updated_item.status.value,
+                    "version": updated_item.version,
+                    "updated_at": updated_item.updated_at,
+                    "allowed_actions": [],
+                }
+            )})
+            for collection_name, record in (
+                ("audit_events", audit),
+                ("memory_governance_command_receipts", persisted_receipt),
+            ):
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                    (collection_name, record.id, record.model_dump_json()),
+                )
+        return MemoryGovernanceCommandResult(
+            item=updated_item,
+            review=review,
+            receipt=persisted_receipt,
+            replayed=False,
+        )
+
+    def list_memory_items_for_task(self, task_id: str) -> list[MemoryItem]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'memory_items'
+                  AND json_extract(payload, '$.provenance.task_id') = ?
+                ORDER BY json_extract(payload, '$.updated_at') DESC, created_order DESC
+                """,
+                (task_id,),
+            ).fetchall()
+        return [MemoryItem.model_validate_json(row["payload"]) for row in rows]
+
+    def list_user_memory_items_for_task(self, task_id: str, user_id: str) -> list[UserMemoryItem]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'user_memory_items'
+                  AND json_extract(payload, '$.provenance.task_id') = ?
+                  AND json_extract(payload, '$.user_id') = ?
+                ORDER BY json_extract(payload, '$.updated_at') DESC, created_order DESC
+                """,
+                (task_id, user_id),
+            ).fetchall()
+        return [UserMemoryItem.model_validate_json(row["payload"]) for row in rows]
 
     def save_task(self, task: Task) -> Task:
         persisted = task.model_copy(deep=True)
@@ -13061,6 +13767,7 @@ class SQLiteStore:
         max_chars: int = 8000,
         result_types: set[str] | None = None,
         allowed_record_ids: set[str] | None = None,
+        agent_context: bool = False,
     ) -> list[SearchResult]:
         needle = query.strip()
         if not needle or not allowed_scopes:
@@ -13220,6 +13927,8 @@ class SQLiteStore:
                 if item is None:
                     continue
                 if not self.memory_item_visible_to_user(item, user_id):
+                    continue
+                if agent_context and not self.memory_item_eligible_for_agent(item):
                     continue
                 if (
                     item.scope == Scope.PROJECT
@@ -13593,8 +14302,14 @@ class SQLiteStore:
         if item.scope == Scope.TEAM_CANDIDATE:
             if item.owner_user_id == user.id:
                 return True
-            if user.role not in (UserRole.TEAM_LEAD, UserRole.ADMIN):
-                return False
+            if item.provenance is None:
+                if user.role not in (UserRole.TEAM_LEAD, UserRole.ADMIN):
+                    return False
+            else:
+                from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, has_permission
+
+                if not has_permission(user, ACTION_ACCEPT_TEAM_MEMORY, self.permission_policy_rules):
+                    return False
         return item.team_id is None or self._user_in_team(user.id, item.team_id)
 
     def activity_log_visible_to_user(self, log: ActivityLog, user_id: str | None) -> bool:

@@ -83,6 +83,8 @@ export AGENTMESH_TASK_MANAGEMENT=write
 
 Linked Agent output can only use the dedicated Review path: the Run owner selects canonical sealed Artifacts, the server freezes their IDs and content hashes, creates a reviewer-specific Inbox item, and atomically moves the Task to review. The assigned reviewer can inspect only that frozen set through a review-scoped endpoint; this does not grant generic cross-user Run or Artifact access. `accepted` completes the Task; `changes_requested` and `rejected` return it to `in_progress`. Manual Tasks without linked Runs keep the manager-controlled delivery transition. Review decisions do not create or publish Memory.
 
+After a Task Review is accepted, its Run owner may explicitly capture the frozen delivery as private Personal Memory or as a Team Candidate. Team Candidates require a separate `MemoryReviewV1` before becoming searchable Team Knowledge; the governance path works without external LLM, embedding, web, O2, MCP, or data providers.
+
 Port `8000` is intentionally avoided because it may already be used by another local backend.
 If `8010` is already in use, first check whether AgentMesh is already running:
 

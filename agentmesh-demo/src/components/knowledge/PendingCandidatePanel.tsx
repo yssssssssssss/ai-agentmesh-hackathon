@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   ArrowUpRight,
   Check,
@@ -28,7 +28,13 @@ interface Props {
   onInjection: (item: PendingKnowledgeView, action: 'release' | 'discard') => void
   onToolApproval: (item: PendingKnowledgeView, callId: string, action: 'approve' | 'reject') => void
   onAccept: (item: PendingKnowledgeView) => void
+  onMemoryReview: (
+    item: PendingKnowledgeView,
+    decision: 'accepted' | 'rejected',
+    note: string | null,
+  ) => void
   onOpenTaskReview: (item: PendingKnowledgeView) => void
+  onOpenMemoryReview: (item: PendingKnowledgeView) => void
   onOpenDetail: (item: PendingKnowledgeView) => void
 }
 
@@ -43,9 +49,12 @@ export function PendingCandidatePanel({
   onInjection,
   onToolApproval,
   onAccept,
+  onMemoryReview,
   onOpenTaskReview,
+  onOpenMemoryReview,
   onOpenDetail,
 }: Props) {
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({})
   return (
     <div className="animate-fade-in space-y-5">
       {items.map((item) => {
@@ -118,6 +127,45 @@ export function PendingCandidatePanel({
                 {actions.includes('accept') ? (
                   <Button loading={busy} disabled={readOnly} icon={<Check className="h-4 w-4" />} onClick={() => onAccept(item)}>接受候选</Button>
                 ) : null}
+                {actions.includes('accept_review') ? (
+                  <Button
+                    loading={busy}
+                    disabled={readOnly || !item.memoryReview.value}
+                    icon={<Check className="h-4 w-4" />}
+                    onClick={() => onMemoryReview(item, 'accepted', reviewNotes[item.id.value]?.trim() || null)}
+                  >
+                    接受为团队知识
+                  </Button>
+                ) : null}
+                {actions.includes('reject_review') ? (
+                  <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
+                    <label className="min-w-0 flex-1 text-xs text-slate-400">
+                      拒绝原因
+                      <textarea
+                        value={reviewNotes[item.id.value] ?? ''}
+                        onChange={(event) => setReviewNotes((current) => ({
+                          ...current,
+                          [item.id.value]: event.target.value,
+                        }))}
+                        maxLength={4000}
+                        rows={2}
+                        className="mt-1.5 w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+                      />
+                    </label>
+                    <Button
+                      variant="danger"
+                      disabled={busy || readOnly || !item.memoryReview.value || !reviewNotes[item.id.value]?.trim()}
+                      icon={<X className="h-4 w-4" />}
+                      onClick={() => onMemoryReview(
+                        item,
+                        'rejected',
+                        (reviewNotes[item.id.value] ?? '').trim(),
+                      )}
+                    >
+                      拒绝候选
+                    </Button>
+                  </div>
+                ) : null}
                 {actions.includes('open_task_review') ? (
                   <Button
                     variant="secondary"
@@ -125,6 +173,15 @@ export function PendingCandidatePanel({
                     onClick={() => onOpenTaskReview(item)}
                   >
                     打开任务审核
+                  </Button>
+                ) : null}
+                {actions.includes('open_memory_review') ? (
+                  <Button
+                    variant="secondary"
+                    disabled={busy || readOnly || !item.memoryId.value || !item.projectId.value}
+                    onClick={() => onOpenMemoryReview(item)}
+                  >
+                    打开记忆审核
                   </Button>
                 ) : null}
                 {actions.includes('snooze') ? (

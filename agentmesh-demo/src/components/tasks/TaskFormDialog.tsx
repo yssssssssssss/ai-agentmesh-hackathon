@@ -7,6 +7,7 @@ import type {
   TaskArtifactSummary,
   TaskAssigneeKind,
   TaskManagementAction,
+  TaskMemoryLink,
   TaskPriority,
   TaskReviewView,
   TaskRunSummary,
@@ -36,6 +37,7 @@ interface TaskFormDialogProps {
   runs: TaskRunSummary[]
   artifacts: TaskArtifactSummary[]
   reviews: TaskReviewView[]
+  memoryLinks: TaskMemoryLink[]
   historyTruncated: boolean
   reviewsTruncated: boolean
   detailError: string | null
@@ -52,6 +54,12 @@ interface TaskFormDialogProps {
     expectedVersion: number,
     decision: 'accepted' | 'changes_requested' | 'rejected',
     decisionNote: string | null,
+  ) => void
+  onCaptureMemory: (
+    reviewId: string,
+    target: 'personal' | 'team_candidate',
+    title: string,
+    summary: string,
   ) => void
 }
 
@@ -103,6 +111,7 @@ export function TaskFormDialog({
   runs,
   artifacts,
   reviews,
+  memoryLinks,
   historyTruncated,
   reviewsTruncated,
   detailError,
@@ -115,6 +124,7 @@ export function TaskFormDialog({
   onAction,
   onSubmitReview,
   onDecideReview,
+  onCaptureMemory,
 }: TaskFormDialogProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -127,6 +137,8 @@ export function TaskFormDialog({
   const [reviewRunId, setReviewRunId] = useState('')
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([])
   const [decisionNote, setDecisionNote] = useState('')
+  const [memoryTitle, setMemoryTitle] = useState('')
+  const [memorySummary, setMemorySummary] = useState('')
   const editable = task === null || task.allowed_actions.includes('edit')
   const completedRuns = runs.filter((run) => (
     run.can_submit_review
@@ -156,6 +168,8 @@ export function TaskFormDialog({
     setReviewRunId('')
     setSelectedArtifactIds([])
     setDecisionNote('')
+    setMemoryTitle(task?.task.title ?? '')
+    setMemorySummary(management?.description ?? '')
   }, [open, task?.task.id])
 
   useEffect(() => {
@@ -415,7 +429,7 @@ export function TaskFormDialog({
                   {review.decision_note ? (
                     <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">{review.decision_note}</p>
                   ) : null}
-                  {allowedActions.length > 0 ? (
+                  {allowedActions.length > 0 && allowedActions.some((action) => action !== 'capture_memory') ? (
                     <div className="mt-3 space-y-3">
                       <Field label="审核意见" hint="要求修改或拒绝时必填。">
                         <textarea
@@ -463,7 +477,80 @@ export function TaskFormDialog({
                       </div>
                     </div>
                   ) : null}
+                  {allowedActions.includes('capture_memory') ? (
+                    <div className="mt-3 space-y-3 border-t border-white/[0.06] pt-3">
+                      <p className="text-xs font-medium text-slate-300">沉淀审核产物</p>
+                      <Field label="记忆标题">
+                        <input
+                          value={memoryTitle}
+                          onChange={(event) => setMemoryTitle(event.target.value)}
+                          maxLength={200}
+                          disabled={submitting}
+                          className={inputClassName}
+                        />
+                      </Field>
+                      <Field label="记忆摘要" hint="Task Review 通过不等于团队知识通过；团队候选仍需独立审核。">
+                        <textarea
+                          value={memorySummary}
+                          onChange={(event) => setMemorySummary(event.target.value)}
+                          maxLength={2000}
+                          rows={3}
+                          disabled={submitting}
+                          className={inputClassName}
+                        />
+                      </Field>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={submitting || !memoryTitle.trim() || !memorySummary.trim()}
+                          onClick={() => onCaptureMemory(
+                            review.id,
+                            'personal',
+                            memoryTitle.trim(),
+                            memorySummary.trim(),
+                          )}
+                        >
+                          保存为个人记忆
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={submitting || !memoryTitle.trim() || !memorySummary.trim()}
+                          onClick={() => onCaptureMemory(
+                            review.id,
+                            'team_candidate',
+                            memoryTitle.trim(),
+                            memorySummary.trim(),
+                          )}
+                        >
+                          提交团队候选
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {task && memoryLinks.length > 0 ? (
+          <section className="border-t border-white/[0.06] pt-4" aria-label="任务记忆资产">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-200">记忆资产</h3>
+              <span className="text-xs text-slate-500">{memoryLinks.length} 条</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {memoryLinks.map((memory) => (
+                <a
+                  key={memory.id}
+                  href={memory.navigation_href}
+                  className="block rounded-lg border border-white/[0.06] px-3 py-2 text-xs hover:bg-white/[0.03]"
+                >
+                  <span className="font-medium text-slate-200">{memory.title}</span>
+                  <span className="ml-2 text-slate-500">{memory.kind} · {memory.status} · v{memory.version}</span>
+                </a>
               ))}
             </div>
           </section>

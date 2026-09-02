@@ -47,6 +47,7 @@ from agentmesh.routes.inbox import router as inbox_router
 from agentmesh.routes.market import router as market_router
 from agentmesh.routes.memory import router as memory_router
 from agentmesh.routes.memory import start_daily_memory_worker, stop_daily_memory_worker
+from agentmesh.routes.memory_governance import router as memory_governance_router
 from agentmesh.routes.research import router as research_router
 from agentmesh.routes.risk import router as risk_router
 from agentmesh.routes.skills import router as skills_router
@@ -215,6 +216,7 @@ app.include_router(chat_router)
 app.include_router(agents_router)
 app.include_router(blackboard_router)
 app.include_router(memory_router)
+app.include_router(memory_governance_router)
 app.include_router(inbox_router)
 app.include_router(market_router)
 app.include_router(documents_router)

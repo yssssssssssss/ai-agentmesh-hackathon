@@ -3,11 +3,13 @@ import type {
   ManagedTask,
   ManagedTaskDetail,
   ManagedTaskPage,
+  MemoryCaptureResponse,
   TaskArchivePayload,
   TaskCreatePayload,
   TaskReviewDecisionPayload,
   TaskReviewMutationResponse,
   TaskReviewSubmitPayload,
+  TaskReviewMemoryCapturePayload,
   TaskTransitionPayload,
   TaskUpdatePayload,
 } from './types'
@@ -61,6 +63,11 @@ export const taskManagementApi = {
     }),
   decideReview: (reviewId: string, payload: TaskReviewDecisionPayload) =>
     apiRequest<TaskReviewMutationResponse>(`/api/task-reviews/${encodeURIComponent(reviewId)}/decisions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  captureMemory: (reviewId: string, payload: TaskReviewMemoryCapturePayload) =>
+    apiRequest<MemoryCaptureResponse>(`/api/task-reviews/${encodeURIComponent(reviewId)}/memory-candidates`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

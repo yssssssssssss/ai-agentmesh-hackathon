@@ -1,9 +1,17 @@
 import type { components } from '../../api/generated/schema'
 import { apiRequest } from '../../api/client'
 
+type GeneratedMemoryItem = components['schemas']['MemoryItemView']
+type GeneratedUserMemoryItem = components['schemas']['UserMemoryItem']
+
 export type InboxItem = components['schemas']['InboxItem'] & { allowed_actions: string[] }
-export type MemoryItem = components['schemas']['MemoryItemView'] & { allowed_actions: string[] }
-export type UserMemoryItem = components['schemas']['UserMemoryItem']
+export type MemoryItem = Omit<GeneratedMemoryItem, 'allowed_actions' | 'version'> & {
+  allowed_actions: string[]
+  version?: number
+}
+export type UserMemoryItem = Omit<GeneratedUserMemoryItem, 'version'> & { version?: number }
+export type MemoryReviewDecision = components['schemas']['MemoryReviewDecisionRequest']['decision']
+export type MemoryReviewDecisionResponse = components['schemas']['MemoryReviewDecisionResponseV1']
 export interface DocumentRecord {
   id: string
   title: string
@@ -81,4 +89,31 @@ export const knowledgeApi = {
       method: 'PATCH',
       body: JSON.stringify({ status: 'accepted' }),
     }),
+  decideMemoryReview: ({
+    reviewId,
+    commandId,
+    expectedMemoryVersion,
+    expectedReviewVersion,
+    decision,
+    decisionNote,
+  }: {
+    reviewId: string
+    commandId: string
+    expectedMemoryVersion: number
+    expectedReviewVersion: number
+    decision: MemoryReviewDecision
+    decisionNote: string | null
+  }) => apiRequest<MemoryReviewDecisionResponse>(
+    `/api/memory-reviews/${encodeURIComponent(reviewId)}/decisions`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        command_id: commandId,
+        expected_memory_version: expectedMemoryVersion,
+        expected_review_version: expectedReviewVersion,
+        decision,
+        decision_note: decisionNote,
+      }),
+    },
+  ),
 }

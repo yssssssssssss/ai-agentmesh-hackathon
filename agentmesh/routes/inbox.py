@@ -43,6 +43,9 @@ def is_active_inbox_item(item: InboxItem, now) -> bool:
 
 
 def inbox_item_view(item: InboxItem, user: User) -> InboxItemView:
+    if item.item_type == "memory_review":
+        actions = ["open_memory_review"] if item.status != "resolved" and item.user_id == user.id else []
+        return InboxItemView(**item.model_dump(), allowed_actions=actions)
     actions: list[str] = []
     if item.status != "resolved" and item.item_type != "research_tool_approval":
         if item.status != "snoozed":
@@ -86,9 +89,11 @@ def update_inbox_item(
     if item is None:
         raise HTTPException(status_code=404, detail="Inbox item not found")
     if not inbox_visible_to_user(item, user):
-        if item.item_type == "task_review":
+        if item.item_type in {"task_review", "memory_review"}:
             raise HTTPException(status_code=404, detail="Inbox item not found")
         raise HTTPException(status_code=403, detail="Not allowed to update this inbox item")
+    if item.item_type == "memory_review":
+        raise HTTPException(status_code=409, detail="Inbox item requires its dedicated governance transition")
     if item.item_type == "research_tool_approval":
         raise HTTPException(status_code=409, detail=_RESEARCH_V2_READ_ONLY)
     if requires_dedicated_transition(item) and (request.status == "resolved" or item.status == "resolved"):
@@ -401,6 +406,7 @@ def requires_dedicated_transition(item: InboxItem) -> bool:
         "sdk_tool_approval",
         "research_tool_approval",
         "task_review",
+        "memory_review",
     } or is_brief_confirmation(item)
 
 
@@ -409,7 +415,7 @@ def requires_dedicated_transition(item: InboxItem) -> bool:
 def inbox_visible_to_user(item: InboxItem, user: User) -> bool:
     if item.workspace_id is not None and item.workspace_id != user.workspace_id:
         return False
-    if item.item_type == "task_review":
+    if item.item_type in {"task_review", "memory_review"}:
         return (
             item.scope == Scope.PRIVATE
             and item.user_id == user.id

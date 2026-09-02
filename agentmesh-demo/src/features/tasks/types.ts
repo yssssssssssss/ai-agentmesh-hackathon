@@ -32,6 +32,9 @@ export type TaskReviewDecisionPayload = components['schemas']['TaskReviewDecisio
 export type TaskReviewMutationResponse = Omit<components['schemas']['TaskReviewMutationResponseV1'], 'item'> & {
   item: TaskReviewView
 }
+export type TaskReviewMemoryCapturePayload = components['schemas']['TaskReviewMemoryCaptureRequest']
+export type MemoryCaptureResponse = components['schemas']['MemoryCaptureResponseV1']
+export type TaskMemoryLink = components['schemas']['TaskMemoryLinkV1']
 export type TaskCreatePayload = components['schemas']['TaskCreateRequest']
 export type TaskUpdatePayload = components['schemas']['TaskUpdateRequest']
 export type TaskTransitionPayload = components['schemas']['TaskTransitionRequest']

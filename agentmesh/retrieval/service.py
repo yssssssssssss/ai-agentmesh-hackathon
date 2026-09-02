@@ -40,6 +40,7 @@ class RetrievalService:
     ) -> RetrievalBundle:
         selected = profile or RetrievalProfile()
         allowed_scopes = set(selected.allowed_scopes)
+        allowed_scopes.discard(Scope.TEAM_CANDIDATE)
         allowed_record_ids: set[str] | None = None
         max_results = selected.top_k
         binding = self.repository.get_binding_for_agent(agent_id)
@@ -65,7 +66,9 @@ class RetrievalService:
             max_results=max_results,
             result_types=set(selected.result_types) if selected.result_types else None,
             allowed_record_ids=allowed_record_ids,
+            agent_context=True,
         )
+        results = self.repository.filter_agent_memory_results(results)
         hits = [RetrievalHit(citation_label=f"R{index}", result=result) for index, result in enumerate(results, 1)]
         self.repository.add_retrieval_metrics(
             RetrievalMetrics(

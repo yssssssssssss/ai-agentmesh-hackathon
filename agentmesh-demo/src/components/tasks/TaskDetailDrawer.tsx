@@ -16,7 +16,12 @@ import {
   collaborationErrorMessage,
   useTaskDetail,
 } from '../../features/collaboration/queries'
-import type { TaskArtifactSummary, TaskReviewView, TaskRunSummary } from '../../features/tasks/types'
+import type {
+  TaskArtifactSummary,
+  TaskMemoryLink,
+  TaskReviewView,
+  TaskRunSummary,
+} from '../../features/tasks/types'
 import { useManagedTaskDetail } from '../../features/tasks/queries'
 import { buildTaskDetailViewModel } from '../../features/tasks/presenter'
 import { Badge } from '../ui/Badge'
@@ -83,6 +88,7 @@ export function TaskDetailDrawer({
             runs={managed.data?.runs ?? []}
             artifacts={managed.data?.artifacts ?? []}
             reviews={managed.data?.reviews ?? []}
+            memoryLinks={managed.data?.memory_links ?? []}
             executionTruncated={
               managed.data?.runs_truncated === true
               || managed.data?.artifacts_truncated === true
@@ -104,6 +110,7 @@ function TaskDetailContent({
   runs,
   artifacts,
   reviews,
+  memoryLinks,
   executionTruncated,
   reviewTruncated,
   executionLoading,
@@ -115,6 +122,7 @@ function TaskDetailContent({
   runs: TaskRunSummary[]
   artifacts: TaskArtifactSummary[]
   reviews: TaskReviewView[]
+  memoryLinks: TaskMemoryLink[]
   executionTruncated: boolean
   reviewTruncated: boolean
   executionLoading: boolean
@@ -226,6 +234,8 @@ function TaskDetailContent({
       />
 
       <TaskReviewHistory reviews={reviews} truncated={reviewTruncated} />
+
+      <TaskMemoryHistory memories={memoryLinks} />
 
       <section aria-labelledby="task-timeline-heading" className="border-t border-white/[0.06] pt-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -383,6 +393,30 @@ function reviewStatusLabel(status: TaskReviewView['review']['status']): string {
     changes_requested: '要求修改',
     rejected: '已拒绝',
   }[status]
+}
+
+function TaskMemoryHistory({ memories }: { memories: TaskMemoryLink[] }) {
+  if (memories.length === 0) return null
+  return (
+    <section aria-labelledby="task-memory-heading" className="border-t border-white/[0.06] pt-5">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 id="task-memory-heading" className="text-sm font-semibold text-slate-200">记忆资产</h3>
+        <span className="text-xs tabular-nums text-slate-500">{memories.length} 条</span>
+      </div>
+      <div className="mt-4 space-y-2">
+        {memories.map((memory) => (
+          <a
+            key={memory.id}
+            href={memory.navigation_href}
+            className="block rounded-[10px] bg-surface-1 px-3.5 py-3 text-xs ring-1 ring-inset ring-white/[0.05] hover:bg-surface-2"
+          >
+            <span className="font-medium text-slate-200">{memory.title}</span>
+            <span className="ml-2 text-slate-500">{memory.kind} · {memory.status} · v{memory.version}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 function MetaItem({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) {
