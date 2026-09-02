@@ -432,6 +432,7 @@ export function Tasks() {
     editingTask !== null
     && formDetailReadyTaskId === editingTask.task.id
     && managedDetailQuery.error == null
+    && !managedDetailQuery.isFetching
   )
   const taskForForm = currentDetailTask && editingTask && !formDetailUsable
     ? { ...currentDetailTask, allowed_actions: [] }
