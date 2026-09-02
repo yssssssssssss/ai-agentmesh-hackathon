@@ -1,7 +1,7 @@
 # AgentMesh 任务中心真实数据接入方案
 
 - 日期：2026-08-25
-- 状态：只读阶段、可写 Task 核心及 Task-AgentRun-Artifact 关联已实施；Artifact Review、Memory 闭环及高级项目管理能力按后续 Slice 交付
+- 状态：只读阶段、可写 Task 核心、Task-AgentRun-Artifact 关联及 Artifact Review 已实施；Memory 闭环及高级项目管理能力按后续 Slice 交付
 - 路线确认：项目后续继续向完整项目管理与记忆管理闭环演进；本轮只交付只读观察面，写能力、独立交付生命周期和记忆联动必须按独立阶段验证后合并
 - 方案调研基线：`67537c9`
 - 缩减版实施基线：`7a28d41`
@@ -238,8 +238,8 @@ cancelled ──reopen──> backlog
 
 - 新 AgentRun 开始时，`planned` 可以自动推进为 `in_progress`。
 - Run 等待审批或外部输入时，Task 保持 `in_progress`，同时显示阻塞或等待原因。
-- Run `completed` 不自动把 Task 标记为 `done`；需要满足 `done_when`、子任务和审批条件。
-- Run `partial` 保持 `in_progress` 或进入 `review`，由服务端完成度检查决定。
+- Run `completed` 不自动把 Task 标记为 `done`；关联 Run 的 Task 必须提交 canonical sealed Artifact 并获得 accepted Task Review，未关联 Run 的人工 Task 仍可由项目管理员完成。
+- Run `partial` 保持 `in_progress`；如存在可审核的 sealed Artifact，可通过专用 Review 接口进入 `review`。
 - Run `failed` 标记风险但不取消 Task。
 - 暂停 Agent 只阻止新任务调度；取消正在运行的 Run 必须调用 AgentRun 取消接口。
 
@@ -264,6 +264,7 @@ cancelled ──reopen──> backlog
 - `plan`
 - `start`
 - `submit_review`
+- `review_deliverable`
 - `complete`
 - `reopen`
 - `block`
@@ -297,6 +298,9 @@ cancelled ──reopen──> backlog
 | `POST /api/tasks/{task_id}/transitions` | 执行 `plan/start/submit_review/complete/reopen/block/unblock/cancel` |
 | `POST /api/tasks/{task_id}/archive` | 软归档任务 |
 | `POST /api/agent/runs` | 复用现有入口，新增可选 `task_id` 启动与任务关联的 AgentRun |
+| `POST /api/tasks/{task_id}/reviews` | Run owner 冻结 Run、Artifact ID/hash 并创建待审核记录与 Inbox 投影 |
+| `GET /api/task-reviews/{review_id}/artifacts/{artifact_id}` | assigned reviewer 检查冻结产物，不扩大通用 Artifact/Run 可见性 |
+| `POST /api/task-reviews/{review_id}/decisions` | 原子提交 accepted、changes_requested 或 rejected 决策 |
 
 ### 11.3 响应和错误
 

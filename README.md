@@ -75,11 +75,13 @@ AGENTMESH_DEMO_MODE=1 AGENTMESH_DB_PATH=data/agentmesh-demo.sqlite3 \
 
 Demo mode creates deterministic fixture accounts and content with known local-only credentials. Never enable it for a shared or production database.
 
-Task Center mutations are fail-closed. The default `read_only` mode keeps the current board and details available without accepting project-task writes. Enable the approved Slice 1 mutation contract explicitly in a local or controlled environment:
+Task Center mutations are fail-closed. The default `read_only` mode keeps the current board and details available without accepting project-task writes. Enable the approved Task, AgentRun, sealed Artifact, and Task Review mutation contracts explicitly in a local or controlled environment:
 
 ```bash
 export AGENTMESH_TASK_MANAGEMENT=write
 ```
+
+Linked Agent output can only use the dedicated Review path: the Run owner selects canonical sealed Artifacts, the server freezes their IDs and content hashes, creates a reviewer-specific Inbox item, and atomically moves the Task to review. The assigned reviewer can inspect only that frozen set through a review-scoped endpoint; this does not grant generic cross-user Run or Artifact access. `accepted` completes the Task; `changes_requested` and `rejected` return it to `in_progress`. Manual Tasks without linked Runs keep the manager-controlled delivery transition. Review decisions do not create or publish Memory.
 
 Port `8000` is intentionally avoided because it may already be used by another local backend.
 If `8010` is already in use, first check whether AgentMesh is already running:

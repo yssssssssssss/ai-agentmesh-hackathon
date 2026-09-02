@@ -2103,6 +2103,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{task_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Task Review */
+        post: operations["submit_task_review_api_tasks__task_id__reviews_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/task-reviews/{review_id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect Task Review Artifact */
+        get: operations["inspect_task_review_artifact_api_task_reviews__review_id__artifacts__artifact_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/task-reviews/{review_id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Task Review */
+        post: operations["decide_task_review_api_task_reviews__review_id__decisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -6384,7 +6435,7 @@ export interface components {
          * TaskManagementAction
          * @enum {string}
          */
-        TaskManagementAction: "edit" | "assign" | "plan" | "start" | "submit_review" | "complete" | "reopen" | "block" | "unblock" | "cancel" | "archive" | "start_agent_run";
+        TaskManagementAction: "edit" | "assign" | "plan" | "start" | "submit_review" | "complete" | "reopen" | "block" | "unblock" | "cancel" | "archive" | "start_agent_run" | "review_deliverable";
         /** TaskManagementDetailV1 */
         TaskManagementDetailV1: {
             item: components["schemas"]["TaskManagementViewV1"];
@@ -6392,6 +6443,8 @@ export interface components {
             runs?: components["schemas"]["TaskRunSummaryV1"][];
             /** Artifacts */
             artifacts?: components["schemas"]["TaskArtifactSummaryV1"][];
+            /** Reviews */
+            reviews?: components["schemas"]["TaskReviewViewV1"][];
             /**
              * Runs Truncated
              * @default false
@@ -6402,6 +6455,11 @@ export interface components {
              * @default false
              */
             artifacts_truncated: boolean;
+            /**
+             * Reviews Truncated
+             * @default false
+             */
+            reviews_truncated: boolean;
         };
         /** TaskManagementItemResponse */
         TaskManagementItemResponse: {
@@ -6477,6 +6535,100 @@ export interface components {
          * @enum {string}
          */
         TaskPriority: "p0" | "p1" | "p2" | "p3";
+        /**
+         * TaskReviewAllowedAction
+         * @enum {string}
+         */
+        TaskReviewAllowedAction: "accept" | "request_changes" | "reject";
+        /** TaskReviewDecisionRequest */
+        TaskReviewDecisionRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "accepted" | "changes_requested" | "rejected";
+            /** Decision Note */
+            decision_note?: string | null;
+        };
+        /** TaskReviewMutationResponseV1 */
+        TaskReviewMutationResponseV1: {
+            item: components["schemas"]["TaskReviewViewV1"];
+            task: components["schemas"]["Task"];
+        };
+        /**
+         * TaskReviewStatus
+         * @enum {string}
+         */
+        TaskReviewStatus: "pending" | "accepted" | "changes_requested" | "rejected";
+        /** TaskReviewSubmitRequest */
+        TaskReviewSubmitRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Task Version */
+            expected_task_version: number;
+            /** Run Id */
+            run_id: string;
+            /** Artifact Ids */
+            artifact_ids: string[];
+        };
+        /** TaskReviewV1 */
+        TaskReviewV1: {
+            /**
+             * Schema Version
+             * @default task-review-v1
+             * @constant
+             */
+            schema_version: "task-review-v1";
+            /** Id */
+            id?: string;
+            /** Task Id */
+            task_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Artifact Ids */
+            artifact_ids: string[];
+            /** Artifact Hashes */
+            artifact_hashes: string[];
+            /** Round */
+            round: number;
+            /** @default pending */
+            status: components["schemas"]["TaskReviewStatus"];
+            /** Requested By */
+            requested_by: string;
+            /** Reviewer Id */
+            reviewer_id: string;
+            /** Task Version */
+            task_version: number;
+            /** Decision Note */
+            decision_note?: string | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+            /** Decided At */
+            decided_at?: string | null;
+        };
+        /** TaskReviewViewV1 */
+        TaskReviewViewV1: {
+            review: components["schemas"]["TaskReviewV1"];
+            /** Allowed Actions */
+            allowed_actions?: components["schemas"]["TaskReviewAllowedAction"][];
+        };
         /** TaskRoute */
         TaskRoute: {
             /** Task Id */
@@ -6547,6 +6699,11 @@ export interface components {
             planning_mode: components["schemas"]["AgentPlanningMode"];
             /** Artifact Count */
             artifact_count: number;
+            /**
+             * Can Submit Review
+             * @default false
+             */
+            can_submit_review: boolean;
             /** Navigation Href */
             navigation_href?: string | null;
             /**
@@ -11121,6 +11278,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskManagementItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_task_review_api_tasks__task_id__reviews_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskReviewSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskReviewMutationResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    inspect_task_review_artifact_api_task_reviews__review_id__artifacts__artifact_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_task_review_api_task_reviews__review_id__decisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskReviewDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskReviewMutationResponseV1"];
                 };
             };
             /** @description Validation Error */

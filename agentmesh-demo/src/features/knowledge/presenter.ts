@@ -82,6 +82,7 @@ export interface PendingKnowledgeView {
   updatedAt: PresentedValue<string>
   documentId: PresentedValue<string | null>
   documentVersion: PresentedValue<number | null>
+  taskId: PresentedValue<string | null>
   toolCalls: PresentedValue<ToolApprovalCall[]>
   allowedActions: PresentedValue<string[]>
 }
@@ -272,6 +273,7 @@ function pendingInbox(
     updatedAt: timeValue(item.updated_at ?? item.created_at, '更新时间'),
     documentId: presentedValue(documentId, 'T'),
     documentVersion: presentedValue(documentVersion, 'T'),
+    taskId: presentedValue(item.metadata?.task_id || null, 'T'),
     toolCalls: presentedValue(toolApprovalCalls(item), 'T'),
     allowedActions: presentedValue([...item.allowed_actions], 'T'),
   }
@@ -292,6 +294,7 @@ function pendingCandidate(item: MemoryItem, input: KnowledgeViewModelInput): Pen
     updatedAt: timeValue(item.created_at, '更新时间'),
     documentId: presentedValue(null, 'T'),
     documentVersion: presentedValue(null, 'T'),
+    taskId: presentedValue(null, 'T'),
     toolCalls: presentedValue([], 'T'),
     allowedActions: presentedValue([...item.allowed_actions], 'T'),
   }

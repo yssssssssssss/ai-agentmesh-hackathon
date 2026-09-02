@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useLocation, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowRight, ArrowRightLeft, CheckCircle2, FolderKanban, Layers3, RefreshCw, UserRound, UsersRound } from 'lucide-react'
 
 import { ApiError } from '../api/client'
@@ -57,6 +57,7 @@ export function queryResource<T>(query: QuerySnapshot<T>): KnowledgeResource<T> 
 export function Knowledge() {
   const { user, bootstrap } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const location = useLocation() as { state?: { tab?: string } | null }
   const context = {
     userId: user?.id ?? '',
@@ -239,6 +240,9 @@ export function Knowledge() {
             onInjection={handlePendingAction}
             onToolApproval={handleToolApproval}
             onAccept={(item) => handlePendingAction(item, 'accept')}
+            onOpenTaskReview={(item) => {
+              if (item.taskId.value) navigate(`/tasks?manage=${encodeURIComponent(item.taskId.value)}`)
+            }}
             onOpenDetail={(item) => setDrawerTarget({ kind: 'pending', item })}
           />
         </ModuleState>

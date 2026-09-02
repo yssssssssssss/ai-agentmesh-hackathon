@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agentmesh.models import (
     Agent,
+    AuditEvent,
     AutoBlackboardPostCreateRequest,
     AutoBlackboardPostRequest,
     BlackboardHandoffRequest,
@@ -47,7 +48,7 @@ from agentmesh.permissions import (
 from agentmesh.routes.agents import agent_display_name
 from agentmesh.routes.deps import create_audit_event, current_user
 from agentmesh.seed import AGENTS
-from agentmesh.store import store
+from agentmesh.store import BlackboardHandoffConflict, store
 from agentmesh.task_management.access import task_assigned_to_user
 
 router = APIRouter(prefix="/api/blackboard", tags=["blackboard"])
@@ -833,6 +834,8 @@ def create_blackboard_handoff(
         raise HTTPException(status_code=404, detail="Blackboard post not found")
     authorize_post_action(parent, user, "handoff")
     ensure_can_release_execution_lock(user, parent)
+    if store.has_pending_task_review(parent.task_id):
+        raise HTTPException(status_code=409, detail="task_review_pending")
     next_owner = resolve_handoff_recipient(parent, request.next_owner_agent_id)
     packet = StructuredHandoffPacket(
         goal=request.goal,
@@ -843,40 +846,74 @@ def create_blackboard_handoff(
         requires_input_from=[item.strip() for item in request.requires_input_from if item.strip()],
     )
     next_owner_label = next_owner.name
-    post = store.add_blackboard_post(
-        BlackboardPost(
-            task_id=parent.task_id,
-            post_type="handoff",
-            actor=parent.current_owner_label or parent.actor,
-            title="任务交接",
-            content=handoff_summary(packet, next_owner_label),
-            scope=parent.scope,
-            permission=parent.permission,
-            related_post_id=parent.id,
-            collaboration_stage=CollaborationStage.DISCUSSION,
-            current_owner_agent_id=packet.next_owner_agent_id,
-            current_owner_label=next_owner_label,
-            done_when=packet.done_when,
-            handoff=packet,
-        )
+    post = BlackboardPost(
+        task_id=parent.task_id,
+        post_type="handoff",
+        actor=parent.current_owner_label or parent.actor,
+        title="任务交接",
+        content=handoff_summary(packet, next_owner_label),
+        scope=parent.scope,
+        permission=parent.permission,
+        related_post_id=parent.id,
+        collaboration_stage=CollaborationStage.DISCUSSION,
+        current_owner_agent_id=packet.next_owner_agent_id,
+        current_owner_label=next_owner_label,
+        done_when=packet.done_when,
+        handoff=packet,
     )
+    updated_parent: BlackboardPost | None = None
     if parent.execution_lock and parent.execution_lock.active:
-        parent.execution_lock.released_at = now_utc()
-        parent.execution_lock.released_reason = f"handoff:{packet.next_owner_agent_id}"
-        parent.collaboration_stage = CollaborationStage.REVIEW
-        store.add_blackboard_post(parent)
+        updated_parent = parent.model_copy(deep=True)
+        assert updated_parent.execution_lock is not None
+        updated_parent.execution_lock.released_at = now_utc()
+        updated_parent.execution_lock.released_reason = f"handoff:{packet.next_owner_agent_id}"
+        updated_parent.collaboration_stage = CollaborationStage.REVIEW
 
     task = store.get_task(parent.task_id)
     if task is not None:
-        task.current_owner_agent_id = packet.next_owner_agent_id
-        task.current_owner_label = next_owner_label
-        task.done_when = packet.done_when
-        task.collaboration_stage = CollaborationStage.DISCUSSION
-        task.execution_lock = None
-        task.steps.append("created_structured_handoff")
-        task.updated_at = now_utc()
-        store.save_task(task)
+        updated_task = task.model_copy(deep=True)
+        updated_task.current_owner_agent_id = packet.next_owner_agent_id
+        updated_task.current_owner_label = next_owner_label
+        updated_task.done_when = packet.done_when
+        updated_task.collaboration_stage = CollaborationStage.DISCUSSION
+        updated_task.execution_lock = None
+        updated_task.steps.append("created_structured_handoff")
+        updated_task.updated_at = now_utc()
+        thread = store.get_chat_thread(task.thread_id)
+        if thread is None:
+            raise HTTPException(status_code=409, detail="Task context is unavailable")
+        audit = AuditEvent(
+            actor=user.id,
+            action="create_handoff",
+            target_type="blackboard_post",
+            target_id=post.id,
+            workspace_id=thread.workspace_id,
+            project_id=thread.project_id,
+            metadata={"next_owner": next_owner_label},
+        )
+        try:
+            post = store.commit_blackboard_handoff(
+                expected_parent=parent,
+                handoff_post=post,
+                updated_parent=updated_parent,
+                expected_task=task,
+                updated_task=updated_task,
+                next_owner=next_owner,
+                actor_id=user.id,
+                audit=audit,
+            )
+        except BlackboardHandoffConflict as error:
+            status_code = {
+                "blackboard_handoff_not_found": 404,
+                "blackboard_handoff_forbidden": 403,
+                "blackboard_handoff_agent_ineligible": 409,
+            }.get(error.code, 409)
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        return ItemResponse(item=post)
 
+    post = store.add_blackboard_post(post)
+    if updated_parent is not None:
+        store.add_blackboard_post(updated_parent)
     store.add_audit_event(
         create_audit_event(user.id, "create_handoff", "blackboard_post", post.id, {"next_owner": next_owner_label})
     )

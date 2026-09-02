@@ -36,14 +36,20 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
   `models.py:427`, distinct store from personal memory.
 
 - **确认闸门 / Confirmation gate** — policy-driven human confirmation before data crosses a
-  boundary or writes to org memory. ✅ `RiskPolicyRule` `models.py:236` → engine `risk.py` →
-  `InboxItem` `models.py:409` quarantine that halts the task (`agents.py:608`). Note: reviews
-  ride on `InboxItem`; there is no separate `review_items` table.
+  boundary or writes to org memory. ✅ Risk and Provider approvals use `InboxItem`; project
+  deliverable quality decisions use the separate **Task Review** aggregate and project an assigned
+  reviewer's pending work into Inbox.
+
+- **Task Review / 任务交付审核** — a versioned judgment about whether one frozen set of sealed
+  Artifacts satisfies a Project Task. ✅ A pending Review binds one Task, one Run, Artifact IDs and
+  content hashes. `accepted` may complete the Task; `changes_requested` and `rejected` return the
+  Task to active work. It is distinct from Memory Review, which decides whether content may become
+  shared organizational knowledge.
 
 - **溯源 / source-citation** — origin tracking on messages, posts, memory. ✅ `class Source`
   `models.py:270`, propagated through synthesis (`agents.py:653`).
 
-- **任务中心 / Task Center** — the authenticated React `/tasks` route is a project work view over permission-filtered Task and Blackboard data. It is read-only by default; `AGENTMESH_TASK_MANAGEMENT=write` enables server-authoritative creation, editing, assignment, delivery transitions, blocking, cancellation, and archival with optimistic versions. In-progress Tasks may create Agent Runtime v2 Runs through immutable `task_id` links; retry inherits the link, and Task detail exposes safe Run and Artifact summaries without publishing Run input/output or Artifact content.
+- **任务中心 / Task Center** — the authenticated React `/tasks` route is a project work view over permission-filtered Task and Blackboard data. It is read-only by default; `AGENTMESH_TASK_MANAGEMENT=write` enables server-authoritative creation, editing, assignment, delivery transitions, blocking, cancellation, archival, linked Agent execution, and Task Review. A linked Run keeps an immutable `task_id`; a Review freezes sealed Artifact identities and hashes before a human decision. Task detail exposes only safe Run, Artifact, and Review projections, never Run input/output or Artifact content. Only the assigned reviewer can use the separate review-scoped inspection endpoint for the exact frozen Artifact set submitted by its Run owner.
 
 - **BBS 协作市场 / Collaboration board**: where twins post signals and collaborate. ✅
   `blackboard.py` provides the per-task board, and `marketplace.py` implements signal publishing

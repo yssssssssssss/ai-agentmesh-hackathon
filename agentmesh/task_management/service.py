@@ -8,6 +8,7 @@ from agentmesh.artifacts import ArtifactAccessError, ArtifactAccessScope, V1Arti
 from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.models import (
     Agent,
+    AgentRunStatus,
     AuditEvent,
     ChatThread,
     ChatThreadKind,
@@ -24,8 +25,12 @@ from agentmesh.models import (
     UserRole,
     now_utc,
 )
-from agentmesh.permissions import ACTION_MANAGE_PROJECT_TASKS, has_permission
-from agentmesh.store import SQLiteStore, TaskCommandConflict
+from agentmesh.permissions import (
+    ACTION_MANAGE_PROJECT_TASKS,
+    ACTION_REVIEW_TASK_DELIVERABLES,
+    has_permission,
+)
+from agentmesh.store import SQLiteStore, TaskCommandConflict, TaskReviewConflict
 from agentmesh.task_management.access import task_assigned_to_user
 from agentmesh.task_management.contracts import (
     TaskArchiveRequest,
@@ -225,7 +230,13 @@ class TaskManagementService:
         return self.view(task, user, thread=thread)
 
     def get_task_detail(self, task_id: str, user: User) -> TaskManagementDetailV1:
+        from agentmesh.task_review.service import TaskCompletionService, TaskReviewError
+
         task, thread = self._visible_task(task_id, user)
+        try:
+            review_page = TaskCompletionService(self.repository).list_for_task(task.id, user, limit=50)
+        except TaskReviewError as error:
+            raise TaskManagementError(error.code, status_code=error.status_code) from error
         fetched_runs = self.repository.list_agent_runs_for_task(task.id, limit=51)
         runs_truncated = len(fetched_runs) > 50
         runs = fetched_runs[:50]
@@ -275,7 +286,24 @@ class TaskManagementService:
         artifact_counts: dict[str, int] = {}
         for artifact in artifacts:
             artifact_counts[artifact.run_id] = artifact_counts.get(artifact.run_id, 0) + 1
+        reviewable_run_ids = {
+            run.id
+            for run in runs
+            if run.user_id == user.id
+            and run.status in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}
+            and artifact_counts.get(run.id, 0) > 0
+        }
         item = self.view(task, user, thread=thread)
+        if runs and not reviewable_run_ids:
+            item = item.model_copy(
+                update={
+                    "allowed_actions": [
+                        action
+                        for action in item.allowed_actions
+                        if action is not TaskManagementAction.SUBMIT_REVIEW
+                    ]
+                }
+            )
         if self.repository.has_active_agent_run_for_task(task.id):
             item = item.model_copy(
                 update={
@@ -294,6 +322,7 @@ class TaskManagementService:
                     status=run.status,
                     planning_mode=run.planning_mode,
                     artifact_count=artifact_counts.get(run.id, 0),
+                    can_submit_review=run.id in reviewable_run_ids,
                     navigation_href=(
                         f"/workspace/thread/{quote(run.thread_id, safe='')}?run={quote(run.id, safe='')}"
                         if run.user_id == user.id
@@ -322,8 +351,10 @@ class TaskManagementService:
                 )
                 for artifact in artifacts
             ],
+            reviews=review_page.items,
             runs_truncated=runs_truncated,
             artifacts_truncated=artifacts_truncated,
+            reviews_truncated=review_page.truncated,
         )
 
     def require_agent_run_start(
@@ -474,6 +505,8 @@ class TaskManagementService:
                 "version": updated_management.version,
             },
             require_project_manager=request.action == TaskTransitionAction.COMPLETE,
+            require_no_linked_runs=request.action
+            in {TaskTransitionAction.SUBMIT_REVIEW, TaskTransitionAction.COMPLETE},
         )
 
     def archive_task(self, task_id: str, request: TaskArchiveRequest, user: User) -> TaskManagementViewV1:
@@ -554,10 +587,27 @@ class TaskManagementService:
         if resolved_thread is None:
             raise TaskManagementError("task_not_found", status_code=404)
         resolved_management = management or self.management_for(task, resolved_thread)
+        try:
+            pending_review = self.repository.get_pending_task_review(task.id)
+        except TaskReviewConflict as error:
+            raise TaskManagementError(error.code) from error
+        if pending_review is not None:
+            can_review = (
+                pending_review.reviewer_id == user.id
+                and has_permission(
+                    user,
+                    ACTION_REVIEW_TASK_DELIVERABLES,
+                    self.repository.permission_policy_rules,
+                )
+                and task_management_mode() is TaskManagementMode.WRITE
+            )
+            actions = [TaskManagementAction.REVIEW_DELIVERABLE] if can_review else []
+        else:
+            actions = self.allowed_actions(user, resolved_management)
         return TaskManagementViewV1(
             task=task,
             management=resolved_management,
-            allowed_actions=self.allowed_actions(user, resolved_management),
+            allowed_actions=actions,
         )
 
     def allowed_actions(
@@ -758,6 +808,7 @@ class TaskManagementService:
         audit_metadata: dict[str, object],
         thread: ChatThread | None = None,
         require_project_manager: bool = False,
+        require_no_linked_runs: bool = False,
         validate_assignee: bool = False,
     ) -> TaskManagementViewV1:
         current_thread = thread or self.repository.get_chat_thread(task.thread_id)
@@ -784,6 +835,7 @@ class TaskManagementService:
                     workspace_id=user.workspace_id,
                     project_id=current_thread.project_id,
                     require_project_manager=require_project_manager,
+                    require_no_linked_runs=require_no_linked_runs,
                     validate_assignee=validate_assignee,
                     assignee_kind=task.management.assignee_kind if task.management is not None else None,
                     assignee_id=task.management.assignee_id if task.management is not None else None,

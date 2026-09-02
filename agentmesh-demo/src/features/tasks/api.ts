@@ -5,6 +5,9 @@ import type {
   ManagedTaskPage,
   TaskArchivePayload,
   TaskCreatePayload,
+  TaskReviewDecisionPayload,
+  TaskReviewMutationResponse,
+  TaskReviewSubmitPayload,
   TaskTransitionPayload,
   TaskUpdatePayload,
 } from './types'
@@ -48,6 +51,16 @@ export const taskManagementApi = {
     }),
   archive: (taskId: string, payload: TaskArchivePayload) =>
     apiRequest<ManagedTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}/archive`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  submitReview: (taskId: string, payload: TaskReviewSubmitPayload) =>
+    apiRequest<TaskReviewMutationResponse>(`/api/tasks/${encodeURIComponent(taskId)}/reviews`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  decideReview: (reviewId: string, payload: TaskReviewDecisionPayload) =>
+    apiRequest<TaskReviewMutationResponse>(`/api/task-reviews/${encodeURIComponent(reviewId)}/decisions`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

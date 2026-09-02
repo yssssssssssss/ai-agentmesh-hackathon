@@ -95,4 +95,36 @@ describe('task management API', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/task%2F1/transitions')
     expect(fetchMock.mock.calls[1][0]).toBe('/api/tasks/task%2F1/archive')
   })
+
+  it('submits frozen artifacts and posts versioned review decisions', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      item: { review: { id: 'review-1' }, allowed_actions: [] },
+      task: { id: 'task-1' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await taskManagementApi.submitReview('task/1', {
+      command_id: 'submit-review-1',
+      expected_task_version: 4,
+      run_id: 'run/1',
+      artifact_ids: ['artifact/1'],
+    })
+    await taskManagementApi.decideReview('review/1', {
+      command_id: 'decide-review-1',
+      expected_version: 1,
+      decision: 'changes_requested',
+      decision_note: '补充证据。',
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/task%2F1/reviews')
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual(expect.objectContaining({
+      run_id: 'run/1',
+      artifact_ids: ['artifact/1'],
+    }))
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/task-reviews/review%2F1/decisions')
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toEqual(expect.objectContaining({
+      expected_version: 1,
+      decision: 'changes_requested',
+    }))
+  })
 })

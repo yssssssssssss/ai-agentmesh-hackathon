@@ -8,6 +8,7 @@ import type {
   TaskAssigneeKind,
   TaskManagementAction,
   TaskPriority,
+  TaskReviewView,
   TaskRunSummary,
   TaskType,
 } from '../../features/tasks/types'
@@ -34,12 +35,24 @@ interface TaskFormDialogProps {
   runtimeReady: boolean
   runs: TaskRunSummary[]
   artifacts: TaskArtifactSummary[]
+  reviews: TaskReviewView[]
   historyTruncated: boolean
+  reviewsTruncated: boolean
+  detailError: string | null
+  detailRetrying: boolean
   error: string | null
   notice: string | null
   onClose: () => void
+  onRetryDetail: () => void
   onSubmit: (values: TaskFormValues) => void
   onAction: (action: TaskManagementAction, reason?: string) => void
+  onSubmitReview: (runId: string, artifactIds: string[]) => void
+  onDecideReview: (
+    reviewId: string,
+    expectedVersion: number,
+    decision: 'accepted' | 'changes_requested' | 'rejected',
+    decisionNote: string | null,
+  ) => void
 }
 
 const TASK_TYPES: Array<{ value: TaskType; label: string }> = [
@@ -89,12 +102,19 @@ export function TaskFormDialog({
   runtimeReady,
   runs,
   artifacts,
+  reviews,
   historyTruncated,
+  reviewsTruncated,
+  detailError,
+  detailRetrying,
   error,
   notice,
   onClose,
+  onRetryDetail,
   onSubmit,
   onAction,
+  onSubmitReview,
+  onDecideReview,
 }: TaskFormDialogProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -104,7 +124,18 @@ export function TaskFormDialog({
   const [assignee, setAssignee] = useState('')
   const [tags, setTags] = useState('')
   const [blockReason, setBlockReason] = useState('')
+  const [reviewRunId, setReviewRunId] = useState('')
+  const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([])
+  const [decisionNote, setDecisionNote] = useState('')
   const editable = task === null || task.allowed_actions.includes('edit')
+  const completedRuns = runs.filter((run) => (
+    run.can_submit_review
+    && (run.status === 'completed' || run.status === 'partial')
+    && artifacts.some((artifact) => artifact.run_id === run.id)
+  ))
+  const reviewArtifacts = artifacts.filter((artifact) => artifact.run_id === reviewRunId)
+  const linkedExecution = runs.length > 0
+  const canSubmitArtifactReview = task?.allowed_actions.includes('submit_review') === true && linkedExecution
 
   useEffect(() => {
     if (!open) return
@@ -122,7 +153,19 @@ export function TaskFormDialog({
     )
     setTags(management?.tags.join(', ') ?? '')
     setBlockReason(management?.blocked_reason ?? '')
+    setReviewRunId('')
+    setSelectedArtifactIds([])
+    setDecisionNote('')
   }, [open, task?.task.id])
+
+  useEffect(() => {
+    if (!open || !task || reviewRunId || completedRuns.length === 0) return
+    const initialRunId = completedRuns[0].id
+    setReviewRunId(initialRunId)
+    setSelectedArtifactIds(
+      artifacts.filter((artifact) => artifact.run_id === initialRunId).map((artifact) => artifact.id),
+    )
+  }, [artifacts, completedRuns, open, reviewRunId, task])
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -138,6 +181,21 @@ export function TaskFormDialog({
       assigneeId: assigneeId ?? null,
       tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
     })
+  }
+
+  const chooseReviewRun = (runId: string) => {
+    setReviewRunId(runId)
+    setSelectedArtifactIds(
+      artifacts.filter((artifact) => artifact.run_id === runId).map((artifact) => artifact.id),
+    )
+  }
+
+  const toggleReviewArtifact = (artifactId: string) => {
+    setSelectedArtifactIds((current) => (
+      current.includes(artifactId)
+        ? current.filter((candidate) => candidate !== artifactId)
+        : [...current, artifactId]
+    ))
   }
 
   return (
@@ -236,7 +294,12 @@ export function TaskFormDialog({
             ) : null}
             <div className="mt-3 flex flex-wrap gap-2">
               {task.allowed_actions
-                .filter((action) => action !== 'edit' && action !== 'assign')
+                .filter((action) => (
+                  action !== 'edit'
+                  && action !== 'assign'
+                  && action !== 'review_deliverable'
+                  && !(action === 'submit_review' && linkedExecution)
+                ))
                 .map((action) => (
                   <Button
                     key={action}
@@ -253,6 +316,155 @@ export function TaskFormDialog({
                     {ACTION_LABELS[action] ?? action}
                   </Button>
                 ))}
+            </div>
+          </section>
+        ) : null}
+        {task && canSubmitArtifactReview ? (
+          <section className="border-t border-white/[0.06] pt-4" aria-label="提交产物审核">
+            <h3 className="text-sm font-semibold text-slate-200">提交产物审核</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              选择一次已完成执行及其通过完整性校验的封存产物。提交后，产物 ID 与内容哈希会冻结。
+            </p>
+            {completedRuns.length > 0 ? (
+              <div className="mt-3 space-y-3">
+                <Field label="审核 Run">
+                  <select
+                    value={reviewRunId}
+                    disabled={submitting}
+                    onChange={(event) => chooseReviewRun(event.target.value)}
+                    className={inputClassName}
+                  >
+                    {completedRuns.map((run) => (
+                      <option key={run.id} value={run.id}>{run.id} · {run.status}</option>
+                    ))}
+                  </select>
+                </Field>
+                <fieldset>
+                  <legend className="text-xs font-medium text-slate-400">封存产物</legend>
+                  <div className="mt-2 space-y-2">
+                    {reviewArtifacts.map((artifact) => (
+                      <label key={artifact.id} className="flex min-h-10 items-start gap-2 rounded-lg border border-white/[0.06] px-3 py-2 text-xs text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={selectedArtifactIds.includes(artifact.id)}
+                          disabled={submitting}
+                          onChange={() => toggleReviewArtifact(artifact.id)}
+                          className="mt-0.5"
+                        />
+                        <span className="min-w-0">
+                          <span className="block break-all font-medium text-slate-200">{artifact.id}</span>
+                          <span className="mt-0.5 block text-slate-500">{artifact.artifact_type} · {artifact.verification_state}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <Button
+                  type="button"
+                  size="sm"
+                  loading={submitting}
+                  disabled={!reviewRunId || selectedArtifactIds.length === 0}
+                  onClick={() => onSubmitReview(reviewRunId, selectedArtifactIds)}
+                >
+                  提交审核
+                </Button>
+              </div>
+            ) : (
+              <p role="note" className="mt-3 rounded-lg bg-white/[0.04] px-3 py-2 text-xs text-slate-500">
+                当前没有同时满足“Run 已完成”和“产物已封存”的交付物。
+              </p>
+            )}
+          </section>
+        ) : null}
+        {task && reviews.length > 0 ? (
+          <section className="border-t border-white/[0.06] pt-4" aria-label="任务审核记录">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-200">审核记录</h3>
+              <span className="text-xs text-slate-500">{reviews.length} 轮</span>
+            </div>
+            {reviewsTruncated ? <p className="mt-2 text-xs text-remind">仅显示最近的审核记录。</p> : null}
+            <div className="mt-3 space-y-3">
+              {reviews.map(({ review, allowed_actions: allowedActions }) => (
+                <article key={review.id} className="rounded-lg bg-surface-1 px-3 py-3 ring-1 ring-inset ring-white/[0.05]">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-medium text-slate-200">第 {review.round} 轮 · {taskReviewStatusLabel(review.status)}</span>
+                    <span className="text-slate-500">v{review.version}</span>
+                  </div>
+                  <p className="mt-2 break-all text-[11px] text-slate-500">
+                    Run {review.run_id} · {review.artifact_ids.length} 个冻结产物
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">审核人：{review.reviewer_id}</p>
+                  <ul className="mt-2 space-y-1.5" aria-label={`第 ${review.round} 轮冻结产物`}>
+                    {review.artifact_ids.map((artifactId, index) => (
+                      <li key={artifactId} className="rounded-md border border-white/[0.05] px-2.5 py-2 text-[11px] text-slate-500">
+                        <span className="block break-all text-slate-300">{artifactId}</span>
+                        <span className="mt-1 block break-all font-mono">sha256:{review.artifact_hashes[index]}</span>
+                        {allowedActions.length > 0 ? (
+                          <a
+                            className="mt-1.5 inline-block text-mint-300 hover:underline"
+                            href={`/api/task-reviews/${encodeURIComponent(review.id)}/artifacts/${encodeURIComponent(artifactId)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            检查冻结产物
+                          </a>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                  {review.decision_note ? (
+                    <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">{review.decision_note}</p>
+                  ) : null}
+                  {allowedActions.length > 0 ? (
+                    <div className="mt-3 space-y-3">
+                      <Field label="审核意见" hint="要求修改或拒绝时必填。">
+                        <textarea
+                          value={decisionNote}
+                          onChange={(event) => setDecisionNote(event.target.value)}
+                          maxLength={4000}
+                          rows={3}
+                          disabled={submitting}
+                          className={inputClassName}
+                        />
+                      </Field>
+                      <div className="flex flex-wrap gap-2">
+                        {allowedActions.includes('accept') ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            loading={submitting}
+                            onClick={() => onDecideReview(review.id, review.version, 'accepted', decisionNote.trim() || null)}
+                          >
+                            接受交付
+                          </Button>
+                        ) : null}
+                        {allowedActions.includes('request_changes') ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={submitting || !decisionNote.trim()}
+                            onClick={() => onDecideReview(review.id, review.version, 'changes_requested', decisionNote.trim())}
+                          >
+                            要求修改
+                          </Button>
+                        ) : null}
+                        {allowedActions.includes('reject') ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="danger"
+                            disabled={submitting || !decisionNote.trim()}
+                            onClick={() => onDecideReview(review.id, review.version, 'rejected', decisionNote.trim())}
+                          >
+                            拒绝交付
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </article>
+              ))}
             </div>
           </section>
         ) : null}
@@ -278,6 +490,21 @@ export function TaskFormDialog({
             </div>
           </section>
         ) : null}
+        {detailError ? (
+          <div role="alert" className="rounded-lg bg-remind/[0.08] px-3 py-3 text-sm text-remind">
+            <p>任务权限与状态刷新失败，操作保持禁用。{detailError}</p>
+            <Button
+              type="button"
+              className="mt-2"
+              size="sm"
+              variant="subtle"
+              loading={detailRetrying}
+              onClick={onRetryDetail}
+            >
+              重试任务详情
+            </Button>
+          </div>
+        ) : null}
         {notice ? <p role="status" className="rounded-lg bg-mint-400/10 px-3 py-2 text-sm text-mint-300">{notice}</p> : null}
         {error ? <p role="alert" className="rounded-lg bg-rose/10 px-3 py-2 text-sm text-rose">{error}</p> : null}
       </form>
@@ -293,6 +520,15 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       {hint ? <span className="mt-1 block text-[11px] font-normal text-slate-600">{hint}</span> : null}
     </label>
   )
+}
+
+function taskReviewStatusLabel(status: TaskReviewView['review']['status']): string {
+  return {
+    pending: '待审核',
+    accepted: '已接受',
+    changes_requested: '要求修改',
+    rejected: '已拒绝',
+  }[status]
 }
 
 const inputClassName = 'min-h-10 w-full rounded-[10px] border border-white/[0.08] bg-surface-1 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50'

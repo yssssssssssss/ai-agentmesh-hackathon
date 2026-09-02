@@ -110,6 +110,13 @@ class TaskAssigneeKind(StrEnum):
     AGENT = "agent"
 
 
+class TaskReviewStatus(StrEnum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    CHANGES_REQUESTED = "changes_requested"
+    REJECTED = "rejected"
+
+
 class CollaborationStage(StrEnum):
     DISCUSSION = "discussion"
     EXECUTION = "execution"
@@ -756,6 +763,43 @@ class Task(BaseModel):
     management: TaskManagementMetadataV1 | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+
+
+class TaskReviewV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["task-review-v1"] = "task-review-v1"
+    id: str = Field(default_factory=lambda: new_id("task_review"), min_length=1, max_length=120)
+    task_id: str = Field(min_length=1, max_length=120)
+    run_id: str = Field(min_length=1, max_length=120)
+    artifact_ids: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(min_length=1, max_length=20)
+    artifact_hashes: list[Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]] = Field(
+        min_length=1,
+        max_length=20,
+    )
+    round: int = Field(ge=1)
+    status: TaskReviewStatus = TaskReviewStatus.PENDING
+    requested_by: str = Field(min_length=1, max_length=120)
+    reviewer_id: str = Field(min_length=1, max_length=120)
+    task_version: int = Field(ge=1)
+    decision_note: str | None = Field(default=None, max_length=4000)
+    version: int = Field(default=1, ge=1)
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+    decided_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_review_state(self) -> TaskReviewV1:
+        if len(self.artifact_ids) != len(self.artifact_hashes):
+            raise ValueError("artifact_ids and artifact_hashes must have the same length")
+        if len(set(self.artifact_ids)) != len(self.artifact_ids):
+            raise ValueError("artifact_ids must be unique")
+        if self.status is TaskReviewStatus.PENDING:
+            if self.decision_note is not None or self.decided_at is not None or self.version != 1:
+                raise ValueError("pending review cannot include a decision")
+        elif self.decided_at is None or self.version < 2:
+            raise ValueError("decided review requires decided_at and a later version")
+        return self
 
 
 class BlackboardPost(BaseModel):

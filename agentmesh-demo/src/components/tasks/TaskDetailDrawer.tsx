@@ -16,7 +16,7 @@ import {
   collaborationErrorMessage,
   useTaskDetail,
 } from '../../features/collaboration/queries'
-import type { TaskArtifactSummary, TaskRunSummary } from '../../features/tasks/types'
+import type { TaskArtifactSummary, TaskReviewView, TaskRunSummary } from '../../features/tasks/types'
 import { useManagedTaskDetail } from '../../features/tasks/queries'
 import { buildTaskDetailViewModel } from '../../features/tasks/presenter'
 import { Badge } from '../ui/Badge'
@@ -82,10 +82,12 @@ export function TaskDetailDrawer({
             detail={detail.data}
             runs={managed.data?.runs ?? []}
             artifacts={managed.data?.artifacts ?? []}
-            historyTruncated={
+            reviews={managed.data?.reviews ?? []}
+            executionTruncated={
               managed.data?.runs_truncated === true
               || managed.data?.artifacts_truncated === true
             }
+            reviewTruncated={managed.data?.reviews_truncated === true}
             executionLoading={managed.isLoading}
             executionError={managed.error}
             executionRetrying={managed.isFetching}
@@ -101,7 +103,9 @@ function TaskDetailContent({
   detail,
   runs,
   artifacts,
-  historyTruncated,
+  reviews,
+  executionTruncated,
+  reviewTruncated,
   executionLoading,
   executionError,
   executionRetrying,
@@ -110,7 +114,9 @@ function TaskDetailContent({
   detail: TaskDetail
   runs: TaskRunSummary[]
   artifacts: TaskArtifactSummary[]
-  historyTruncated: boolean
+  reviews: TaskReviewView[]
+  executionTruncated: boolean
+  reviewTruncated: boolean
   executionLoading: boolean
   executionError: unknown
   executionRetrying: boolean
@@ -212,12 +218,14 @@ function TaskDetailContent({
       <TaskExecutionHistory
         runs={runs}
         artifacts={artifacts}
-        truncated={historyTruncated}
+        truncated={executionTruncated}
         loading={executionLoading}
         error={executionError}
         retrying={executionRetrying}
         onRetry={onRetryExecution}
       />
+
+      <TaskReviewHistory reviews={reviews} truncated={reviewTruncated} />
 
       <section aria-labelledby="task-timeline-heading" className="border-t border-white/[0.06] pt-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -338,6 +346,43 @@ function TaskExecutionHistory({
       </div>
     </section>
   )
+}
+
+function TaskReviewHistory({ reviews, truncated }: { reviews: TaskReviewView[]; truncated: boolean }) {
+  if (reviews.length === 0) return null
+  return (
+    <section aria-labelledby="task-reviews-heading" className="border-t border-white/[0.06] pt-5">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 id="task-reviews-heading" className="text-sm font-semibold text-slate-200">交付审核</h3>
+        <span className="text-xs tabular-nums text-slate-500">{reviews.length} 轮</span>
+      </div>
+      {truncated ? <p className="mt-2 text-xs text-remind">仅显示最近的审核记录。</p> : null}
+      <ol className="mt-4 space-y-2.5">
+        {reviews.map(({ review }) => (
+          <li key={review.id} className="rounded-[10px] bg-surface-1 px-3.5 py-3 ring-1 ring-inset ring-white/[0.05]">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-slate-200">第 {review.round} 轮 · {reviewStatusLabel(review.status)}</span>
+              <span className="text-slate-500">{review.artifact_ids.length} 个冻结产物</span>
+            </div>
+            <p className="mt-2 break-all text-[11px] text-slate-500">Run {review.run_id}</p>
+            <p className="mt-1 text-[11px] text-slate-500">审核人：{review.reviewer_id}</p>
+            {review.decision_note ? (
+              <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">{review.decision_note}</p>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+function reviewStatusLabel(status: TaskReviewView['review']['status']): string {
+  return {
+    pending: '待审核',
+    accepted: '已接受',
+    changes_requested: '要求修改',
+    rejected: '已拒绝',
+  }[status]
 }
 
 function MetaItem({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) {
