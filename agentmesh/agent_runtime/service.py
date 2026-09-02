@@ -1833,6 +1833,7 @@ Follow the activated Skill for this request, subject to the platform rules above
         execution_contract_version: AgentExecutionContractVersion | None = None,
         create_request_hash: str | None = None,
         project_id: str | None = None,
+        task_id: str | None = None,
         retry_of_run_id: str | None = None,
         dispatch_kind: Literal[
             "standard_direct",
@@ -1847,6 +1848,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                 thread_id=thread_id,
                 client_turn_id=client_turn_id,
                 content=content,
+                task_id=task_id,
                 skill_name=skill.name if skill else None,
                 orchestration_mode=requested_orchestration_mode,
                 planning_mode=planning_mode,
@@ -1860,6 +1862,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                     thread_id=thread_id,
                     client_turn_id=client_turn_id,
                     content=content,
+                    task_id=task_id,
                     skill_name=skill.name if skill else None,
                     orchestration_mode=requested_orchestration_mode,
                     planning_mode=planning_mode,
@@ -1873,6 +1876,7 @@ Follow the activated Skill for this request, subject to the platform rules above
         is_deepsearch = planning_mode is AgentPlanningMode.DEEPSEARCH
         run = AgentRun(
             thread_id=thread_id,
+            task_id=task_id,
             user_id=user.id,
             workspace_id=user.workspace_id,
             project_id=project_id or user.default_project_id,
@@ -2117,6 +2121,9 @@ Follow the activated Skill for this request, subject to the platform rules above
         )
         self.repository.mark_sdk_session_chat_messages(run.thread_id, [message.id])
 
+    def ready_for_user(self, user: User) -> bool:
+        return self.enabled and self._select_model(user) is not None
+
     async def start(
         self,
         *,
@@ -2127,6 +2134,7 @@ Follow the activated Skill for this request, subject to the platform rules above
         skill: SkillDefinition | None = None,
         client_turn_id: str | None = None,
         project_id: str | None = None,
+        task_id: str | None = None,
         requested_orchestration_mode: SkillOrchestrationRequestMode | None = None,
         retry_of_run_id: str | None = None,
     ) -> AgentRun:
@@ -2150,6 +2158,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                 client_turn_id=client_turn_id,
                 project_chat=True,
                 project_id=project_id,
+                task_id=task_id,
                 requested_orchestration_mode=requested_orchestration_mode,
                 retry_of_run_id=retry_of_run_id,
                 dispatch_kind="standard_direct",
@@ -2311,6 +2320,7 @@ Follow the activated Skill for this request, subject to the platform rules above
         mode: SkillOrchestrationMode,
         create_request_hash: str,
         project_id: str | None = None,
+        task_id: str | None = None,
         retry_of_run_id: str | None = None,
     ) -> AgentRun:
         """Create one versioned DeepSearch Run and advance its Requirement/Plan synchronously."""
@@ -2346,6 +2356,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                 ),
                 create_request_hash=create_request_hash,
                 project_id=project_id,
+                task_id=task_id,
                 retry_of_run_id=retry_of_run_id,
                 dispatch_kind="deepsearch_plan",
             )
@@ -2415,6 +2426,7 @@ Follow the activated Skill for this request, subject to the platform rules above
         client_turn_id: str,
         mode: SkillOrchestrationMode,
         project_id: str | None = None,
+        task_id: str | None = None,
         retry_of_run_id: str | None = None,
     ) -> AgentRun:
         if mode == SkillOrchestrationMode.OFF:
@@ -2454,6 +2466,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                 planning_contract_version=planning_contract,
                 execution_contract_version=self.execution_contract_for(planning_contract),
                 project_id=project_id,
+                task_id=task_id,
                 retry_of_run_id=retry_of_run_id,
                 dispatch_kind="standard_plan",
             )
@@ -2543,6 +2556,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                 client_turn_id=client_turn_id,
                 mode=mode,
                 project_id=prior_run.project_id,
+                task_id=prior_run.task_id,
                 retry_of_run_id=prior_run.id,
             )
         existing = self.repository.get_agent_run_by_client_turn(user.id, client_turn_id)
@@ -2553,6 +2567,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                 or existing.user_id != prior_run.user_id
                 or existing.workspace_id != prior_run.workspace_id
                 or existing.project_id != prior_run.project_id
+                or existing.task_id != prior_run.task_id
                 or existing.retry_of_run_id != prior_run.id
                 or existing.requested_orchestration_mode != SkillOrchestrationRequestMode.AUTO
                 or existing.orchestration_version != "v1"
@@ -2624,6 +2639,7 @@ Follow the activated Skill for this request, subject to the platform rules above
             requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
             planning_contract_version=planning_contract,
             project_id=prior_run.project_id,
+            task_id=prior_run.task_id,
             retry_of_run_id=prior_run.id,
         )
         if not created:
@@ -2631,6 +2647,7 @@ Follow the activated Skill for this request, subject to the platform rules above
                 run.input_text != prior_run.input_text
                 or run.thread_id != prior_run.thread_id
                 or run.project_id != prior_run.project_id
+                or run.task_id != prior_run.task_id
                 or run.retry_of_run_id != prior_run.id
                 or run.requested_orchestration_mode != SkillOrchestrationRequestMode.AUTO
             ):

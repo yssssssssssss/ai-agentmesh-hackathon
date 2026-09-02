@@ -30,7 +30,7 @@ jobs:
       - run: .venv/bin/python eval/run_universal_skill_retrieval_eval.py
       - run: .venv/bin/python -m eval.run_universal_skill_profile_smoke --mode fts-only
       - name: Standalone product smoke
-        run: .venv/bin/python -m pytest tests/test_task_management_standalone.py
+        run: .venv/bin/python -m pytest tests/test_task_management_standalone.py tests/test_task_run_linkage.py
         env:
           AGENTMESH_EMBEDDING_ENABLED: "false"
       - run: .venv/bin/python -m pytest --ignore=tests/test_frontend_routes.py

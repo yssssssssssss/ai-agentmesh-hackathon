@@ -14,7 +14,7 @@ Human-created Tasks keep a required ChatThread for context, but that Thread is m
 - Blocking is orthogonal metadata, not a second terminal state.
 - A Task can be managed manually when every external Provider is unavailable.
 - Task mutations use stable command IDs, optimistic versions, SQLite transactions, server-derived allowed actions, and AuditEvents.
-- `AgentRun.task_id` will be optional, immutable after creation, and inherited by retries in the next delivery slice.
-- Run completion will not directly complete a Task. A sealed Artifact and accepted Task Review are the planned completion gate.
+- `AgentRun.task_id` is optional, immutable after creation, included in idempotency identity, and inherited by retries.
+- Run completion does not directly complete a Task. A sealed Artifact and accepted Task Review remain the planned completion gate.
 - Task Center write behavior is independently gated by `AGENTMESH_TASK_MANAGEMENT=read_only|write`, defaulting to `read_only`.
 - The existing Task Catalog concept remains an intent-routing contract and is never used as a Project Task identity.

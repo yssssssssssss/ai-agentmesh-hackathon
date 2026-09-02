@@ -4,9 +4,11 @@ import type { components } from '../../api/generated/schema'
 import { taskDeliveryStageLabel } from '../../features/tasks/managementPresentation'
 import type {
   ManagedTask,
+  TaskArtifactSummary,
   TaskAssigneeKind,
   TaskManagementAction,
   TaskPriority,
+  TaskRunSummary,
   TaskType,
 } from '../../features/tasks/types'
 import { Button } from '../ui/Button'
@@ -29,7 +31,12 @@ interface TaskFormDialogProps {
   users: components['schemas']['User'][]
   agents: components['schemas']['Agent'][]
   submitting: boolean
+  runtimeReady: boolean
+  runs: TaskRunSummary[]
+  artifacts: TaskArtifactSummary[]
+  historyTruncated: boolean
   error: string | null
+  notice: string | null
   onClose: () => void
   onSubmit: (values: TaskFormValues) => void
   onAction: (action: TaskManagementAction, reason?: string) => void
@@ -62,6 +69,7 @@ const ACTION_LABELS: Partial<Record<TaskManagementAction, string>> = {
   unblock: '解除阻塞',
   cancel: '取消任务',
   archive: '归档任务',
+  start_agent_run: '启动个人 Agent',
 }
 
 function datetimeLocalValue(value: string | null | undefined): string {
@@ -78,7 +86,12 @@ export function TaskFormDialog({
   users,
   agents,
   submitting,
+  runtimeReady,
+  runs,
+  artifacts,
+  historyTruncated,
   error,
+  notice,
   onClose,
   onSubmit,
   onAction,
@@ -230,7 +243,11 @@ export function TaskFormDialog({
                     type="button"
                     size="sm"
                     variant={action === 'cancel' || action === 'archive' ? 'ghost' : 'secondary'}
-                    disabled={submitting || (action === 'block' && !blockReason.trim())}
+                    disabled={
+                      submitting
+                      || (action === 'block' && !blockReason.trim())
+                      || (action === 'start_agent_run' && !runtimeReady)
+                    }
                     onClick={() => onAction(action, action === 'block' ? blockReason.trim() : undefined)}
                   >
                     {ACTION_LABELS[action] ?? action}
@@ -239,6 +256,29 @@ export function TaskFormDialog({
             </div>
           </section>
         ) : null}
+        {task && (runs.length > 0 || artifacts.length > 0) ? (
+          <section className="border-t border-white/[0.06] pt-4" aria-label="任务执行记录">
+            <h3 className="text-sm font-semibold text-slate-200">执行记录</h3>
+            <div className="mt-2 space-y-2">
+              {historyTruncated ? <p className="text-xs text-remind">仅显示最近的执行和已封存产物。</p> : null}
+              {runs.map((run) => (
+                <div key={run.id} className="rounded-lg bg-surface-1 px-3 py-2 text-xs text-slate-400">
+                  <span className="font-medium text-slate-200">{run.status}</span>
+                  <span className="ml-2">{run.planning_mode}</span>
+                  <span className="ml-2">{run.artifact_count} 个产物</span>
+                  {run.navigation_href ? <a className="ml-2 text-mint-300 hover:underline" href={run.navigation_href}>打开 Run</a> : null}
+                </div>
+              ))}
+              {artifacts.map((artifact) => (
+                <div key={artifact.id} className="rounded-lg border border-white/[0.06] px-3 py-2 text-xs text-slate-500">
+                  {artifact.artifact_type} · {artifact.verification_state ?? 'legacy_unverified'}
+                  {artifact.download_href ? <a className="ml-2 text-mint-300 hover:underline" href={artifact.download_href}>打开产物</a> : null}
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {notice ? <p role="status" className="rounded-lg bg-mint-400/10 px-3 py-2 text-sm text-mint-300">{notice}</p> : null}
         {error ? <p role="alert" className="rounded-lg bg-rose/10 px-3 py-2 text-sm text-rose">{error}</p> : null}
       </form>
     </Modal>

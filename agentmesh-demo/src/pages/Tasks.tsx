@@ -25,8 +25,14 @@ import { useAuth } from '../features/auth/AuthProvider'
 import { collaborationErrorMessage, useTaskCards } from '../features/collaboration/queries'
 import { taskManagementApi } from '../features/tasks/api'
 import { TASK_PRIORITY_LABELS, taskDeliveryStageLabel } from '../features/tasks/managementPresentation'
-import { taskManagementErrorMessage, useManagedTasks, useTaskManagementMutations } from '../features/tasks/queries'
+import {
+  taskManagementErrorMessage,
+  useManagedTaskDetail,
+  useManagedTasks,
+  useTaskManagementMutations,
+} from '../features/tasks/queries'
 import type { ManagedTask, TaskManagementAction, TaskTransitionPayload } from '../features/tasks/types'
+import { workspaceApi } from '../features/workspace/api'
 import {
   buildTaskCenterViewModel,
   TASK_STAGE_OPTIONS,
@@ -62,6 +68,8 @@ export function Tasks() {
   const [taskFormOpen, setTaskFormOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<ManagedTask | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
+  const [mutationNotice, setMutationNotice] = useState<string | null>(null)
+  const [runStarting, setRunStarting] = useState(false)
   const saveCommandId = useRef<string | null>(null)
   const actionCommand = useRef<{ action: TaskManagementAction; id: string } | null>(null)
   const context = {
@@ -71,6 +79,10 @@ export function Tasks() {
   }
   const cardsQuery = useTaskCards(context)
   const managedQuery = useManagedTasks(context)
+  const managedDetailQuery = useManagedTaskDetail(
+    context,
+    taskFormOpen && editingTask ? editingTask.task.id : null,
+  )
   const mutations = useTaskManagementMutations(context)
   const managedByTaskId = useMemo(
     () => new Map((managedQuery.data?.items ?? []).map((item) => [item.task.id, item])),
@@ -140,6 +152,7 @@ export function Tasks() {
   const openCreate = () => {
     setEditingTask(null)
     setMutationError(null)
+    setMutationNotice(null)
     saveCommandId.current = null
     actionCommand.current = null
     setTaskFormOpen(true)
@@ -147,6 +160,7 @@ export function Tasks() {
   const openEdit = (task: ManagedTask) => {
     setEditingTask(task)
     setMutationError(null)
+    setMutationNotice(null)
     saveCommandId.current = null
     actionCommand.current = null
     setTaskFormOpen(true)
@@ -154,6 +168,7 @@ export function Tasks() {
   const closeForm = () => {
     setTaskFormOpen(false)
     setMutationError(null)
+    setMutationNotice(null)
     saveCommandId.current = null
     actionCommand.current = null
   }
@@ -174,6 +189,7 @@ export function Tasks() {
   }
   const saveTask = async (values: TaskFormValues) => {
     setMutationError(null)
+    setMutationNotice(null)
     const stableCommandId = saveCommandId.current ?? commandId(editingTask ? 'update' : 'create')
     saveCommandId.current = stableCommandId
     try {
@@ -216,11 +232,27 @@ export function Tasks() {
   const applyTaskAction = async (action: TaskManagementAction, reason?: string) => {
     if (!editingTask) return
     setMutationError(null)
+    setMutationNotice(null)
     const stableCommand = actionCommand.current?.action === action
       ? actionCommand.current
       : { action, id: commandId(action) }
     actionCommand.current = stableCommand
     try {
+      if (action === 'start_agent_run') {
+        setRunStarting(true)
+        const response = await workspaceApi.startAgentRun({
+          threadId: null,
+          taskId: editingTask.task.id,
+          content: editingTask.management.description || editingTask.task.title,
+          clientTurnId: stableCommand.id,
+          orchestrationMode: 'single',
+          planningMode: 'standard',
+        })
+        await managedDetailQuery.refetch()
+        setMutationNotice(`AgentRun 已启动：${response.item.id}`)
+        actionCommand.current = null
+        return
+      }
       if (action === 'archive') {
         await mutations.archive.mutateAsync({
           taskId: editingTask.task.id,
@@ -245,12 +277,22 @@ export function Tasks() {
     } catch (error) {
       await refreshEditingTaskAfterConflict(error)
       setMutationError(taskManagementErrorMessage(error))
+    } finally {
+      setRunStarting(false)
     }
   }
-  const mutationPending = mutations.create.isPending
+  const mutationPending = runStarting
+    || mutations.create.isPending
     || mutations.update.isPending
     || mutations.transition.isPending
     || mutations.archive.isPending
+  const taskForForm = (
+    editingTask
+    && managedDetailQuery.data?.item.task.id === editingTask.task.id
+    && managedDetailQuery.data.item.management.version >= editingTask.management.version
+  )
+    ? managedDetailQuery.data.item
+    : editingTask
 
   return (
     <div className="space-y-6" lang="zh-CN">
@@ -332,11 +374,19 @@ export function Tasks() {
 
       <TaskFormDialog
         open={taskFormOpen}
-        task={editingTask}
+        task={taskForForm}
         users={assignableUsers}
         agents={assignableAgents}
         submitting={mutationPending}
+        runtimeReady={bootstrap?.agent_runtime_ready === true && !managedDetailQuery.isLoading && !managedDetailQuery.error}
+        runs={managedDetailQuery.data?.runs ?? []}
+        artifacts={managedDetailQuery.data?.artifacts ?? []}
+        historyTruncated={
+          managedDetailQuery.data?.runs_truncated === true
+          || managedDetailQuery.data?.artifacts_truncated === true
+        }
         error={mutationError}
+        notice={mutationNotice}
         onClose={closeForm}
         onSubmit={(values) => void saveTask(values)}
         onAction={(action, reason) => void applyTaskAction(action, reason)}

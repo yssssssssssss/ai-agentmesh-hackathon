@@ -56,6 +56,7 @@ from agentmesh.models import (
     BlockedSkillMatchPublicV1,
     CapabilityGapV1,
     ChatThread,
+    ChatThreadKind,
     ItemResponse,
     RuntimeToolCallClaimV1,
     RuntimeToolCallOutcomeV1,
@@ -91,6 +92,7 @@ from agentmesh.skill_runtime.universal_plan import (
     validate_universal_plan,
 )
 from agentmesh.store import DeepSearchRequirementConflict, ResearchStoreConflict, store
+from agentmesh.task_management.service import TaskManagementError, TaskManagementService
 from agentmesh.task_routing.catalog import (
     TaskCatalogLoadError,
     TaskCatalogV2,
@@ -200,10 +202,14 @@ def _visible_run(run_id: str, user: User):
         raise HTTPException(status_code=404, detail="Agent run not found")
     if run.planning_mode == AgentPlanningMode.DEEPSEARCH:
         thread = store.get_chat_thread(run.thread_id)
+        linked_task = store.get_task(run.task_id) if run.task_id is not None else None
         if (
             thread is None
             or thread.status != "active"
-            or thread.user_id != run.user_id
+            or (
+                thread.user_id != run.user_id
+                and (linked_task is None or linked_task.thread_id != thread.id)
+            )
             or thread.workspace_id != run.workspace_id
             or thread.project_id != run.project_id
         ):
@@ -465,9 +471,21 @@ def _scenario_assignment_options_view(plan) -> dict[str, list[ScenarioAssignment
     return result
 
 
-def _thread(request: AgentRunCreateRequest, user: User) -> ChatThread:
+def _task_link_error(error: TaskManagementError) -> HTTPException:
+    return HTTPException(status_code=error.status_code, detail={"code": error.code})
+
+
+def _thread(request: AgentRunCreateRequest, user: User) -> tuple[ChatThread, bool]:
     require_default_project(user, store)
     thread_id = _requested_thread_id(request, user)
+    if request.task_id is not None:
+        try:
+            TaskManagementService(store).require_agent_run_start(
+                request.task_id,
+                user,
+            )
+        except TaskManagementError as error:
+            raise _task_link_error(error) from error
     if request.thread_id is not None:
         thread = store.get_chat_thread(thread_id)
         if (
@@ -478,25 +496,36 @@ def _thread(request: AgentRunCreateRequest, user: User) -> ChatThread:
             or thread.project_id != user.default_project_id
         ):
             raise HTTPException(status_code=404, detail="Chat thread not found")
-        return thread
+        return thread, False
     existing = store.get_chat_thread(thread_id)
     if existing is not None:
+        expected_kind = ChatThreadKind.TASK if request.task_id is not None else ChatThreadKind.CONVERSATION
         if (
             existing.user_id != user.id
             or existing.workspace_id != user.workspace_id
             or existing.project_id != user.default_project_id
+            or existing.kind is not expected_kind
         ):
             raise HTTPException(status_code=409, detail="client_turn_id thread identity conflict")
-        return existing
-    return store.add_chat_thread(
-        ChatThread(
-            id=thread_id,
-            workspace_id=user.workspace_id,
-            project_id=user.default_project_id,
-            user_id=user.id,
-            title=request.content.strip()[:60] or "新的 Agent 运行",
-        )
+        return existing, False
+    return (
+        store.add_chat_thread(
+            ChatThread(
+                id=thread_id,
+                workspace_id=user.workspace_id,
+                project_id=user.default_project_id,
+                user_id=user.id,
+                title=request.content.strip()[:60] or "新的 Agent 运行",
+                kind=ChatThreadKind.TASK if request.task_id is not None else ChatThreadKind.CONVERSATION,
+            )
+        ),
+        True,
     )
+
+
+def _cleanup_implicit_thread(thread: ChatThread, created: bool, user: User) -> None:
+    if created:
+        store.delete_unused_task_run_thread(thread.id, user_id=user.id)
 
 
 def _requested_thread_id(request: AgentRunCreateRequest, user: User) -> str:
@@ -630,6 +659,7 @@ async def start_agent_run(
         thread_id=thread_id,
         client_turn_id=request.client_turn_id,
         content=request.content,
+        task_id=request.task_id,
         skill_name=canonical_skill_name,
         orchestration_mode=request.orchestration_mode,
         planning_mode=request.planning_mode,
@@ -646,6 +676,7 @@ async def start_agent_run(
             client_turn_id=request.client_turn_id,
             thread_id=thread_id,
             content=request.content,
+            task_id=request.task_id,
             skill_id=skill.id if skill is not None else prior.skill_id if prior.skill_name == canonical_skill_name else None,
             skill_name=canonical_skill_name,
             orchestration_mode=request.orchestration_mode,
@@ -664,7 +695,7 @@ async def start_agent_run(
             reason = availability.reason_code.value if availability.reason_code is not None else "runtime_unavailable"
             status_code = 409 if reason in {"disabled", "execution_unavailable"} else 503
             raise _deepsearch_admission_error(reason, status_code=status_code)
-        thread = _thread(request, user)
+        thread, implicit_thread_created = _thread(request, user)
         starter = runtime.start_deepsearch
         try:
             run = await starter(
@@ -675,8 +706,11 @@ async def start_agent_run(
                 client_turn_id=request.client_turn_id,
                 mode=mode,
                 create_request_hash=create_request_hash,
+                project_id=user.default_project_id,
+                task_id=request.task_id,
             )
         except PlanValidationError as error:
+            _cleanup_implicit_thread(thread, implicit_thread_created, user)
             persisted = store.get_agent_run_by_client_turn(
                 user.id,
                 request.client_turn_id,
@@ -701,14 +735,21 @@ async def start_agent_run(
                 },
             ) from error
         except RuntimeError as error:
+            _cleanup_implicit_thread(thread, implicit_thread_created, user)
             raise _agent_run_creation_error(error) from error
+        except BaseException:
+            _cleanup_implicit_thread(thread, implicit_thread_created, user)
+            raise
         if run.orchestration_version != "v1" or run.planning_mode != AgentPlanningMode.DEEPSEARCH:
             raise RuntimeError("DeepSearch Runtime returned an invalid Run identity")
         return ItemResponse(item=run)
 
     if runtime is None or not runtime.enabled:
         raise HTTPException(status_code=409, detail="Agent Runtime v2 is disabled")
-    thread = _thread(request, user)
+    ready_for_user = getattr(runtime, "ready_for_user", None)
+    if callable(ready_for_user) and not ready_for_user(user):
+        raise HTTPException(status_code=409, detail="Agent model is not configured")
+    thread, implicit_thread_created = _thread(request, user)
     try:
         if (
             skill is None
@@ -722,6 +763,7 @@ async def start_agent_run(
                 history=store.list_recent_thread_messages(thread.id),
                 client_turn_id=request.client_turn_id,
                 mode=mode,
+                task_id=request.task_id,
             )
         else:
             run = await runtime.start(
@@ -732,9 +774,14 @@ async def start_agent_run(
                 skill=skill,
                 client_turn_id=request.client_turn_id,
                 requested_orchestration_mode=request.orchestration_mode,
+                task_id=request.task_id,
             )
     except RuntimeError as error:
+        _cleanup_implicit_thread(thread, implicit_thread_created, user)
         raise _agent_run_creation_error(error) from error
+    except BaseException:
+        _cleanup_implicit_thread(thread, implicit_thread_created, user)
+        raise
     return ItemResponse(item=run)
 
 
@@ -1224,6 +1271,7 @@ async def retry_agent_run(
             thread_id=prior.thread_id,
             client_turn_id=request.client_turn_id,
             content=prior.input_text,
+            task_id=prior.task_id,
             skill_name=prior.skill_name,
             orchestration_mode=retry_mode,
             planning_mode=prior.planning_mode,
@@ -1242,6 +1290,7 @@ async def retry_agent_run(
                 client_turn_id=request.client_turn_id,
                 thread_id=prior.thread_id,
                 content=prior.input_text,
+                task_id=prior.task_id,
                 skill_id=prior.skill_id,
                 skill_name=prior.skill_name,
                 orchestration_mode=retry_mode,
@@ -1288,6 +1337,7 @@ async def retry_agent_run(
         thread_id=prior.thread_id,
         client_turn_id=request.client_turn_id,
         content=prior.input_text,
+        task_id=prior.task_id,
         skill_name=prior.skill_name,
         orchestration_mode=retry_mode,
         planning_mode=prior.planning_mode,
@@ -1315,6 +1365,7 @@ async def retry_agent_run(
                 client_turn_id=request.client_turn_id,
                 mode=mode,
                 project_id=prior.project_id,
+                task_id=prior.task_id,
                 retry_of_run_id=prior.id,
                 create_request_hash=retry_create_request_hash,
             )
@@ -1325,6 +1376,7 @@ async def retry_agent_run(
             or retried.planning_mode != AgentPlanningMode.DEEPSEARCH
             or retried.retry_of_run_id != prior.id
             or retried.project_id != prior.project_id
+            or retried.task_id != prior.task_id
         ):
             raise RuntimeError("DeepSearch Runtime returned an invalid retry identity")
         return ItemResponse(item=retried)
@@ -1359,6 +1411,7 @@ async def retry_agent_run(
                     client_turn_id=request.client_turn_id,
                     mode=mode,
                     project_id=prior.project_id,
+                    task_id=prior.task_id,
                     retry_of_run_id=prior.id,
                 )
             else:
@@ -1377,6 +1430,7 @@ async def retry_agent_run(
                     skill=skill,
                     client_turn_id=request.client_turn_id,
                     project_id=prior.project_id,
+                    task_id=prior.task_id,
                     requested_orchestration_mode=prior.requested_orchestration_mode,
                     retry_of_run_id=prior.id,
                 )
@@ -1384,6 +1438,15 @@ async def retry_agent_run(
         raise HTTPException(status_code=409, detail={"codes": error.codes}) from error
     except RuntimeError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    if (
+        retried.retry_of_run_id != prior.id
+        or retried.user_id != prior.user_id
+        or retried.workspace_id != prior.workspace_id
+        or retried.project_id != prior.project_id
+        or retried.thread_id != prior.thread_id
+        or retried.task_id != prior.task_id
+    ):
+        raise RuntimeError("Agent Runtime returned an invalid retry identity")
     return ItemResponse(item=retried)
 
 

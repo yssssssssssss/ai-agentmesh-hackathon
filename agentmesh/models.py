@@ -2295,6 +2295,7 @@ class AgentRunCreateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     client_turn_id: str = Field(min_length=1, max_length=120)
     thread_id: str | None = None
+    task_id: str | None = Field(default=None, max_length=120)
     skill_name: str | None = Field(default=None, max_length=64)
     explicit_skill_name: str | None = Field(default=None, max_length=64)
     orchestration_mode: SkillOrchestrationRequestMode = SkillOrchestrationRequestMode.AUTO
@@ -2608,6 +2609,7 @@ class BootstrapState(BaseModel):
     metrics: BootstrapMetrics
     capabilities: list[str] = Field(default_factory=list)
     agent_runtime_enabled: bool = False
+    agent_runtime_ready: bool = False
     skill_orchestration_mode: Literal["off", "preview", "execute"] = "off"
     task_management_mode: Literal["read_only", "write"] = "read_only"
     deepsearch_availability: DeepSearchAvailability
@@ -2716,6 +2718,7 @@ class RunDispatchReceiptV1(BaseModel):
 class AgentRun(BaseModel):
     id: str = Field(default_factory=lambda: new_id("run"))
     thread_id: str
+    task_id: str | None = Field(default=None, max_length=120)
     user_id: str
     workspace_id: str
     project_id: str

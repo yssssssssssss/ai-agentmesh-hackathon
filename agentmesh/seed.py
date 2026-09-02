@@ -507,6 +507,11 @@ def bootstrap_state(
 
     ensure_seed_data(repository)
     agents = list_agents(repository)
+    runtime_ready = bool(
+        agent_runtime is not None
+        and callable(getattr(agent_runtime, "ready_for_user", None))
+        and agent_runtime.ready_for_user(user)
+    )
     now = datetime.now(UTC)
     return BootstrapState(
         workspace=WORKSPACE,
@@ -517,6 +522,7 @@ def bootstrap_state(
         team_memberships=repository.list_team_memberships(user_id=user.id),
         agents=agents,
         agent_runtime_enabled=agent_runtime_enabled(),
+        agent_runtime_ready=runtime_ready,
         skill_orchestration_mode=skill_orchestration_mode().value,
         task_management_mode=task_management_mode().value,
         deepsearch_availability=evaluate_deepsearch_availability(runtime=agent_runtime, user=user),

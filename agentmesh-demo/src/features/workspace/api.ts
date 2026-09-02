@@ -156,6 +156,7 @@ export function subscribeAgentRunEvents(
 
 export interface StartAgentRunInput {
   threadId: string | null
+  taskId?: string
   content: string
   clientTurnId: string
   explicitSkillName?: string
@@ -182,6 +183,7 @@ export const workspaceApi = {
     apiRequest<ChatTurnReceipt>(`/api/chat/messages/receipts/${pathId(clientTurnId)}`),
   startAgentRun: ({
     threadId,
+    taskId,
     content,
     clientTurnId,
     explicitSkillName,
@@ -192,6 +194,7 @@ export const workspaceApi = {
       method: 'POST',
       body: JSON.stringify({
         thread_id: threadId,
+        task_id: taskId,
         content,
         client_turn_id: clientTurnId,
         explicit_skill_name: explicitSkillName,

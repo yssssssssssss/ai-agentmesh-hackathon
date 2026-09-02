@@ -1,6 +1,7 @@
 import { apiRequest } from '../../api/client'
 import type {
   ManagedTask,
+  ManagedTaskDetail,
   ManagedTaskPage,
   TaskArchivePayload,
   TaskCreatePayload,
@@ -29,7 +30,7 @@ export const taskManagementApi = {
     return { ...response, items, page: 1, page_size: pageSize, has_next: false }
   },
   get: (taskId: string) =>
-    apiRequest<ManagedTaskResponse>(`/api/tasks/${encodeURIComponent(taskId)}`),
+    apiRequest<ManagedTaskDetail>(`/api/tasks/${encodeURIComponent(taskId)}`),
   create: (payload: TaskCreatePayload) =>
     apiRequest<ManagedTaskResponse>('/api/tasks', {
       method: 'POST',

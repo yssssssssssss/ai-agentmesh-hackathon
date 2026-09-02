@@ -16,6 +16,8 @@ import {
   collaborationErrorMessage,
   useTaskDetail,
 } from '../../features/collaboration/queries'
+import type { TaskArtifactSummary, TaskRunSummary } from '../../features/tasks/types'
+import { useManagedTaskDetail } from '../../features/tasks/queries'
 import { buildTaskDetailViewModel } from '../../features/tasks/presenter'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -45,6 +47,7 @@ export function TaskDetailDrawer({
   onClose,
 }: TaskDetailDrawerProps) {
   const detail = useTaskDetail(context, open ? taskId : null)
+  const managed = useManagedTaskDetail(context, open ? taskId : null)
   const accessError = isTaskAccessError(detail.error)
   const title = accessError ? '任务详情' : detail.data?.task_card.task.title?.trim() || '任务详情'
 
@@ -75,14 +78,44 @@ export function TaskDetailDrawer({
               onRetry={() => void detail.refetch()}
             />
           ) : null}
-          <TaskDetailContent detail={detail.data} />
+          <TaskDetailContent
+            detail={detail.data}
+            runs={managed.data?.runs ?? []}
+            artifacts={managed.data?.artifacts ?? []}
+            historyTruncated={
+              managed.data?.runs_truncated === true
+              || managed.data?.artifacts_truncated === true
+            }
+            executionLoading={managed.isLoading}
+            executionError={managed.error}
+            executionRetrying={managed.isFetching}
+            onRetryExecution={() => void managed.refetch()}
+          />
         </>
       ) : null}
     </Drawer>
   )
 }
 
-function TaskDetailContent({ detail }: { detail: TaskDetail }) {
+function TaskDetailContent({
+  detail,
+  runs,
+  artifacts,
+  historyTruncated,
+  executionLoading,
+  executionError,
+  executionRetrying,
+  onRetryExecution,
+}: {
+  detail: TaskDetail
+  runs: TaskRunSummary[]
+  artifacts: TaskArtifactSummary[]
+  historyTruncated: boolean
+  executionLoading: boolean
+  executionError: unknown
+  executionRetrying: boolean
+  onRetryExecution: () => void
+}) {
   const view = buildTaskDetailViewModel(detail)
   const { task, timeline } = view
 
@@ -176,6 +209,16 @@ function TaskDetailContent({ detail }: { detail: TaskDetail }) {
         </dl>
       </section>
 
+      <TaskExecutionHistory
+        runs={runs}
+        artifacts={artifacts}
+        truncated={historyTruncated}
+        loading={executionLoading}
+        error={executionError}
+        retrying={executionRetrying}
+        onRetry={onRetryExecution}
+      />
+
       <section aria-labelledby="task-timeline-heading" className="border-t border-white/[0.06] pt-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 id="task-timeline-heading" className="text-sm font-semibold text-slate-200">黑板时间线</h3>
@@ -226,6 +269,74 @@ function TaskDetailContent({ detail }: { detail: TaskDetail }) {
         )}
       </section>
     </div>
+  )
+}
+
+function TaskExecutionHistory({
+  runs,
+  artifacts,
+  truncated,
+  loading,
+  error,
+  retrying,
+  onRetry,
+}: {
+  runs: TaskRunSummary[]
+  artifacts: TaskArtifactSummary[]
+  truncated: boolean
+  loading: boolean
+  error: unknown
+  retrying: boolean
+  onRetry: () => void
+}) {
+  if (loading && runs.length === 0 && artifacts.length === 0) {
+    return (
+      <section aria-label="Agent 执行与产物" className="border-t border-white/[0.06] pt-5 text-sm text-slate-500">
+        正在读取执行记录…
+      </section>
+    )
+  }
+  if (error && runs.length === 0 && artifacts.length === 0) {
+    return (
+      <section role="alert" className="border-t border-white/[0.06] pt-5">
+        <p className="text-sm font-medium text-rose">执行记录加载失败</p>
+        <p className="mt-1 text-xs text-slate-500">{collaborationErrorMessage(error)}</p>
+        <Button className="mt-3" size="sm" variant="subtle" loading={retrying} onClick={onRetry}>重试执行记录</Button>
+      </section>
+    )
+  }
+  if (runs.length === 0 && artifacts.length === 0) return null
+  return (
+    <section aria-labelledby="task-runs-heading" className="border-t border-white/[0.06] pt-5">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 id="task-runs-heading" className="text-sm font-semibold text-slate-200">Agent 执行与产物</h3>
+        <span className="text-xs tabular-nums text-slate-500">{runs.length} 次执行</span>
+      </div>
+      <div className="mt-4 space-y-2">
+        {error ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 text-xs text-remind">
+            <span>执行记录刷新失败，以下为最近一次成功结果。</span>
+            <Button size="sm" variant="ghost" loading={retrying} onClick={onRetry}>重试</Button>
+          </div>
+        ) : null}
+        {truncated ? <p className="text-xs text-remind">仅显示最近的执行和已封存产物。</p> : null}
+        {runs.map((run) => (
+          <div key={run.id} className="rounded-[10px] bg-surface-1 px-3.5 py-3 ring-1 ring-inset ring-white/[0.05]">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-slate-200">{run.status}</span>
+              <span className="text-slate-500">{run.artifact_count} 个已封存产物</span>
+            </div>
+            {run.navigation_href ? <a className="mt-2 inline-block text-xs text-mint-300 hover:underline" href={run.navigation_href}>打开本人的 Run</a> : null}
+          </div>
+        ))}
+        {artifacts.map((artifact) => (
+          <div key={artifact.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-white/[0.06] px-3.5 py-3 text-xs text-slate-500">
+            <span>{artifact.artifact_type} · {artifact.verification_state}</span>
+            {artifact.download_href ? <a className="text-mint-300 hover:underline" href={artifact.download_href}>打开产物</a> : null}
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

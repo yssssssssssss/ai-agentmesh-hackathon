@@ -5,6 +5,37 @@ import { loginAs } from './support/auth'
 test.describe.serial('task center', () => {
   test('shows real task cards, keeps both status axes, filters, and opens a read-only timeline', async ({ page }) => {
     await loginAs(page)
+    await page.route('**/api/tasks/task_graph_demo_3', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          item: {},
+          runs: [{
+            id: 'run_task_demo_3',
+            status: 'completed',
+            planning_mode: 'standard',
+            artifact_count: 1,
+            navigation_href: null,
+            created_at: '2026-09-01T00:00:00Z',
+            updated_at: '2026-09-01T00:01:00Z',
+          }],
+          artifacts: [{
+            id: 'artifact_task_demo_3',
+            run_id: 'run_task_demo_3',
+            artifact_type: 'task_output',
+            content_type: 'application/json',
+            verification_state: 'sealed',
+            content_hash: 'a'.repeat(64),
+            size_bytes: 20,
+            download_href: null,
+            created_at: '2026-09-01T00:01:00Z',
+          }],
+          runs_truncated: false,
+          artifacts_truncated: false,
+        }),
+      })
+    })
     await page.goto('/tasks')
 
     await expect(page.getByRole('heading', { name: '任务中心' })).toBeVisible()
@@ -37,6 +68,11 @@ test.describe.serial('task center', () => {
     await expect(dialog.getByRole('heading', { name: '任务步骤' })).toBeVisible()
     await expect(dialog.getByRole('heading', { name: '黑板时间线' })).toBeVisible()
     await expect(dialog.getByText('以下动态已由服务端按当前账号权限过滤。')).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: 'Agent 执行与产物' })).toBeVisible()
+    await expect(dialog).toContainText('completed')
+    await expect(dialog).toContainText('1 个已封存产物')
+    await expect(dialog).toContainText('task_output · sealed')
+    await expect(dialog.getByRole('link', { name: /打开本人的 Run|打开产物/ })).toHaveCount(0)
     await expect(dialog.getByText('修正：需补充竞品时间范围')).toBeVisible()
     await expect(dialog.getByRole('button', { name: /发送回复|确认交接|执行锁/ })).toHaveCount(0)
   })
@@ -114,6 +150,31 @@ test.describe.serial('task center', () => {
     expect(attempts).toBeGreaterThanOrEqual(2)
   })
 
+  test('shows an independent retry when execution history fails', async ({ page }) => {
+    await loginAs(page)
+    let attempts = 0
+    await page.route('**/api/tasks/task_graph_demo_1', async (route) => {
+      attempts += 1
+      if (attempts === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Task execution history unavailable' }),
+        })
+        return
+      }
+      await route.continue()
+    })
+    await page.goto('/tasks')
+    await page.getByRole('button', { name: '查看任务：查询 618 家电会场首屏历史经验' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('alert')).toContainText('执行记录加载失败')
+    await dialog.getByRole('button', { name: '重试执行记录' }).click()
+    await expect(dialog.getByText('执行记录加载失败')).toHaveCount(0)
+    await expect(dialog.getByRole('heading', { name: '黑板时间线' })).toBeVisible()
+    expect(attempts).toBeGreaterThanOrEqual(2)
+  })
+
   test('creates, edits, assigns, and advances a durable project task', async ({ page }) => {
     await loginAs(page)
     await page.goto('/tasks')
@@ -146,6 +207,92 @@ test.describe.serial('task center', () => {
     await updatedCard.getByRole('button', { name: '管理' }).click()
     await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
     await expect(updatedCard).toContainText('已计划')
+    await updatedCard.getByRole('button', { name: '管理' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
+    await expect(updatedCard).toContainText('进行中')
+    await updatedCard.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '启动个人 Agent' })).toBeDisabled()
+    await page.getByRole('dialog').getByRole('button', { name: '关闭' }).click()
+  })
+
+  test('starts a linked Run when the runtime is ready and removes the duplicate-start action', async ({ page }) => {
+    let runStarted = false
+    await page.route('**/api/bootstrap', async (route) => {
+      const response = await route.fetch()
+      const body = await response.json()
+      await route.fulfill({ response, json: { ...body, agent_runtime_enabled: true, agent_runtime_ready: true } })
+    })
+    await page.route('**/api/agent/runs', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue()
+        return
+      }
+      const request = JSON.parse(route.request().postData() ?? '{}')
+      runStarted = true
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          item: {
+            id: 'run_task_ui_linked',
+            task_id: request.task_id,
+            thread_id: 'thread_task_ui_linked',
+            status: 'running',
+          },
+        }),
+      })
+    })
+    await page.route('**/api/tasks/*', async (route) => {
+      if (route.request().method() !== 'GET' || !runStarted) {
+        await route.continue()
+        return
+      }
+      const response = await route.fetch()
+      const body = await response.json()
+      await route.fulfill({
+        response,
+        json: {
+          ...body,
+          item: {
+            ...body.item,
+            allowed_actions: (body.item.allowed_actions ?? []).filter((action: string) => action !== 'start_agent_run'),
+          },
+          runs: [{
+            id: 'run_task_ui_linked',
+            status: 'running',
+            planning_mode: 'standard',
+            artifact_count: 0,
+            navigation_href: '/workspace/thread/thread_task_ui_linked?run=run_task_ui_linked',
+            created_at: '2026-09-01T00:00:00Z',
+            updated_at: '2026-09-01T00:00:00Z',
+          }],
+          artifacts: [],
+          runs_truncated: false,
+          artifacts_truncated: false,
+        },
+      })
+    })
+    await loginAs(page)
+    await page.goto('/tasks')
+    await page.getByRole('button', { name: '新建任务' }).click()
+    await page.getByRole('dialog').getByLabel('任务标题').fill('启动关联 Run')
+    await page.getByRole('dialog').getByRole('button', { name: '创建任务' }).click()
+    const card = page.locator('[data-task-id]').filter({ hasText: '启动关联 Run' })
+    await card.getByRole('button', { name: '管理' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
+    await expect(card).toContainText('已计划')
+    await card.getByRole('button', { name: '管理' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
+    await expect(card).toContainText('进行中')
+    await card.getByRole('button', { name: '管理' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('button', { name: '启动个人 Agent' })).toBeEnabled()
+    await dialog.getByRole('button', { name: '启动个人 Agent' }).click()
+
+    await expect(dialog.getByRole('status')).toContainText('AgentRun 已启动：run_task_ui_linked')
+    await expect(dialog.getByText('执行记录')).toBeVisible()
+    await expect(dialog.getByRole('link', { name: '打开 Run' })).toHaveAttribute('href', /run_task_ui_linked/)
+    await expect(dialog.getByRole('button', { name: '启动个人 Agent' })).toHaveCount(0)
   })
 
   test('reuses the browser command ID after an ambiguous create response', async ({ page }) => {
