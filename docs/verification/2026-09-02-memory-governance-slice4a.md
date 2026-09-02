@@ -3,7 +3,9 @@
 - Date: 2026-09-02
 - Branch: `feature/memory-governance-slice4`
 - Base: `da8a25aacd44e0c6d30a6f14bfe7a9c0510ecdaf`
-- Status: Slice 4A implementation complete; revision and full lifecycle remain bounded Slice 4B scope
+- Pull request: #22
+- Merge commit: `95af5378e89439b0586a4844455ad1765b8bca8c`
+- Status: merged; Slice 4B revision and full lifecycle remain a separately bounded increment
 
 ## Delivered scope
 
@@ -80,6 +82,8 @@ Final reviewer verdict: no remaining P0, P1, or P2 findings; merge verdict `OK`.
 - Ruff: passed.
 - OpenAPI export and generated TypeScript client: regenerated.
 - `git diff --check`: passed.
+- PR #22 CI run `33650163015`: all four required jobs passed. The first Playwright attempt hit an unchanged Workspace scroll-layout timing assertion; rerunning the same commit passed all 71 tests.
+- Post-merge `main` CI run `33652028441`: all four required jobs passed, including the full Playwright suite without retrying the workflow.
 
 The first full backend invocation crossed the fixed absolute expiry embedded in an older DeepSearch test fixture. The fixture now anchors its relative +7/+8-day semantics to the test process time; all 34 focused DeepSearch Requirement tests and the subsequent full backend suite passed.
 
