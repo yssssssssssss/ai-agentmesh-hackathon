@@ -422,6 +422,9 @@ test.describe.serial('task center', () => {
     let baseItem: Record<string, any> | null = null
     let submittedBody: Record<string, any> | null = null
     let decisionBody: Record<string, any> | null = null
+    let memoryBody: Record<string, any> | null = null
+    const memoryCommandIds: string[] = []
+    let memoryCaptured = false
     const reviewId = 'task_review_ui_1'
     const runId = 'run_review_ui_1'
     const artifactId = 'artifact_review_ui_1'
@@ -436,9 +439,45 @@ test.describe.serial('task center', () => {
         body: JSON.stringify({
           item: {
             review: review('accepted', 2, '验收通过。'),
-            allowed_actions: [],
+            allowed_actions: ['capture_memory'],
           },
           task: baseItem?.task ?? {},
+        }),
+      })
+    })
+    await page.route('**/api/task-reviews/*/memory-candidates', async (route) => {
+      memoryBody = JSON.parse(route.request().postData() ?? '{}')
+      memoryCommandIds.push(String(memoryBody?.command_id ?? ''))
+      memoryCaptured = true
+      if (memoryCommandIds.length === 1) {
+        await route.abort('failed')
+        return
+      }
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          item: {
+            schema_version: 'memory-entry-view-v1',
+            id: 'memory_ui_personal',
+            kind: 'personal',
+            title: memoryBody?.title,
+            summary: memoryBody?.summary,
+            memory_type: 'project_experience',
+            scope: 'private',
+            status: 'active',
+            owner_user_id: 'usr_team_lead',
+            workspace_id: 'workspace_jd_design',
+            project_id: 'project_618_home_appliance',
+            layer: 'mid_term',
+            version: 1,
+            provenance: null,
+            created_at: createdAt,
+            updated_at: createdAt,
+            allowed_actions: [],
+            navigation_href: '/knowledge?memory=memory_ui_personal',
+          },
+          memory_review: null,
         }),
       })
     })
@@ -508,8 +547,19 @@ test.describe.serial('task center', () => {
           }],
           reviews: state === 'ready' ? [] : [{
             review: state === 'pending' ? pendingReview : acceptedReview,
-            allowed_actions: state === 'pending' ? ['accept', 'request_changes', 'reject'] : [],
+            allowed_actions: state === 'pending'
+              ? ['accept', 'request_changes', 'reject']
+              : ['capture_memory'],
           }],
+          memory_links: memoryCaptured ? [{
+            id: 'memory_ui_personal',
+            kind: 'personal',
+            title: '审核封存交付物',
+            status: 'active',
+            version: 1,
+            navigation_href: '/knowledge?memory=memory_ui_personal',
+            source_review_id: reviewId,
+          }] : [],
           runs_truncated: false,
           artifacts_truncated: false,
           reviews_truncated: false,
@@ -581,6 +631,26 @@ test.describe.serial('task center', () => {
       decision: 'accepted',
       decision_note: '验收通过。',
     }))
+    await expect(dialog.getByText('沉淀审核产物')).toBeVisible()
+    await dialog.getByLabel('记忆标题').fill('审核封存交付物')
+    await dialog.getByLabel('记忆摘要').fill('冻结产物并通过独立审核后再复用。')
+    await dialog.getByRole('button', { name: '保存为个人记忆' }).click()
+    await expect(dialog.getByRole('alert')).toBeVisible()
+    await dialog.getByRole('button', { name: '关闭' }).last().click()
+    await card.getByRole('button', { name: '管理' }).click()
+    const retryDialog = page.getByRole('dialog')
+    await retryDialog.getByLabel('记忆标题').fill('审核封存交付物')
+    await retryDialog.getByLabel('记忆摘要').fill('冻结产物并通过独立审核后再复用。')
+    await retryDialog.getByRole('button', { name: '保存为个人记忆' }).click()
+    await expect(retryDialog.getByRole('status')).toContainText('已保存为个人记忆')
+    expect(memoryCommandIds).toHaveLength(2)
+    expect(memoryCommandIds[1]).toBe(memoryCommandIds[0])
+    expect(memoryBody).toEqual(expect.objectContaining({
+      target: 'personal',
+      title: '审核封存交付物',
+      summary: '冻结产物并通过独立审核后再复用。',
+    }))
+    await expect(retryDialog.getByRole('region', { name: '任务记忆资产' })).toContainText('审核封存交付物')
   })
 
   test('opens a cross-project assigned Task Review from the Inbox projection', async ({ page }) => {

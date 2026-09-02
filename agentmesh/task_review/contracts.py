@@ -13,6 +13,7 @@ class TaskReviewAllowedAction(StrEnum):
     ACCEPT = "accept"
     REQUEST_CHANGES = "request_changes"
     REJECT = "reject"
+    CAPTURE_MEMORY = "capture_memory"
 
 
 class TaskReviewSubmitRequest(BaseModel):

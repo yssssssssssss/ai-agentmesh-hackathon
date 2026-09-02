@@ -44,6 +44,7 @@ from agentmesh.models import (
     MemoryRelation,
     MemorySearchScope,
     MemorySearchTrace,
+    MemoryStatus,
     RetrievalMetrics,
     RetrievedMemoryEvidence,
     Scope,
@@ -818,6 +819,7 @@ class PersonalAgent:
                 max_results=10,
                 result_types={"user_memory_item"},
                 allowed_record_ids=allowed_record_ids,
+                agent_context=True,
             )
             return [result for result in results if result.result_type == "user_memory_item"][:5]
 
@@ -837,6 +839,18 @@ class PersonalAgent:
                 and item.workspace_id == effective_workspace_id
                 and item.project_id == effective_project_id
                 and item.scope == Scope.PROJECT
+                and (
+                    item.status is MemoryStatus.ACCEPTED
+                    or (
+                        item.provenance is None
+                        and item.status not in {
+                            MemoryStatus.DISPUTED,
+                            MemoryStatus.DEPRECATED,
+                            MemoryStatus.EXPIRED,
+                            MemoryStatus.ARCHIVED,
+                        }
+                    )
+                )
             }
             results = self.repository.search(
                 query,
@@ -847,6 +861,7 @@ class PersonalAgent:
                 max_results=10,
                 result_types={"memory_item"},
                 allowed_record_ids=allowed_record_ids,
+                agent_context=True,
             )
             return [
                 result
@@ -865,6 +880,7 @@ class PersonalAgent:
                 for item in self.repository.memory_items
                 if item.workspace_id == effective_workspace_id
                 and item.scope == Scope.TEAM_ACCEPTED
+                and item.status is MemoryStatus.ACCEPTED
                 and (
                     item.team_id is None
                     or can_access_all_teams
@@ -879,6 +895,7 @@ class PersonalAgent:
                 max_results=10,
                 result_types={"memory_item"},
                 allowed_record_ids=allowed_record_ids,
+                agent_context=True,
             )
             return [
                 result
@@ -893,6 +910,7 @@ class PersonalAgent:
             project_id=effective_project_id,
             user_id=user.id,
             max_results=5,
+            agent_context=True,
         )
         tier1_results = self._filter_memory_types(tier1_results)
         if len(tier1_results) >= 3:
@@ -900,11 +918,12 @@ class PersonalAgent:
 
         tier2_results = self.repository.search(
             query,
-            {Scope.PROJECT, Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE},
+            {Scope.PROJECT, Scope.TEAM_ACCEPTED},
             workspace_id=effective_workspace_id,
             project_id=effective_project_id,
             user_id=user.id,
             max_results=10,
+            agent_context=True,
         )
         tier2_results = self._filter_memory_types(tier2_results)
         if len(tier2_results) >= 3:
@@ -912,11 +931,12 @@ class PersonalAgent:
 
         tier3_results = self.repository.search(
             query,
-            {Scope.PRIVATE, Scope.PROJECT, Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED},
+            {Scope.PRIVATE, Scope.PROJECT, Scope.TEAM_ACCEPTED},
             workspace_id=effective_workspace_id,
             project_id=effective_project_id,
             user_id=user.id,
             max_results=10,
+            agent_context=True,
         )
         tier3_results = self._filter_memory_types(tier3_results)
         if tier3_results:
@@ -982,7 +1002,7 @@ class PersonalAgent:
         for item in self.repository.user_memory_items:
             if item.user_id != user.id or item.workspace_id != effective_workspace_id:
                 continue
-            if item.project_id != effective_project_id:
+            if item.project_id != effective_project_id or item.status != "active":
                 continue
             results.append(
                 SearchResult(
@@ -1006,6 +1026,19 @@ class PersonalAgent:
             if not self.repository.memory_item_visible_to_user(item, user.id):
                 continue
             if item.workspace_id != effective_workspace_id or item.project_id != effective_project_id:
+                continue
+            if item.scope is Scope.TEAM_CANDIDATE:
+                continue
+            if item.status is not MemoryStatus.ACCEPTED and not (
+                item.provenance is None
+                and item.scope is Scope.PROJECT
+                and item.status not in {
+                    MemoryStatus.DISPUTED,
+                    MemoryStatus.DEPRECATED,
+                    MemoryStatus.EXPIRED,
+                    MemoryStatus.ARCHIVED,
+                }
+            ):
                 continue
             if item.scope == Scope.PROJECT and item.project_id != effective_project_id:
                 continue
@@ -1049,12 +1082,11 @@ class PersonalAgent:
         tasks_by_id = {task.id: task for task in self.repository.tasks}
         threads_by_id = {thread.id: thread for thread in self.repository.chat_threads}
         for post in self.repository.blackboard_posts:
-            if post.scope not in {Scope.PROJECT, Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED}:
+            if post.scope not in {Scope.PROJECT, Scope.TEAM_ACCEPTED}:
                 continue
             if post.post_type not in {
                 BlackboardPostType.EVIDENCE,
                 BlackboardPostType.DECISION,
-                BlackboardPostType.MEMORY_CANDIDATE,
                 BlackboardPostType.ARCHIVE,
             }:
                 continue

@@ -20,11 +20,15 @@ function toolApprovalItem(toolCalls: PendingKnowledgeView['toolCalls']['value'])
     scope: real('private'),
     status: real('open'),
     sourceProject: real('当前项目'),
+    projectId: real('project-1'),
     createdAt: real('2026-08-19T09:00:00Z'),
     updatedAt: real('2026-08-19T09:00:00Z'),
     documentId: real(null),
     documentVersion: real(null),
     taskId: real(null),
+    memoryId: real(null),
+    memoryVersion: real(null),
+    memoryReview: real(null),
     toolCalls: real(toolCalls),
     allowedActions: real(['snooze', 'approve_tool', 'reject_tool']),
   }
@@ -43,7 +47,9 @@ function render(item: PendingKnowledgeView) {
       onInjection={vi.fn()}
       onToolApproval={vi.fn()}
       onAccept={vi.fn()}
+      onMemoryReview={vi.fn()}
       onOpenTaskReview={vi.fn()}
+      onOpenMemoryReview={vi.fn()}
       onOpenDetail={vi.fn()}
     />,
   )
@@ -81,6 +87,42 @@ describe('PendingCandidatePanel tool approvals', () => {
 
     expect(html).toContain('打开任务审核')
     expect(html).not.toContain('标记已解决')
+  })
+
+  it('renders independent Memory Review actions for a governed team candidate', () => {
+    const item: PendingKnowledgeView = {
+      ...toolApprovalItem([]),
+      kind: 'team_candidate',
+      id: real('memory-candidate-1'),
+      title: real('团队候选'),
+      itemType: real('team_candidate'),
+      memoryType: real('project_experience'),
+      memoryId: real('memory-candidate-1'),
+      memoryVersion: real(1),
+      memoryReview: real({
+        schema_version: 'memory-review-v1',
+        id: 'memory-review-1',
+        memory_id: 'memory-candidate-1',
+        source_task_review_id: 'task-review-1',
+        requested_by: 'user-1',
+        reviewer_id: 'reviewer-1',
+        status: 'pending',
+        decision_note: null,
+        memory_version: 1,
+        version: 1,
+        created_at: '2026-09-02T00:00:00Z',
+        updated_at: '2026-09-02T00:00:00Z',
+        decided_at: null,
+      }),
+      allowedActions: real(['accept_review', 'reject_review']),
+    }
+
+    const html = render(item)
+
+    expect(html).toContain('接受为团队知识')
+    expect(html).toContain('拒绝原因')
+    expect(html).toContain('拒绝候选')
+    expect(html).not.toContain('接受候选</button>')
   })
 
   it('does not render unsafe approval buttons without a valid call_id', () => {

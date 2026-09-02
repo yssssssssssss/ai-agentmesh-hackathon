@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowRight, ArrowRightLeft, CheckCircle2, FolderKanban, Layers3, RefreshCw, UserRound, UsersRound } from 'lucide-react'
 
@@ -59,12 +59,15 @@ export function Knowledge() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const location = useLocation() as { state?: { tab?: string } | null }
+  const selectedProjectId = searchParams.get('project')?.trim() || user?.default_project_id || ''
   const context = {
     userId: user?.id ?? '',
     workspaceId: user?.workspace_id ?? '',
-    projectId: user?.default_project_id ?? '',
+    projectId: selectedProjectId,
   }
-  const projectName = bootstrap?.project.name ?? context.projectId
+  const projectName = bootstrap?.project.id === selectedProjectId
+    ? bootstrap.project.name
+    : selectedProjectId
   const queries = useKnowledgeQueries(context)
   const mutations = useKnowledgeMutations()
   const [tab, setTabState] = useState<KnowledgeTab>(() => normalizeTab(searchParams.get('tab') ?? location.state?.tab))
@@ -114,6 +117,7 @@ export function Knowledge() {
   const [drawerTarget, setDrawerTarget] = useState<DrawerTarget | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const memoryReviewCommands = useRef<Record<string, string>>({})
   const selectedBrief = queries.inbox.data?.items.find((item) => item.id === selectedBriefId) ?? null
   const documentId = selectedBrief?.metadata?.document_id ?? null
   const documentQuery = useDocumentQuery(context, documentId)
@@ -124,6 +128,27 @@ export function Knowledge() {
   const pendingReadOnly = viewModel.pending.loading || viewModel.pending.error !== null
   const documentReadOnly = documentQuery.isLoading || documentQuery.error !== null
   const queryError = queries.inbox.error ?? queries.memory.error ?? queries.overview.error ?? queries.documents.error
+
+  useEffect(() => {
+    const memoryId = searchParams.get('memory')?.trim()
+    if (!memoryId) return
+    const asset = viewModel.assets.data.items.find((candidate) => candidate.id.value === memoryId)
+    if (asset) {
+      setDrawerTarget({ kind: 'asset', asset })
+      return
+    }
+    const pending = viewModel.pending.data.items.find((candidate) => (
+      candidate.kind === 'team_candidate' && candidate.id.value === memoryId
+    ))
+    if (pending) setDrawerTarget({ kind: 'pending', item: pending })
+  }, [searchParams, viewModel.assets.data.items, viewModel.pending.data.items])
+
+  const closeDrawer = () => {
+    setDrawerTarget(null)
+    const next = new URLSearchParams(searchParams)
+    next.delete('memory')
+    setSearchParams(next, { replace: true })
+  }
 
   const run = async (action: () => Promise<unknown>, success: string) => {
     setError(null)
@@ -192,6 +217,36 @@ export function Knowledge() {
     )
   }
 
+  const handleMemoryReview = (
+    item: PendingKnowledgeView,
+    decision: 'accepted' | 'rejected',
+    note: string | null,
+  ) => {
+    const review = item.memoryReview.value
+    const reviewId = review?.id
+    const memoryVersion = item.memoryVersion.value
+    if (!reviewId || memoryVersion === null || pendingReadOnly) return
+    const key = `${reviewId}:${review.version}:${decision}:${note ?? ''}`
+    const commandId = memoryReviewCommands.current[key]
+      ?? `memory-review-${crypto.randomUUID()}`
+    memoryReviewCommands.current[key] = commandId
+    setDrawerTarget(null)
+    void run(
+      () => mutations.decideMemoryReview.mutateAsync({
+        reviewId,
+        commandId,
+        expectedMemoryVersion: memoryVersion,
+        expectedReviewVersion: review.version,
+        decision,
+        decisionNote: note,
+      }).then((result) => {
+        delete memoryReviewCommands.current[key]
+        return result
+      }),
+      decision === 'accepted' ? '候选已接受为团队知识。' : '候选已拒绝并标记为争议。',
+    )
+  }
+
   const openUsage = (event: (typeof viewModel.usage.data.items)[number]) => {
     const asset = viewModel.assets.data.items.find((item) => item.id.value === event.knowledgeId.value)
     setDrawerTarget({ kind: 'event', event, asset })
@@ -240,8 +295,16 @@ export function Knowledge() {
             onInjection={handlePendingAction}
             onToolApproval={handleToolApproval}
             onAccept={(item) => handlePendingAction(item, 'accept')}
+            onMemoryReview={handleMemoryReview}
             onOpenTaskReview={(item) => {
               if (item.taskId.value) navigate(`/tasks?manage=${encodeURIComponent(item.taskId.value)}`)
+            }}
+            onOpenMemoryReview={(item) => {
+              if (item.memoryId.value && item.projectId.value) {
+                navigate(
+                  `/knowledge?tab=pending&project=${encodeURIComponent(item.projectId.value)}&memory=${encodeURIComponent(item.memoryId.value)}`,
+                )
+              }
             }}
             onOpenDetail={(item) => setDrawerTarget({ kind: 'pending', item })}
           />
@@ -263,7 +326,7 @@ export function Knowledge() {
         onClose={() => setSelectedBriefId(null)}
         onConfirm={confirmBrief}
       />
-      <KnowledgeDetailDrawer open={drawerTarget !== null} target={drawerTarget} busy={busy} readOnly={pendingReadOnly} onClose={() => setDrawerTarget(null)} onPendingAction={handlePendingAction} />
+      <KnowledgeDetailDrawer open={drawerTarget !== null} target={drawerTarget} busy={busy} readOnly={pendingReadOnly} onClose={closeDrawer} onPendingAction={handlePendingAction} />
     </div>
   )
 }

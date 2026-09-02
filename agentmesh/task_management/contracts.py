@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agentmesh.memory_governance.contracts import TaskMemoryLinkV1
 from agentmesh.models import (
     AgentPlanningMode,
     AgentRunStatus,
@@ -199,6 +200,7 @@ class TaskManagementDetailV1(BaseModel):
     runs: list[TaskRunSummaryV1] = Field(default_factory=list)
     artifacts: list[TaskArtifactSummaryV1] = Field(default_factory=list)
     reviews: list[TaskReviewViewV1] = Field(default_factory=list)
+    memory_links: list[TaskMemoryLinkV1] = Field(default_factory=list)
     runs_truncated: bool = False
     artifacts_truncated: bool = False
     reviews_truncated: bool = False

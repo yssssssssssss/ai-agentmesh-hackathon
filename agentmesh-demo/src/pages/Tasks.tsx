@@ -74,6 +74,7 @@ export function Tasks() {
   const saveCommandId = useRef<string | null>(null)
   const actionCommand = useRef<{ action: TaskManagementAction; id: string } | null>(null)
   const reviewCommand = useRef<{ key: string; id: string } | null>(null)
+  const captureCommands = useRef<Record<string, string>>({})
   const context = {
     userId: user?.id ?? '',
     workspaceId: user?.workspace_id ?? '',
@@ -414,6 +415,40 @@ export function Tasks() {
       setMutationError(taskManagementErrorMessage(error))
     }
   }
+  const captureReviewMemory = async (
+    reviewId: string,
+    target: 'personal' | 'team_candidate',
+    title: string,
+    summary: string,
+  ) => {
+    setMutationError(null)
+    setMutationNotice(null)
+    const key = JSON.stringify([reviewId, target, title, summary])
+    const captureCommandId = captureCommands.current[key] ?? commandId('capture-memory')
+    captureCommands.current[key] = captureCommandId
+    try {
+      await mutations.captureMemory.mutateAsync({
+        reviewId,
+        payload: {
+          command_id: captureCommandId,
+          target,
+          title,
+          summary,
+          memory_type: 'project_experience',
+          layer: 'mid_term',
+        },
+      })
+      await refreshOpenTask()
+      setMutationNotice(
+        target === 'personal'
+          ? '已保存为个人记忆。'
+          : '已提交团队候选，等待独立 Memory Review。',
+      )
+      delete captureCommands.current[key]
+    } catch (error) {
+      setMutationError(taskManagementErrorMessage(error))
+    }
+  }
   const mutationPending = runStarting
     || mutations.create.isPending
     || mutations.update.isPending
@@ -421,6 +456,7 @@ export function Tasks() {
     || mutations.archive.isPending
     || mutations.submitReview.isPending
     || mutations.decideReview.isPending
+    || mutations.captureMemory.isPending
   const currentDetailTask = (
     editingTask
     && managedDetailQuery.data?.item.task.id === editingTask.task.id
@@ -530,6 +566,7 @@ export function Tasks() {
         runs={managedDetailQuery.data?.runs ?? []}
         artifacts={managedDetailQuery.data?.artifacts ?? []}
         reviews={managedDetailQuery.data?.reviews ?? []}
+        memoryLinks={managedDetailQuery.data?.memory_links ?? []}
         historyTruncated={
           managedDetailQuery.data?.runs_truncated === true
           || managedDetailQuery.data?.artifacts_truncated === true
@@ -550,6 +587,9 @@ export function Tasks() {
         onSubmitReview={(runId, artifactIds) => void submitArtifactReview(runId, artifactIds)}
         onDecideReview={(reviewId, version, decision, note) => (
           void decideArtifactReview(reviewId, version, decision, note)
+        )}
+        onCaptureMemory={(reviewId, target, title, summary) => (
+          void captureReviewMemory(reviewId, target, title, summary)
         )}
       />
 

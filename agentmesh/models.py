@@ -45,6 +45,20 @@ class MemoryStatus(StrEnum):
     DISPUTED = "disputed"
     DEPRECATED = "deprecated"
     EXPIRED = "expired"
+    ARCHIVED = "archived"
+
+
+class MemorySourceKind(StrEnum):
+    MANUAL = "manual"
+    TASK_ARTIFACT = "task_artifact"
+    MEMORY_REVISION = "memory_revision"
+    IMPORTED_DOCUMENT = "imported_document"
+
+
+class MemoryReviewStatus(StrEnum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
 
 
 class MemoryLayer(StrEnum):
@@ -887,6 +901,46 @@ class InboxItem(BaseModel):
     updated_at: datetime = Field(default_factory=now_utc)
 
 
+class MemoryProvenanceV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["memory-provenance-v1"] = "memory-provenance-v1"
+    source_kind: MemorySourceKind
+    task_id: str | None = Field(default=None, max_length=120)
+    run_id: str | None = Field(default=None, max_length=120)
+    review_id: str | None = Field(default=None, max_length=120)
+    artifact_ids: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    artifact_hashes: list[Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    source_memory_ids: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    created_by: str = Field(min_length=1, max_length=120)
+    created_at: datetime = Field(default_factory=now_utc)
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> MemoryProvenanceV1:
+        if len(self.artifact_ids) != len(self.artifact_hashes):
+            raise ValueError("artifact_ids and artifact_hashes must have the same length")
+        if len(set(self.artifact_ids)) != len(self.artifact_ids):
+            raise ValueError("artifact_ids must be unique")
+        if len(set(self.source_memory_ids)) != len(self.source_memory_ids):
+            raise ValueError("source_memory_ids must be unique")
+        if self.source_kind is MemorySourceKind.TASK_ARTIFACT and not (
+            self.task_id and self.run_id and self.review_id and self.artifact_ids
+        ):
+            raise ValueError("task_artifact provenance requires Task, Run, Review, and Artifact identities")
+        if self.source_kind is MemorySourceKind.MEMORY_REVISION and not self.source_memory_ids:
+            raise ValueError("memory_revision provenance requires source_memory_ids")
+        return self
+
+
 class MemoryItem(BaseModel):
     id: str = Field(default_factory=lambda: new_id("mem"))
     title: str
@@ -900,7 +954,20 @@ class MemoryItem(BaseModel):
     team_id: str | None = None
     sources: list[Source] = Field(default_factory=list)
     metadata: dict[str, str] = Field(default_factory=dict)
+    provenance: MemoryProvenanceV1 | None = None
+    version: int = Field(default=1, ge=1)
+    supersedes_memory_id: str | None = Field(default=None, max_length=120)
+    archived_at: datetime | None = None
+    archived_by: str | None = Field(default=None, max_length=120)
+    archived_from_status: MemoryStatus | None = None
     created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def normalize_governance_timestamps(self) -> MemoryItem:
+        if self.updated_at is None:
+            self.updated_at = self.created_at
+        return self
 
 
 class UserMemoryItem(BaseModel):
@@ -920,8 +987,40 @@ class UserMemoryItem(BaseModel):
     source_task_id: str | None = None
     sources: list[Source] = Field(default_factory=list)
     status: str = "active"
+    provenance: MemoryProvenanceV1 | None = None
+    version: int = Field(default=1, ge=1)
+    supersedes_memory_id: str | None = Field(default=None, max_length=120)
+    archived_at: datetime | None = None
+    archived_by: str | None = Field(default=None, max_length=120)
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+
+
+class MemoryReviewV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["memory-review-v1"] = "memory-review-v1"
+    id: str = Field(default_factory=lambda: new_id("memory_review"), min_length=1, max_length=120)
+    memory_id: str = Field(min_length=1, max_length=120)
+    source_task_review_id: str = Field(min_length=1, max_length=120)
+    requested_by: str = Field(min_length=1, max_length=120)
+    reviewer_id: str = Field(min_length=1, max_length=120)
+    status: MemoryReviewStatus = MemoryReviewStatus.PENDING
+    decision_note: str | None = Field(default=None, max_length=4000)
+    memory_version: int = Field(ge=1)
+    version: int = Field(default=1, ge=1)
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+    decided_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_review_state(self) -> MemoryReviewV1:
+        if self.status is MemoryReviewStatus.PENDING:
+            if self.decision_note is not None or self.decided_at is not None or self.version != 1:
+                raise ValueError("pending Memory Review cannot include a decision")
+        elif self.decided_at is None or self.version < 2:
+            raise ValueError("decided Memory Review requires decided_at and a later version")
+        return self
 
 
 class AuditEvent(BaseModel):
@@ -3017,6 +3116,7 @@ class MemoryItemView(MemoryItem):
     """Visible governed memory with server-derived commands."""
 
     allowed_actions: list[str] = Field(default_factory=list)
+    memory_review: MemoryReviewV1 | None = None
 
 
 class BlackboardPostView(BlackboardPost):

@@ -25,6 +25,7 @@ from agentmesh.models import (
     MemoryLayer,
     MemoryOverviewResponse,
     MemoryRelation,
+    MemoryReviewStatus,
     MemoryStatus,
     MemoryUpdateRequest,
     ProjectArchiveRequest,
@@ -43,6 +44,7 @@ from agentmesh.routes.deps import current_user, require_default_project
 from agentmesh.skill_runtime.materialize import materialize_learned_skill
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
+from agentmesh.task_management.settings import TaskManagementMode, task_management_mode
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
@@ -320,6 +322,17 @@ def update_memory_item(
     item = store.get_memory_item(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Memory item not found")
+    if (
+        not store.memory_item_visible_to_user(item, user.id)
+        or (item.workspace_id is not None and item.workspace_id != user.workspace_id)
+        or (
+            item.project_id is not None
+            and not store.user_can_access_project(user.id, item.project_id)
+        )
+    ):
+        raise HTTPException(status_code=404, detail="Memory item not found")
+    if item.provenance is not None:
+        raise HTTPException(status_code=409, detail="memory_governance_transition_required")
     ensure_can_update_memory(user, item, request.status, request.scope, store.permission_policy_rules)
     if request.status == MemoryStatus.ACCEPTED or request.scope == Scope.TEAM_ACCEPTED:
         item.status = MemoryStatus.ACCEPTED
@@ -459,13 +472,22 @@ def _project_name(project_id: str) -> str:
 
 def memory_item_view(item: MemoryItem, user: User) -> MemoryItemView:
     actions = []
-    if (
+    memory_review = store.get_memory_review_for_memory(item.id) if item.provenance is not None else None
+    if memory_review is not None:
+        if (
+            memory_review.status is MemoryReviewStatus.PENDING
+            and memory_review.reviewer_id == user.id
+            and has_permission(user, ACTION_ACCEPT_TEAM_MEMORY, store.permission_policy_rules)
+            and task_management_mode() is TaskManagementMode.WRITE
+        ):
+            actions.extend(("accept_review", "reject_review"))
+    elif (
         item.status == MemoryStatus.PROPOSED
         and item.scope == Scope.TEAM_CANDIDATE
         and has_permission(user, ACTION_ACCEPT_TEAM_MEMORY, store.permission_policy_rules)
     ):
         actions.append("accept")
-    return MemoryItemView(**item.model_dump(), allowed_actions=actions)
+    return MemoryItemView(**item.model_dump(), allowed_actions=actions, memory_review=memory_review)
 
 
 def _visible_memory_items(user: User, project_id: str) -> list[MemoryItem]:
@@ -475,9 +497,13 @@ def _visible_memory_items(user: User, project_id: str) -> list[MemoryItem]:
             continue
         if item.scope == Scope.PRIVATE and item.owner_user_id != user.id:
             continue
-        if item.scope == Scope.TEAM_CANDIDATE and user.role not in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
-            continue
-        if item.workspace_id is not None and item.workspace_id != user.workspace_id and user.role != UserRole.ADMIN:
+        if item.scope == Scope.TEAM_CANDIDATE and item.owner_user_id != user.id:
+            if item.provenance is None:
+                if user.role not in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
+                    continue
+            elif not has_permission(user, ACTION_ACCEPT_TEAM_MEMORY, store.permission_policy_rules):
+                continue
+        if item.workspace_id is not None and item.workspace_id != user.workspace_id:
             continue
         items.append(item)
     return items

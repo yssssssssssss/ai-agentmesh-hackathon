@@ -230,12 +230,14 @@ class TaskManagementService:
         return self.view(task, user, thread=thread)
 
     def get_task_detail(self, task_id: str, user: User) -> TaskManagementDetailV1:
+        from agentmesh.memory_governance.service import MemoryGovernanceError, MemoryGovernanceService
         from agentmesh.task_review.service import TaskCompletionService, TaskReviewError
 
         task, thread = self._visible_task(task_id, user)
         try:
             review_page = TaskCompletionService(self.repository).list_for_task(task.id, user, limit=50)
-        except TaskReviewError as error:
+            memory_links = MemoryGovernanceService(self.repository).task_memory_links(task.id, user)
+        except (TaskReviewError, MemoryGovernanceError) as error:
             raise TaskManagementError(error.code, status_code=error.status_code) from error
         fetched_runs = self.repository.list_agent_runs_for_task(task.id, limit=51)
         runs_truncated = len(fetched_runs) > 50
@@ -355,6 +357,7 @@ class TaskManagementService:
             runs_truncated=runs_truncated,
             artifacts_truncated=artifacts_truncated,
             reviews_truncated=review_page.truncated,
+            memory_links=memory_links,
         )
 
     def require_agent_run_start(

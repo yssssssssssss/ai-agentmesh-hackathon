@@ -67,6 +67,14 @@ export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, rea
               <MetaRow label="形成时间" value={formatTime(item.createdAt.value)} source={item.createdAt.source} />
               <MetaRow label="文档版本" value={item.documentVersion.value === null ? '不适用' : `v${item.documentVersion.value}`} source={item.documentVersion.source} />
             </dl>
+            {item.taskId.value ? (
+              <a
+                className="mt-3 inline-block text-xs text-mint-300 hover:underline"
+                href={`/tasks?task=${encodeURIComponent(item.taskId.value)}`}
+              >
+                打开来源任务
+              </a>
+            ) : null}
           </SectionBlock>
           <SectionBlock icon={<ShieldCheck className="h-4 w-4" />} label="服务端可用操作">
             <p className="text-sm text-slate-300">{item.allowedActions.value.length > 0 ? item.allowedActions.value.join('、') : '当前没有可执行操作'}</p>
@@ -134,7 +142,17 @@ export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, rea
                 <MetaRow label="验证状态" value={asset.verified.value} source={asset.verified.source} />
                 <MetaRow label="最近更新" value={formatTime(asset.updated.value)} source={asset.updated.source} />
                 {asset.version.value !== null ? <MetaRow label="文档版本" value={`v${asset.version.value}`} source={asset.version.source} /> : null}
+                {asset.sourceRunId.value ? <MetaRow label="来源 Run" value={asset.sourceRunId.value} source={asset.sourceRunId.source} /> : null}
+                {asset.sourceReviewId.value ? <MetaRow label="来源审核" value={asset.sourceReviewId.value} source={asset.sourceReviewId.source} /> : null}
               </dl>
+              {asset.sourceTaskId.value ? (
+                <a
+                  className="mt-3 inline-block text-xs text-mint-300 hover:underline"
+                  href={`/tasks?task=${encodeURIComponent(asset.sourceTaskId.value)}`}
+                >
+                  打开来源任务
+                </a>
+              ) : null}
             </SectionBlock>
             <SectionBlock icon={<History className="h-4 w-4" />} label="共享和引用记录">
               <div className="mb-2"><DataSourceBadge source={asset.citations.source} /></div>

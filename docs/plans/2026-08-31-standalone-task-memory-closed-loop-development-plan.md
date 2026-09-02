@@ -1,8 +1,8 @@
 # AgentMesh 独立项目任务与记忆闭环开发方案
 
 - 日期：2026-08-31
-- 状态：已批准；Slice 1 与 Slice 2 已合并，Slice 3 Artifact Review 已完成本地实现，待审查与合并
-- 基线：`main` at `8ea46a986af7a9ffc0a67aeace279bf7e760fb62`
+- 状态：已批准；Slice 1～3 已合并，Slice 4A Review Capture 与独立 Memory Review 已完成本地实现，待审查与合并
+- 基线：`main` at `da8a25aacd44e0c6d30a6f14bfe7a9c0510ecdaf`
 - 目标：在 AgentMesh 可独立安装和运行的前提下，打通“任务创建、Agent 执行、产物审核、记忆沉淀、后续复用、全程审计”的真实产品闭环
 - 适用范围：FastAPI、React、SQLite、Agent Runtime v2、Task Center、Artifact、Inbox、Memory/RAG
 - 相关方案：`docs/plans/2026-08-25-task-center-integration-plan.md`、`docs/memory-optimization-plan.md`
@@ -539,7 +539,7 @@ Memory 详情展示：
 
 ### Slice 3：Artifact Review
 
-状态：本地实现完成，待审查与合并。
+状态：已通过 PR #20 合并；刷新期 stale-action 修复已通过 PR #21 合并。
 
 交付：
 
@@ -552,16 +552,31 @@ Memory 详情展示：
 
 ### Slice 4：Memory Governance
 
+#### Slice 4A：Review Capture 与独立 Memory Review
+
+状态：本地实现完成，待审查与合并。
+
 交付：
 
 - ADR 0012。
-- MemoryEntryViewV1、MemoryProvenanceV1 和版本合同。
-- 从 accepted Review 创建 Personal Memory 或 Team Candidate。
-- Team Candidate 独立审核。
-- revision、supersedes、dispute、deprecate、expire、archive 和 restore。
-- Task、Run、Artifact、Review、Memory 双向导航。
+- `MemoryEntryViewV1`、`MemoryProvenanceV1` 和基础版本字段。
+- 从 accepted Task Review 显式创建 Personal Memory 或 Team Candidate。
+- Team Candidate 使用独立 `MemoryReviewV1`、Reviewer 与 Inbox，不复用 Task Review 结论。
+- Task → Memory 与 Memory → Task/Run/Artifact/TaskReview 的导航和 lineage。
+- Candidate/争议状态不进入 Agent 自动检索；Embedding 不可用时不影响治理流程。
 
-独立价值：工作产物成为可审核、可修订的知识资产。
+独立价值：已验收交付可以安全沉淀为个人经验或进入独立团队知识审核。
+
+#### Slice 4B：Revision 与完整生命周期
+
+待交付：
+
+- revision 与 `supersedes_memory_id` 激活流程。
+- dispute、deprecate、expire、archive 和 restore 的完整状态机。
+- 旧版本 deprecated 与新版本激活的原子提交。
+- 全量双向 lineage、筛选和治理历史 UI。
+
+独立价值：团队知识成为可修订、可撤回且保留历史的长期资产。
 
 ### Slice 5：Memory Reuse
 

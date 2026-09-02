@@ -32,8 +32,7 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
   memory. ✅ `UserMemoryItem` `models.py:441`; short/mid/long-term `MemoryLayer` `models.py:36`;
   routes `routes/memory.py`. Hard-scoped to `user_id` (`store.py:480`).
 
-- **组织知识资产 / Org knowledge asset** — confirmed project/team memory. ✅ `MemoryItem`
-  `models.py:427`, distinct store from personal memory.
+- **组织知识资产 / Org knowledge asset** — governed project/team Memory. A Task Review acceptance can be explicitly captured as private Personal Memory or a proposed Team Candidate with frozen `MemoryProvenanceV1`. A Team Candidate becomes Team Knowledge only after its separate `MemoryReviewV1`; Task Review never publishes shared knowledge by itself.
 
 - **确认闸门 / Confirmation gate** — policy-driven human confirmation before data crosses a
   boundary or writes to org memory. ✅ Risk and Provider approvals use `InboxItem`; project
