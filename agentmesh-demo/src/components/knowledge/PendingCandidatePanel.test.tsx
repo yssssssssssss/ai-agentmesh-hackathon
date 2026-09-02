@@ -24,6 +24,7 @@ function toolApprovalItem(toolCalls: PendingKnowledgeView['toolCalls']['value'])
     updatedAt: real('2026-08-19T09:00:00Z'),
     documentId: real(null),
     documentVersion: real(null),
+    taskId: real(null),
     toolCalls: real(toolCalls),
     allowedActions: real(['snooze', 'approve_tool', 'reject_tool']),
   }
@@ -42,6 +43,7 @@ function render(item: PendingKnowledgeView) {
       onInjection={vi.fn()}
       onToolApproval={vi.fn()}
       onAccept={vi.fn()}
+      onOpenTaskReview={vi.fn()}
       onOpenDetail={vi.fn()}
     />,
   )
@@ -61,6 +63,23 @@ describe('PendingCandidatePanel tool approvals', () => {
     expect(html.match(/允许本次操作/g)).toHaveLength(2)
     expect(html.match(/拒绝本次操作/g)).toHaveLength(2)
     expect(html).not.toContain('稍后处理整组调用')
+    expect(html).not.toContain('标记已解决')
+  })
+
+  it('renders a dedicated Task Review action instead of generic resolution', () => {
+    const item: PendingKnowledgeView = {
+      ...toolApprovalItem([]),
+      id: real('inbox-review-1'),
+      title: real('审核任务交付'),
+      itemType: real('task_review'),
+      memoryType: real('task_review'),
+      taskId: real('task-1'),
+      allowedActions: real(['snooze', 'open_task_review']),
+    }
+
+    const html = render(item)
+
+    expect(html).toContain('打开任务审核')
     expect(html).not.toContain('标记已解决')
   })
 

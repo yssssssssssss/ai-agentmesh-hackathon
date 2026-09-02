@@ -50,6 +50,7 @@ from agentmesh.routes.memory import start_daily_memory_worker, stop_daily_memory
 from agentmesh.routes.research import router as research_router
 from agentmesh.routes.risk import router as risk_router
 from agentmesh.routes.skills import router as skills_router
+from agentmesh.routes.task_reviews import router as task_reviews_router
 from agentmesh.routes.tasks import router as tasks_router
 from agentmesh.routes.users import router as users_router
 from agentmesh.routes.workspace import router as workspace_router
@@ -221,6 +222,7 @@ app.include_router(data_sources_router)
 app.include_router(risk_router)
 app.include_router(skills_router)
 app.include_router(tasks_router)
+app.include_router(task_reviews_router)
 app.include_router(workspace_router)
 app.include_router(health_router)
 

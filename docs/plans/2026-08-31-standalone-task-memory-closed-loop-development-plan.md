@@ -1,8 +1,8 @@
 # AgentMesh 独立项目任务与记忆闭环开发方案
 
 - 日期：2026-08-31
-- 状态：已批准；Slice 1 已合并，Slice 2 Task、AgentRun 与 Artifact 关联已完成本地实现，待审查与合并
-- 基线：`main` at `839480eba2fae4211e84cb995b94419ec37ef9f5`
+- 状态：已批准；Slice 1 与 Slice 2 已合并，Slice 3 Artifact Review 已完成本地实现，待审查与合并
+- 基线：`main` at `8ea46a986af7a9ffc0a67aeace279bf7e760fb62`
 - 目标：在 AgentMesh 可独立安装和运行的前提下，打通“任务创建、Agent 执行、产物审核、记忆沉淀、后续复用、全程审计”的真实产品闭环
 - 适用范围：FastAPI、React、SQLite、Agent Runtime v2、Task Center、Artifact、Inbox、Memory/RAG
 - 相关方案：`docs/plans/2026-08-25-task-center-integration-plan.md`、`docs/memory-optimization-plan.md`
@@ -243,13 +243,15 @@ round
 status
 requested_by
 reviewer_id
+task_version
 decision_note
 version
 created_at
+updated_at
 decided_at
 ```
 
-同一 Task 可以有多轮 Review。每轮必须引用同一 Workspace/Project 下的 Run 和 sealed Artifact。
+同一 Task 可以有多轮 Review。每轮必须引用同一 Workspace/Project 下的 Run 和 sealed Artifact，并冻结进入审核时的 Task management version；审核期间普通 Task mutation 被拒绝，避免交付要求漂移。
 
 ### 6.3 MemoryProvenanceV1
 
@@ -342,7 +344,8 @@ POST /api/agent/runs
 
 | 方法与路径 | 用途 |
 | --- | --- |
-| `POST /api/tasks/{task_id}/reviews` | 选择 Run 和 Artifact 发起审核 |
+| `POST /api/tasks/{task_id}/reviews` | 选择 Run 和 Artifact 发起审核；只有 Run owner 可显式提交跨用户审核 |
+| `GET /api/task-reviews/{review_id}/artifacts/{artifact_id}` | assigned reviewer 按冻结 ID/hash 检查单个产物，不授予通用 Run 访问 |
 | `POST /api/task-reviews/{review_id}/decisions` | accepted、changes_requested、rejected |
 | `POST /api/task-reviews/{review_id}/memory-candidates` | 从已接受产物创建个人记忆或团队候选 |
 
@@ -507,7 +510,7 @@ Memory 详情展示：
 
 ### Slice 1：可写任务核心与 standalone smoke
 
-状态：本地实现完成，待审查与合并。
+状态：已通过 PR #18 合并。
 
 交付：
 
@@ -522,7 +525,7 @@ Memory 详情展示：
 
 ### Slice 2：Task、AgentRun 与 Artifact
 
-状态：本地实现完成，待审查与合并。
+状态：已通过 PR #19 合并。
 
 交付：
 
@@ -535,6 +538,8 @@ Memory 详情展示：
 独立价值：Task 成为 Agent 执行的真实上下文。
 
 ### Slice 3：Artifact Review
+
+状态：本地实现完成，待审查与合并。
 
 交付：
 

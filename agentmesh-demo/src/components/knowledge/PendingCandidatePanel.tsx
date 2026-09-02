@@ -28,6 +28,7 @@ interface Props {
   onInjection: (item: PendingKnowledgeView, action: 'release' | 'discard') => void
   onToolApproval: (item: PendingKnowledgeView, callId: string, action: 'approve' | 'reject') => void
   onAccept: (item: PendingKnowledgeView) => void
+  onOpenTaskReview: (item: PendingKnowledgeView) => void
   onOpenDetail: (item: PendingKnowledgeView) => void
 }
 
@@ -42,6 +43,7 @@ export function PendingCandidatePanel({
   onInjection,
   onToolApproval,
   onAccept,
+  onOpenTaskReview,
   onOpenDetail,
 }: Props) {
   return (
@@ -115,6 +117,15 @@ export function PendingCandidatePanel({
                 ) : null}
                 {actions.includes('accept') ? (
                   <Button loading={busy} disabled={readOnly} icon={<Check className="h-4 w-4" />} onClick={() => onAccept(item)}>接受候选</Button>
+                ) : null}
+                {actions.includes('open_task_review') ? (
+                  <Button
+                    variant="secondary"
+                    disabled={busy || readOnly || !item.taskId.value}
+                    onClick={() => onOpenTaskReview(item)}
+                  >
+                    打开任务审核
+                  </Button>
                 ) : null}
                 {actions.includes('snooze') ? (
                   <Button variant="subtle" disabled={busy || readOnly} icon={<Clock className="h-4 w-4" />} onClick={() => onSnooze(item)}>稍后处理</Button>

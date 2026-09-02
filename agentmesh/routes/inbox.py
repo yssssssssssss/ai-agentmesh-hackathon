@@ -27,7 +27,8 @@ from agentmesh.models import (
 from agentmesh.routes.deps import create_audit_event, current_user
 from agentmesh.runtime_capacity import RuntimeCapacityError
 from agentmesh.skill_runtime.quiesce import OrchestrationQuiescingError
-from agentmesh.store import BriefConfirmationError, store
+from agentmesh.store import BriefConfirmationError, TaskReviewConflict, store
+from agentmesh.task_review.contracts import TaskReviewAuthorizationV1
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"])
 _RESEARCH_V2_READ_ONLY = "Research-v2 Tool approvals are historical and read-only"
@@ -41,7 +42,7 @@ def is_active_inbox_item(item: InboxItem, now) -> bool:
     return True
 
 
-def inbox_item_view(item: InboxItem) -> InboxItemView:
+def inbox_item_view(item: InboxItem, user: User) -> InboxItemView:
     actions: list[str] = []
     if item.status != "resolved" and item.item_type != "research_tool_approval":
         if item.status != "snoozed":
@@ -52,6 +53,9 @@ def inbox_item_view(item: InboxItem) -> InboxItemView:
         elif is_brief_confirmation(item):
             if item.status == "open":
                 actions.append("confirm_brief")
+        elif item.item_type == "task_review":
+            if item.user_id == user.id:
+                actions.append("open_task_review")
         elif item.item_type == "sdk_tool_approval":
             if item.status == "open":
                 actions.extend(("approve_tool", "reject_tool"))
@@ -69,7 +73,7 @@ def inbox_items(
     items = [item for item in reversed(store.inbox_items) if inbox_visible_to_user(item, user)]
     if not include_snoozed:
         items = [item for item in items if is_active_inbox_item(item, now)]
-    return InboxItemsResponse(items=[inbox_item_view(item) for item in items])
+    return InboxItemsResponse(items=[inbox_item_view(item, user) for item in items])
 
 
 @router.patch("/{item_id}", response_model=ItemResponse)
@@ -82,6 +86,8 @@ def update_inbox_item(
     if item is None:
         raise HTTPException(status_code=404, detail="Inbox item not found")
     if not inbox_visible_to_user(item, user):
+        if item.item_type == "task_review":
+            raise HTTPException(status_code=404, detail="Inbox item not found")
         raise HTTPException(status_code=403, detail="Not allowed to update this inbox item")
     if item.item_type == "research_tool_approval":
         raise HTTPException(status_code=409, detail=_RESEARCH_V2_READ_ONLY)
@@ -112,6 +118,33 @@ def update_inbox_item(
     else:
         item.snooze_until = None
         item.resolved_at = None
+    if item.item_type == "task_review":
+        if item.workspace_id is None or item.project_id is None:
+            raise HTTPException(status_code=409, detail="task_review_inbox_invalid")
+        audit = create_audit_event(
+            user.id,
+            "update_task_review_inbox",
+            "inbox_item",
+            item.id,
+            {"status": item.status, "review_id": item.metadata.get("review_id", "")},
+        )
+        try:
+            item = store.update_task_review_inbox(
+                item_id=item.id,
+                authorization=TaskReviewAuthorizationV1(
+                    actor_id=user.id,
+                    workspace_id=item.workspace_id,
+                    project_id=item.project_id,
+                ),
+                status=item.status,
+                snooze_until=item.snooze_until,
+                updated_at=now,
+                audit=audit,
+            )
+        except TaskReviewConflict as error:
+            status_code = 404 if error.code == "task_review_inbox_not_found" else 409
+            raise HTTPException(status_code=status_code, detail=error.code) from error
+        return ItemResponse(item=item)
     store.save_inbox_item(item)
     store.add_audit_event(
         create_audit_event(user.id, "update_inbox_item", "inbox_item", item.id, {"status": item.status})
@@ -367,12 +400,21 @@ def requires_dedicated_transition(item: InboxItem) -> bool:
         "prompt_injection_review",
         "sdk_tool_approval",
         "research_tool_approval",
+        "task_review",
     } or is_brief_confirmation(item)
 
 
 
 
 def inbox_visible_to_user(item: InboxItem, user: User) -> bool:
+    if item.workspace_id is not None and item.workspace_id != user.workspace_id:
+        return False
+    if item.item_type == "task_review":
+        return (
+            item.scope == Scope.PRIVATE
+            and item.user_id == user.id
+            and (item.project_id is None or store.user_can_access_project(user.id, item.project_id))
+        )
     if user.role == UserRole.ADMIN:
         return True
     if item.scope == Scope.PRIVATE:

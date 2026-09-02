@@ -31,8 +31,30 @@ test.describe.serial('task center', () => {
             download_href: null,
             created_at: '2026-09-01T00:01:00Z',
           }],
+          reviews: [{
+            review: {
+              schema_version: 'task-review-v1',
+              id: 'task_review_demo_3',
+              task_id: 'task_graph_demo_3',
+              run_id: 'run_task_demo_3',
+              artifact_ids: ['artifact_task_demo_3'],
+              artifact_hashes: ['a'.repeat(64)],
+              round: 1,
+              status: 'accepted',
+              requested_by: 'usr_current_designer',
+              reviewer_id: 'usr_team_lead',
+              task_version: 4,
+              decision_note: '交付满足任务要求。',
+              version: 2,
+              created_at: '2026-09-01T00:02:00Z',
+              updated_at: '2026-09-01T00:03:00Z',
+              decided_at: '2026-09-01T00:03:00Z',
+            },
+            allowed_actions: [],
+          }],
           runs_truncated: false,
           artifacts_truncated: false,
+          reviews_truncated: false,
         }),
       })
     })
@@ -69,6 +91,9 @@ test.describe.serial('task center', () => {
     await expect(dialog.getByRole('heading', { name: '黑板时间线' })).toBeVisible()
     await expect(dialog.getByText('以下动态已由服务端按当前账号权限过滤。')).toBeVisible()
     await expect(dialog.getByRole('heading', { name: 'Agent 执行与产物' })).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: '交付审核' })).toBeVisible()
+    await expect(dialog.getByText('第 1 轮 · 已接受')).toBeVisible()
+    await expect(dialog.getByText('交付满足任务要求。')).toBeVisible()
     await expect(dialog).toContainText('completed')
     await expect(dialog).toContainText('1 个已封存产物')
     await expect(dialog).toContainText('task_output · sealed')
@@ -175,20 +200,22 @@ test.describe.serial('task center', () => {
     expect(attempts).toBeGreaterThanOrEqual(2)
   })
 
-  test('creates, edits, assigns, and advances a durable project task', async ({ page }) => {
+  test('creates, edits, assigns, and advances a durable project task', async ({ page }, testInfo) => {
+    const initialTitle = `验证独立任务闭环-${testInfo.retry}`
+    const updatedTitle = `验证独立任务与记忆闭环-${testInfo.retry}`
     await loginAs(page)
     await page.goto('/tasks')
 
     await page.getByRole('button', { name: '新建任务' }).click()
     const createDialog = page.getByRole('dialog')
-    await createDialog.getByLabel('任务标题').fill('验证独立任务闭环')
+    await createDialog.getByLabel('任务标题').fill(initialTitle)
     await createDialog.getByLabel('任务描述').fill('不依赖外部 Provider 的项目任务')
     await createDialog.getByLabel('优先级').selectOption('p1')
     await createDialog.getByLabel('负责人').selectOption('user:usr_current_designer')
     await createDialog.getByLabel('标签').fill('standalone, task')
     await createDialog.getByRole('button', { name: '创建任务' }).click()
 
-    const card = page.locator('[data-task-id]').filter({ hasText: '验证独立任务闭环' })
+    const card = page.locator('[data-task-id]').filter({ hasText: initialTitle })
     await expect(card).toBeVisible()
     await expect(card).toContainText('待办')
     await expect(card).toContainText('P1')
@@ -199,15 +226,17 @@ test.describe.serial('task center', () => {
 
     const editDialog = page.getByRole('dialog')
     await expect(editDialog.getByRole('heading', { name: '编辑任务' })).toBeVisible()
-    await editDialog.getByLabel('任务标题').fill('验证独立任务与记忆闭环')
+    await editDialog.getByLabel('任务标题').fill(updatedTitle)
     await editDialog.getByRole('button', { name: '保存任务' }).click()
 
-    const updatedCard = page.locator('[data-task-id]').filter({ hasText: '验证独立任务与记忆闭环' })
+    const updatedCard = page.locator('[data-task-id]').filter({ hasText: updatedTitle })
     await expect(updatedCard).toBeVisible()
     await updatedCard.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '进入计划' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
     await expect(updatedCard).toContainText('已计划')
     await updatedCard.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '开始任务' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
     await expect(updatedCard).toContainText('进行中')
     await updatedCard.getByRole('button', { name: '管理' }).click()
@@ -215,7 +244,96 @@ test.describe.serial('task center', () => {
     await page.getByRole('dialog').getByRole('button', { name: '关闭' }).click()
   })
 
-  test('starts a linked Run when the runtime is ready and removes the duplicate-start action', async ({ page }) => {
+  test('suppresses detail-dependent review actions until linked execution eligibility loads', async ({ page }, testInfo) => {
+    const title = `等待审核资格加载-${testInfo.retry}`
+    await loginAs(page)
+    await page.goto('/tasks')
+    await page.getByRole('button', { name: '新建任务' }).click()
+    await page.getByRole('dialog').getByLabel('任务标题').fill(title)
+    await page.getByRole('dialog').getByRole('button', { name: '创建任务' }).click()
+    const card = page.locator('[data-task-id]').filter({ hasText: title })
+    await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '进入计划' })).toBeEnabled()
+    await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
+    await expect(card).toContainText('已计划')
+    await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '开始任务' })).toBeEnabled()
+    await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
+    await expect(card).toContainText('进行中')
+
+    let releaseDetail!: () => void
+    const detailGate = new Promise<void>((resolve) => {
+      releaseDetail = resolve
+    })
+    let detailAttempts = 0
+    await page.route('**/api/tasks/*', async (route) => {
+      if (route.request().method() !== 'GET') {
+        await route.continue()
+        return
+      }
+      await detailGate
+      detailAttempts += 1
+      if (detailAttempts === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Task detail refresh unavailable' }),
+        })
+        return
+      }
+      const response = await route.fetch()
+      const body = await response.json()
+      await route.fulfill({
+        response,
+        json: {
+          ...body,
+          item: {
+            ...body.item,
+            allowed_actions: (body.item.allowed_actions ?? []).filter((action: string) => action !== 'submit_review'),
+          },
+          runs: [{
+            id: 'run_other_owner_review',
+            status: 'completed',
+            planning_mode: 'standard',
+            artifact_count: 1,
+            can_submit_review: false,
+            navigation_href: null,
+            created_at: '2026-09-02T00:00:00Z',
+            updated_at: '2026-09-02T00:00:00Z',
+          }],
+          artifacts: [{
+            id: 'artifact_other_owner_review',
+            run_id: 'run_other_owner_review',
+            artifact_type: 'universal_synthesis',
+            content_type: 'application/json',
+            verification_state: 'sealed',
+            content_hash: 'c'.repeat(64),
+            size_bytes: 64,
+            download_href: null,
+            created_at: '2026-09-02T00:00:00Z',
+          }],
+          reviews: [],
+          runs_truncated: false,
+          artifacts_truncated: false,
+          reviews_truncated: false,
+        },
+      })
+    })
+    await card.getByRole('button', { name: '管理' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('button', { name: '进入审核' })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: '提交审核' })).toHaveCount(0)
+    releaseDetail()
+    await expect(dialog.getByRole('alert')).toContainText('任务权限与状态刷新失败，操作保持禁用')
+    await expect(dialog.getByRole('button', { name: '进入审核' })).toHaveCount(0)
+    await dialog.getByRole('button', { name: '重试任务详情' }).click()
+    await expect(dialog.getByText('completed', { exact: true })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '进入审核' })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: '提交审核' })).toHaveCount(0)
+  })
+
+  test('starts a linked Run when the runtime is ready and removes the duplicate-start action', async ({ page }, testInfo) => {
+    const title = `启动关联 Run-${testInfo.retry}`
     let runStarted = false
     await page.route('**/api/bootstrap', async (route) => {
       const response = await route.fetch()
@@ -275,13 +393,15 @@ test.describe.serial('task center', () => {
     await loginAs(page)
     await page.goto('/tasks')
     await page.getByRole('button', { name: '新建任务' }).click()
-    await page.getByRole('dialog').getByLabel('任务标题').fill('启动关联 Run')
+    await page.getByRole('dialog').getByLabel('任务标题').fill(title)
     await page.getByRole('dialog').getByRole('button', { name: '创建任务' }).click()
-    const card = page.locator('[data-task-id]').filter({ hasText: '启动关联 Run' })
+    const card = page.locator('[data-task-id]').filter({ hasText: title })
     await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '进入计划' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
     await expect(card).toContainText('已计划')
     await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '开始任务' })).toBeEnabled()
     await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
     await expect(card).toContainText('进行中')
     await card.getByRole('button', { name: '管理' }).click()
@@ -295,7 +415,267 @@ test.describe.serial('task center', () => {
     await expect(dialog.getByRole('button', { name: '启动个人 Agent' })).toHaveCount(0)
   })
 
-  test('reuses the browser command ID after an ambiguous create response', async ({ page }) => {
+  test('submits frozen artifacts and accepts the assigned Task Review', async ({ page }, testInfo) => {
+    const title = `审核封存交付物-${testInfo.retry}`
+    let taskId = ''
+    let state: 'ready' | 'pending' | 'accepted' = 'ready'
+    let baseItem: Record<string, any> | null = null
+    let submittedBody: Record<string, any> | null = null
+    let decisionBody: Record<string, any> | null = null
+    const reviewId = 'task_review_ui_1'
+    const runId = 'run_review_ui_1'
+    const artifactId = 'artifact_review_ui_1'
+    const createdAt = '2026-09-02T00:00:00Z'
+
+    await page.route('**/api/task-reviews/*/decisions', async (route) => {
+      decisionBody = JSON.parse(route.request().postData() ?? '{}')
+      state = 'accepted'
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          item: {
+            review: review('accepted', 2, '验收通过。'),
+            allowed_actions: [],
+          },
+          task: baseItem?.task ?? {},
+        }),
+      })
+    })
+    await page.route('**/api/tasks/*/reviews', async (route) => {
+      submittedBody = JSON.parse(route.request().postData() ?? '{}')
+      state = 'pending'
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          item: {
+            review: review('pending', 1, null),
+            allowed_actions: ['accept', 'request_changes', 'reject'],
+          },
+          task: baseItem?.task ?? {},
+        }),
+      })
+    })
+    await page.route('**/api/tasks/*', async (route) => {
+      const url = new URL(route.request().url())
+      const isCurrentTask = Boolean(taskId) && url.pathname === `/api/tasks/${taskId}`
+      if (route.request().method() !== 'GET' || !isCurrentTask) {
+        await route.continue()
+        return
+      }
+      const response = await route.fetch()
+      const body = await response.json()
+      baseItem = body.item
+      const baseVersion = body.item.management.version
+      const pendingReview = review('pending', 1, null)
+      const acceptedReview = review('accepted', 2, '验收通过。')
+      await route.fulfill({
+        response,
+        json: {
+          ...body,
+          item: {
+            ...body.item,
+            management: {
+              ...body.item.management,
+              delivery_stage: state === 'ready' ? 'in_progress' : state === 'pending' ? 'review' : 'done',
+              version: baseVersion + (state === 'ready' ? 0 : state === 'pending' ? 1 : 2),
+            },
+            allowed_actions: state === 'ready'
+              ? body.item.allowed_actions
+              : [],
+          },
+          runs: [{
+            id: runId,
+            status: 'completed',
+            planning_mode: 'standard',
+            artifact_count: 1,
+            can_submit_review: true,
+            navigation_href: null,
+            created_at: createdAt,
+            updated_at: createdAt,
+          }],
+          artifacts: [{
+            id: artifactId,
+            run_id: runId,
+            artifact_type: 'universal_synthesis',
+            content_type: 'application/json',
+            verification_state: 'sealed',
+            content_hash: 'a'.repeat(64),
+            size_bytes: 64,
+            download_href: null,
+            created_at: createdAt,
+          }],
+          reviews: state === 'ready' ? [] : [{
+            review: state === 'pending' ? pendingReview : acceptedReview,
+            allowed_actions: state === 'pending' ? ['accept', 'request_changes', 'reject'] : [],
+          }],
+          runs_truncated: false,
+          artifacts_truncated: false,
+          reviews_truncated: false,
+        },
+      })
+    })
+
+    function review(status: 'pending' | 'accepted', version: number, note: string | null) {
+      return {
+        schema_version: 'task-review-v1',
+        id: reviewId,
+        task_id: taskId,
+        run_id: runId,
+        artifact_ids: [artifactId],
+        artifact_hashes: ['a'.repeat(64)],
+        round: 1,
+        status,
+        requested_by: 'usr_team_lead',
+        reviewer_id: 'usr_team_lead',
+        task_version: 4,
+        decision_note: note,
+        version,
+        created_at: createdAt,
+        updated_at: createdAt,
+        decided_at: status === 'accepted' ? createdAt : null,
+      }
+    }
+
+    await loginAs(page, 'usr_team_lead', 'lead123')
+    await page.goto('/tasks')
+    await page.getByRole('button', { name: '新建任务' }).click()
+    await page.getByRole('dialog').getByLabel('任务标题').fill(title)
+    await page.getByRole('dialog').getByRole('button', { name: '创建任务' }).click()
+    const card = page.locator('[data-task-id]').filter({ hasText: title })
+    taskId = await card.getAttribute('data-task-id') ?? ''
+    expect(taskId).not.toBe('')
+    await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '进入计划' })).toBeEnabled()
+    await page.getByRole('dialog').getByRole('button', { name: '进入计划' }).click()
+    await expect(card).toContainText('已计划')
+    await card.getByRole('button', { name: '管理' }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: '开始任务' })).toBeEnabled()
+    await page.getByRole('dialog').getByRole('button', { name: '开始任务' }).click()
+    await expect(card).toContainText('进行中')
+    await card.getByRole('button', { name: '管理' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: '提交产物审核' })).toBeVisible()
+    await expect(dialog.getByText(artifactId)).toBeVisible()
+    await dialog.getByRole('button', { name: '提交审核' }).click()
+    await expect(dialog.getByRole('status')).toContainText('第 1 轮审核已提交')
+    expect(submittedBody).toEqual(expect.objectContaining({
+      run_id: runId,
+      artifact_ids: [artifactId],
+    }))
+
+    await expect(dialog.getByText('第 1 轮 · 待审核')).toBeVisible()
+    await expect(dialog.getByText(`sha256:${'a'.repeat(64)}`)).toBeVisible()
+    await expect(dialog.getByRole('link', { name: '检查冻结产物' })).toHaveAttribute(
+      'href',
+      `/api/task-reviews/${reviewId}/artifacts/${artifactId}`,
+    )
+    await dialog.getByLabel('审核意见').fill('验收通过。')
+    await dialog.getByRole('button', { name: '接受交付' }).click()
+    await expect(dialog.getByRole('status')).toContainText('交付已接受，任务已完成')
+    await expect(dialog.getByText('第 1 轮 · 已接受')).toBeVisible()
+    expect(decisionBody).toEqual(expect.objectContaining({
+      expected_version: 1,
+      decision: 'accepted',
+      decision_note: '验收通过。',
+    }))
+  })
+
+  test('opens a cross-project assigned Task Review from the Inbox projection', async ({ page }) => {
+    await loginAs(page, 'usr_team_lead', 'lead123')
+    const sourceResponse = await page.request.get('/api/tasks/task_graph_demo_1')
+    expect(sourceResponse.ok()).toBe(true)
+    const source = await sourceResponse.json()
+    const taskId = 'task_review_cross_project'
+    const reviewId = 'task_review_inbox_ui'
+    const review = {
+      schema_version: 'task-review-v1',
+      id: reviewId,
+      task_id: taskId,
+      run_id: 'run_review_inbox_ui',
+      artifact_ids: ['artifact_review_inbox_ui'],
+      artifact_hashes: ['b'.repeat(64)],
+      round: 1,
+      status: 'pending',
+      requested_by: 'usr_current_designer',
+      reviewer_id: 'usr_team_lead',
+      task_version: 4,
+      decision_note: null,
+      version: 1,
+      created_at: '2026-09-02T00:00:00Z',
+      updated_at: '2026-09-02T00:00:00Z',
+      decided_at: null,
+    }
+    await page.route(`**/api/tasks/${taskId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...source,
+          item: {
+            ...source.item,
+            task: { ...source.item.task, id: taskId, title: '跨项目交付审核' },
+            management: { ...source.item.management, delivery_stage: 'review', version: 4 },
+            allowed_actions: ['review_deliverable'],
+          },
+          runs: [],
+          artifacts: [],
+          reviews: [{ review, allowed_actions: ['accept', 'request_changes', 'reject'] }],
+          runs_truncated: false,
+          artifacts_truncated: false,
+          reviews_truncated: false,
+        }),
+      })
+    })
+    await page.route('**/api/inbox?*', async (route) => {
+      const response = await route.fetch()
+      const body = await response.json()
+      await route.fulfill({
+        response,
+        json: {
+          ...body,
+          items: [{
+            id: 'inbox_task_review_ui',
+            title: '审核任务交付：跨项目交付审核',
+            summary: '第 1 轮交付包含 1 个已封存产物。',
+            item_type: 'task_review',
+            scope: 'private',
+            user_id: 'usr_team_lead',
+            status: 'open',
+            workspace_id: 'workspace_jd_design',
+            project_id: 'project_other_member_project',
+            metadata: {
+              review_id: reviewId,
+              task_id: taskId,
+              run_id: 'run_review_inbox_ui',
+              artifact_count: '1',
+              round: '1',
+            },
+            created_at: '2026-09-02T00:00:00Z',
+            updated_at: '2026-09-02T00:00:00Z',
+            allowed_actions: ['snooze', 'open_task_review'],
+          }, ...body.items],
+        },
+      })
+    })
+    await page.goto('/knowledge?tab=pending')
+
+    const item = page.locator('[data-inbox-item-id="inbox_task_review_ui"]')
+    await expect(item).toContainText('审核任务交付')
+    await expect(item.getByRole('button', { name: '标记已解决' })).toHaveCount(0)
+    await item.getByRole('button', { name: '打开任务审核' }).click()
+
+    await expect(page).toHaveURL(/\/tasks(?:\?|$)/)
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: '编辑任务' })).toBeVisible()
+    await expect(dialog.getByLabel('任务标题')).toHaveValue('跨项目交付审核')
+    await expect(dialog.getByText('第 1 轮 · 待审核')).toBeVisible()
+  })
+
+  test('reuses the browser command ID after an ambiguous create response', async ({ page }, testInfo) => {
+    const title = `验证幂等创建-${testInfo.retry}`
     await loginAs(page)
     const commandIds: string[] = []
     let attempts = 0
@@ -317,24 +697,25 @@ test.describe.serial('task center', () => {
     await page.goto('/tasks')
     await page.getByRole('button', { name: '新建任务' }).click()
     const dialog = page.getByRole('dialog')
-    await dialog.getByLabel('任务标题').fill('验证幂等创建')
+    await dialog.getByLabel('任务标题').fill(title)
     await dialog.getByRole('button', { name: '创建任务' }).click()
     await expect(dialog.getByRole('alert')).toBeVisible()
     await dialog.getByRole('button', { name: '创建任务' }).click()
 
-    await expect(page.locator('[data-task-id]').filter({ hasText: '验证幂等创建' })).toHaveCount(1)
+    await expect(page.locator('[data-task-id]').filter({ hasText: title })).toHaveCount(1)
     expect(commandIds).toHaveLength(2)
     expect(commandIds[1]).toBe(commandIds[0])
   })
 
-  test('concurrent archive converts a stale edit dialog to read-only without losing its draft', async ({ page, request }) => {
+  test('concurrent archive converts a stale edit dialog to read-only without losing its draft', async ({ page, request }, testInfo) => {
+    const title = `并发归档测试-${testInfo.retry}`
     await loginAs(page)
     await page.goto('/tasks')
     await page.getByRole('button', { name: '新建任务' }).click()
     const createDialog = page.getByRole('dialog')
-    await createDialog.getByLabel('任务标题').fill('并发归档测试')
+    await createDialog.getByLabel('任务标题').fill(title)
     await createDialog.getByRole('button', { name: '创建任务' }).click()
-    const card = page.locator('[data-task-id]').filter({ hasText: '并发归档测试' })
+    const card = page.locator('[data-task-id]').filter({ hasText: title })
     await expect(card).toBeVisible()
     const taskId = await card.getAttribute('data-task-id')
     expect(taskId).toBeTruthy()
@@ -349,13 +730,13 @@ test.describe.serial('task center', () => {
     let version = 1
     for (const action of ['plan', 'start', 'submit_review', 'complete']) {
       const transition = await request.post(`/api/tasks/${taskId}/transitions`, {
-        data: { command_id: `archive-race-${action}`, expected_version: version, action },
+        data: { command_id: `archive-race-${testInfo.retry}-${action}`, expected_version: version, action },
       })
       expect(transition.ok()).toBe(true)
       version += 1
     }
     const archive = await request.post(`/api/tasks/${taskId}/archive`, {
-      data: { command_id: 'archive-race-final', expected_version: version },
+      data: { command_id: `archive-race-final-${testInfo.retry}`, expected_version: version },
     })
     expect(archive.ok()).toBe(true)
 

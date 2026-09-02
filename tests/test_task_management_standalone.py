@@ -1,19 +1,29 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
+from agentmesh.artifacts import UniversalSynthesisEnvelopeV1, V1VerifiedArtifactStore
+from agentmesh.canonical_json import canonical_json_bytes
 from agentmesh.models import (
     Agent,
+    AgentPlanningContractVersion,
+    AgentRun,
+    AgentRunStatus,
+    Artifact,
+    ArtifactVerificationState,
     AuditEvent,
     ChatThread,
     ChatThreadKind,
     CollaborationStage,
     Intent,
     Project,
+    SkillOrchestrationRequestMode,
+    SkillSynthesisResult,
     Task,
     TaskManagementMetadataV1,
     TaskStatus,
@@ -30,6 +40,8 @@ from agentmesh.task_management.contracts import (
     TaskUpdateRequest,
 )
 from agentmesh.task_management.service import TaskManagementError, TaskManagementService
+from agentmesh.task_review.contracts import TaskReviewDecisionRequest, TaskReviewSubmitRequest
+from agentmesh.task_review.service import TaskCompletionService
 
 
 def test_concurrent_task_create_replays_one_durable_command(monkeypatch, tmp_path: Path) -> None:
@@ -462,4 +474,118 @@ def test_task_management_survives_restart_without_providers(monkeypatch, tmp_pat
     assert restored.management.delivery_stage == "planned"
     assert restored.management.version == 2
     assert restarted.get_chat_thread(restored.task.thread_id).kind == "task"
+    restarted.close()
+
+
+def test_task_review_survives_restart_without_providers(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AGENTMESH_TASK_MANAGEMENT", "write")
+    monkeypatch.setenv("AGENTMESH_EMBEDDING_ENABLED", "false")
+    monkeypatch.delenv("AGENTMESH_LLM_API_KEY", raising=False)
+    database = tmp_path / "standalone-task-review.sqlite3"
+    first = SQLiteStore(database)
+    workspace = first.save_workspace(Workspace(name="Review", description="Standalone review"))
+    project = first.save_project(Project(workspace_id=workspace.id, name="Review project", goal="Review locally"))
+    reviewer = first.save_user(
+        User(
+            workspace_id=workspace.id,
+            default_project_id=project.id,
+            name="Local reviewer",
+            role="team_lead",
+            personal_agent_id="agent_local_reviewer",
+        )
+    )
+    project.member_ids = [reviewer.id]
+    first.save_project(project)
+    task_service = TaskManagementService(first)
+    created = task_service.create_task(
+        TaskCreateRequest(command_id="standalone-review-create", title="Review without providers"),
+        reviewer,
+    )
+    task_service.transition_task(
+        created.task.id,
+        TaskTransitionRequest(command_id="standalone-review-plan", expected_version=1, action="plan"),
+        reviewer,
+    )
+    started = task_service.transition_task(
+        created.task.id,
+        TaskTransitionRequest(command_id="standalone-review-start", expected_version=2, action="start"),
+        reviewer,
+    )
+    run, claimed = first.claim_new_agent_run(
+        AgentRun(
+            id="run_standalone_review",
+            thread_id=started.task.thread_id,
+            task_id=started.task.id,
+            user_id=reviewer.id,
+            workspace_id=workspace.id,
+            project_id=project.id,
+            input_text="Local deterministic output",
+            status=AgentRunStatus.COMPLETED,
+            requested_orchestration_mode=SkillOrchestrationRequestMode.AUTO,
+            orchestration_mode="preview",
+            planning_contract_version=AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1,
+        )
+    )
+    assert claimed is True
+    envelope = UniversalSynthesisEnvelopeV1(
+        run_id=run.id,
+        requirement_version_id="standalone-review-requirement",
+        plan_id="standalone-review-plan",
+        plan_version=1,
+        synthesis=SkillSynthesisResult(summary="Provider-free review output"),
+    )
+    content = canonical_json_bytes(envelope.model_dump(mode="json")).decode()
+    artifact = Artifact(
+        id="artifact_standalone_review",
+        run_id=run.id,
+        workspace_id=workspace.id,
+        project_id=project.id,
+        user_id=reviewer.id,
+        artifact_type="universal_synthesis",
+        content_type="application/json",
+        content=content,
+        verification_state=ArtifactVerificationState.SEALED,
+        schema_version="universal-synthesis-v1",
+        content_hash=hashlib.sha256(content.encode()).hexdigest(),
+        size_bytes=len(content.encode()),
+        requirement_version_id=envelope.requirement_version_id,
+        plan_version_id=f"{envelope.plan_id}:v{envelope.plan_version}",
+    )
+    V1VerifiedArtifactStore(first).insert_sealed(artifact)
+    submitted = TaskCompletionService(first).submit_review(
+        started.task.id,
+        TaskReviewSubmitRequest(
+            command_id="standalone-review-submit",
+            expected_task_version=3,
+            run_id=run.id,
+            artifact_ids=[artifact.id],
+        ),
+        reviewer,
+    )
+    first.close()
+
+    restarted = SQLiteStore(database)
+    completion = TaskCompletionService(restarted)
+    restored_review = restarted.get_task_review(submitted.item.review.id)
+    assert restored_review is not None
+    assert restored_review.status == "pending"
+    decided = completion.decide_review(
+        restored_review.id,
+        TaskReviewDecisionRequest(
+            command_id="standalone-review-accept",
+            expected_version=1,
+            decision="accepted",
+        ),
+        reviewer,
+    )
+
+    assert decided.item.review.status == "accepted"
+    assert decided.task.management is not None
+    assert decided.task.management.delivery_stage == "done"
+    assert next(
+        item for item in restarted.inbox_items if item.metadata.get("review_id") == restored_review.id
+    ).status == "resolved"
+    assert [
+        event.action for event in restarted.audit_events if event.target_id == restored_review.id
+    ] == ["submit_task_review", "decide_task_review"]
     restarted.close()

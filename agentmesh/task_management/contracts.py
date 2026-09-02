@@ -18,6 +18,7 @@ from agentmesh.models import (
     TaskType,
     now_utc,
 )
+from agentmesh.task_review.contracts import TaskReviewViewV1
 
 
 class TaskManagementAction(StrEnum):
@@ -33,6 +34,7 @@ class TaskManagementAction(StrEnum):
     CANCEL = "cancel"
     ARCHIVE = "archive"
     START_AGENT_RUN = "start_agent_run"
+    REVIEW_DELIVERABLE = "review_deliverable"
 
 
 class TaskTransitionAction(StrEnum):
@@ -123,6 +125,8 @@ class TaskCommandAuthorizationV1(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=120)
     project_id: str = Field(min_length=1, max_length=120)
     require_project_manager: bool = False
+    require_no_linked_runs: bool = False
+    require_no_pending_review: bool = True
     validate_assignee: bool = False
     assignee_kind: TaskAssigneeKind | None = None
     assignee_id: str | None = Field(default=None, max_length=120)
@@ -172,6 +176,7 @@ class TaskRunSummaryV1(BaseModel):
     status: AgentRunStatus
     planning_mode: AgentPlanningMode
     artifact_count: int = Field(ge=0)
+    can_submit_review: bool = False
     navigation_href: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -193,5 +198,7 @@ class TaskManagementDetailV1(BaseModel):
     item: TaskManagementViewV1
     runs: list[TaskRunSummaryV1] = Field(default_factory=list)
     artifacts: list[TaskArtifactSummaryV1] = Field(default_factory=list)
+    reviews: list[TaskReviewViewV1] = Field(default_factory=list)
     runs_truncated: bool = False
     artifacts_truncated: bool = False
+    reviews_truncated: bool = False

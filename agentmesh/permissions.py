@@ -16,6 +16,7 @@ from agentmesh.models import (
 ACTION_ACCEPT_TEAM_MEMORY = "accept_team_memory"
 ACTION_MANAGE_PERMISSION_POLICIES = "manage_permission_policies"
 ACTION_MANAGE_PROJECT_TASKS = "manage_project_tasks"
+ACTION_REVIEW_TASK_DELIVERABLES = "review_task_deliverables"
 ACTION_MANAGE_PUBLIC_AGENT = "manage_public_agent"
 ACTION_MANAGE_TEAM_MEMBERSHIP = "manage_team_membership"
 ACTION_MANAGE_USERS = "manage_users"
@@ -31,12 +32,14 @@ DEFAULT_ROLE_POLICIES: dict[UserRole, set[str]] = {
         ACTION_ACCEPT_TEAM_MEMORY,
         ACTION_MANAGE_PROJECT_TASKS,
         ACTION_MANAGE_PUBLIC_AGENT,
+        ACTION_REVIEW_TASK_DELIVERABLES,
     },
     UserRole.ADMIN: {
         ACTION_ACCEPT_TEAM_MEMORY,
         ACTION_MANAGE_PROJECT_TASKS,
         ACTION_MANAGE_PUBLIC_AGENT,
         ACTION_MANAGE_TEAM_MEMBERSHIP,
+        ACTION_REVIEW_TASK_DELIVERABLES,
     },
 }
 
@@ -210,6 +213,13 @@ def default_permission_policy_rules() -> list[PermissionPolicyRule]:
             action=ACTION_MANAGE_PROJECT_TASKS,
             effect="allow",
             description="组长可以管理项目任务并跨成员或公共 Agent 分派。",
+        ),
+        PermissionPolicyRule(
+            id="perm_team_lead_review_task_deliverables",
+            role=UserRole.TEAM_LEAD,
+            action=ACTION_REVIEW_TASK_DELIVERABLES,
+            effect="allow",
+            description="组长可以审核项目任务的已封存交付物。",
         ),
         PermissionPolicyRule(
             id="perm_admin_manage_team_membership",

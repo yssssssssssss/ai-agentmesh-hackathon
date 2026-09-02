@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   ChevronRight,
@@ -70,8 +70,10 @@ export function Tasks() {
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [mutationNotice, setMutationNotice] = useState<string | null>(null)
   const [runStarting, setRunStarting] = useState(false)
+  const [formDetailReadyTaskId, setFormDetailReadyTaskId] = useState<string | null>(null)
   const saveCommandId = useRef<string | null>(null)
   const actionCommand = useRef<{ action: TaskManagementAction; id: string } | null>(null)
+  const reviewCommand = useRef<{ key: string; id: string } | null>(null)
   const context = {
     userId: user?.id ?? '',
     workspaceId: user?.workspace_id ?? '',
@@ -155,6 +157,8 @@ export function Tasks() {
     setMutationNotice(null)
     saveCommandId.current = null
     actionCommand.current = null
+    reviewCommand.current = null
+    setFormDetailReadyTaskId(null)
     setTaskFormOpen(true)
   }
   const openEdit = (task: ManagedTask) => {
@@ -163,6 +167,8 @@ export function Tasks() {
     setMutationNotice(null)
     saveCommandId.current = null
     actionCommand.current = null
+    reviewCommand.current = null
+    setFormDetailReadyTaskId(null)
     setTaskFormOpen(true)
   }
   const closeForm = () => {
@@ -171,6 +177,62 @@ export function Tasks() {
     setMutationNotice(null)
     saveCommandId.current = null
     actionCommand.current = null
+    reviewCommand.current = null
+    setFormDetailReadyTaskId(null)
+  }
+
+  useEffect(() => {
+    if (!taskFormOpen || !editingTask) return
+    const taskId = editingTask.task.id
+    let cancelled = false
+    setFormDetailReadyTaskId(null)
+    void managedDetailQuery.refetch().then((result) => {
+      if (
+        !cancelled
+        && result.error == null
+        && result.data?.item.task.id === taskId
+      ) {
+        setFormDetailReadyTaskId(taskId)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [editingTask?.task.id, taskFormOpen])
+
+  useEffect(() => {
+    const managedTaskId = searchParams.get('manage')?.trim()
+    if (!managedTaskId || taskFormOpen || managedQuery.isLoading) return
+    let cancelled = false
+    const openRequestedTask = async () => {
+      let target = managedByTaskId.get(managedTaskId) ?? null
+      if (!target) {
+        try {
+          target = (await taskManagementApi.get(managedTaskId)).item
+        } catch {
+          target = null
+        }
+      }
+      if (cancelled) return
+      if (target) openEdit(target)
+      const next = new URLSearchParams(searchParams)
+      next.delete('manage')
+      setSearchParams(next, { replace: true })
+    }
+    void openRequestedTask()
+    return () => {
+      cancelled = true
+    }
+  }, [managedByTaskId, managedQuery.isLoading, searchParams, setSearchParams, taskFormOpen])
+
+  const retryFormDetail = async () => {
+    if (!editingTask) return
+    const taskId = editingTask.task.id
+    setFormDetailReadyTaskId(null)
+    const result = await managedDetailQuery.refetch()
+    if (result.error == null && result.data?.item.task.id === taskId) {
+      setFormDetailReadyTaskId(taskId)
+    }
   }
   const refreshEditingTaskAfterConflict = async (error: unknown) => {
     if (!(error instanceof ApiError) || error.status !== 409 || !editingTask) return
@@ -281,18 +343,99 @@ export function Tasks() {
       setRunStarting(false)
     }
   }
+  const refreshOpenTask = async () => {
+    const [detail] = await Promise.all([
+      managedDetailQuery.refetch(),
+      cardsQuery.refetch(),
+      managedQuery.refetch(),
+    ])
+    if (detail.data) setEditingTask(detail.data.item)
+  }
+  const submitArtifactReview = async (runId: string, artifactIds: string[]) => {
+    const current = managedDetailQuery.data?.item ?? editingTask
+    if (!current) return
+    setMutationError(null)
+    setMutationNotice(null)
+    const key = `submit:${current.management.version}:${runId}:${artifactIds.join(',')}`
+    const stableCommand = reviewCommand.current?.key === key
+      ? reviewCommand.current
+      : { key, id: commandId('submit-review') }
+    reviewCommand.current = stableCommand
+    try {
+      const response = await mutations.submitReview.mutateAsync({
+        taskId: current.task.id,
+        payload: {
+          command_id: stableCommand.id,
+          expected_task_version: current.management.version,
+          run_id: runId,
+          artifact_ids: artifactIds,
+        },
+      })
+      await refreshOpenTask()
+      setMutationNotice(`第 ${response.item.review.round} 轮审核已提交。`)
+      reviewCommand.current = null
+    } catch (error) {
+      await refreshEditingTaskAfterConflict(error)
+      setMutationError(taskManagementErrorMessage(error))
+    }
+  }
+  const decideArtifactReview = async (
+    reviewId: string,
+    expectedVersion: number,
+    decision: 'accepted' | 'changes_requested' | 'rejected',
+    decisionNote: string | null,
+  ) => {
+    setMutationError(null)
+    setMutationNotice(null)
+    const key = `decide:${reviewId}:${expectedVersion}:${decision}:${decisionNote ?? ''}`
+    const stableCommand = reviewCommand.current?.key === key
+      ? reviewCommand.current
+      : { key, id: commandId('decide-review') }
+    reviewCommand.current = stableCommand
+    try {
+      await mutations.decideReview.mutateAsync({
+        reviewId,
+        payload: {
+          command_id: stableCommand.id,
+          expected_version: expectedVersion,
+          decision,
+          decision_note: decisionNote,
+        },
+      })
+      await refreshOpenTask()
+      setMutationNotice(
+        decision === 'accepted' ? '交付已接受，任务已完成。'
+          : decision === 'changes_requested' ? '已要求修改，任务返回进行中。'
+            : '交付已拒绝，任务返回进行中。',
+      )
+      reviewCommand.current = null
+    } catch (error) {
+      await refreshEditingTaskAfterConflict(error)
+      setMutationError(taskManagementErrorMessage(error))
+    }
+  }
   const mutationPending = runStarting
     || mutations.create.isPending
     || mutations.update.isPending
     || mutations.transition.isPending
     || mutations.archive.isPending
-  const taskForForm = (
+    || mutations.submitReview.isPending
+    || mutations.decideReview.isPending
+  const currentDetailTask = (
     editingTask
     && managedDetailQuery.data?.item.task.id === editingTask.task.id
     && managedDetailQuery.data.item.management.version >= editingTask.management.version
   )
     ? managedDetailQuery.data.item
     : editingTask
+  const formDetailUsable = (
+    editingTask !== null
+    && formDetailReadyTaskId === editingTask.task.id
+    && managedDetailQuery.error == null
+  )
+  const taskForForm = currentDetailTask && editingTask && !formDetailUsable
+    ? { ...currentDetailTask, allowed_actions: [] }
+    : currentDetailTask
 
   return (
     <div className="space-y-6" lang="zh-CN">
@@ -377,19 +520,36 @@ export function Tasks() {
         task={taskForForm}
         users={assignableUsers}
         agents={assignableAgents}
-        submitting={mutationPending}
+        submitting={
+          mutationPending
+          || (editingTask !== null && !formDetailUsable)
+          || managedDetailQuery.isFetching
+        }
         runtimeReady={bootstrap?.agent_runtime_ready === true && !managedDetailQuery.isLoading && !managedDetailQuery.error}
         runs={managedDetailQuery.data?.runs ?? []}
         artifacts={managedDetailQuery.data?.artifacts ?? []}
+        reviews={managedDetailQuery.data?.reviews ?? []}
         historyTruncated={
           managedDetailQuery.data?.runs_truncated === true
           || managedDetailQuery.data?.artifacts_truncated === true
         }
+        reviewsTruncated={managedDetailQuery.data?.reviews_truncated === true}
+        detailError={
+          editingTask && !formDetailUsable && managedDetailQuery.error
+            ? taskManagementErrorMessage(managedDetailQuery.error)
+            : null
+        }
+        detailRetrying={managedDetailQuery.isFetching}
         error={mutationError}
         notice={mutationNotice}
         onClose={closeForm}
+        onRetryDetail={() => void retryFormDetail()}
         onSubmit={(values) => void saveTask(values)}
         onAction={(action, reason) => void applyTaskAction(action, reason)}
+        onSubmitReview={(runId, artifactIds) => void submitArtifactReview(runId, artifactIds)}
+        onDecideReview={(reviewId, version, decision, note) => (
+          void decideArtifactReview(reviewId, version, decision, note)
+        )}
       />
 
       <TaskDetailDrawer

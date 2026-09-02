@@ -108,6 +108,9 @@ from agentmesh.models import (
     Task,
     TaskAssigneeKind,
     TaskDeliveryStage,
+    TaskManagementMetadataV1,
+    TaskReviewStatus,
+    TaskReviewV1,
     Team,
     TeamMembership,
     ToolDefinition,
@@ -134,6 +137,10 @@ from agentmesh.skill_runtime.universal_policy import universal_retrieval_policy
 from agentmesh.task_management.contracts import (
     TaskCommandAuthorizationV1,
     TaskCommandReceiptV1,
+)
+from agentmesh.task_review.contracts import (
+    TaskReviewAuthorizationV1,
+    TaskReviewCommandReceiptV1,
 )
 from agentmesh.vector_index import VectorIndex, VectorState, VectorStatus, VectorWork
 
@@ -203,10 +210,34 @@ class TaskCommandConflict(RuntimeError):
         self.code = code
 
 
+class TaskReviewConflict(RuntimeError):
+    """A Task Review identity, authorization, or state precondition failed."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+class BlackboardHandoffConflict(RuntimeError):
+    """A Blackboard handoff could not commit against its expected Task state."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 @dataclass(frozen=True, slots=True)
 class TaskCommandResult:
     task: Task
     receipt: TaskCommandReceiptV1
+    replayed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TaskReviewCommandResult:
+    review: TaskReviewV1
+    task: Task
+    receipt: TaskReviewCommandReceiptV1
     replayed: bool
 
 
@@ -459,7 +490,11 @@ class SQLiteStore:
                 self._init_schema()
                 self._backfill_artifact_projections()
                 self._backfill_fts()
+                if enforce_writer_lock:
+                    self._checkpoint_initialization()
                 self._backfill_vec()
+                if enforce_writer_lock and self._skill_vector_thread is None:
+                    self._checkpoint_initialization()
         except BaseException:
             self.close()
             raise
@@ -536,6 +571,14 @@ class SQLiteStore:
                 raise RuntimeError("SQLite WAL mode is required")
             connection.execute("PRAGMA synchronous = NORMAL")
             self._ensure_schema(connection)
+
+    def _checkpoint_initialization(self) -> None:
+        """Flush startup schema/backfills before exposing the process-owned writer."""
+        with sqlite3.connect(self.db_path, timeout=_SQLITE_BUSY_TIMEOUT_SECONDS) as connection:
+            connection.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS}")
+            result = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if result is None or int(result[0]) != 0:
+                raise RuntimeError("sqlite_initialization_checkpoint_failed")
 
     def _backfill_artifact_projections(self) -> None:
         with sqlite3.connect(self.db_path) as connection:
@@ -885,6 +928,39 @@ class SQLiteStore:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS task_reviews (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                reviewer_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                round INTEGER NOT NULL,
+                version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(task_id, round),
+                FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE RESTRICT
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_task_reviews_task_round "
+            "ON task_reviews(task_id, round DESC, id DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_task_reviews_reviewer_status "
+            "ON task_reviews(reviewer_id, status, updated_at DESC)"
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_task_reviews_one_pending
+            ON task_reviews(task_id)
+            WHERE status = 'pending'
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS skill_plans (
                 id TEXT PRIMARY KEY,
                 run_id TEXT UNIQUE NOT NULL,
@@ -1120,6 +1196,7 @@ class SQLiteStore:
             connection.execute("DELETE FROM research_plan_versions")
             connection.execute("DELETE FROM research_requirement_versions")
             connection.execute("DELETE FROM research_workflows")
+            connection.execute("DELETE FROM task_reviews")
             connection.execute("DELETE FROM agent_runs")
             connection.execute("DELETE FROM artifacts")
             connection.execute("DELETE FROM skill_node_results")
@@ -1876,6 +1953,29 @@ class SQLiteStore:
                 raise TaskCommandConflict("task_action_forbidden")
             if management is not None and management.archived_at is not None:
                 raise TaskCommandConflict("task_archived")
+            if authorization.require_no_pending_review:
+                pending_review = connection.execute(
+                    """
+                    SELECT 1 FROM task_reviews
+                    WHERE (task_id = ? OR json_extract(payload, '$.task_id') = ?)
+                      AND (status = 'pending' OR json_extract(payload, '$.status') = 'pending')
+                    LIMIT 1
+                    """,
+                    (task.id, task.id),
+                ).fetchone()
+                if pending_review is not None:
+                    raise TaskCommandConflict("task_review_pending")
+            if authorization.require_no_linked_runs:
+                linked_run = connection.execute(
+                    """
+                    SELECT 1 FROM agent_runs
+                    WHERE task_id = ? OR json_extract(payload, '$.task_id') = ?
+                    LIMIT 1
+                    """,
+                    (task.id, task.id),
+                ).fetchone()
+                if linked_run is not None:
+                    raise TaskCommandConflict("task_artifact_review_required")
         if not authorization.validate_assignee or authorization.assignee_id is None:
             return
         if authorization.assignee_kind == TaskAssigneeKind.USER:
@@ -2045,6 +2145,757 @@ class SQLiteStore:
                 )
         return TaskCommandResult(task=merged_task, receipt=persisted_receipt, replayed=False)
 
+    @staticmethod
+    def _task_review_from_row(row: sqlite3.Row) -> TaskReviewV1:
+        try:
+            review = TaskReviewV1.model_validate_json(row["payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise TaskReviewConflict("task_review_integrity_failed") from None
+        if not (
+            row["id"] == review.id
+            and row["task_id"] == review.task_id
+            and row["run_id"] == review.run_id
+            and row["reviewer_id"] == review.reviewer_id
+            and row["status"] == review.status.value
+            and row["round"] == review.round
+            and row["version"] == review.version
+            and row["created_at"] == review.created_at.isoformat()
+            and row["updated_at"] == review.updated_at.isoformat()
+        ):
+            raise TaskReviewConflict("task_review_integrity_failed")
+        return review
+
+    @staticmethod
+    def _task_review_receipt_from_connection(
+        connection: sqlite3.Connection,
+        receipt_id: str,
+    ) -> TaskReviewCommandReceiptV1 | None:
+        row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("task_review_command_receipts", receipt_id),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return TaskReviewCommandReceiptV1.model_validate_json(row["payload"])
+        except (RecursionError, TypeError, ValueError):
+            raise TaskReviewConflict("task_review_receipt_integrity_failed") from None
+
+    @staticmethod
+    def _validate_task_review_replay(
+        current: TaskReviewCommandReceiptV1,
+        proposed: TaskReviewCommandReceiptV1,
+    ) -> None:
+        if (
+            current.user_id != proposed.user_id
+            or current.command_id != proposed.command_id
+            or current.operation != proposed.operation
+            or current.request_hash != proposed.request_hash
+        ):
+            raise TaskReviewConflict("task_review_command_conflict")
+
+    def get_task_review_command_receipt(
+        self,
+        receipt_id: str,
+    ) -> TaskReviewCommandReceiptV1 | None:
+        with self._read_connect() as connection:
+            return self._task_review_receipt_from_connection(connection, receipt_id)
+
+    def get_task_review(self, review_id: str) -> TaskReviewV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM task_reviews WHERE id = ?",
+                (review_id,),
+            ).fetchone()
+        return self._task_review_from_row(row) if row is not None else None
+
+    def list_task_reviews(self, task_id: str, *, limit: int = 50) -> list[TaskReviewV1]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM task_reviews
+                WHERE task_id = ? OR json_extract(payload, '$.task_id') = ?
+                ORDER BY round DESC, id DESC
+                LIMIT ?
+                """,
+                (task_id, task_id, limit),
+            ).fetchall()
+        return [self._task_review_from_row(row) for row in rows]
+
+    def next_task_review_round(self, task_id: str) -> int:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT COALESCE(MAX(round), 0) + 1 AS value
+                FROM task_reviews
+                WHERE task_id = ? OR json_extract(payload, '$.task_id') = ?
+                """,
+                (task_id, task_id),
+            ).fetchone()
+        return int(row["value"])
+
+    def has_pending_task_review(self, task_id: str) -> bool:
+        return self.get_pending_task_review(task_id) is not None
+
+    def get_pending_task_review(self, task_id: str) -> TaskReviewV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM task_reviews
+                WHERE (task_id = ? OR json_extract(payload, '$.task_id') = ?)
+                  AND (status = 'pending' OR json_extract(payload, '$.status') = 'pending')
+                LIMIT 1
+                """,
+                (task_id, task_id),
+            ).fetchone()
+        return self._task_review_from_row(row) if row is not None else None
+
+    def has_accepted_task_review(self, task_id: str) -> bool:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM task_reviews
+                WHERE (task_id = ? OR json_extract(payload, '$.task_id') = ?)
+                  AND (status = 'accepted' OR json_extract(payload, '$.status') = 'accepted')
+                LIMIT 1
+                """,
+                (task_id, task_id),
+            ).fetchone()
+        if row is None:
+            return False
+        return self._task_review_from_row(row).status is TaskReviewStatus.ACCEPTED
+
+    def task_has_linked_runs(self, task_id: str) -> bool:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM agent_runs
+                WHERE task_id = ? OR json_extract(payload, '$.task_id') = ?
+                LIMIT 1
+                """,
+                (task_id, task_id),
+            ).fetchone()
+        return row is not None
+
+    def update_task_review_inbox(
+        self,
+        *,
+        item_id: str,
+        authorization: TaskReviewAuthorizationV1,
+        status: str,
+        snooze_until: datetime | None,
+        updated_at: datetime,
+        audit: AuditEvent,
+    ) -> InboxItem:
+        from agentmesh.permissions import ACTION_REVIEW_TASK_DELIVERABLES, has_permission
+
+        if status not in {"open", "snoozed"}:
+            raise TaskReviewConflict("task_review_inbox_transition_invalid")
+        if status == "snoozed" and (snooze_until is None or snooze_until <= updated_at):
+            raise TaskReviewConflict("task_review_inbox_transition_invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'inbox_items' AND id = ?",
+                (item_id,),
+            ).fetchone()
+            if row is None:
+                raise TaskReviewConflict("task_review_inbox_not_found")
+            try:
+                item = InboxItem.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise TaskReviewConflict("task_review_inbox_invalid") from None
+            if (
+                item.item_type != "task_review"
+                or item.scope is not Scope.PRIVATE
+                or item.user_id != authorization.actor_id
+                or item.workspace_id != authorization.workspace_id
+                or item.project_id != authorization.project_id
+            ):
+                raise TaskReviewConflict("task_review_inbox_not_found")
+            actor, _project, rules = self._task_review_actor_context(connection, authorization)
+            if not has_permission(actor, ACTION_REVIEW_TASK_DELIVERABLES, rules):
+                raise TaskReviewConflict("task_review_inbox_not_found")
+            review_id = item.metadata.get("review_id")
+            review_row = connection.execute(
+                "SELECT * FROM task_reviews WHERE id = ?",
+                (review_id,),
+            ).fetchone()
+            if review_row is None:
+                raise TaskReviewConflict("task_review_inbox_invalid")
+            review = self._task_review_from_row(review_row)
+            if (
+                review.reviewer_id != actor.id
+                or review.task_id != item.metadata.get("task_id")
+                or review.run_id != item.metadata.get("run_id")
+                or review.status is not TaskReviewStatus.PENDING
+                or item.status not in {"open", "snoozed"}
+            ):
+                raise TaskReviewConflict("task_review_inbox_resolved")
+            item.status = status
+            item.updated_at = updated_at
+            item.resolved_at = None
+            if status == "snoozed":
+                item.acknowledged_at = updated_at
+                item.snooze_until = snooze_until
+            else:
+                item.snooze_until = None
+            if not (
+                audit.actor == actor.id
+                and audit.action == "update_task_review_inbox"
+                and audit.target_type == "inbox_item"
+                and audit.target_id == item.id
+                and audit.workspace_id == authorization.workspace_id
+                and audit.project_id == authorization.project_id
+                and audit.metadata == {"status": status, "review_id": review.id}
+            ):
+                raise TaskReviewConflict("task_review_side_record_invalid")
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = 'inbox_items' AND id = ?",
+                (item.model_dump_json(), item.id),
+            )
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES ('audit_events', ?, ?)",
+                (audit.id, audit.model_dump_json()),
+            )
+        return item
+
+    @staticmethod
+    def _task_review_actor_context(
+        connection: sqlite3.Connection,
+        authorization: TaskReviewAuthorizationV1,
+    ) -> tuple[User, Project, list[PermissionPolicyRule]]:
+        actor_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'users' AND id = ?",
+            (authorization.actor_id,),
+        ).fetchone()
+        actor = User.model_validate_json(actor_row["payload"]) if actor_row is not None else None
+        if (
+            actor is None
+            or actor.status != "active"
+            or actor.workspace_id != authorization.workspace_id
+        ):
+            raise TaskReviewConflict("task_review_actor_not_authorized")
+        project_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+            (authorization.project_id,),
+        ).fetchone()
+        if project_row is None:
+            raise TaskReviewConflict("task_not_found")
+        project = Project.model_validate_json(project_row["payload"])
+        if (
+            project.workspace_id != actor.workspace_id
+            or (project.member_ids and actor.id not in project.member_ids)
+        ):
+            raise TaskReviewConflict("task_not_found")
+        rule_rows = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'permission_policy_rules' ORDER BY created_order"
+        ).fetchall()
+        rules = [PermissionPolicyRule.model_validate_json(row["payload"]) for row in rule_rows]
+        return actor, project, rules
+
+    @staticmethod
+    def _select_task_reviewer_from_connection(
+        connection: sqlite3.Connection,
+        *,
+        project: Project,
+        requested_by: str,
+        rules: list[PermissionPolicyRule],
+    ) -> User | None:
+        from agentmesh.permissions import ACTION_REVIEW_TASK_DELIVERABLES, has_permission
+
+        rows = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'users' ORDER BY id"
+        ).fetchall()
+        candidates: list[User] = []
+        for row in rows:
+            candidate = User.model_validate_json(row["payload"])
+            if (
+                candidate.status != "active"
+                or candidate.workspace_id != project.workspace_id
+                or (project.member_ids and candidate.id not in project.member_ids)
+                or not has_permission(candidate, ACTION_REVIEW_TASK_DELIVERABLES, rules)
+            ):
+                continue
+            candidates.append(candidate)
+        role_order = {
+            UserRole.TEAM_LEAD.value: 0,
+            UserRole.ADMIN.value: 1,
+            UserRole.USER.value: 2,
+        }
+        candidates.sort(
+            key=lambda candidate: (
+                candidate.id != requested_by,
+                role_order.get(str(candidate.role), 3),
+                candidate.id,
+            )
+        )
+        return candidates[0] if candidates else None
+
+    def select_task_reviewer(self, *, project_id: str, requested_by: str) -> User | None:
+        with self._read_connect() as connection:
+            project_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+                (project_id,),
+            ).fetchone()
+            if project_row is None:
+                return None
+            project = Project.model_validate_json(project_row["payload"])
+            rule_rows = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'permission_policy_rules' ORDER BY created_order"
+            ).fetchall()
+            rules = [PermissionPolicyRule.model_validate_json(row["payload"]) for row in rule_rows]
+            return self._select_task_reviewer_from_connection(
+                connection,
+                project=project,
+                requested_by=requested_by,
+                rules=rules,
+            )
+
+    @classmethod
+    def _validate_task_review_artifacts(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        review: TaskReviewV1,
+        workspace_id: str,
+        project_id: str,
+    ) -> AgentRun:
+        run_row = connection.execute(
+            "SELECT * FROM agent_runs WHERE id = ?",
+            (review.run_id,),
+        ).fetchone()
+        if run_row is None:
+            raise TaskReviewConflict("task_review_run_not_found")
+        try:
+            run = cls._decode_agent_run_row(run_row)
+        except (RecursionError, TypeError, ValueError, ResearchStoreConflict):
+            raise TaskReviewConflict("task_review_run_integrity_failed") from None
+        if (
+            run.task_id != review.task_id
+            or run.workspace_id != workspace_id
+            or run.project_id != project_id
+        ):
+            raise TaskReviewConflict("task_review_run_not_found")
+        if run.status not in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}:
+            raise TaskReviewConflict("task_review_run_not_complete")
+        expected_hashes = dict(zip(review.artifact_ids, review.artifact_hashes, strict=True))
+        for artifact_id, expected_hash in expected_hashes.items():
+            row = connection.execute(
+                "SELECT * FROM artifacts WHERE id = ?",
+                (artifact_id,),
+            ).fetchone()
+            if row is None:
+                raise TaskReviewConflict("task_review_artifact_not_found")
+            try:
+                artifact = Artifact.model_validate_json(row["payload"])
+            except (RecursionError, TypeError, ValueError):
+                raise TaskReviewConflict("task_review_artifact_integrity_failed") from None
+            content = artifact.content.encode("utf-8")
+            if not (
+                artifact.id == row["id"] == artifact_id
+                and artifact.run_id == row["run_id"] == run.id
+                and artifact.workspace_id == row["workspace_id"] == workspace_id
+                and artifact.project_id == row["project_id"] == project_id
+                and artifact.user_id == row["user_id"] == run.user_id
+                and artifact.verification_state is ArtifactVerificationState.SEALED
+                and row["verification_state"] == ArtifactVerificationState.SEALED.value
+                and artifact.content_hash == row["content_hash"] == expected_hash
+                and artifact.size_bytes == row["size_bytes"] == len(content)
+                and hashlib.sha256(content).hexdigest() == expected_hash
+            ):
+                raise TaskReviewConflict("task_review_artifact_integrity_failed")
+        return run
+
+    @staticmethod
+    def _validate_task_review_side_records(
+        *,
+        review: TaskReviewV1,
+        task: Task,
+        inbox: InboxItem,
+        audit: AuditEvent,
+        receipt: TaskReviewCommandReceiptV1,
+        authorization: TaskReviewAuthorizationV1,
+    ) -> None:
+        if not (
+            inbox.item_type == "task_review"
+            and inbox.scope is Scope.PRIVATE
+            and inbox.user_id == review.reviewer_id
+            and inbox.status == "open"
+            and inbox.workspace_id == authorization.workspace_id
+            and inbox.project_id == authorization.project_id
+            and inbox.metadata.get("review_id") == review.id
+            and inbox.metadata.get("task_id") == review.task_id
+            and inbox.metadata.get("run_id") == review.run_id
+            and audit.actor == authorization.actor_id
+            and audit.action == "submit_task_review"
+            and audit.target_type == "task_review"
+            and audit.target_id == review.id
+            and audit.workspace_id == authorization.workspace_id
+            and audit.project_id == authorization.project_id
+            and audit.metadata
+            == {
+                "task_id": review.task_id,
+                "run_id": review.run_id,
+                "artifact_count": len(review.artifact_ids),
+                "round": review.round,
+                "task_version": review.task_version,
+                "reviewer_id": review.reviewer_id,
+            }
+            and receipt.user_id == authorization.actor_id
+            and receipt.operation == "submit"
+            and receipt.review_id == review.id
+            and receipt.result_review == review
+            and receipt.result_task.id == task.id == review.task_id
+        ):
+            raise TaskReviewConflict("task_review_side_record_invalid")
+
+    def submit_task_review_command(
+        self,
+        *,
+        review: TaskReviewV1,
+        expected_task_version: int,
+        inbox: InboxItem,
+        audit: AuditEvent,
+        receipt: TaskReviewCommandReceiptV1,
+        authorization: TaskReviewAuthorizationV1,
+    ) -> TaskReviewCommandResult:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current_receipt = self._task_review_receipt_from_connection(connection, receipt.id)
+            if current_receipt is not None:
+                self._validate_task_review_replay(current_receipt, receipt)
+                return TaskReviewCommandResult(
+                    review=current_receipt.result_review.model_copy(deep=True),
+                    task=current_receipt.result_task.model_copy(deep=True),
+                    receipt=current_receipt,
+                    replayed=True,
+                )
+            task_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'tasks' AND id = ?",
+                (review.task_id,),
+            ).fetchone()
+            if task_row is None:
+                raise TaskReviewConflict("task_not_found")
+            current_task = Task.model_validate_json(task_row["payload"])
+            thread_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'chat_threads' AND id = ?",
+                (current_task.thread_id,),
+            ).fetchone()
+            if thread_row is None:
+                raise TaskReviewConflict("task_not_found")
+            thread = ChatThread.model_validate_json(thread_row["payload"])
+            try:
+                self._authorize_task_command(
+                    connection,
+                    TaskCommandAuthorizationV1(
+                        actor_id=authorization.actor_id,
+                        workspace_id=authorization.workspace_id,
+                        project_id=authorization.project_id,
+                    ),
+                    task=current_task,
+                    thread=thread,
+                )
+            except TaskCommandConflict as error:
+                raise TaskReviewConflict(error.code) from error
+            actor, project, rules = self._task_review_actor_context(connection, authorization)
+            management = current_task.management
+            if management is None or management.version != expected_task_version:
+                raise TaskReviewConflict("task_version_conflict")
+            if management.delivery_stage is not TaskDeliveryStage.IN_PROGRESS:
+                raise TaskReviewConflict("task_review_requires_in_progress")
+            if management.blocked_reason is not None:
+                raise TaskReviewConflict("task_blocked")
+            selected_reviewer = self._select_task_reviewer_from_connection(
+                connection,
+                project=project,
+                requested_by=actor.id,
+                rules=rules,
+            )
+            if selected_reviewer is None:
+                raise TaskReviewConflict("task_review_reviewer_unavailable")
+            if review.reviewer_id != selected_reviewer.id or review.requested_by != actor.id:
+                raise TaskReviewConflict("task_review_reviewer_changed")
+            pending = connection.execute(
+                "SELECT 1 FROM task_reviews WHERE task_id = ? AND status = 'pending' LIMIT 1",
+                (review.task_id,),
+            ).fetchone()
+            if pending is not None:
+                raise TaskReviewConflict("task_review_pending")
+            next_round = connection.execute(
+                """
+                SELECT COALESCE(MAX(round), 0) + 1 AS value
+                FROM task_reviews
+                WHERE task_id = ? OR json_extract(payload, '$.task_id') = ?
+                """,
+                (review.task_id, review.task_id),
+            ).fetchone()["value"]
+            if review.round != next_round or review.task_version != expected_task_version + 1:
+                raise TaskReviewConflict("task_review_version_invalid")
+            validated_run = self._validate_task_review_artifacts(
+                connection,
+                review=review,
+                workspace_id=authorization.workspace_id,
+                project_id=authorization.project_id,
+            )
+            if validated_run.user_id != actor.id:
+                raise TaskReviewConflict("task_review_submitter_not_run_owner")
+            updated_management = TaskManagementMetadataV1.model_validate(
+                management.model_copy(
+                    update={
+                        "delivery_stage": TaskDeliveryStage.REVIEW,
+                        "version": expected_task_version + 1,
+                        "updated_by": actor.id,
+                    }
+                ).model_dump()
+            )
+            updated_task = current_task.model_copy(
+                update={"management": updated_management, "updated_at": review.created_at},
+                deep=True,
+            )
+            self._validate_task_review_side_records(
+                review=review,
+                task=updated_task,
+                inbox=inbox,
+                audit=audit,
+                receipt=receipt,
+                authorization=authorization,
+            )
+            persisted_receipt = receipt.model_copy(update={"result_task": updated_task})
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = 'tasks' AND id = ?",
+                (updated_task.model_dump_json(), updated_task.id),
+            )
+            connection.execute(
+                """
+                INSERT INTO task_reviews(
+                    id, task_id, run_id, reviewer_id, status, round, version,
+                    payload, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    review.id,
+                    review.task_id,
+                    review.run_id,
+                    review.reviewer_id,
+                    review.status.value,
+                    review.round,
+                    review.version,
+                    review.model_dump_json(),
+                    review.created_at.isoformat(),
+                    review.updated_at.isoformat(),
+                ),
+            )
+            for collection, item in (
+                ("inbox_items", inbox),
+                ("audit_events", audit),
+                ("task_review_command_receipts", persisted_receipt),
+            ):
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                    (collection, item.id, item.model_dump_json()),
+                )
+        return TaskReviewCommandResult(
+            review=review,
+            task=updated_task,
+            receipt=persisted_receipt,
+            replayed=False,
+        )
+
+    def decide_task_review_command(
+        self,
+        *,
+        review: TaskReviewV1,
+        expected_version: int,
+        audit: AuditEvent,
+        receipt: TaskReviewCommandReceiptV1,
+        authorization: TaskReviewAuthorizationV1,
+    ) -> TaskReviewCommandResult:
+        from agentmesh.permissions import ACTION_REVIEW_TASK_DELIVERABLES, has_permission
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current_receipt = self._task_review_receipt_from_connection(connection, receipt.id)
+            if current_receipt is not None:
+                self._validate_task_review_replay(current_receipt, receipt)
+                return TaskReviewCommandResult(
+                    review=current_receipt.result_review.model_copy(deep=True),
+                    task=current_receipt.result_task.model_copy(deep=True),
+                    receipt=current_receipt,
+                    replayed=True,
+                )
+            review_row = connection.execute(
+                "SELECT * FROM task_reviews WHERE id = ?",
+                (review.id,),
+            ).fetchone()
+            if review_row is None:
+                raise TaskReviewConflict("task_review_not_found")
+            current_review = self._task_review_from_row(review_row)
+            task_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'tasks' AND id = ?",
+                (current_review.task_id,),
+            ).fetchone()
+            if task_row is None:
+                raise TaskReviewConflict("task_review_not_found")
+            current_task = Task.model_validate_json(task_row["payload"])
+            thread_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'chat_threads' AND id = ?",
+                (current_task.thread_id,),
+            ).fetchone()
+            if thread_row is None:
+                raise TaskReviewConflict("task_review_not_found")
+            thread = ChatThread.model_validate_json(thread_row["payload"])
+            actor, _project, rules = self._task_review_actor_context(connection, authorization)
+            if (
+                thread.workspace_id != authorization.workspace_id
+                or thread.project_id != authorization.project_id
+                or current_review.reviewer_id != actor.id
+                or not has_permission(actor, ACTION_REVIEW_TASK_DELIVERABLES, rules)
+            ):
+                raise TaskReviewConflict("task_review_not_found")
+            if current_review.version != expected_version:
+                raise TaskReviewConflict("task_review_version_conflict")
+            if current_review.status is not TaskReviewStatus.PENDING:
+                raise TaskReviewConflict("task_review_already_decided")
+            management = current_task.management
+            if (
+                management is None
+                or management.version != current_review.task_version
+                or management.delivery_stage is not TaskDeliveryStage.REVIEW
+                or management.archived_at is not None
+            ):
+                raise TaskReviewConflict("task_review_task_changed")
+            immutable_fields = (
+                "task_id",
+                "run_id",
+                "artifact_ids",
+                "artifact_hashes",
+                "round",
+                "requested_by",
+                "reviewer_id",
+                "task_version",
+                "created_at",
+            )
+            if any(getattr(review, field) != getattr(current_review, field) for field in immutable_fields):
+                raise TaskReviewConflict("task_review_identity_invalid")
+            if review.version != expected_version + 1 or review.status is TaskReviewStatus.PENDING:
+                raise TaskReviewConflict("task_review_version_invalid")
+            validated_run = self._validate_task_review_artifacts(
+                connection,
+                review=current_review,
+                workspace_id=authorization.workspace_id,
+                project_id=authorization.project_id,
+            )
+            if validated_run.user_id != current_review.requested_by:
+                raise TaskReviewConflict("task_review_identity_invalid")
+            next_stage = (
+                TaskDeliveryStage.DONE
+                if review.status is TaskReviewStatus.ACCEPTED
+                else TaskDeliveryStage.IN_PROGRESS
+            )
+            updated_management = TaskManagementMetadataV1.model_validate(
+                management.model_copy(
+                    update={
+                        "delivery_stage": next_stage,
+                        "blocked_reason": None,
+                        "blocked_at": None,
+                        "version": management.version + 1,
+                        "updated_by": actor.id,
+                    }
+                ).model_dump()
+            )
+            updated_task = current_task.model_copy(
+                update={"management": updated_management, "updated_at": review.decided_at},
+                deep=True,
+            )
+            inbox_rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'inbox_items'
+                  AND json_extract(payload, '$.item_type') = 'task_review'
+                  AND json_extract(payload, '$.metadata.review_id') = ?
+                """,
+                (review.id,),
+            ).fetchall()
+            if len(inbox_rows) != 1:
+                raise TaskReviewConflict("task_review_inbox_invalid")
+            inbox = InboxItem.model_validate_json(inbox_rows[0]["payload"])
+            if (
+                inbox.user_id != actor.id
+                or inbox.workspace_id != authorization.workspace_id
+                or inbox.project_id != authorization.project_id
+                or inbox.status not in {"open", "snoozed"}
+            ):
+                raise TaskReviewConflict("task_review_inbox_invalid")
+            if not (
+                audit.actor == actor.id
+                and audit.action == "decide_task_review"
+                and audit.target_type == "task_review"
+                and audit.target_id == review.id
+                and audit.workspace_id == authorization.workspace_id
+                and audit.project_id == authorization.project_id
+                and audit.metadata
+                == {
+                    "task_id": review.task_id,
+                    "run_id": review.run_id,
+                    "decision": review.status.value,
+                    "round": review.round,
+                    "review_version": review.version,
+                    "task_version": updated_management.version,
+                }
+                and receipt.user_id == actor.id
+                and receipt.operation == "decide"
+                and receipt.review_id == review.id
+                and receipt.result_review == review
+                and receipt.result_task.id == updated_task.id
+            ):
+                raise TaskReviewConflict("task_review_side_record_invalid")
+            decided_at = review.decided_at or now_utc()
+            inbox.status = "resolved"
+            inbox.acknowledged_at = inbox.acknowledged_at or decided_at
+            inbox.resolved_at = decided_at
+            inbox.updated_at = decided_at
+            inbox.snooze_until = None
+            inbox.metadata["decision"] = review.status.value
+            persisted_receipt = receipt.model_copy(update={"result_task": updated_task})
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = 'tasks' AND id = ?",
+                (updated_task.model_dump_json(), updated_task.id),
+            )
+            connection.execute(
+                """
+                UPDATE task_reviews
+                SET status = ?, version = ?, payload = ?, updated_at = ?
+                WHERE id = ? AND version = ? AND status = 'pending'
+                """,
+                (
+                    review.status.value,
+                    review.version,
+                    review.model_dump_json(),
+                    review.updated_at.isoformat(),
+                    review.id,
+                    expected_version,
+                ),
+            )
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = 'inbox_items' AND id = ?",
+                (inbox.model_dump_json(), inbox.id),
+            )
+            for collection, item in (
+                ("audit_events", audit),
+                ("task_review_command_receipts", persisted_receipt),
+            ):
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                    (collection, item.id, item.model_dump_json()),
+                )
+        return TaskReviewCommandResult(
+            review=review,
+            task=updated_task,
+            receipt=persisted_receipt,
+            replayed=False,
+        )
+
     def save_task(self, task: Task) -> Task:
         persisted = task.model_copy(deep=True)
         with self._connect() as connection:
@@ -2059,6 +2910,19 @@ class SQLiteStore:
                     persisted.management = current.management
                     persisted.title = current.title
                     persisted.updated_at = max(current.updated_at, persisted.updated_at)
+                pending_review = connection.execute(
+                    """
+                    SELECT 1 FROM task_reviews
+                    WHERE (task_id = ? OR json_extract(payload, '$.task_id') = ?)
+                      AND (status = 'pending' OR json_extract(payload, '$.status') = 'pending')
+                    LIMIT 1
+                    """,
+                    (task.id, task.id),
+                ).fetchone()
+                if pending_review is not None:
+                    persisted.intent = current.intent
+                    persisted.done_when = current.done_when
+                    persisted.steps = list(current.steps)
             connection.execute(
                 """
                 INSERT INTO records(collection, id, payload)
@@ -2069,6 +2933,182 @@ class SQLiteStore:
                 ("tasks", persisted.id, persisted.model_dump_json()),
             )
         return persisted
+
+    def commit_blackboard_handoff(
+        self,
+        *,
+        expected_parent: BlackboardPost,
+        handoff_post: BlackboardPost,
+        updated_parent: BlackboardPost | None,
+        expected_task: Task,
+        updated_task: Task,
+        next_owner: Agent,
+        actor_id: str,
+        audit: AuditEvent,
+    ) -> BlackboardPost:
+        from agentmesh.seed import AGENTS
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            parent_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'blackboard_posts' AND id = ?",
+                (expected_parent.id,),
+            ).fetchone()
+            task_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'tasks' AND id = ?",
+                (expected_task.id,),
+            ).fetchone()
+            if parent_row is None or task_row is None:
+                raise BlackboardHandoffConflict("blackboard_handoff_not_found")
+            current_parent = BlackboardPost.model_validate_json(parent_row["payload"])
+            current_task = Task.model_validate_json(task_row["payload"])
+            thread_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'chat_threads' AND id = ?",
+                (current_task.thread_id,),
+            ).fetchone()
+            actor_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'users' AND id = ?",
+                (actor_id,),
+            ).fetchone()
+            if thread_row is None or actor_row is None:
+                raise BlackboardHandoffConflict("blackboard_handoff_not_found")
+            thread = ChatThread.model_validate_json(thread_row["payload"])
+            actor = User.model_validate_json(actor_row["payload"])
+            project_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+                (thread.project_id,),
+            ).fetchone()
+            project = Project.model_validate_json(project_row["payload"]) if project_row is not None else None
+            if (
+                actor.status != "active"
+                or actor.workspace_id != thread.workspace_id
+                or project is None
+                or project.workspace_id != actor.workspace_id
+                or (project.member_ids and actor.id not in project.member_ids)
+            ):
+                raise BlackboardHandoffConflict("blackboard_handoff_not_found")
+            can_control = (
+                actor.role in {UserRole.TEAM_LEAD, UserRole.ADMIN}
+                or thread.user_id == actor.id
+                or current_parent.current_owner_agent_id == actor.personal_agent_id
+            )
+            if not can_control:
+                raise BlackboardHandoffConflict("blackboard_handoff_forbidden")
+            lock = current_parent.execution_lock
+            if (
+                lock is not None
+                and lock.active
+                and actor.role not in {UserRole.TEAM_LEAD, UserRole.ADMIN}
+                and lock.owner_agent_id != actor.personal_agent_id
+            ):
+                raise BlackboardHandoffConflict("blackboard_handoff_forbidden")
+            pending_review = connection.execute(
+                """
+                SELECT 1 FROM task_reviews
+                WHERE (task_id = ? OR json_extract(payload, '$.task_id') = ?)
+                  AND (status = 'pending' OR json_extract(payload, '$.status') = 'pending')
+                LIMIT 1
+                """,
+                (current_task.id, current_task.id),
+            ).fetchone()
+            if pending_review is not None:
+                raise BlackboardHandoffConflict("task_review_pending")
+            if current_parent != expected_parent or current_task != expected_task:
+                raise BlackboardHandoffConflict("blackboard_handoff_conflict")
+            agent_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'agents' AND id = ?",
+                (next_owner.id,),
+            ).fetchone()
+            current_next_owner = (
+                Agent.model_validate_json(agent_row["payload"])
+                if agent_row is not None
+                else next((candidate for candidate in AGENTS if candidate.id == next_owner.id), None)
+            )
+            if (
+                current_next_owner is None
+                or current_next_owner.workspace_id != thread.workspace_id
+                or current_next_owner.status != "online"
+                or current_next_owner.id != handoff_post.current_owner_agent_id
+            ):
+                raise BlackboardHandoffConflict("blackboard_handoff_agent_ineligible")
+            if current_next_owner.owner_user_id is not None:
+                owner_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'users' AND id = ?",
+                    (current_next_owner.owner_user_id,),
+                ).fetchone()
+                owner = User.model_validate_json(owner_row["payload"]) if owner_row is not None else None
+                owner_in_project = owner is not None and (
+                    owner.default_project_id == project.id
+                    or not project.member_ids
+                    or owner.id in project.member_ids
+                )
+                if (
+                    owner is None
+                    or owner.status != "active"
+                    or owner.workspace_id != thread.workspace_id
+                    or not owner_in_project
+                ):
+                    raise BlackboardHandoffConflict("blackboard_handoff_agent_ineligible")
+            elif current_next_owner.agent_type == "personal":
+                raise BlackboardHandoffConflict("blackboard_handoff_agent_ineligible")
+            if not (
+                handoff_post.task_id == current_task.id == current_parent.task_id
+                and handoff_post.related_post_id == current_parent.id
+                and updated_task.id == current_task.id
+                and updated_task.thread_id == current_task.thread_id
+                and updated_task.title == current_task.title
+                and updated_task.management == current_task.management
+            ):
+                raise BlackboardHandoffConflict("blackboard_handoff_invalid")
+            if updated_parent is not None and updated_parent.id != current_parent.id:
+                raise BlackboardHandoffConflict("blackboard_handoff_invalid")
+            exists = connection.execute(
+                "SELECT 1 FROM records WHERE collection = 'blackboard_posts' AND id = ?",
+                (handoff_post.id,),
+            ).fetchone()
+            if exists is not None:
+                raise BlackboardHandoffConflict("blackboard_handoff_conflict")
+            persisted_task = updated_task.model_copy(deep=True)
+            if current_task.management is not None:
+                persisted_task.management = TaskManagementMetadataV1.model_validate(
+                    current_task.management.model_copy(
+                        update={
+                            "version": current_task.management.version + 1,
+                            "updated_by": actor.id,
+                        }
+                    ).model_dump()
+                )
+            if not (
+                audit.actor == actor.id
+                and audit.action == "create_handoff"
+                and audit.target_type == "blackboard_post"
+                and audit.target_id == handoff_post.id
+                and audit.workspace_id == thread.workspace_id
+                and audit.project_id == thread.project_id
+                and audit.metadata == {"next_owner": current_next_owner.name}
+            ):
+                raise BlackboardHandoffConflict("blackboard_handoff_invalid")
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES ('blackboard_posts', ?, ?)",
+                (handoff_post.id, handoff_post.model_dump_json()),
+            )
+            if updated_parent is not None:
+                connection.execute(
+                    "UPDATE records SET payload = ? WHERE collection = 'blackboard_posts' AND id = ?",
+                    (updated_parent.model_dump_json(), updated_parent.id),
+                )
+            connection.execute(
+                "UPDATE records SET payload = ? WHERE collection = 'tasks' AND id = ?",
+                (persisted_task.model_dump_json(), persisted_task.id),
+            )
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES ('audit_events', ?, ?)",
+                (audit.id, audit.model_dump_json()),
+            )
+            self._sync_fts(connection, "blackboard_posts", handoff_post)
+            if updated_parent is not None:
+                self._sync_fts(connection, "blackboard_posts", updated_parent)
+        return handoff_post
 
     def add_blackboard_post(self, post: BlackboardPost) -> BlackboardPost:
         self._upsert("blackboard_posts", post)
