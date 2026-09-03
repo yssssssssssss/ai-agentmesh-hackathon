@@ -66,11 +66,9 @@ export function taskManagementErrorMessage(error: unknown): string {
 
 async function invalidateTaskData(
   queryClient: ReturnType<typeof useQueryClient>,
-  context: QueryScope,
   refreshBootstrap: () => Promise<void>,
 ) {
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: queryKeys.tasks.management(context), exact: true }),
     queryClient.invalidateQueries({ queryKey: queryKeys.tasks.root }),
     queryClient.invalidateQueries({ queryKey: queryKeys.audit.root }),
     queryClient.invalidateQueries({ queryKey: queryKeys.inbox.root }),
@@ -85,18 +83,22 @@ export function useManagedTasks(context: QueryScope) {
   })
 }
 
-export function useManagedTaskDetail(context: QueryScope, taskId: string | null) {
+export function useManagedTaskDetail(
+  context: QueryScope,
+  taskId: string | null,
+  autoFetch = true,
+) {
   return useQuery({
     queryKey: queryKeys.tasks.managedDetail(context, taskId ?? 'none'),
     queryFn: () => taskManagementApi.get(taskId as string),
-    enabled: taskId !== null,
+    enabled: autoFetch && taskId !== null,
   })
 }
 
-export function useTaskManagementMutations(context: QueryScope) {
+export function useTaskManagementMutations() {
   const queryClient = useQueryClient()
   const { refreshBootstrap } = useAuth()
-  const settled = () => invalidateTaskData(queryClient, context, refreshBootstrap)
+  const settled = () => invalidateTaskData(queryClient, refreshBootstrap)
   const create = useMutation({
     mutationFn: (payload: TaskCreatePayload) => taskManagementApi.create(payload),
     onSettled: settled,

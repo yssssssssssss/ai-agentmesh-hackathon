@@ -71,6 +71,7 @@ export function Tasks() {
   const [mutationNotice, setMutationNotice] = useState<string | null>(null)
   const [runStarting, setRunStarting] = useState(false)
   const [formDetailReadyTaskId, setFormDetailReadyTaskId] = useState<string | null>(null)
+  const formSession = useRef(0)
   const saveCommandId = useRef<string | null>(null)
   const actionCommand = useRef<{ action: TaskManagementAction; id: string } | null>(null)
   const reviewCommand = useRef<{ key: string; id: string } | null>(null)
@@ -85,8 +86,9 @@ export function Tasks() {
   const managedDetailQuery = useManagedTaskDetail(
     context,
     taskFormOpen && editingTask ? editingTask.task.id : null,
+    false,
   )
-  const mutations = useTaskManagementMutations(context)
+  const mutations = useTaskManagementMutations()
   const managedByTaskId = useMemo(
     () => new Map((managedQuery.data?.items ?? []).map((item) => [item.task.id, item])),
     [managedQuery.data?.items],
@@ -153,6 +155,7 @@ export function Tasks() {
   const openTask = (taskId: string) => setParameter('task', taskId)
   const closeTask = () => setParameter('task', '')
   const openCreate = () => {
+    formSession.current += 1
     setEditingTask(null)
     setMutationError(null)
     setMutationNotice(null)
@@ -163,6 +166,7 @@ export function Tasks() {
     setTaskFormOpen(true)
   }
   const openEdit = (task: ManagedTask) => {
+    formSession.current += 1
     setEditingTask(task)
     setMutationError(null)
     setMutationNotice(null)
@@ -173,6 +177,7 @@ export function Tasks() {
     setTaskFormOpen(true)
   }
   const closeForm = () => {
+    formSession.current += 1
     setTaskFormOpen(false)
     setMutationError(null)
     setMutationNotice(null)
@@ -180,6 +185,9 @@ export function Tasks() {
     actionCommand.current = null
     reviewCommand.current = null
     setFormDetailReadyTaskId(null)
+  }
+  const closeFormForSession = (session: number) => {
+    if (formSession.current === session) closeForm()
   }
 
   useEffect(() => {
@@ -228,29 +236,50 @@ export function Tasks() {
 
   const retryFormDetail = async () => {
     if (!editingTask) return
+    const session = formSession.current
     const taskId = editingTask.task.id
     setFormDetailReadyTaskId(null)
     const result = await managedDetailQuery.refetch()
-    if (result.error == null && result.data?.item.task.id === taskId) {
+    if (
+      formSession.current === session
+      && result.error == null
+      && result.data?.item.task.id === taskId
+    ) {
       setFormDetailReadyTaskId(taskId)
     }
   }
-  const refreshEditingTaskAfterConflict = async (error: unknown) => {
-    if (!(error instanceof ApiError) || error.status !== 409 || !editingTask) return
+  const refreshEditingTaskAfterConflict = async (
+    error: unknown,
+    session: number,
+    taskId: string | null,
+  ) => {
+    if (
+      !(error instanceof ApiError)
+      || error.status !== 409
+      || taskId === null
+      || formSession.current !== session
+    ) return
     const refreshed = await managedQuery.refetch()
-    const latest = refreshed.data?.items.find((item) => item.task.id === editingTask.task.id)
+    if (formSession.current !== session) return
+    const latest = refreshed.data?.items.find((item) => item.task.id === taskId)
     if (latest) {
       setEditingTask(latest)
       return
     }
     try {
-      const detail = await taskManagementApi.get(editingTask.task.id)
-      setEditingTask(detail.item)
+      const detail = await taskManagementApi.get(taskId)
+      if (formSession.current === session) setEditingTask(detail.item)
     } catch (refreshError) {
-      if (refreshError instanceof ApiError && refreshError.status === 404) closeForm()
+      if (
+        formSession.current === session
+        && refreshError instanceof ApiError
+        && refreshError.status === 404
+      ) closeFormForSession(session)
     }
   }
   const saveTask = async (values: TaskFormValues) => {
+    const session = formSession.current
+    const taskId = editingTask?.task.id ?? null
     setMutationError(null)
     setMutationNotice(null)
     const stableCommandId = saveCommandId.current ?? commandId(editingTask ? 'update' : 'create')
@@ -285,15 +314,17 @@ export function Tasks() {
           tags: values.tags,
         })
       }
-      await Promise.all([cardsQuery.refetch(), managedQuery.refetch()])
-      closeForm()
+      closeFormForSession(session)
     } catch (error) {
-      await refreshEditingTaskAfterConflict(error)
-      setMutationError(taskManagementErrorMessage(error))
+      if (formSession.current !== session) return
+      await refreshEditingTaskAfterConflict(error, session, taskId)
+      if (formSession.current === session) setMutationError(taskManagementErrorMessage(error))
     }
   }
   const applyTaskAction = async (action: TaskManagementAction, reason?: string) => {
     if (!editingTask) return
+    const session = formSession.current
+    const taskId = editingTask.task.id
     setMutationError(null)
     setMutationNotice(null)
     const stableCommand = actionCommand.current?.action === action
@@ -312,6 +343,7 @@ export function Tasks() {
           planningMode: 'standard',
         })
         await managedDetailQuery.refetch()
+        if (formSession.current !== session) return
         setMutationNotice(`AgentRun 已启动：${response.item.id}`)
         actionCommand.current = null
         return
@@ -335,26 +367,27 @@ export function Tasks() {
           },
         })
       }
-      await Promise.all([cardsQuery.refetch(), managedQuery.refetch()])
-      closeForm()
+      closeFormForSession(session)
     } catch (error) {
-      await refreshEditingTaskAfterConflict(error)
-      setMutationError(taskManagementErrorMessage(error))
+      if (formSession.current !== session) return
+      await refreshEditingTaskAfterConflict(error, session, taskId)
+      if (formSession.current === session) setMutationError(taskManagementErrorMessage(error))
     } finally {
       setRunStarting(false)
     }
   }
-  const refreshOpenTask = async () => {
-    const [detail] = await Promise.all([
-      managedDetailQuery.refetch(),
-      cardsQuery.refetch(),
-      managedQuery.refetch(),
-    ])
-    if (detail.data) setEditingTask(detail.data.item)
+  const refreshOpenTask = async (session: number, taskId: string) => {
+    const detail = await managedDetailQuery.refetch()
+    if (
+      formSession.current === session
+      && detail.data?.item.task.id === taskId
+    ) setEditingTask(detail.data.item)
   }
   const submitArtifactReview = async (runId: string, artifactIds: string[]) => {
     const current = managedDetailQuery.data?.item ?? editingTask
     if (!current) return
+    const session = formSession.current
+    const taskId = current.task.id
     setMutationError(null)
     setMutationNotice(null)
     const key = `submit:${current.management.version}:${runId}:${artifactIds.join(',')}`
@@ -372,12 +405,14 @@ export function Tasks() {
           artifact_ids: artifactIds,
         },
       })
-      await refreshOpenTask()
+      await refreshOpenTask(session, taskId)
+      if (formSession.current !== session) return
       setMutationNotice(`第 ${response.item.review.round} 轮审核已提交。`)
       reviewCommand.current = null
     } catch (error) {
-      await refreshEditingTaskAfterConflict(error)
-      setMutationError(taskManagementErrorMessage(error))
+      if (formSession.current !== session) return
+      await refreshEditingTaskAfterConflict(error, session, taskId)
+      if (formSession.current === session) setMutationError(taskManagementErrorMessage(error))
     }
   }
   const decideArtifactReview = async (
@@ -386,6 +421,10 @@ export function Tasks() {
     decision: 'accepted' | 'changes_requested' | 'rejected',
     decisionNote: string | null,
   ) => {
+    const current = managedDetailQuery.data?.item ?? editingTask
+    if (!current) return
+    const session = formSession.current
+    const taskId = current.task.id
     setMutationError(null)
     setMutationNotice(null)
     const key = `decide:${reviewId}:${expectedVersion}:${decision}:${decisionNote ?? ''}`
@@ -403,7 +442,8 @@ export function Tasks() {
           decision_note: decisionNote,
         },
       })
-      await refreshOpenTask()
+      await refreshOpenTask(session, taskId)
+      if (formSession.current !== session) return
       setMutationNotice(
         decision === 'accepted' ? '交付已接受，任务已完成。'
           : decision === 'changes_requested' ? '已要求修改，任务返回进行中。'
@@ -411,8 +451,9 @@ export function Tasks() {
       )
       reviewCommand.current = null
     } catch (error) {
-      await refreshEditingTaskAfterConflict(error)
-      setMutationError(taskManagementErrorMessage(error))
+      if (formSession.current !== session) return
+      await refreshEditingTaskAfterConflict(error, session, taskId)
+      if (formSession.current === session) setMutationError(taskManagementErrorMessage(error))
     }
   }
   const captureReviewMemory = async (
@@ -421,6 +462,10 @@ export function Tasks() {
     title: string,
     summary: string,
   ) => {
+    const current = managedDetailQuery.data?.item ?? editingTask
+    if (!current) return
+    const session = formSession.current
+    const taskId = current.task.id
     setMutationError(null)
     setMutationNotice(null)
     const key = JSON.stringify([reviewId, target, title, summary])
@@ -438,7 +483,8 @@ export function Tasks() {
           layer: 'mid_term',
         },
       })
-      await refreshOpenTask()
+      await refreshOpenTask(session, taskId)
+      if (formSession.current !== session) return
       setMutationNotice(
         target === 'personal'
           ? '已保存为个人记忆。'
@@ -446,7 +492,9 @@ export function Tasks() {
       )
       delete captureCommands.current[key]
     } catch (error) {
-      setMutationError(taskManagementErrorMessage(error))
+      if (formSession.current !== session) return
+      await refreshEditingTaskAfterConflict(error, session, taskId)
+      if (formSession.current === session) setMutationError(taskManagementErrorMessage(error))
     }
   }
   const mutationPending = runStarting

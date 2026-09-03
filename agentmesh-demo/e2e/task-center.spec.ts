@@ -266,6 +266,7 @@ test.describe.serial('task center', () => {
       releaseDetail = resolve
     })
     let detailAttempts = 0
+    let detailShouldFail = true
     await page.route('**/api/tasks/*', async (route) => {
       if (route.request().method() !== 'GET') {
         await route.continue()
@@ -273,7 +274,7 @@ test.describe.serial('task center', () => {
       }
       await detailGate
       detailAttempts += 1
-      if (detailAttempts === 1) {
+      if (detailShouldFail) {
         await route.fulfill({
           status: 503,
           contentType: 'application/json',
@@ -325,7 +326,9 @@ test.describe.serial('task center', () => {
     await expect(dialog.getByRole('button', { name: '提交审核' })).toHaveCount(0)
     releaseDetail()
     await expect(dialog.getByRole('alert')).toContainText('任务权限与状态刷新失败，操作保持禁用')
+    expect(detailAttempts).toBe(1)
     await expect(dialog.getByRole('button', { name: '进入审核' })).toHaveCount(0)
+    detailShouldFail = false
     await dialog.getByRole('button', { name: '重试任务详情' }).click()
     await expect(dialog.getByText('completed', { exact: true })).toBeVisible()
     await expect(dialog.getByRole('button', { name: '进入审核' })).toHaveCount(0)

@@ -214,10 +214,8 @@ test('shows pending immediately, follows conversation updates, and opens skills 
   await expect(page.getByText('Workspace 回归测试', { exact: true })).toBeVisible()
   const scrollContainer = page.locator('[aria-label="对话滚动区域"]')
   const expectBottomContentClearOfComposer = async () => {
-    await scrollContainer.evaluate((element) => {
+    await expect.poll(() => scrollContainer.evaluate((element) => {
       element.scrollTop = element.scrollHeight
-    })
-    await expect.poll(() => page.evaluate(() => {
       const lastMessage = [...document.querySelectorAll('[data-testid$="-message"]')].at(-1)
       const composer = document.querySelector('[data-testid="workspace-composer-root"]')
       if (!lastMessage || !composer) throw new Error('Workspace bottom-spacing elements are missing')

@@ -1,8 +1,8 @@
 # AgentMesh 独立项目任务与记忆闭环开发方案
 
 - 日期：2026-08-31
-- 状态：已批准；Slice 1～4A 已合并，Slice 4B Revision 与完整生命周期已完成本地实现，待最终审查与合并
-- 基线：`main` at `1b12887d8919f9a00f400d1a695ec90352e31c4d`
+- 状态：已批准；Slice 1～4B 已合并，Slice 5 尚未开始
+- 基线：`main` at `6d0179407f699cc87090e5338e1011f256daf53d`
 - 目标：在 AgentMesh 可独立安装和运行的前提下，打通“任务创建、Agent 执行、产物审核、记忆沉淀、后续复用、全程审计”的真实产品闭环
 - 适用范围：FastAPI、React、SQLite、Agent Runtime v2、Task Center、Artifact、Inbox、Memory/RAG
 - 相关方案：`docs/plans/2026-08-25-task-center-integration-plan.md`、`docs/memory-optimization-plan.md`
@@ -569,7 +569,7 @@ Memory 详情展示：
 
 #### Slice 4B：Revision 与完整生命周期
 
-状态：本地实现完成，待最终审查与合并。
+状态：已通过 PR #24 合并；Slice 5 仍为独立后续增量。
 
 交付：
 
