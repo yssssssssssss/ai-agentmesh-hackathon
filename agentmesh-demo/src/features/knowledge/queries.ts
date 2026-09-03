@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { ApiError } from '../../api/client'
 import { queryKeys, type QueryScope } from '../../app/queryKeys'
 import { useAuth } from '../auth/AuthProvider'
-import { knowledgeApi } from './api'
+import { knowledgeApi, type MemoryGovernanceFilters } from './api'
 
 export type KnowledgeContext = QueryScope
 
@@ -16,6 +16,8 @@ export const knowledgeKeys = {
   workspaceRoot: queryKeys.workspace.root,
   inbox: queryKeys.inbox.list,
   memory: queryKeys.memory.list,
+  memoryLineage: queryKeys.memory.detail,
+  governance: queryKeys.memory.governance,
   overview: queryKeys.memory.overview,
   documents: queryKeys.documents.list,
   document: queryKeys.documents.detail,
@@ -62,6 +64,32 @@ export function useKnowledgeQueries(context: KnowledgeContext) {
   return { inbox, memory, overview, documents }
 }
 
+export function useGovernanceHistoryQuery(
+  context: KnowledgeContext,
+  filters: MemoryGovernanceFilters,
+) {
+  return useQuery({
+    queryKey: knowledgeKeys.governance(
+      context,
+      filters.status,
+      filters.scope,
+      filters.kind,
+      filters.layer,
+      filters.page,
+      filters.pageSize,
+    ),
+    queryFn: () => knowledgeApi.governance(context.projectId, filters),
+  })
+}
+
+export function useMemoryLineageQuery(context: KnowledgeContext, memoryId: string | null) {
+  return useQuery({
+    queryKey: knowledgeKeys.memoryLineage(context, memoryId ?? 'none'),
+    queryFn: () => knowledgeApi.memoryLineage(memoryId as string),
+    enabled: memoryId !== null,
+  })
+}
+
 export function useDocumentQuery(context: KnowledgeContext, documentId: string | null) {
   return useQuery({
     queryKey: knowledgeKeys.document(context, documentId ?? 'none'),
@@ -97,6 +125,14 @@ export function useKnowledgeMutations() {
     mutationFn: knowledgeApi.acceptMemory,
     ...options,
   })
+  const createMemoryRevision = useMutation({
+    mutationFn: knowledgeApi.createMemoryRevision,
+    ...options,
+  })
+  const transitionMemory = useMutation({
+    mutationFn: knowledgeApi.transitionMemory,
+    ...options,
+  })
   const decideMemoryReview = useMutation({
     mutationFn: knowledgeApi.decideMemoryReview,
     ...options,
@@ -107,6 +143,8 @@ export function useKnowledgeMutations() {
     resolveInjection,
     resolveToolApproval,
     acceptMemory,
+    createMemoryRevision,
+    transitionMemory,
     decideMemoryReview,
   }
 }

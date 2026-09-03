@@ -11,6 +11,8 @@ from agentmesh.artifacts import (
     V1ArtifactReader,
     resolve_artifact_runtime,
 )
+from agentmesh.memory_governance.contracts import MemoryBacklinksV1
+from agentmesh.memory_governance.service import MemoryGovernanceError, MemoryGovernanceService
 from agentmesh.models import User
 from agentmesh.research_orchestration.v2_artifact_history import (
     ArtifactReaderScope,
@@ -23,6 +25,7 @@ from agentmesh.store import store
 router = APIRouter(prefix="/api/artifacts", tags=["artifacts"])
 v1_artifact_reader = V1ArtifactReader(store)
 v2_artifact_reader = V2ArtifactHistoryReader(store)
+memory_governance_service = MemoryGovernanceService(store)
 
 
 @router.get("/{artifact_id}")
@@ -57,3 +60,15 @@ def get_artifact(artifact_id: str, user: User = Depends(current_user)) -> Respon
         media_type=artifact.content_type,
         headers=headers,
     )
+
+
+@router.get("/{artifact_id}/memory-links", response_model=MemoryBacklinksV1)
+def get_artifact_memory_links(
+    artifact_id: str,
+    user: User = Depends(current_user),
+) -> MemoryBacklinksV1:
+    try:
+        links = memory_governance_service.artifact_memory_links(artifact_id, user)
+    except MemoryGovernanceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
+    return MemoryBacklinksV1(items=links)

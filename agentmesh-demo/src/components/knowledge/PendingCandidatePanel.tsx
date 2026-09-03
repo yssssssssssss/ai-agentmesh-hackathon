@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 
+import type { MemoryLifecycleAction } from '../../features/knowledge/api'
 import type { PendingKnowledgeView } from '../../features/knowledge/presenter'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -33,6 +34,7 @@ interface Props {
     decision: 'accepted' | 'rejected',
     note: string | null,
   ) => void
+  onMemoryTransition: (item: PendingKnowledgeView, action: MemoryLifecycleAction) => void
   onOpenTaskReview: (item: PendingKnowledgeView) => void
   onOpenMemoryReview: (item: PendingKnowledgeView) => void
   onOpenDetail: (item: PendingKnowledgeView) => void
@@ -50,6 +52,7 @@ export function PendingCandidatePanel({
   onToolApproval,
   onAccept,
   onMemoryReview,
+  onMemoryTransition,
   onOpenTaskReview,
   onOpenMemoryReview,
   onOpenDetail,
@@ -165,6 +168,15 @@ export function PendingCandidatePanel({
                       拒绝候选
                     </Button>
                   </div>
+                ) : null}
+                {actions.includes('expire') ? (
+                  <Button
+                    variant="danger"
+                    disabled={busy || readOnly || !item.memoryId.value || item.memoryVersion.value === null}
+                    onClick={() => onMemoryTransition(item, 'expire')}
+                  >
+                    标记失效
+                  </Button>
                 ) : null}
                 {actions.includes('open_task_review') ? (
                   <Button

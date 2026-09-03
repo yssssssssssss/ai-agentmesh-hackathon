@@ -59,6 +59,7 @@ class MemoryReviewStatus(StrEnum):
     PENDING = "pending"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+    CANCELLED = "cancelled"
 
 
 class MemoryLayer(StrEnum):
@@ -921,6 +922,14 @@ class MemoryProvenanceV1(BaseModel):
         default_factory=list,
         max_length=20,
     )
+    source_memory_versions: list[Annotated[int, Field(ge=1)]] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    source_memory_hashes: list[Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]] = Field(
+        default_factory=list,
+        max_length=20,
+    )
     created_by: str = Field(min_length=1, max_length=120)
     created_at: datetime = Field(default_factory=now_utc)
 
@@ -932,12 +941,21 @@ class MemoryProvenanceV1(BaseModel):
             raise ValueError("artifact_ids must be unique")
         if len(set(self.source_memory_ids)) != len(self.source_memory_ids):
             raise ValueError("source_memory_ids must be unique")
+        if (self.source_memory_versions or self.source_memory_hashes) and not (
+            len(self.source_memory_ids)
+            == len(self.source_memory_versions)
+            == len(self.source_memory_hashes)
+        ):
+            raise ValueError("source Memory IDs, versions, and hashes must have the same length")
         if self.source_kind is MemorySourceKind.TASK_ARTIFACT and not (
             self.task_id and self.run_id and self.review_id and self.artifact_ids
         ):
             raise ValueError("task_artifact provenance requires Task, Run, Review, and Artifact identities")
-        if self.source_kind is MemorySourceKind.MEMORY_REVISION and not self.source_memory_ids:
-            raise ValueError("memory_revision provenance requires source_memory_ids")
+        if self.source_kind is MemorySourceKind.MEMORY_REVISION and not (
+            self.source_memory_ids
+            and len(self.source_memory_ids) == len(self.source_memory_versions) == len(self.source_memory_hashes)
+        ):
+            raise ValueError("memory_revision provenance requires frozen source Memory identities")
         return self
 
 

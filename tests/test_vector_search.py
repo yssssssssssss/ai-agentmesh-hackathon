@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from agentmesh.models import MemoryItem, Scope
+from agentmesh.models import MemoryItem, MemoryStatus, Scope
 from agentmesh.store import SQLiteStore
 
 
@@ -99,6 +99,54 @@ class TestVectorSearchIntegration:
         conn.close()
 
 
+
+    def test_inactive_memory_cannot_crowd_out_vector_candidate_cap(self, tmp_path, monkeypatch) -> None:
+        repository = SQLiteStore(tmp_path / "lifecycle-vector-crowdout.sqlite3")
+
+        def fake_embedding(text: str) -> list[float]:
+            if text == "lifecycle semantic query" or "inactive lifecycle" in text:
+                return [1.0, 0.0]
+            return [0.8, 0.2]
+
+        monkeypatch.setattr("agentmesh.embedding.EMBEDDING_ENABLED", True)
+        monkeypatch.setattr("agentmesh.embedding.embed_text", fake_embedding)
+        target = repository.add_memory_item(
+            MemoryItem(
+                id="mem_active_vector_target",
+                title="visible knowledge record",
+                summary="valid lifecycle target",
+                memory_type="note",
+                scope=Scope.TEAM_ACCEPTED,
+                status=MemoryStatus.ACCEPTED,
+                workspace_id="ws_lifecycle",
+                project_id="prj_lifecycle",
+            )
+        )
+        for index in range(60):
+            repository.add_memory_item(
+                MemoryItem(
+                    id=f"mem_inactive_vector_{index:02d}",
+                    title=f"inactive lifecycle {index}",
+                    summary="higher cosine score but not eligible for Agent context",
+                    memory_type="note",
+                    scope=Scope.TEAM_ACCEPTED,
+                    status=MemoryStatus.DEPRECATED,
+                    workspace_id="ws_lifecycle",
+                    project_id="prj_lifecycle",
+                )
+            )
+
+        results = repository.search(
+            "lifecycle semantic query",
+            {Scope.TEAM_ACCEPTED},
+            workspace_id="ws_lifecycle",
+            project_id="prj_lifecycle",
+            result_types={"memory_item"},
+            max_results=1,
+            agent_context=True,
+        )
+
+        assert [result.id for result in results] == [target.id]
 
     def test_cross_tenant_vectors_cannot_crowd_out_authorized_candidate(self, tmp_path, monkeypatch) -> None:
         repository = SQLiteStore(tmp_path / "tenant-vector-crowdout.sqlite3")

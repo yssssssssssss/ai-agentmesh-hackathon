@@ -14,6 +14,7 @@ from agentmesh.models import (
 )
 
 ACTION_ACCEPT_TEAM_MEMORY = "accept_team_memory"
+ACTION_MANAGE_TEAM_MEMORY = "manage_team_memory"
 ACTION_MANAGE_PERMISSION_POLICIES = "manage_permission_policies"
 ACTION_MANAGE_PROJECT_TASKS = "manage_project_tasks"
 ACTION_REVIEW_TASK_DELIVERABLES = "review_task_deliverables"
@@ -30,12 +31,14 @@ DEFAULT_ROLE_POLICIES: dict[UserRole, set[str]] = {
     UserRole.USER: set(),
     UserRole.TEAM_LEAD: {
         ACTION_ACCEPT_TEAM_MEMORY,
+        ACTION_MANAGE_TEAM_MEMORY,
         ACTION_MANAGE_PROJECT_TASKS,
         ACTION_MANAGE_PUBLIC_AGENT,
         ACTION_REVIEW_TASK_DELIVERABLES,
     },
     UserRole.ADMIN: {
         ACTION_ACCEPT_TEAM_MEMORY,
+        ACTION_MANAGE_TEAM_MEMORY,
         ACTION_MANAGE_PROJECT_TASKS,
         ACTION_MANAGE_PUBLIC_AGENT,
         ACTION_MANAGE_TEAM_MEMBERSHIP,
@@ -199,6 +202,13 @@ def default_permission_policy_rules() -> list[PermissionPolicyRule]:
             action=ACTION_ACCEPT_TEAM_MEMORY,
             effect="allow",
             description="组长可以审核并接受团队候选记忆。",
+        ),
+        PermissionPolicyRule(
+            id="perm_team_lead_manage_team_memory",
+            role=UserRole.TEAM_LEAD,
+            action=ACTION_MANAGE_TEAM_MEMORY,
+            effect="allow",
+            description="组长可以管理团队记忆生命周期。",
         ),
         PermissionPolicyRule(
             id="perm_team_lead_manage_public_agent",

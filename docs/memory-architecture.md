@@ -201,15 +201,25 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> draft
     draft --> proposed: 提交候选
-    proposed --> accepted: lead/admin 接受
-    proposed --> disputed: 存疑
-    accepted --> disputed: 事后争议
-    disputed --> accepted: 复核通过
-    accepted --> deprecated: 过时
-    proposed --> expired: 超期未处理
-    deprecated --> [*]
-    expired --> [*]
+    proposed --> accepted: 独立 Memory Review 接受
+    proposed --> disputed: 独立 Memory Review 拒绝
+    proposed --> expired: 候选失效并取消待处理 Review
+    accepted --> disputed: 标记争议
+    accepted --> deprecated: 主动废弃或后继修订激活
+    accepted --> expired: 标记失效
+    accepted --> archived: 归档
+    disputed --> deprecated: 废弃
+    disputed --> expired: 标记失效
+    disputed --> archived: 归档
+    deprecated --> archived: 归档历史
+    expired --> archived: 归档历史
+    archived --> accepted: 恢复归档前状态
+    archived --> disputed: 恢复归档前状态
+    archived --> deprecated: 恢复归档前状态
+    archived --> expired: 恢复归档前状态
 ```
+
+Accepted 团队知识不可原地改写。修订会创建新的 proposed 记录并冻结来源 Memory 的 ID、版本和内容哈希；只有新候选的独立 Memory Review 接受后，才在同一事务中激活新版本并将前一版置为 deprecated。若同一前驱已经存在 accepted 后继，则 archived-from-accepted 的旧后继不得恢复，避免同时出现两个 active successor。
 
 ---
 

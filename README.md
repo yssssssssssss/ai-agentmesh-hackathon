@@ -85,6 +85,8 @@ Linked Agent output can only use the dedicated Review path: the Run owner select
 
 After a Task Review is accepted, its Run owner may explicitly capture the frozen delivery as private Personal Memory or as a Team Candidate. Team Candidates require a separate `MemoryReviewV1` before becoming searchable Team Knowledge; the governance path works without external LLM, embedding, web, O2, MCP, or data providers.
 
+Accepted Team Knowledge is immutable in place. Its owner or a user with effective `manage_team_memory` permission may submit a revision candidate; accepting that candidate atomically activates the new version and deprecates its predecessor. Lifecycle managers can dispute, deprecate, expire, archive, and restore governed versions through versioned command endpoints. Inactive versions remain auditable but are excluded from automatic Agent retrieval.
+
 Port `8000` is intentionally avoided because it may already be used by another local backend.
 If `8010` is already in use, first check whether AgentMesh is already running:
 
