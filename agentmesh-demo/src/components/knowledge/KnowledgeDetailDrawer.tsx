@@ -11,6 +11,7 @@ import {
   Users,
 } from 'lucide-react'
 
+import type { MemoryLifecycleAction, MemoryLineage } from '../../features/knowledge/api'
 import type {
   KnowledgeAssetView,
   KnowledgeUsageView,
@@ -35,9 +36,26 @@ interface Props {
   busy?: boolean
   readOnly?: boolean
   onPendingAction?: (item: PendingKnowledgeView, action: PendingAction) => void
+  lineage?: MemoryLineage | null
+  lineageLoading?: boolean
+  lineageError?: string | null
+  onRevise?: (asset: KnowledgeAssetView) => void
+  onTransition?: (asset: KnowledgeAssetView, action: MemoryLifecycleAction) => void
 }
 
-export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, readOnly = false, onPendingAction }: Props) {
+export function KnowledgeDetailDrawer({
+  open,
+  onClose,
+  target,
+  busy = false,
+  readOnly = false,
+  onPendingAction,
+  lineage = null,
+  lineageLoading = false,
+  lineageError = null,
+  onRevise,
+  onTransition,
+}: Props) {
   if (!open || !target) return <Drawer open={false} onClose={onClose}>{null}</Drawer>
   if (target.kind === 'pending') {
     const item = target.item
@@ -89,10 +107,26 @@ export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, rea
   const title = asset?.title.value ?? event?.knowledgeTitle.value ?? '知识详情'
   const sourceProject = asset?.sourceProject.value ?? event?.project.value ?? ''
   return (
-    <Drawer open onClose={onClose} width={520} icon={<BookOpen className="h-5 w-5" />} title={title} subtitle={sourceProject ? `来源:${sourceProject}` : undefined}>
+    <Drawer
+      open
+      onClose={onClose}
+      width={520}
+      icon={<BookOpen className="h-5 w-5" />}
+      title={title}
+      subtitle={sourceProject ? `来源:${sourceProject}` : undefined}
+      footer={asset ? (
+        <AssetFooter
+          asset={asset}
+          busy={busy}
+          readOnly={readOnly}
+          onRevise={onRevise}
+          onTransition={onTransition}
+        />
+      ) : undefined}
+    >
       <div className="space-y-6">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1"><Badge tone="mint" dot>{event ? event.statusLabel.value : '已沉淀'}</Badge>{event ? <DataSourceBadge source={event.statusLabel.source} /> : null}</span>
+          <span className="inline-flex items-center gap-1"><Badge tone={event ? 'mint' : statusTone(asset?.status.value ?? '')} dot>{event ? event.statusLabel.value : STATUS_LABELS[asset?.status.value ?? ''] ?? asset?.status.value ?? '已沉淀'}</Badge>{event ? <DataSourceBadge source={event.statusLabel.source} /> : null}</span>
           {asset ? <span className="inline-flex items-center gap-1"><Badge tone="knowledge">{TYPE_LABELS[asset.type.value] ?? asset.type.value}</Badge><DataSourceBadge source={asset.type.source} /></span> : null}
           {asset ? <span className="inline-flex items-center gap-1"><Badge tone={asset.visibility.value === 'private' ? 'neutral' : 'collab'}>{VISIBILITY_LABELS[asset.visibility.value] ?? asset.visibility.value}</Badge><DataSourceBadge source={asset.visibility.source} /></span> : null}
           <DataSourceBadge source={(asset?.title ?? event?.knowledgeTitle)?.source ?? 'T'} />
@@ -141,7 +175,9 @@ export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, rea
                 <MetaRow label="原始贡献者" value={asset.contributor.value} source={asset.contributor.source} />
                 <MetaRow label="验证状态" value={asset.verified.value} source={asset.verified.source} />
                 <MetaRow label="最近更新" value={formatTime(asset.updated.value)} source={asset.updated.source} />
-                {asset.version.value !== null ? <MetaRow label="文档版本" value={`v${asset.version.value}`} source={asset.version.source} /> : null}
+                {asset.version.value !== null ? <MetaRow label="记录版本" value={`v${asset.version.value}`} source={asset.version.source} /> : null}
+                {asset.archivedFromStatus.value ? <MetaRow label="归档前状态" value={STATUS_LABELS[asset.archivedFromStatus.value] ?? asset.archivedFromStatus.value} source={asset.archivedFromStatus.source} /> : null}
+                {asset.contentHash.value ? <MetaRow label="内容哈希" value={asset.contentHash.value.slice(0, 12)} source={asset.contentHash.source} /> : null}
                 {asset.sourceRunId.value ? <MetaRow label="来源 Run" value={asset.sourceRunId.value} source={asset.sourceRunId.source} /> : null}
                 {asset.sourceReviewId.value ? <MetaRow label="来源审核" value={asset.sourceReviewId.value} source={asset.sourceReviewId.source} /> : null}
               </dl>
@@ -154,6 +190,28 @@ export function KnowledgeDetailDrawer({ open, onClose, target, busy = false, rea
                 </a>
               ) : null}
             </SectionBlock>
+            {asset.memoryKind.value ? (
+              <SectionBlock icon={<History className="h-4 w-4" />} label="版本与治理历史">
+                {lineageLoading ? <p className="text-sm text-slate-400">正在读取版本链…</p> : null}
+                {lineageError ? <p role="alert" className="text-sm text-rose">{lineageError}</p> : null}
+                {lineage ? (
+                  <div className="space-y-4">
+                    <RevisionLinks label="前一版" items={lineage.source_memories ?? []} />
+                    <RevisionLinks label="后一版" items={lineage.superseded_by_memories ?? []} />
+                    {(lineage.governance_events ?? []).length > 0 ? (
+                      <ol className="space-y-2">
+                        {(lineage.governance_events ?? []).map((governanceEvent) => (
+                          <li key={governanceEvent.id} className="rounded-soft bg-surface-1 px-3 py-2 text-xs text-slate-300">
+                            <span className="font-medium text-slate-100">{EVENT_LABELS[governanceEvent.action] ?? governanceEvent.action}</span>
+                            <span className="mt-1 block text-slate-400">{formatTime(governanceEvent.created_at)} · {governanceEvent.actor}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : <p className="text-sm text-slate-400">暂无治理事件。</p>}
+                  </div>
+                ) : null}
+              </SectionBlock>
+            ) : null}
             <SectionBlock icon={<History className="h-4 w-4" />} label="共享和引用记录">
               <div className="mb-2"><DataSourceBadge source={asset.citations.source} /></div>
               {asset.citations.value.length === 0 ? (
@@ -195,6 +253,65 @@ function PendingFooter({ item, busy, readOnly, onAction }: { item: PendingKnowle
   )
 }
 
+function AssetFooter({ asset, busy, readOnly, onRevise, onTransition }: {
+  asset: KnowledgeAssetView
+  busy: boolean
+  readOnly: boolean
+  onRevise?: (asset: KnowledgeAssetView) => void
+  onTransition?: (asset: KnowledgeAssetView, action: MemoryLifecycleAction) => void
+}) {
+  const actions = asset.allowedActions.value
+  const lifecycleActions = actions.filter((action): action is MemoryLifecycleAction => (
+    ['dispute', 'deprecate', 'expire', 'archive', 'restore'].includes(action)
+  ))
+  if (!actions.includes('revise') && lifecycleActions.length === 0) {
+    return <p className="text-xs text-slate-400">当前没有服务端可用操作。</p>
+  }
+  return (
+    <div className="flex flex-wrap justify-end gap-2">
+      {actions.includes('revise') && onRevise ? (
+        <Button size="sm" disabled={busy || readOnly} onClick={() => onRevise(asset)}>创建修订</Button>
+      ) : null}
+      {lifecycleActions.map((action) => (
+        <Button
+          key={action}
+          size="sm"
+          variant={['dispute', 'deprecate', 'expire'].includes(action) ? 'danger' : 'secondary'}
+          disabled={busy || readOnly || !onTransition}
+          onClick={() => onTransition?.(asset, action)}
+        >
+          {ACTION_LABELS[action]}
+        </Button>
+      ))}
+    </div>
+  )
+}
+
+type RevisionLink = NonNullable<MemoryLineage['source_memories']>[number]
+
+function RevisionLinks({ label, items }: { label: string; items: RevisionLink[] }) {
+  return (
+    <div>
+      <p className="mb-1.5 text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+      {items.length > 0 ? (
+        <ul className="space-y-1.5">
+          {items.map((item) => (
+            <li key={item.id}>
+              <a
+                href={item.navigation_href}
+                className="flex min-h-10 items-center justify-between gap-3 rounded-soft bg-surface-1 px-3 py-2 text-xs text-slate-300 transition-colors active:scale-[0.98] hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+              >
+                <span className="min-w-0 truncate">{item.title}</span>
+                <span className="shrink-0 tabular-nums text-slate-400">{STATUS_LABELS[item.status] ?? item.status} · v{item.version}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-sm text-slate-400">无</p>}
+    </div>
+  )
+}
+
 function PresentedParagraph({ value, source }: { value: string; source: 'M' | 'T' }) {
   return (
     <div className="flex items-start gap-2">
@@ -222,6 +339,35 @@ function MetaRow({ label, value, source }: { label: string; value: string; sourc
   )
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  proposed: '待审核',
+  accepted: '已接受',
+  disputed: '存在争议',
+  deprecated: '已废弃',
+  expired: '已失效',
+  archived: '已归档',
+  active: '生效中',
+}
+
+const ACTION_LABELS: Record<MemoryLifecycleAction, string> = {
+  dispute: '标记争议',
+  deprecate: '废弃版本',
+  expire: '标记失效',
+  archive: '归档',
+  restore: '恢复',
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  capture_memory_from_task_review: '从任务审核沉淀',
+  create_memory_revision: '提交修订候选',
+  decide_memory_review: '完成记忆审核',
+  transition_memory_dispute: '标记争议',
+  transition_memory_deprecate: '废弃版本',
+  transition_memory_expire: '标记失效',
+  transition_memory_archive: '归档版本',
+  transition_memory_restore: '恢复版本',
+}
+
 const TYPE_LABELS: Record<string, string> = {
   design_rule: '设计规范',
   decision_method: '决策方法',
@@ -237,6 +383,13 @@ const VISIBILITY_LABELS: Record<string, string> = {
   team: '团队共享',
 }
 
+
+function statusTone(status: string): 'mint' | 'remind' | 'neutral' | 'rose' {
+  if (status === 'accepted' || status === 'active') return 'mint'
+  if (status === 'proposed') return 'remind'
+  if (status === 'disputed') return 'rose'
+  return 'neutral'
+}
 
 function formatTime(value: string) {
   const timestamp = Date.parse(value)

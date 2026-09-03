@@ -1,8 +1,8 @@
 # AgentMesh 独立项目任务与记忆闭环开发方案
 
 - 日期：2026-08-31
-- 状态：已批准；Slice 1～3 已合并，Slice 4A Review Capture 与独立 Memory Review 已通过 PR #22 合并
-- 基线：`main` at `95af5378e89439b0586a4844455ad1765b8bca8c`
+- 状态：已批准；Slice 1～4A 已合并，Slice 4B Revision 与完整生命周期已完成本地实现，待最终审查与合并
+- 基线：`main` at `1b12887d8919f9a00f400d1a695ec90352e31c4d`
 - 目标：在 AgentMesh 可独立安装和运行的前提下，打通“任务创建、Agent 执行、产物审核、记忆沉淀、后续复用、全程审计”的真实产品闭环
 - 适用范围：FastAPI、React、SQLite、Agent Runtime v2、Task Center、Artifact、Inbox、Memory/RAG
 - 相关方案：`docs/plans/2026-08-25-task-center-integration-plan.md`、`docs/memory-optimization-plan.md`
@@ -569,12 +569,17 @@ Memory 详情展示：
 
 #### Slice 4B：Revision 与完整生命周期
 
-待交付：
+状态：本地实现完成，待最终审查与合并。
 
-- revision 与 `supersedes_memory_id` 激活流程。
-- dispute、deprecate、expire、archive 和 restore 的完整状态机。
-- 旧版本 deprecated 与新版本激活的原子提交。
-- 全量双向 lineage、筛选和治理历史 UI。
+交付：
+
+- revision 与 `supersedes_memory_id` 候选流程，冻结来源 Memory ID、版本和内容哈希。
+- 新修订通过独立 Memory Review 后，原子激活新版本并废弃前一版。
+- dispute、deprecate、expire、archive 和 restore 状态机；候选失效会取消待处理 Memory Review 和 Inbox。
+- `manage_team_memory` 权限、服务端 `allowed_actions`、版本 CAS、稳定 command receipt 和 AuditEvent。
+- Task、Run、Artifact、Task Review、前后版本与治理事件的双向 lineage。
+- 服务端治理历史筛选和分页，以及 Knowledge Center 修订、状态操作和历史视图。
+- 所有非 accepted 生命周期状态在 FTS、fallback 和 Vector 候选上限之前退出 Agent 自动检索。
 
 独立价值：团队知识成为可修订、可撤回且保留历史的长期资产。
 

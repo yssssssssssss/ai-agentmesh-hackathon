@@ -34,6 +34,27 @@ export const queryKeys = {
   memory: {
     root: queryRoots.memory,
     list: (context: QueryScope) => [...queryRoots.memory, ...scope(context)] as const,
+    detail: (context: QueryScope, memoryId: string) =>
+      [...queryRoots.memory, 'detail', ...scope(context), memoryId] as const,
+    governance: (
+      context: QueryScope,
+      status: string,
+      memoryScope: string,
+      kind: string,
+      layer: string,
+      page: number,
+      pageSize: number,
+    ) => [
+      ...queryRoots.memory,
+      'governance',
+      ...scope(context),
+      status,
+      memoryScope,
+      kind,
+      layer,
+      page,
+      pageSize,
+    ] as const,
     overview: (context: QueryScope) => [...queryRoots.memory, 'overview', ...scope(context)] as const,
   },
   documents: {

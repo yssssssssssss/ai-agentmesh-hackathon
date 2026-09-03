@@ -5,6 +5,12 @@ import { ArrowRight, ArrowRightLeft, CheckCircle2, FolderKanban, Layers3, Refres
 import { ApiError } from '../api/client'
 import { AssetsPanel } from '../components/knowledge/AssetsPanel'
 import { ConfirmKnowledgeModal } from '../components/knowledge/ConfirmKnowledgeModal'
+import { GovernanceHistoryPanel } from '../components/knowledge/GovernanceHistoryPanel'
+import {
+  MemoryRevisionDialog,
+  MemoryTransitionDialog,
+  type MemoryTransitionTarget,
+} from '../components/knowledge/MemoryGovernanceDialog'
 import {
   KnowledgeDetailDrawer,
   type DrawerTarget,
@@ -16,8 +22,10 @@ import { DataSourceBadge } from '../components/ui/DataSourceBadge'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Tabs, type TabItem } from '../components/ui/Tabs'
 import { useAuth } from '../features/auth/AuthProvider'
+import type { MemoryGovernanceFilters, MemoryLifecycleAction } from '../features/knowledge/api'
 import {
   buildKnowledgeViewModel,
+  memoryEntryAsset,
   type KnowledgeAssetView,
   type KnowledgeResource,
   type PendingKnowledgeView,
@@ -25,14 +33,32 @@ import {
 import {
   governanceErrorMessage,
   useDocumentQuery,
+  useGovernanceHistoryQuery,
   useKnowledgeMutations,
   useKnowledgeQueries,
+  useMemoryLineageQuery,
 } from '../features/knowledge/queries'
 
-const KNOWLEDGE_TABS = ['assets', 'pending', 'shared'] as const
+const KNOWLEDGE_TABS = ['assets', 'pending', 'governance', 'shared'] as const
+const DEFAULT_GOVERNANCE_FILTERS: MemoryGovernanceFilters = {
+  page: 1,
+  pageSize: 25,
+  status: 'all',
+  scope: 'all',
+  kind: 'all',
+  layer: 'all',
+}
 type KnowledgeTab = (typeof KNOWLEDGE_TABS)[number]
 type PendingAction = 'confirm' | 'snooze' | 'resolve' | 'release' | 'discard' | 'accept'
 type ToolApprovalAction = 'approve' | 'reject'
+
+const TRANSITION_SUCCESS: Record<MemoryLifecycleAction, string> = {
+  dispute: '团队知识已标记为存在争议，并退出自动检索。',
+  deprecate: '记忆版本已废弃。',
+  expire: '记忆已标记为失效。',
+  archive: '记忆已归档。',
+  restore: '记忆已恢复到归档前状态。',
+}
 
 function normalizeTab(value: string | null | undefined): KnowledgeTab {
   return KNOWLEDGE_TABS.includes(value as KnowledgeTab) ? value as KnowledgeTab : 'assets'
@@ -68,9 +94,16 @@ export function Knowledge() {
   const projectName = bootstrap?.project.id === selectedProjectId
     ? bootstrap.project.name
     : selectedProjectId
+  const [governanceFilters, setGovernanceFilters] = useState<MemoryGovernanceFilters>(
+    DEFAULT_GOVERNANCE_FILTERS,
+  )
   const queries = useKnowledgeQueries(context)
+  const governanceQuery = useGovernanceHistoryQuery(context, governanceFilters)
   const mutations = useKnowledgeMutations()
   const [tab, setTabState] = useState<KnowledgeTab>(() => normalizeTab(searchParams.get('tab') ?? location.state?.tab))
+  useEffect(() => {
+    setGovernanceFilters((current) => ({ ...current, page: 1 }))
+  }, [selectedProjectId])
   const setTab = (nextTab: string) => {
     const normalized = normalizeTab(nextTab)
     setTabState(normalized)
@@ -86,6 +119,7 @@ export function Knowledge() {
       projectName,
       inbox: queryResource(queries.inbox),
       memory: queryResource(queries.memory),
+      governance: queryResource(governanceQuery),
       overview: queryResource(queries.overview),
       documents: queryResource(queries.documents),
       usage: { state: 'unsupported' },
@@ -102,6 +136,9 @@ export function Knowledge() {
       queries.memory.data,
       queries.memory.error,
       queries.memory.isLoading,
+      governanceQuery.data,
+      governanceQuery.error,
+      governanceQuery.isLoading,
       queries.overview.data,
       queries.overview.error,
       queries.overview.isLoading,
@@ -115,9 +152,29 @@ export function Knowledge() {
 
   const [selectedBriefId, setSelectedBriefId] = useState<string | null>(null)
   const [drawerTarget, setDrawerTarget] = useState<DrawerTarget | null>(null)
+  const [revisionMemoryId, setRevisionMemoryId] = useState<string | null>(null)
+  const [transitionTarget, setTransitionTarget] = useState<MemoryTransitionTarget | null>(null)
+  const [governanceDialogError, setGovernanceDialogError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const memoryReviewCommands = useRef<Record<string, string>>({})
+  const revisionCommands = useRef<Record<string, string>>({})
+  const transitionCommands = useRef<Record<string, string>>({})
+  const governedAssets = [...viewModel.assets.data.items, ...viewModel.governance.data.items]
+  const revisionAsset = governedAssets.find((asset) => asset.id.value === revisionMemoryId) ?? null
+  const latestTransitionVersion = transitionTarget === null
+    ? null
+    : governedAssets.find((asset) => asset.id.value === transitionTarget.id)?.version.value
+      ?? viewModel.pending.data.items.find((item) => item.memoryId.value === transitionTarget.id)?.memoryVersion.value
+      ?? transitionTarget.version
+  const currentTransitionTarget = transitionTarget === null
+    ? null
+    : { ...transitionTarget, version: latestTransitionVersion ?? transitionTarget.version }
+  const requestedMemoryId = searchParams.get('memory')?.trim() || null
+  const drawerMemoryId = drawerTarget?.kind === 'asset' && drawerTarget.asset.memoryKind.value
+    ? drawerTarget.asset.id.value
+    : null
+  const lineageQuery = useMemoryLineageQuery(context, requestedMemoryId ?? drawerMemoryId)
   const selectedBrief = queries.inbox.data?.items.find((item) => item.id === selectedBriefId) ?? null
   const documentId = selectedBrief?.metadata?.document_id ?? null
   const documentQuery = useDocumentQuery(context, documentId)
@@ -126,22 +183,58 @@ export function Knowledge() {
     ? mutations.resolveToolApproval.variables
     : null
   const pendingReadOnly = viewModel.pending.loading || viewModel.pending.error !== null
+  const memoryReadOnly = viewModel.assets.loading || viewModel.governance.loading || queries.memory.error !== null
   const documentReadOnly = documentQuery.isLoading || documentQuery.error !== null
-  const queryError = queries.inbox.error ?? queries.memory.error ?? queries.overview.error ?? queries.documents.error
+  const queryError = queries.inbox.error
+    ?? queries.memory.error
+    ?? governanceQuery.error
+    ?? queries.overview.error
+    ?? queries.documents.error
 
   useEffect(() => {
-    const memoryId = searchParams.get('memory')?.trim()
+    const memoryId = requestedMemoryId
     if (!memoryId) return
     const asset = viewModel.assets.data.items.find((candidate) => candidate.id.value === memoryId)
     if (asset) {
       setDrawerTarget({ kind: 'asset', asset })
       return
     }
+    const governance = viewModel.governance.data.items.find((candidate) => candidate.id.value === memoryId)
+    if (governance) {
+      setDrawerTarget({ kind: 'asset', asset: governance })
+      return
+    }
     const pending = viewModel.pending.data.items.find((candidate) => (
       candidate.kind === 'team_candidate' && candidate.id.value === memoryId
     ))
-    if (pending) setDrawerTarget({ kind: 'pending', item: pending })
-  }, [searchParams, viewModel.assets.data.items, viewModel.pending.data.items])
+    if (pending) {
+      setDrawerTarget({ kind: 'pending', item: pending })
+      return
+    }
+    if (lineageQuery.data?.item.id === memoryId) {
+      setDrawerTarget({
+        kind: 'asset',
+        asset: memoryEntryAsset(
+          {
+            ...lineageQuery.data.item,
+            allowed_actions: lineageQuery.data.item.allowed_actions ?? [],
+          },
+          {
+            projectId: context.projectId,
+            projectName,
+          },
+        ),
+      })
+    }
+  }, [
+    context.projectId,
+    lineageQuery.data,
+    projectName,
+    requestedMemoryId,
+    viewModel.assets.data.items,
+    viewModel.governance.data.items,
+    viewModel.pending.data.items,
+  ])
 
   const closeDrawer = () => {
     setDrawerTarget(null)
@@ -247,6 +340,83 @@ export function Knowledge() {
     )
   }
 
+  const openRevision = (asset: KnowledgeAssetView) => {
+    setGovernanceDialogError(null)
+    closeDrawer()
+    setRevisionMemoryId(asset.id.value)
+  }
+
+  const openTransition = (
+    asset: KnowledgeAssetView,
+    action: MemoryLifecycleAction,
+  ) => {
+    if (asset.version.value === null) return
+    setGovernanceDialogError(null)
+    closeDrawer()
+    setTransitionTarget({
+      id: asset.id.value,
+      title: asset.title.value,
+      version: asset.version.value,
+      action,
+    })
+  }
+
+  const submitMemoryRevision = async (values: {
+    title: string
+    summary: string
+    memoryType: string
+  }) => {
+    if (!revisionAsset || revisionAsset.version.value === null) return
+    const key = JSON.stringify({
+      memoryId: revisionAsset.id.value,
+      expectedVersion: revisionAsset.version.value,
+      ...values,
+    })
+    const commandId = revisionCommands.current[key] ?? `memory-revision-${crypto.randomUUID()}`
+    revisionCommands.current[key] = commandId
+    setGovernanceDialogError(null)
+    try {
+      await mutations.createMemoryRevision.mutateAsync({
+        memoryId: revisionAsset.id.value,
+        payload: {
+          command_id: commandId,
+          expected_version: revisionAsset.version.value,
+          title: values.title,
+          summary: values.summary,
+          memory_type: values.memoryType,
+        },
+      })
+      delete revisionCommands.current[key]
+      setRevisionMemoryId(null)
+      setMessage('修订已提交为团队候选，等待独立审核。')
+    } catch (actionError) {
+      setGovernanceDialogError(governanceErrorMessage(actionError))
+    }
+  }
+
+  const confirmMemoryTransition = async () => {
+    if (!currentTransitionTarget) return
+    const key = `${currentTransitionTarget.id}:${currentTransitionTarget.version}:${currentTransitionTarget.action}`
+    const commandId = transitionCommands.current[key] ?? `memory-transition-${crypto.randomUUID()}`
+    transitionCommands.current[key] = commandId
+    setGovernanceDialogError(null)
+    try {
+      await mutations.transitionMemory.mutateAsync({
+        memoryId: currentTransitionTarget.id,
+        payload: {
+          command_id: commandId,
+          expected_version: currentTransitionTarget.version,
+          action: currentTransitionTarget.action,
+        },
+      })
+      delete transitionCommands.current[key]
+      setTransitionTarget(null)
+      setMessage(TRANSITION_SUCCESS[currentTransitionTarget.action])
+    } catch (actionError) {
+      setGovernanceDialogError(governanceErrorMessage(actionError))
+    }
+  }
+
   const openUsage = (event: (typeof viewModel.usage.data.items)[number]) => {
     const asset = viewModel.assets.data.items.find((item) => item.id.value === event.knowledgeId.value)
     setDrawerTarget({ kind: 'event', event, asset })
@@ -268,7 +438,17 @@ export function Knowledge() {
       {queryError ? (
         <div role="alert" className="flex items-center justify-between gap-3 rounded-soft border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
           <span>{governanceErrorMessage(queryError)}</span>
-          <Button variant="subtle" size="sm" icon={<RefreshCw className="h-4 w-4" />} onClick={() => void Promise.all(Object.values(queries).map((query) => query.refetch()))}>重试</Button>
+          <Button
+            variant="subtle"
+            size="sm"
+            icon={<RefreshCw className="h-4 w-4" />}
+            onClick={() => void Promise.all([
+              ...Object.values(queries).map((query) => query.refetch()),
+              governanceQuery.refetch(),
+            ])}
+          >
+            重试
+          </Button>
         </div>
       ) : null}
       {error ? <p role="alert" className="rounded-soft border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">{error}</p> : null}
@@ -296,6 +476,17 @@ export function Knowledge() {
             onToolApproval={handleToolApproval}
             onAccept={(item) => handlePendingAction(item, 'accept')}
             onMemoryReview={handleMemoryReview}
+            onMemoryTransition={(item, action) => {
+              if (!item.memoryId.value || item.memoryVersion.value === null) return
+              setGovernanceDialogError(null)
+              setDrawerTarget(null)
+              setTransitionTarget({
+                id: item.memoryId.value,
+                title: item.title.value,
+                version: item.memoryVersion.value,
+                action,
+              })
+            }}
             onOpenTaskReview={(item) => {
               if (item.taskId.value) navigate(`/tasks?manage=${encodeURIComponent(item.taskId.value)}`)
             }}
@@ -311,9 +502,28 @@ export function Knowledge() {
         </ModuleState>
       ) : null}
 
+      {tab === 'governance' ? (
+        <ModuleState
+          loading={viewModel.governance.loading}
+          error={viewModel.governance.error}
+          empty={false}
+          emptyText="暂无争议、废弃、失效或归档版本。"
+        >
+          <GovernanceHistoryPanel
+            items={viewModel.governance.data.items}
+            filters={governanceFilters}
+            total={governanceQuery.data?.total ?? viewModel.governance.data.items.length}
+            hasNext={governanceQuery.data?.has_next ?? false}
+            onFiltersChange={setGovernanceFilters}
+            onPageChange={(page) => setGovernanceFilters((current) => ({ ...current, page }))}
+            onOpen={(asset) => setDrawerTarget({ kind: 'asset', asset })}
+          />
+        </ModuleState>
+      ) : null}
+
       {tab === 'shared' ? (
         <ModuleState loading={viewModel.usage.loading} error={viewModel.usage.error} empty={viewModel.usage.data.items.length === 0} emptyText="暂无使用与反馈动态。">
-          <ShareTimeline events={viewModel.usage.data.items} totalCount={viewModel.tabs[2].count} sources={viewModel.usage.sources} onOpenEvent={openUsage} />
+          <ShareTimeline events={viewModel.usage.data.items} totalCount={viewModel.tabs[3].count} sources={viewModel.usage.sources} onOpenEvent={openUsage} />
         </ModuleState>
       ) : null}
 
@@ -326,7 +536,40 @@ export function Knowledge() {
         onClose={() => setSelectedBriefId(null)}
         onConfirm={confirmBrief}
       />
-      <KnowledgeDetailDrawer open={drawerTarget !== null} target={drawerTarget} busy={busy} readOnly={pendingReadOnly} onClose={closeDrawer} onPendingAction={handlePendingAction} />
+      <KnowledgeDetailDrawer
+        open={drawerTarget !== null}
+        target={drawerTarget}
+        busy={busy}
+        readOnly={drawerTarget?.kind === 'pending' ? pendingReadOnly : memoryReadOnly}
+        lineage={lineageQuery.data ?? null}
+        lineageLoading={lineageQuery.isLoading}
+        lineageError={lineageQuery.error ? governanceErrorMessage(lineageQuery.error) : null}
+        onClose={closeDrawer}
+        onPendingAction={handlePendingAction}
+        onRevise={openRevision}
+        onTransition={openTransition}
+      />
+      <MemoryRevisionDialog
+        open={revisionAsset !== null}
+        asset={revisionAsset}
+        busy={mutations.createMemoryRevision.isPending}
+        error={governanceDialogError}
+        onClose={() => {
+          setRevisionMemoryId(null)
+          setGovernanceDialogError(null)
+        }}
+        onSubmit={(values) => void submitMemoryRevision(values)}
+      />
+      <MemoryTransitionDialog
+        target={currentTransitionTarget}
+        busy={mutations.transitionMemory.isPending}
+        error={governanceDialogError}
+        onClose={() => {
+          setTransitionTarget(null)
+          setGovernanceDialogError(null)
+        }}
+        onConfirm={() => void confirmMemoryTransition()}
+      />
     </div>
   )
 }
@@ -401,7 +644,7 @@ function KnowledgeArchitecturePanel({ assets, projectName }: {
           title="团队知识"
           desc="团队成员和协作数字员工可按权限检索"
           count={teamCount}
-          actions={['转回项目范围', '更新团队版本']}
+          actions={['详情中提交修订', '按状态治理']}
         />
       </div>
     </section>
@@ -427,15 +670,12 @@ function KnowledgeLevelCard({ icon, title, desc, count, actions }: {
       </div>
       <div className="mt-auto flex flex-wrap gap-2 pt-4">
         {actions.map((action) => (
-          <button
+          <span
             key={action}
-            type="button"
-            disabled
-            className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] text-slate-400"
-            title="待接入服务端知识流转接口"
+            className="rounded-full bg-white/[0.03] px-2.5 py-1 text-[11px] text-slate-400"
           >
             {action}
-          </button>
+          </span>
         ))}
       </div>
     </article>

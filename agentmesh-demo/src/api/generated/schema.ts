@@ -330,6 +330,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/runs/{run_id}/memory-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Agent Run Memory Links */
+        get: operations["get_agent_run_memory_links_api_agent_runs__run_id__memory_links_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/runs/{run_id}/report.html": {
         parameters: {
             query?: never;
@@ -527,6 +544,23 @@ export interface paths {
         };
         /** Get Artifact */
         get: operations["get_artifact_api_artifacts__artifact_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts/{artifact_id}/memory-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Artifact Memory Links */
+        get: operations["get_artifact_memory_links_api_artifacts__artifact_id__memory_links_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1485,6 +1519,40 @@ export interface paths {
         get: operations["get_memory_lineage_api_memory_entries__memory_id__lineage_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/{memory_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Memory Revision */
+        post: operations["create_memory_revision_api_memory__memory_id__revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/{memory_id}/transitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Transition Memory */
+        post: operations["transition_memory_api_memory__memory_id__transitions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4638,6 +4706,11 @@ export interface components {
             /** Enabled */
             enabled: boolean;
         };
+        /** MemoryBacklinksV1 */
+        MemoryBacklinksV1: {
+            /** Items */
+            items?: components["schemas"]["TaskMemoryLinkV1"][];
+        };
         /** MemoryCaptureResponseV1 */
         MemoryCaptureResponseV1: {
             item: components["schemas"]["MemoryEntryViewV1"];
@@ -4699,6 +4772,8 @@ export interface components {
             layer?: components["schemas"]["MemoryLayer"] | null;
             /** Version */
             version: number;
+            /** Content Hash */
+            content_hash?: string | null;
             provenance?: components["schemas"]["MemoryProvenanceV1"] | null;
             /**
              * Provenance State
@@ -4711,6 +4786,7 @@ export interface components {
             archived_at?: string | null;
             /** Archived By */
             archived_by?: string | null;
+            archived_from_status?: components["schemas"]["MemoryStatus"] | null;
             /**
              * Created At
              * Format: date-time
@@ -4723,8 +4799,27 @@ export interface components {
             updated_at: string;
             /** Allowed Actions */
             allowed_actions?: string[];
+            memory_review?: components["schemas"]["MemoryReviewV1"] | null;
             /** Navigation Href */
             navigation_href: string;
+        };
+        /** MemoryGovernanceEventV1 */
+        MemoryGovernanceEventV1: {
+            /** Id */
+            id: string;
+            /** Action */
+            action: string;
+            /** Actor */
+            actor: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
         };
         /** MemoryItem */
         MemoryItem: {
@@ -4843,6 +4938,11 @@ export interface components {
          * @enum {string}
          */
         MemoryLayer: "short_term" | "mid_term" | "long_term";
+        /**
+         * MemoryLifecycleAction
+         * @enum {string}
+         */
+        MemoryLifecycleAction: "dispute" | "deprecate" | "expire" | "archive" | "restore";
         /** MemoryLineageViewV1 */
         MemoryLineageViewV1: {
             item: components["schemas"]["MemoryEntryViewV1"];
@@ -4858,10 +4958,16 @@ export interface components {
             artifact_hashes?: string[];
             /** Source Memory Ids */
             source_memory_ids?: string[];
+            /** Source Memories */
+            source_memories?: components["schemas"]["MemoryRevisionLinkV1"][];
             /** Superseded By Memory Ids */
             superseded_by_memory_ids?: string[];
+            /** Superseded By Memories */
+            superseded_by_memories?: components["schemas"]["MemoryRevisionLinkV1"][];
             /** Memory Reviews */
             memory_reviews?: components["schemas"]["MemoryReviewViewV1"][];
+            /** Governance Events */
+            governance_events?: components["schemas"]["MemoryGovernanceEventV1"][];
         };
         /** MemoryOverviewCounts */
         MemoryOverviewCounts: {
@@ -4930,6 +5036,10 @@ export interface components {
             artifact_hashes?: string[];
             /** Source Memory Ids */
             source_memory_ids?: string[];
+            /** Source Memory Versions */
+            source_memory_versions?: number[];
+            /** Source Memory Hashes */
+            source_memory_hashes?: string[];
             /** Created By */
             created_by: string;
             /**
@@ -4968,7 +5078,7 @@ export interface components {
          * MemoryReviewStatus
          * @enum {string}
          */
-        MemoryReviewStatus: "pending" | "accepted" | "rejected";
+        MemoryReviewStatus: "pending" | "accepted" | "rejected" | "cancelled";
         /** MemoryReviewV1 */
         MemoryReviewV1: {
             /**
@@ -5017,6 +5127,40 @@ export interface components {
             /** Allowed Actions */
             allowed_actions?: components["schemas"]["MemoryReviewAllowedAction"][];
         };
+        /** MemoryRevisionLinkV1 */
+        MemoryRevisionLinkV1: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: string;
+            scope: components["schemas"]["Scope"];
+            /** Version */
+            version: number;
+            /** Content Hash */
+            content_hash: string;
+            /** Navigation Href */
+            navigation_href: string;
+        };
+        /** MemoryRevisionRequest */
+        MemoryRevisionRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Version */
+            expected_version: number;
+            /** Title */
+            title: string;
+            /** Summary */
+            summary: string;
+            /** Memory Type */
+            memory_type: string;
+        };
+        /** MemoryRevisionResponseV1 */
+        MemoryRevisionResponseV1: {
+            item: components["schemas"]["MemoryEntryViewV1"];
+            memory_review: components["schemas"]["MemoryReviewViewV1"];
+        };
         /**
          * MemorySearchScope
          * @enum {string}
@@ -5054,6 +5198,18 @@ export interface components {
          * @enum {string}
          */
         MemoryStatus: "draft" | "proposed" | "accepted" | "disputed" | "deprecated" | "expired" | "archived";
+        /** MemoryTransitionRequest */
+        MemoryTransitionRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Version */
+            expected_version: number;
+            action: components["schemas"]["MemoryLifecycleAction"];
+        };
+        /** MemoryTransitionResponseV1 */
+        MemoryTransitionResponseV1: {
+            item: components["schemas"]["MemoryEntryViewV1"];
+        };
         /** MemoryUpdateRequest */
         MemoryUpdateRequest: {
             status?: components["schemas"]["MemoryStatus"] | null;
@@ -8144,6 +8300,37 @@ export interface operations {
             };
         };
     };
+    get_agent_run_memory_links_api_agent_runs__run_id__memory_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryBacklinksV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_agent_run_report_html_api_agent_runs__run_id__report_html_get: {
         parameters: {
             query?: {
@@ -8562,6 +8749,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_artifact_memory_links_api_artifacts__artifact_id__memory_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryBacklinksV1"];
                 };
             };
             /** @description Validation Error */
@@ -10411,6 +10629,11 @@ export interface operations {
                 page?: number;
                 page_size?: number;
                 include_archived?: boolean;
+                lifecycle?: "inactive" | null;
+                kind?: components["schemas"]["MemoryEntryKind"] | null;
+                status?: components["schemas"]["MemoryStatus"] | "active" | null;
+                scope?: components["schemas"]["Scope"] | null;
+                layer?: components["schemas"]["MemoryLayer"] | null;
             };
             header?: never;
             path?: never;
@@ -10487,6 +10710,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoryLineageViewV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_memory_revision_api_memory__memory_id__revisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryRevisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryRevisionResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transition_memory_api_memory__memory_id__transitions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryTransitionResponseV1"];
                 };
             };
             /** @description Validation Error */

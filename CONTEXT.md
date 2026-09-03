@@ -34,6 +34,10 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
 
 - **组织知识资产 / Org knowledge asset** — governed project/team Memory. A Task Review acceptance can be explicitly captured as private Personal Memory or a proposed Team Candidate with frozen `MemoryProvenanceV1`. A Team Candidate becomes Team Knowledge only after its separate `MemoryReviewV1`; Task Review never publishes shared knowledge by itself.
 
+- **记忆修订 / Memory revision** — a new Team Candidate that declares which governed Team Knowledge version it supersedes. The predecessor remains active while the revision is pending or rejected. Accepting the revision activates the new Team Knowledge and deprecates its predecessor as one decision.
+
+- **记忆生命周期 / Memory lifecycle** — the governance state of one immutable Memory version. Disputed, deprecated, expired, and archived versions remain auditable but cannot enter automatic Agent context. Archive temporarily wraps the prior inactive or active state; restore returns only to that recorded pre-archive state.
+
 - **确认闸门 / Confirmation gate** — policy-driven human confirmation before data crosses a
   boundary or writes to org memory. ✅ Risk and Provider approvals use `InboxItem`; project
   deliverable quality decisions use the separate **Task Review** aggregate and project an assigned

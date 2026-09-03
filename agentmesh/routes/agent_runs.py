@@ -43,6 +43,8 @@ from agentmesh.deepsearch.planning import (
     plan_content_hash,
 )
 from agentmesh.deepsearch.service import deepsearch_retry_disposition
+from agentmesh.memory_governance.contracts import MemoryBacklinksV1
+from agentmesh.memory_governance.service import MemoryGovernanceError, MemoryGovernanceService
 from agentmesh.models import (
     AgentPlanningContractVersion,
     AgentPlanningMode,
@@ -107,6 +109,7 @@ _RESEARCH_V2_READ_ONLY = "Research-v2 runs are historical and read-only"
 _RESEARCH_V3_RETIRED = "Research-v3 is retired and its runs cannot be changed"
 _REPORT_READY_STATUSES = {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}
 _report_artifact_reader = V1ArtifactReader(store)
+_memory_governance_service = MemoryGovernanceService(store)
 
 
 class _SSECapacity:
@@ -788,6 +791,19 @@ async def start_agent_run(
 @router.get("/{run_id}", response_model=ItemResponse)
 def get_agent_run(run_id: str, user: User = Depends(current_user)) -> ItemResponse:
     return ItemResponse(item=_visible_run(run_id, user))
+
+
+@router.get("/{run_id}/memory-links", response_model=MemoryBacklinksV1)
+def get_agent_run_memory_links(
+    run_id: str,
+    user: User = Depends(current_user),
+) -> MemoryBacklinksV1:
+    _visible_run(run_id, user)
+    try:
+        links = _memory_governance_service.run_memory_links(run_id, user)
+    except MemoryGovernanceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
+    return MemoryBacklinksV1(items=links)
 
 
 @router.get("/{run_id}/report.html", response_class=HTMLResponse)

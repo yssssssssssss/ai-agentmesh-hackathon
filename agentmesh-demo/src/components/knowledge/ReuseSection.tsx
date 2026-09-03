@@ -1,7 +1,7 @@
-import type { MemoryItem } from '../../features/knowledge/api'
+import type { LegacyMemoryItem } from '../../features/knowledge/api'
 import { KnowledgeCard } from './KnowledgeCard'
 
-export function ReuseSection({ items, projectName }: { items: MemoryItem[]; projectName: string }) {
+export function ReuseSection({ items, projectName }: { items: LegacyMemoryItem[]; projectName: string }) {
   if (items.length === 0) {
     return <div className="card-base py-12 text-center text-sm text-slate-400">暂无已共享的团队经验。</div>
   }

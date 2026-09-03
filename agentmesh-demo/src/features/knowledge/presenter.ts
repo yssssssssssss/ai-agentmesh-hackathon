@@ -18,6 +18,7 @@ import type {
   InboxItem,
   MemoryItem,
   MemoryOverview,
+  MemoryPage,
   UserMemoryItem,
 } from './api'
 
@@ -66,6 +67,11 @@ export interface KnowledgeAssetView {
   citations: PresentedValue<KnowledgeCitation[]>
   allowedActions: PresentedValue<string[]>
   version: PresentedValue<number | null>
+  status: PresentedValue<string>
+  memoryKind: PresentedValue<string | null>
+  supersedesMemoryId: PresentedValue<string | null>
+  contentHash: PresentedValue<string | null>
+  archivedFromStatus: PresentedValue<string | null>
   sourceTaskId: PresentedValue<string | null>
   sourceRunId: PresentedValue<string | null>
   sourceReviewId: PresentedValue<string | null>
@@ -125,6 +131,7 @@ interface KnowledgeViewModelInput {
   projectName: string
   inbox: KnowledgeResource<{ items: InboxItem[] }>
   memory: KnowledgeResource<{ items: MemoryItem[] }>
+  governance: KnowledgeResource<MemoryPage>
   overview: KnowledgeResource<MemoryOverview>
   documents: KnowledgeResource<{ items: DocumentRecord[] }>
   usage: KnowledgeResource<{ items: KnowledgeUsageRecord[] }>
@@ -132,12 +139,13 @@ interface KnowledgeViewModelInput {
 
 export interface KnowledgeViewModel {
   tabs: Array<{
-    key: 'assets' | 'pending' | 'shared'
+    key: 'assets' | 'pending' | 'governance' | 'shared'
     label: string
     count: PresentedValue<number>
   }>
   assets: PresentedModule<{ items: KnowledgeAssetView[] }>
   pending: PresentedModule<{ items: PendingKnowledgeView[] }>
+  governance: PresentedModule<{ items: KnowledgeAssetView[] }>
   usage: PresentedModule<{ items: KnowledgeUsageView[] }>
 }
 
@@ -152,7 +160,10 @@ function timeValue(value: string | undefined, field: string): PresentedValue<str
   return referenceValue('时间未提供', field)
 }
 
-function projectLabel(projectId: string | null | undefined, input: KnowledgeViewModelInput) {
+function projectLabel(
+  projectId: string | null | undefined,
+  input: Pick<KnowledgeViewModelInput, 'projectId' | 'projectName'>,
+) {
   if (projectId === input.projectId) return input.projectName
   return projectId || '未关联项目'
 }
@@ -212,13 +223,21 @@ function userMemoryAsset(item: UserMemoryItem, input: KnowledgeViewModelInput): 
     citations: referenceValue((reference?.citations ?? []).map((citation) => ({ ...citation })), '引用记录'),
     allowedActions: presentedValue([], 'T'),
     version: governed ? presentedValue(item.version ?? 1, 'T') : referenceValue(null, '版本'),
+    status: presentedValue(item.status, 'T'),
+    memoryKind: presentedValue(governed ? 'personal' : null, 'T'),
+    supersedesMemoryId: presentedValue(item.supersedes_memory_id ?? null, 'T'),
+    contentHash: presentedValue(null, 'T'),
+    archivedFromStatus: presentedValue(null, 'T'),
     sourceTaskId: presentedValue(item.provenance?.task_id ?? null, 'T'),
     sourceRunId: presentedValue(item.provenance?.run_id ?? null, 'T'),
     sourceReviewId: presentedValue(item.provenance?.review_id ?? null, 'T'),
   }
 }
 
-function acceptedMemoryAsset(item: MemoryItem, input: KnowledgeViewModelInput): KnowledgeAssetView {
+export function memoryEntryAsset(
+  item: MemoryItem,
+  input: Pick<KnowledgeViewModelInput, 'projectId' | 'projectName'>,
+): KnowledgeAssetView {
   const reference = referenceAssets.get(item.id ?? '')
   const governed = item.provenance != null
   return {
@@ -233,7 +252,10 @@ function acceptedMemoryAsset(item: MemoryItem, input: KnowledgeViewModelInput): 
       ? presentedValue(item.owner_user_id ?? '未记录贡献者', 'T')
       : referenceValue(reference?.contributor ?? '未提供贡献者', '贡献者'),
     verified: presentedValue(item.status, 'T'),
-    visibility: presentedValue('team', 'T'),
+    visibility: presentedValue(
+      item.scope === 'team_accepted' ? 'team' : item.scope === 'team_candidate' ? 'team_candidate' : item.scope,
+      'T',
+    ),
     citedBy: referenceValue(reference?.citedBy ?? 0, '引用次数'),
     updated: timeValue(item.updated_at ?? item.created_at, '更新时间'),
     hasNewFeedback: referenceValue(reference?.hasNewFeedback ?? false, '反馈状态'),
@@ -244,7 +266,12 @@ function acceptedMemoryAsset(item: MemoryItem, input: KnowledgeViewModelInput): 
     limitation: referenceValue(reference?.limitation ?? '', '限制条件'),
     citations: referenceValue((reference?.citations ?? []).map((citation) => ({ ...citation })), '引用记录'),
     allowedActions: presentedValue([...item.allowed_actions], 'T'),
-    version: governed ? presentedValue(item.version ?? 1, 'T') : referenceValue(null, '版本'),
+    version: presentedValue(item.version, 'T'),
+    status: presentedValue(item.status, 'T'),
+    memoryKind: presentedValue(item.kind, 'T'),
+    supersedesMemoryId: presentedValue(item.supersedes_memory_id ?? null, 'T'),
+    contentHash: presentedValue(item.content_hash ?? null, 'T'),
+    archivedFromStatus: presentedValue(item.archived_from_status ?? null, 'T'),
     sourceTaskId: presentedValue(item.provenance?.task_id ?? null, 'T'),
     sourceRunId: presentedValue(item.provenance?.run_id ?? null, 'T'),
     sourceReviewId: presentedValue(item.provenance?.review_id ?? null, 'T'),
@@ -272,6 +299,11 @@ function documentAsset(document: DocumentRecord): KnowledgeAssetView {
     citations: referenceValue([], '引用记录'),
     allowedActions: presentedValue([], 'T'),
     version: presentedValue(document.version, 'T'),
+    status: presentedValue('document', 'T'),
+    memoryKind: presentedValue(null, 'T'),
+    supersedesMemoryId: presentedValue(null, 'T'),
+    contentHash: presentedValue(null, 'T'),
+    archivedFromStatus: presentedValue(null, 'T'),
     sourceTaskId: presentedValue(null, 'T'),
     sourceRunId: presentedValue(null, 'T'),
     sourceReviewId: presentedValue(null, 'T'),
@@ -322,7 +354,7 @@ function pendingCandidate(item: MemoryItem, input: KnowledgeViewModelInput): Pen
     sourceProject: presentedValue(projectLabel(item.project_id, input), 'T'),
     projectId: presentedValue(item.project_id ?? null, 'T'),
     createdAt: timeValue(item.created_at, '形成时间'),
-    updatedAt: timeValue(item.created_at, '更新时间'),
+    updatedAt: timeValue(item.updated_at, '更新时间'),
     documentId: presentedValue(null, 'T'),
     documentVersion: presentedValue(null, 'T'),
     taskId: presentedValue(item.provenance?.task_id ?? null, 'T'),
@@ -421,6 +453,11 @@ function assetValues(asset: KnowledgeAssetView): PresentedValue<unknown>[] {
     asset.citations,
     asset.allowedActions,
     asset.version,
+    asset.status,
+    asset.memoryKind,
+    asset.supersedesMemoryId,
+    asset.contentHash,
+    asset.archivedFromStatus,
     asset.sourceTaskId,
     asset.sourceRunId,
     asset.sourceReviewId,
@@ -499,9 +536,7 @@ export function buildKnowledgeViewModel(input: KnowledgeViewModelInput): Knowled
     : []
   const teamMemories = input.memory.state === 'available'
     ? input.memory.data?.items ?? []
-    : input.overview.state === 'available'
-      ? input.overview.data?.sections.team ?? []
-      : []
+    : []
   const projectTeamMemories = uniqueById(
     teamMemories.filter((item) => !item.project_id || item.project_id === input.projectId),
   )
@@ -511,11 +546,14 @@ export function buildKnowledgeViewModel(input: KnowledgeViewModelInput): Knowled
   const candidates = projectTeamMemories.filter(
     (item) => item.scope === 'team_candidate' && item.status === 'proposed',
   )
+  const governanceMemories = input.governance.state === 'available'
+    ? input.governance.data?.items ?? []
+    : []
   const documents = input.documents.state === 'available' ? input.documents.data?.items ?? [] : []
   const documentsById = new Map(documents.map((document) => [document.id, document]))
   const assets = [
     ...userMemories.map((item) => userMemoryAsset(item, input)),
-    ...acceptedMemories.map((item) => acceptedMemoryAsset(item, input)),
+    ...acceptedMemories.map((item) => memoryEntryAsset(item, input)),
     ...documents.map(documentAsset),
   ]
   const assetResources = [input.overview, input.memory, input.documents]
@@ -548,6 +586,16 @@ export function buildKnowledgeViewModel(input: KnowledgeViewModelInput): Knowled
     },
   )
 
+  const governanceItems = governanceMemories.map((item) => memoryEntryAsset(item, input))
+  const governanceModule = presentedModule(
+    { items: governanceItems },
+    governanceItems.flatMap(assetValues),
+    {
+      loading: input.governance.state === 'loading',
+      error: resourceError([input.governance]),
+    },
+  )
+
   const acceptedUsage = acceptedMemories.map((item) => acceptedMemoryUsage(item, input))
   const realEvents = input.usage.state === 'available'
     ? (input.usage.data?.items ?? []).map(realUsageEvent)
@@ -572,10 +620,16 @@ export function buildKnowledgeViewModel(input: KnowledgeViewModelInput): Knowled
     tabs: [
       { key: 'assets', label: '已沉淀知识', count: presentedValue(assets.length, 'T') },
       { key: 'pending', label: '待我确认', count: presentedValue(pendingItems.length, 'T') },
+      {
+        key: 'governance',
+        label: '治理历史',
+        count: presentedValue(input.governance.data?.total ?? governanceItems.length, 'T'),
+      },
       { key: 'shared', label: '使用与反馈', count: presentedValue(usageItems.length, usageCountSource) },
     ],
     assets: assetsModule,
     pending: pendingModule,
+    governance: governanceModule,
     usage: usageModule,
   }
 }

@@ -48,6 +48,7 @@ function render(item: PendingKnowledgeView) {
       onToolApproval={vi.fn()}
       onAccept={vi.fn()}
       onMemoryReview={vi.fn()}
+      onMemoryTransition={vi.fn()}
       onOpenTaskReview={vi.fn()}
       onOpenMemoryReview={vi.fn()}
       onOpenDetail={vi.fn()}

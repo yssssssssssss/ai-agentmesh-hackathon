@@ -34,32 +34,58 @@ const userMemory: UserMemoryItem = {
   updated_at: '2026-08-14T08:00:00Z',
 }
 
+const verifiedProvenance = {
+  schema_version: 'memory-provenance-v1' as const,
+  source_kind: 'task_artifact' as const,
+  task_id: 'task-1',
+  run_id: 'run-1',
+  review_id: 'task-review-1',
+  artifact_ids: ['artifact-1'],
+  artifact_hashes: ['a'.repeat(64)],
+  source_memory_ids: [],
+  source_memory_versions: [],
+  source_memory_hashes: [],
+  created_by: 'user-1',
+  created_at: '2026-08-13T08:00:00Z',
+}
+
 const acceptedMemory: MemoryItem = {
+  schema_version: 'memory-entry-view-v1',
   id: 'ka-floor',
+  kind: 'team_knowledge',
   title: '服务端团队知识',
   summary: '团队已接受的真实结论。',
   memory_type: 'decision_method',
   scope: 'team_accepted',
   status: 'accepted',
+  owner_user_id: 'user-1',
   workspace_id: 'workspace-1',
   project_id: 'project-1',
-  sources: [],
+  version: 2,
+  content_hash: 'b'.repeat(64),
+  provenance: verifiedProvenance,
+  provenance_state: 'verified',
   created_at: '2026-08-13T08:00:00Z',
-  allowed_actions: ['read'],
+  updated_at: '2026-08-13T08:00:00Z',
+  allowed_actions: ['revise'],
+  navigation_href: '/knowledge?memory=ka-floor',
 }
 
 const candidateMemory: MemoryItem = {
+  ...acceptedMemory,
   id: 'candidate-1',
+  kind: 'team_candidate',
   title: '服务端团队候选',
   summary: '等待负责人审核。',
   memory_type: 'project_experience',
   scope: 'team_candidate',
   status: 'proposed',
-  workspace_id: 'workspace-1',
-  project_id: 'project-1',
-  sources: [],
+  version: 1,
+  content_hash: 'c'.repeat(64),
   created_at: '2026-08-14T09:00:00Z',
-  allowed_actions: ['accept'],
+  updated_at: '2026-08-14T09:00:00Z',
+  allowed_actions: ['accept_review'],
+  navigation_href: '/knowledge?memory=candidate-1',
 }
 
 const ignoredCandidate: MemoryItem = {
@@ -68,6 +94,18 @@ const ignoredCandidate: MemoryItem = {
   title: '不应重复进入待确认',
   status: 'accepted',
   allowed_actions: [],
+  navigation_href: '/knowledge?memory=candidate-accepted',
+}
+
+const deprecatedMemory: MemoryItem = {
+  ...acceptedMemory,
+  id: 'memory-deprecated',
+  title: '已废弃团队知识',
+  status: 'deprecated',
+  version: 3,
+  content_hash: 'd'.repeat(64),
+  allowed_actions: ['archive'],
+  navigation_href: '/knowledge?memory=memory-deprecated',
 }
 
 const openInbox: InboxItem = {
@@ -110,7 +148,7 @@ const overview: MemoryOverview = {
     short: [userMemory],
     project: [],
     archive: [],
-    team: [acceptedMemory, candidateMemory],
+    team: [],
   },
   counts: { short: 1, project: 0, archive: 0, team: 2 },
 }
@@ -143,6 +181,13 @@ function input(overrides: Record<string, unknown> = {}) {
     memory: resource('available', {
       items: [acceptedMemory, candidateMemory, ignoredCandidate],
     }),
+    governance: resource('available', {
+      items: [deprecatedMemory],
+      total: 1,
+      page: 1,
+      page_size: 25,
+      has_next: false,
+    }),
     overview: resource('available', overview),
     documents: resource('available', { items: [document] }),
     usage: resource('available', { items: [realReuseEvent] }),
@@ -151,12 +196,13 @@ function input(overrides: Record<string, unknown> = {}) {
 }
 
 describe('buildKnowledgeViewModel', () => {
-  it('maps canonical resources into exactly the three reference tabs with T-first provenance', () => {
+  it('maps canonical resources into the four knowledge tabs with T-first provenance', () => {
     const viewModel = buildKnowledgeViewModel(input())
 
     expect(viewModel.tabs).toEqual([
       { key: 'assets', label: '已沉淀知识', count: { value: 3, source: 'T' } },
       { key: 'pending', label: '待我确认', count: { value: 2, source: 'T' } },
+      { key: 'governance', label: '治理历史', count: { value: 1, source: 'T' } },
       { key: 'shared', label: '使用与反馈', count: { value: 2, source: 'T' } },
     ])
 
@@ -175,7 +221,7 @@ describe('buildKnowledgeViewModel', () => {
 
     const acceptedAsset = viewModel.assets.data.items.find((item) => item.kind === 'accepted_memory')
     expect(acceptedAsset?.title).toEqual({ value: '服务端团队知识', source: 'T' })
-    expect(acceptedAsset?.allowedActions).toEqual({ value: ['read'], source: 'T' })
+    expect(acceptedAsset?.allowedActions).toEqual({ value: ['revise'], source: 'T' })
     expect(acceptedAsset?.citedBy).toMatchObject({
       value: KNOWLEDGE_ASSETS.find((item) => item.id === 'ka-floor')?.citedBy,
       source: 'M',
@@ -197,8 +243,14 @@ describe('buildKnowledgeViewModel', () => {
       documentVersion: { value: 7, source: 'T' },
     })
     expect(viewModel.pending.data.items[1].allowedActions).toEqual({
-      value: ['accept'],
+      value: ['accept_review'],
       source: 'T',
+    })
+    expect(viewModel.governance.data.items.map((item) => item.id.value)).toEqual(['memory-deprecated'])
+    expect(viewModel.governance.data.items[0]).toMatchObject({
+      status: { value: 'deprecated', source: 'T' },
+      contentHash: { value: 'd'.repeat(64), source: 'T' },
+      allowedActions: { value: ['archive'], source: 'T' },
     })
 
     expect(viewModel.usage.data.items.map((item) => item.kind)).toEqual([
@@ -243,12 +295,12 @@ describe('buildKnowledgeViewModel', () => {
           SHARE_EVENTS.map((event) => event.id),
         )
         expect(viewModel.usage.data.items.every((item) => item.allowedActions.value.length === 0)).toBe(true)
-        expect(viewModel.tabs[2].count).toEqual({ value: SHARE_EVENTS.length, source: 'M' })
+        expect(viewModel.tabs[3].count).toEqual({ value: SHARE_EVENTS.length, source: 'M' })
       } else {
         expect(viewModel.usage.sources).toEqual([])
         expect(viewModel.usage.data.items).toEqual([])
         expect(viewModel.usage.error).toBe(error)
-        expect(viewModel.tabs[2].count).toEqual({ value: 0, source: 'T' })
+        expect(viewModel.tabs[3].count).toEqual({ value: 0, source: 'T' })
       }
     },
   )

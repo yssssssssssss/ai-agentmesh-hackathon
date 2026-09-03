@@ -120,17 +120,20 @@ def test_retrieval_honors_memory_type_project_and_result_limit_bindings(tmp_path
     assert service.retrieve("bound checkout", user=USER, agent_id=USER.personal_agent_id).hits == []
 
 
-def test_runtime_retrieval_excludes_candidate_and_disputed_memory_even_if_profile_requests_it(tmp_path, monkeypatch) -> None:
+def test_runtime_retrieval_prefilters_candidate_and_disputed_memory_before_ranking_caps(
+    tmp_path,
+    monkeypatch,
+) -> None:
     repository = _repository(tmp_path)
-    for index in range(25):
+    for index in range(225):
         repository.add_memory_item(
             MemoryItem(
-                id=f"memory_candidate_hidden_{index:02d}",
+                id=f"memory_inactive_hidden_{index:03d}",
                 title="Governed runtime memory",
-                summary="candidate must stay out of runtime context",
+                summary="deprecated memory must stay out of runtime context",
                 memory_type="finding",
-                scope=Scope.TEAM_CANDIDATE,
-                status=MemoryStatus.PROPOSED,
+                scope=Scope.TEAM_ACCEPTED,
+                status=MemoryStatus.DEPRECATED,
                 owner_user_id=USER.id,
                 workspace_id=USER.workspace_id,
                 project_id=USER.default_project_id,
@@ -142,8 +145,19 @@ def test_runtime_retrieval_excludes_candidate_and_disputed_memory_even_if_profil
             title="Governed runtime memory",
             summary="disputed must stay out of runtime context",
             memory_type="finding",
-            scope=Scope.TEAM_CANDIDATE,
+            scope=Scope.TEAM_ACCEPTED,
             status=MemoryStatus.DISPUTED,
+            owner_user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+        ),
+        MemoryItem(
+            id="memory_candidate_hidden",
+            title="Governed runtime memory",
+            summary="candidate must stay out of runtime context",
+            memory_type="finding",
+            scope=Scope.TEAM_CANDIDATE,
+            status=MemoryStatus.PROPOSED,
             owner_user_id=USER.id,
             workspace_id=USER.workspace_id,
             project_id=USER.default_project_id,
@@ -166,6 +180,18 @@ def test_runtime_retrieval_excludes_candidate_and_disputed_memory_even_if_profil
         result_types=["memory_item"],
         top_k=1,
     )
+
+    unfiltered = repository.search(
+        "Governed runtime memory",
+        {Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED},
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        user_id=USER.id,
+        result_types={"memory_item"},
+        max_results=1,
+        agent_context=False,
+    )
+    assert unfiltered and unfiltered[0].id != "memory_accepted_visible"
 
     bundle = RetrievalService(repository).retrieve(
         "Governed runtime memory",
