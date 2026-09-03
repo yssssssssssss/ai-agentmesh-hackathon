@@ -3,7 +3,9 @@
 - Date: 2026-09-03
 - Branch: `feature/memory-governance-slice4b`
 - Base: `1b12887d8919f9a00f400d1a695ec90352e31c4d`
-- Status: implementation and local verification complete; pending PR integration
+- Pull request: #24
+- Merge commit: `6d0179407f699cc87090e5338e1011f256daf53d`
+- Status: merged; Slice 5 remains a separately bounded increment
 
 ## Delivered scope
 
