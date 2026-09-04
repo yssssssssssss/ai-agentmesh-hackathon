@@ -57,7 +57,7 @@ from agentmesh.models import (
 )
 from agentmesh.store import DeepSearchBudgetConflict, ResearchStoreConflict, SQLiteStore
 
-NOW = datetime(2026, 8, 27, 9, 0, tzinfo=UTC)
+NOW = datetime.now(UTC).replace(microsecond=0)
 
 
 def _resource_manifest() -> SkillResourceManifestV1:
