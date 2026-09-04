@@ -16,7 +16,7 @@ from agentmesh.models import (
 )
 from agentmesh.store import DeepSearchBudgetConflict, SQLiteStore
 
-NOW = datetime(2026, 8, 27, 12, 0, tzinfo=UTC)
+NOW = datetime.now(UTC).replace(microsecond=0)
 
 
 def _deepsearch_run(repository: SQLiteStore, run_id: str) -> AgentRun:

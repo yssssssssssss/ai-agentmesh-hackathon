@@ -58,7 +58,7 @@ from agentmesh.seed import USER
 from agentmesh.skill_runtime.finalization import PlanExecutionOutcome
 from agentmesh.store import SQLiteStore
 
-NOW = datetime(2026, 8, 27, 12, 0, tzinfo=UTC)
+NOW = datetime.now(UTC).replace(microsecond=0)
 
 
 def _resource_manifest() -> SkillResourceManifestV1:
