@@ -33,7 +33,12 @@ from agentmesh.runtime_capacity import RuntimeCapacityController, current_runtim
 from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
 from agentmesh.store import RuntimeToolCallConflict, SQLiteStore
 from agentmesh.tool_runtime.deepsearch import DeepSearchToolRuntimeError, build_deepsearch_tool_invocation
-from agentmesh.tool_runtime.gateway import ToolGateway, collect_source_ids, encode_tool_output
+from agentmesh.tool_runtime.gateway import (
+    PreparedMemoryToolOutput,
+    ToolGateway,
+    collect_source_ids,
+    encode_tool_output,
+)
 from agentmesh.tool_runtime.guardrails import (
     quarantine_unsafe_output,
     reject_secret_arguments,
@@ -446,10 +451,12 @@ class AgentMeshToolFactory:
                     )
                 else:
                     value = await asyncio.to_thread(handler, ctx.context, arguments)
-                new_source_ids = self._registered_source_ids(value, ctx.context)
-                ctx.context.source_ids = list(
-                    dict.fromkeys([*ctx.context.source_ids, *new_source_ids])
+                prepared_memory = (
+                    value if isinstance(value, PreparedMemoryToolOutput) else None
                 )
+                if prepared_memory is not None:
+                    value = prepared_memory.value
+                new_source_ids = self._registered_source_ids(value, ctx.context)
                 output = encode_tool_output(value)
                 if len(output.encode("utf-8")) > _MAX_PROVIDER_OUTPUT_BYTES:
                     raise RuntimeError("tool_output_limit_exceeded")
@@ -473,6 +480,10 @@ class AgentMeshToolFactory:
                     visible = "Tool output was withheld by AgentMesh policy."
                     artifact_id = None
                 else:
+                    if prepared_memory is None:
+                        ctx.context.source_ids = list(
+                            dict.fromkeys([*ctx.context.source_ids, *new_source_ids])
+                        )
                     evidence_artifact_ids = self._save_universal_tool_evidence(
                         context=ctx.context,
                         definition=definition,
@@ -499,6 +510,8 @@ class AgentMeshToolFactory:
                     )
                     if artifact_id:
                         ctx.context.artifact_ids = list(dict.fromkeys([*ctx.context.artifact_ids, artifact_id]))
+                    if prepared_memory is not None and visible != output:
+                        raise RuntimeError("memory_tool_output_limit_exceeded")
                 self.repository.add_audit_event(
                     AuditEvent(
                         actor=ctx.context.user_id,
@@ -534,6 +547,11 @@ class AgentMeshToolFactory:
                     outcome="settled",
                     result_hash=hashlib.sha256(output.encode("utf-8")).hexdigest(),
                 )
+                if prepared_memory is not None and unsafe_reason is None:
+                    self.gateway.commit_memory_search(ctx.context, prepared_memory)
+                    ctx.context.source_ids = list(
+                        dict.fromkeys([*ctx.context.source_ids, *new_source_ids])
+                    )
             finally:
                 self.capacity.release_tool()
             return visible

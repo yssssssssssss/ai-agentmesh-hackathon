@@ -38,6 +38,10 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
 
 - **记忆生命周期 / Memory lifecycle** — the governance state of one immutable Memory version. Disputed, deprecated, expired, and archived versions remain auditable but cannot enter automatic Agent context. Archive temporarily wraps the prior inactive or active state; restore returns only to that recorded pre-archive state.
 
+- **记忆使用回执 / Memory Use Receipt** — an immutable fact that one exact Memory ID, record version, content hash, and retrieval layer passed the final local safety and context handoff for one Agent Run under a stable citation label. Search results, quarantined content, and locally failed dispatches do not count as Memory use. Citation labels are transactionally reserved per Run before use, so concurrent searches cannot map one label to different Memory versions. Later Memory revisions never rewrite an earlier Run's receipt.
+
+- **记忆上下文 / Memory context** — the bounded, permission-filtered set of eligible Personal, Project, and Team Memory supplied to an Agent. Scope controls visibility; MemoryLayer independently filters retrieval depth before ranking. The complete rendered payload is budgeted, and credential-like or prompt-injection-like Memory is quarantined before context assembly.
+
 - **确认闸门 / Confirmation gate** — policy-driven human confirmation before data crosses a
   boundary or writes to org memory. ✅ Risk and Provider approvals use `InboxItem`; project
   deliverable quality decisions use the separate **Task Review** aggregate and project an assigned

@@ -46,6 +46,7 @@ const bootstrap: BootstrapState = {
   agent_runtime_ready: false,
   skill_orchestration_mode: 'off',
   task_management_mode: 'read_only',
+  memory_context_mode: 'off',
   deepsearch_availability: {
     available: false,
     enabled: false,

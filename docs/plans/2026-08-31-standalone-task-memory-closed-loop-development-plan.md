@@ -1,8 +1,8 @@
 # AgentMesh 独立项目任务与记忆闭环开发方案
 
 - 日期：2026-08-31
-- 状态：已批准；Slice 1～4B 已合并，Slice 5 尚未开始
-- 基线：`main` at `6d0179407f699cc87090e5338e1011f256daf53d`
+- 状态：已批准；Slice 1～4B 已合并，Slice 5 Memory Reuse 实现与本地验证完成，待合并
+- 基线：`main` at `ce780c975811e91d4c0a10f408a8cfa4309fd136`
 - 目标：在 AgentMesh 可独立安装和运行的前提下，打通“任务创建、Agent 执行、产物审核、记忆沉淀、后续复用、全程审计”的真实产品闭环
 - 适用范围：FastAPI、React、SQLite、Agent Runtime v2、Task Center、Artifact、Inbox、Memory/RAG
 - 相关方案：`docs/plans/2026-08-25-task-center-integration-plan.md`、`docs/memory-optimization-plan.md`
@@ -585,14 +585,20 @@ Memory 详情展示：
 
 ### Slice 5：Memory Reuse
 
+状态：实现与本地验证完成，待合并。
+
 交付：
 
-- 唯一 MemoryContextService。
-- `_search_team_brain()` 改为兼容委托。
-- Scope 与 MemoryLayer 分离。
-- MemoryUseReceiptV1。
-- Run 详情显示使用过的 Memory 版本和 Citation。
-- standalone smoke 完成“任务 A 产出，任务 B 复用”。
+- 唯一 `MemoryContextService`，统一自动上下文、Runtime `memory_search` 与 legacy `_search_team_brain()`。
+- Scope 与 MemoryLayer 独立投影及严格范围检索。
+- `AGENTMESH_MEMORY_CONTEXT=off|observe|inject`，默认 `off`。
+- `MemoryUseReceiptV1`，冻结 Run、Task、Memory 版本/hash、reason、query hash、citation、Agent 和实际暴露的 Source IDs；per-Run Citation 先以独立 reservation 事务化分配。
+- MemoryLayer 独立于 Scope，在 ranking/candidate budget 前筛选；完整 rendered payload 受字符预算约束。
+- Memory title/summary/Source metadata 先经过 credential 与 prompt-injection quarantine，被隔离内容不进入模型、不写 receipt。
+- 显式 Runtime `memory_search` 在编码、大小、安全、审计和 Tool settlement 完成后才提交 receipt。
+- Run 详情显示使用过的 Memory 版本、Citation、原始 Source 和输出引用状态。
+- Memory lineage 显示当前用户可见的后续 Task/Run 使用记录。
+- standalone smoke 完成“任务 A 产出，任务 B 通过 FTS 检索、记录回执并引用该 Memory”。
 
 独立价值：团队经验开始减少后续任务的重复工作。
 

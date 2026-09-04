@@ -16,7 +16,10 @@ from agentmesh.data_authorization import authorize_data_query
 from agentmesh.datasources import default_data_source_registry
 from agentmesh.deepsearch.budget import DeepSearchBudgetMeter, DeepSearchBudgetMutationResult
 from agentmesh.deepsearch.tool_policy import DEEPSEARCH_V1_TOOL_NAMES
+from agentmesh.memory_context.contracts import MemoryContextBudgetV1, MemoryContextBundleV1
+from agentmesh.memory_context.service import MemoryContextService
 from agentmesh.models import (
+    AgentRun,
     DeepSearchBudgetUsageV1,
     DeepSearchToolInvocationV1,
     Intent,
@@ -37,6 +40,17 @@ from agentmesh.tool_runtime.deepsearch import (
 )
 
 BUILTIN_TOOL_NAMES = frozenset({"memory_search", "document_search", "data_query", "web_research", "risk_review"})
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedMemoryToolOutput:
+    value: dict[str, Any]
+    bundle: MemoryContextBundleV1
+    query: str
+    run: AgentRun
+    user: User
+    agent_id: str
+    reason: str = "tool_memory_search"
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +84,7 @@ class ToolGateway:
         self.acquisition_agent = build_acquisition_agent()
         self.data_registry = default_data_source_registry()
         self.retrieval = RetrievalService(repository)
+        self.memory_context = MemoryContextService(repository)
         maybe_register_o2_data_connector(self.data_registry)
 
     def _run_scoped_sources(
@@ -96,7 +111,9 @@ class ToolGateway:
         return scoped
 
     def handlers(self) -> dict[str, Callable[[AgentMeshRunContext, dict[str, Any]], Any]]:
-        return {name: getattr(self, name) for name in BUILTIN_TOOL_NAMES}
+        handlers = {name: getattr(self, name) for name in BUILTIN_TOOL_NAMES}
+        handlers["memory_search"] = self.prepare_memory_search
+        return handlers
 
     def invoke(
         self,
@@ -352,25 +369,33 @@ class ToolGateway:
             empty_is_fatal=metadata.get("agentmesh-empty-is-fatal", "false").lower() == "true",
         )
 
-    def memory_search(self, context: AgentMeshRunContext, arguments: dict[str, Any]) -> dict[str, Any]:
+    def prepare_memory_search(
+        self,
+        context: AgentMeshRunContext,
+        arguments: dict[str, Any],
+    ) -> PreparedMemoryToolOutput:
         query = str(arguments.get("query") or "").strip()
         if not query:
             raise ValueError("query is required")
         user = self._user(context)
-        bundle = self.retrieval.retrieve(
+        run = self.repository.get_agent_run(context.run_id)
+        if run is None:
+            raise ValueError("memory_context_run_not_found")
+        profile = self._retrieval_profile(context, ["memory_item", "user_memory_item"])
+        bundle = self.memory_context.prepare_for_run(
             query,
+            run=run,
             user=user,
             agent_id=user.personal_agent_id,
-            profile=self._retrieval_profile(context, ["memory_item", "user_memory_item"]),
-            thread_id=context.thread_id,
-            task_id=context.run_id,
+            allowed_scopes=set(profile.allowed_scopes),
+            budget=MemoryContextBudgetV1(top_k=min(8, profile.top_k)),
         )
-        return {
+        value = {
             "query": query,
             "results": [
                 {
                     "citation": hit.citation_label,
-                    "id": hit.result.id,
+                    "id": hit.memory_id,
                     "type": hit.result.result_type,
                     "title": hit.result.title,
                     "summary": hit.result.summary,
@@ -383,6 +408,42 @@ class ToolGateway:
                 for hit in bundle.hits
             ],
         }
+        return PreparedMemoryToolOutput(
+            value=value,
+            bundle=bundle,
+            query=query,
+            run=run,
+            user=user,
+            agent_id=user.personal_agent_id,
+        )
+
+    def commit_memory_search(
+        self,
+        context: AgentMeshRunContext,
+        prepared: PreparedMemoryToolOutput,
+    ) -> dict[str, Any]:
+        if (
+            prepared.run.id != context.run_id
+            or prepared.user.id != context.user_id
+            or prepared.agent_id != prepared.user.personal_agent_id
+        ):
+            raise ValueError("memory_context_run_not_found")
+        bundle = self.memory_context.commit_prepared_for_run(
+            prepared.bundle,
+            query=prepared.query,
+            run=prepared.run,
+            user=prepared.user,
+            agent_id=prepared.agent_id,
+            reason=prepared.reason,
+        )
+        context.memory_use_receipt_ids = list(
+            dict.fromkeys([*context.memory_use_receipt_ids, *bundle.receipt_ids])
+        )
+        return prepared.value
+
+    def memory_search(self, context: AgentMeshRunContext, arguments: dict[str, Any]) -> dict[str, Any]:
+        prepared = self.prepare_memory_search(context, arguments)
+        return self.commit_memory_search(context, prepared)
 
     def document_search(self, context: AgentMeshRunContext, arguments: dict[str, Any]) -> dict[str, Any]:
         query = str(arguments.get("query") or "").strip()

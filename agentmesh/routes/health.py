@@ -18,6 +18,7 @@ from agentmesh.deepsearch.admission import deepsearch_admission_rejections
 from agentmesh.documents import CompositeDocumentParser
 from agentmesh.embedding import embedding_provider_status
 from agentmesh.llm import llm_provider_status, llm_timeout_config, model_config_from_env
+from agentmesh.memory_context.settings import memory_context_mode
 from agentmesh.models import AgentPlanningMode, AgentRunStatus, ProviderHealthCheckResponse, User
 from agentmesh.o2 import O2CommandRunner, maybe_register_o2_data_connector, o2_research_provider_status
 from agentmesh.permissions import ACTION_VIEW_PROVIDER_HEALTH
@@ -376,6 +377,7 @@ def _agent_runtime_status(*, deepsearch_recovery_running: bool = False) -> dict[
         "runtime_enabled": runtime_enabled,
         "skill_orchestration_mode": orchestration_mode.value,
         "task_management_mode": task_management_mode().value,
+        "memory_context_mode": memory_context_mode().value,
         "deepsearch_recovery_running": deepsearch_recovery_running,
         "skills": len(catalog.list_enabled()),
         "planner_profiles": len(planner_profiles),

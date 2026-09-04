@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
+import httpx
+from agents.testing import ScriptedModel, assistant_message
 from fastapi.testclient import TestClient
 
+from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agents import PersonalAgent
 from agentmesh.app import app
 from agentmesh.auth import SESSION_COOKIE_NAME, issue_session
 from agentmesh.models import (
     Agent,
+    AgentRunStatus,
     BlackboardPost,
     BlackboardPostType,
     MemoryItem,
@@ -22,10 +27,11 @@ from agentmesh.models import (
     UserRole,
     Workspace,
 )
+from agentmesh.routes import chat as chat_routes
 from agentmesh.seed import PROJECT, TEAM_LEAD, USER
-from agentmesh.store import store
+from agentmesh.store import SQLiteStore, store
 from tests.test_chat_flow import authenticated_client, clear_store
-from tests.test_task_reviews import _create_reviewable_delivery, _submit_review
+from tests.test_task_reviews import _create_in_progress_task, _create_reviewable_delivery, _submit_review
 
 
 def _accepted_task_review(monkeypatch, suffix: str) -> tuple[TestClient, dict, str]:
@@ -1249,6 +1255,78 @@ def test_memory_history_filters_and_legacy_governance_boundary(monkeypatch) -> N
     )
     assert revision.status_code == 409
     assert revision.json() == {"detail": "memory_governance_required"}
+
+
+def test_task_a_team_memory_is_reused_by_task_b_without_providers(monkeypatch) -> None:
+    clear_store()
+    owner, _reviewer, _task_a, memory = _accepted_team_memory(monkeypatch, "task-a-reuse")
+    assert memory["layer"] == "long_term"
+    task_b = _create_in_progress_task(owner, "task-b-reuse")
+    model = ScriptedModel([[assistant_message("Applied the accepted project evidence [T1].")]])
+    runtime = AgentRuntimeService(store, model=model, enabled=True)
+    monkeypatch.setattr(chat_routes.agent, "agent_runtime", runtime)
+    monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "off")
+    monkeypatch.setenv("AGENTMESH_MEMORY_CONTEXT", "inject")
+
+    async def execute_task_b() -> tuple[httpx.Response, str]:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            cookies=dict(owner.cookies),
+        ) as async_owner:
+            response = await async_owner.post(
+                "/api/agent/runs",
+                json={
+                    "content": "reuse team knowledge task-a-reuse",
+                    "client_turn_id": "task-b-memory-reuse-runtime",
+                    "thread_id": task_b["task"]["thread_id"],
+                    "task_id": task_b["task"]["id"],
+                    "orchestration_mode": "single",
+                    "planning_mode": "standard",
+                },
+            )
+            run_id = response.json()["item"]["id"]
+            await runtime._tasks[run_id]
+            return response, run_id
+
+    started, run_id = asyncio.run(execute_task_b())
+
+    assert started.status_code == 202, started.text
+    persisted = store.get_agent_run(run_id)
+    assert persisted is not None
+    assert persisted.status is AgentRunStatus.COMPLETED
+    assert persisted.output_text == "Applied the accepted project evidence [T1]."
+    assert model.first_call is not None
+    assert memory["id"] in (model.first_call.system_instructions or "")
+    assert "[T1]" in (model.first_call.system_instructions or "")
+
+    receipts = store.list_memory_use_receipts_for_run(run_id)
+    assert len(receipts) == 1
+    assert receipts[0].task_id == task_b["task"]["id"]
+    assert receipts[0].memory_id == memory["id"]
+    assert receipts[0].memory_version == memory["version"]
+    assert receipts[0].citation_label == "T1"
+
+    reopened = SQLiteStore(store.db_path)
+    try:
+        assert reopened.list_memory_use_receipts_for_run(run_id) == receipts
+    finally:
+        reopened.close()
+
+    run_detail = owner.get(f"/api/agent/runs/{run_id}")
+    assert run_detail.status_code == 200
+    assert run_detail.json()["memory_uses"][0]["receipt"]["memory_id"] == memory["id"]
+    assert run_detail.json()["memory_uses"][0]["cited_in_output"] is True
+    assert authenticated_client(TEAM_LEAD.id).get(f"/api/agent/runs/{run_id}").status_code == 404
+    lineage = owner.get(f"/api/memory/entries/{memory['id']}/lineage")
+    assert lineage.status_code == 200
+    assert lineage.json()["usage"][0]["run_id"] == run_id
+    assert lineage.json()["usage"][0]["task_id"] == task_b["task"]["id"]
+    reviewer_lineage = authenticated_client(TEAM_LEAD.id).get(
+        f"/api/memory/entries/{memory['id']}/lineage"
+    )
+    assert reviewer_lineage.status_code == 200
+    assert reviewer_lineage.json()["usage"] == []
 
 
 def test_personal_agent_auto_search_excludes_disputed_memory_and_candidate_posts(monkeypatch) -> None:

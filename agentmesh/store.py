@@ -31,6 +31,10 @@ from agentmesh.deepsearch.budget import (
     DeepSearchBudgetMutationResult,
     DeepSearchBudgetScope,
 )
+from agentmesh.memory_context.contracts import (
+    MemoryCitationRequestV1,
+    MemoryUseAuthorizationV1,
+)
 from agentmesh.memory_governance.contracts import (
     MemoryEntryKind,
     MemoryGovernanceAuthorizationV1,
@@ -84,13 +88,16 @@ from agentmesh.models import (
     InboxItem,
     LearnedSkill,
     MarketParticipation,
+    MemoryCitationReservationV1,
     MemoryItem,
+    MemoryKind,
     MemoryLayer,
     MemoryRelation,
     MemoryReviewStatus,
     MemoryReviewV1,
     MemorySourceKind,
     MemoryStatus,
+    MemoryUseReceiptV1,
     ModelDefinition,
     OrchestrationQuiesceInventoryV1,
     PermissionPolicyRule,
@@ -235,6 +242,14 @@ class TaskReviewConflict(RuntimeError):
 
 class BlackboardHandoffConflict(RuntimeError):
     """A Blackboard handoff could not commit against its expected Task state."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+class MemoryContextConflict(RuntimeError):
+    """A Memory context receipt failed identity, visibility, or integrity checks."""
 
     def __init__(self, code: str):
         super().__init__(code)
@@ -675,6 +690,34 @@ class SQLiteStore:
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_records_collection ON records(collection, created_order)"
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_memory_use_receipts_run
+            ON records(json_extract(payload, '$.run_id'), json_extract(payload, '$.created_at'), id)
+            WHERE collection = 'memory_use_receipts'
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_memory_use_receipts_memory
+            ON records(json_extract(payload, '$.memory_id'), json_extract(payload, '$.created_at'), id)
+            WHERE collection = 'memory_use_receipts'
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_citation_reservations_run_citation
+            ON records(json_extract(payload, '$.run_id'), json_extract(payload, '$.citation_label'))
+            WHERE collection = 'memory_citation_reservations'
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_memory_citation_reservations_run
+            ON records(json_extract(payload, '$.run_id'), json_extract(payload, '$.created_at'), id)
+            WHERE collection = 'memory_citation_reservations'
+            """
         )
         connection.execute(
             """
@@ -1686,6 +1729,42 @@ class SQLiteStore:
     @property
     def memory_relations(self) -> list[MemoryRelation]:
         return self._list("memory_relations", MemoryRelation)
+
+    @property
+    def memory_citation_reservations(self) -> list[MemoryCitationReservationV1]:
+        return self._list("memory_citation_reservations", MemoryCitationReservationV1)
+
+    @property
+    def memory_use_receipts(self) -> list[MemoryUseReceiptV1]:
+        return self._list("memory_use_receipts", MemoryUseReceiptV1)
+
+    def list_memory_use_receipts_for_run(self, run_id: str | None) -> list[MemoryUseReceiptV1]:
+        if run_id is None:
+            return []
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'memory_use_receipts'
+                  AND json_extract(payload, '$.run_id') = ?
+                ORDER BY json_extract(payload, '$.created_at'), id
+                """,
+                (run_id,),
+            ).fetchall()
+        return [MemoryUseReceiptV1.model_validate_json(row["payload"]) for row in rows]
+
+    def list_memory_use_receipts_for_memory(self, memory_id: str) -> list[MemoryUseReceiptV1]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'memory_use_receipts'
+                  AND json_extract(payload, '$.memory_id') = ?
+                ORDER BY json_extract(payload, '$.created_at'), id
+                """,
+                (memory_id,),
+            ).fetchall()
+        return [MemoryUseReceiptV1.model_validate_json(row["payload"]) for row in rows]
 
     @property
     def retrieval_metrics(self) -> list[RetrievalMetrics]:
@@ -14099,6 +14178,508 @@ class SQLiteStore:
         if awarded_to_id is not None:
             items = [point for point in items if point.awarded_to_id == awarded_to_id]
         return sorted(items, key=lambda item: item.created_at, reverse=True)
+
+    @staticmethod
+    def _memory_binding_in_transaction(
+        connection: sqlite3.Connection,
+        agent_id: str,
+    ) -> AgentMemoryBinding | None:
+        rows = connection.execute(
+            """
+            SELECT payload FROM records
+            WHERE collection = 'agent_memory_bindings'
+              AND json_extract(payload, '$.agent_id') = ?
+            """,
+            (agent_id,),
+        ).fetchall()
+        if len(rows) > 1:
+            raise MemoryContextConflict("memory_binding_integrity_failed")
+        return AgentMemoryBinding.model_validate_json(rows[0]["payload"]) if rows else None
+
+    @staticmethod
+    def _memory_layer_for_use(item: MemoryItem | UserMemoryItem) -> MemoryLayer:
+        if isinstance(item, UserMemoryItem):
+            return item.layer
+        if item.layer is not None:
+            return item.layer
+        return (
+            MemoryLayer.MID_TERM
+            if item.scope is Scope.PROJECT
+            else MemoryLayer.LONG_TERM
+        )
+
+    def _memory_item_for_use_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memory_id: str,
+        memory_kind: MemoryKind,
+        memory_record_type: str,
+        memory_version: int,
+        actor: User,
+        run: AgentRun,
+        binding: AgentMemoryBinding | None,
+    ) -> MemoryItem | UserMemoryItem:
+        if memory_record_type == "user_memory_item":
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'user_memory_items' AND id = ?",
+                (memory_id,),
+            ).fetchone()
+            item: MemoryItem | UserMemoryItem | None = (
+                UserMemoryItem.model_validate_json(row["payload"]) if row is not None else None
+            )
+            valid = bool(
+                isinstance(item, UserMemoryItem)
+                and memory_kind is MemoryKind.PERSONAL
+                and item.user_id == actor.id
+                and item.workspace_id == run.workspace_id
+                and item.project_id in {None, run.project_id}
+                and item.status == "active"
+            )
+        else:
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'memory_items' AND id = ?",
+                (memory_id,),
+            ).fetchone()
+            item = MemoryItem.model_validate_json(row["payload"]) if row is not None else None
+            expected_scope = {
+                MemoryKind.PERSONAL: Scope.PRIVATE,
+                MemoryKind.PROJECT: Scope.PROJECT,
+                MemoryKind.TEAM: Scope.TEAM_ACCEPTED,
+            }[memory_kind]
+            valid = bool(
+                memory_record_type == "memory_item"
+                and isinstance(item, MemoryItem)
+                and item.workspace_id == run.workspace_id
+                and (
+                    item.project_id == run.project_id
+                    if memory_kind is MemoryKind.PROJECT
+                    else item.project_id in {None, run.project_id}
+                )
+                and item.scope is expected_scope
+                and self.memory_item_eligible_for_agent(item)
+                and (
+                    memory_kind is not MemoryKind.PERSONAL
+                    or item.owner_user_id == actor.id
+                )
+            )
+            if valid and isinstance(item, MemoryItem) and item.team_id is not None:
+                membership = connection.execute(
+                    """
+                    SELECT 1 FROM records
+                    WHERE collection = 'team_memberships'
+                      AND json_extract(payload, '$.team_id') = ?
+                      AND json_extract(payload, '$.user_id') = ?
+                    LIMIT 1
+                    """,
+                    (item.team_id, actor.id),
+                ).fetchone()
+                valid = actor.role in {UserRole.TEAM_LEAD, UserRole.ADMIN} or membership is not None
+        if not valid or item is None or item.version != memory_version:
+            raise MemoryContextConflict("memory_use_receipt_memory_changed")
+        if binding is not None:
+            allowed_scopes = set(binding.allowed_scopes or [Scope.PRIVATE])
+            if (
+                item.scope not in allowed_scopes
+                or (
+                    binding.allowed_memory_types
+                    and item.memory_type not in binding.allowed_memory_types
+                )
+                or (
+                    binding.allowed_project_ids
+                    and run.project_id not in binding.allowed_project_ids
+                )
+            ):
+                raise MemoryContextConflict("memory_use_binding_changed")
+        return item
+
+    def reserve_memory_citations(
+        self,
+        *,
+        requests: list[MemoryCitationRequestV1],
+        authorization: MemoryUseAuthorizationV1,
+    ) -> list[MemoryCitationReservationV1]:
+        if not requests:
+            return []
+        if len(requests) != len(
+            {
+                (
+                    request.memory_kind,
+                    request.memory_record_type,
+                    request.memory_id,
+                    request.memory_version,
+                )
+                for request in requests
+            }
+        ):
+            raise MemoryContextConflict("memory_citation_request_invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            actor_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'users' AND id = ?",
+                (authorization.actor_id,),
+            ).fetchone()
+            project_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+                (authorization.project_id,),
+            ).fetchone()
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version, task_id FROM agent_runs WHERE id = ?",
+                (authorization.run_id,),
+            ).fetchone()
+            actor = User.model_validate_json(actor_row["payload"]) if actor_row is not None else None
+            project = Project.model_validate_json(project_row["payload"]) if project_row is not None else None
+            run = self._decode_agent_run_row(run_row) if run_row is not None else None
+            if (
+                actor is None
+                or actor.status != "active"
+                or project is None
+                or run is None
+                or actor.workspace_id != authorization.workspace_id
+                or project.workspace_id != authorization.workspace_id
+                or run.user_id != actor.id
+                or run.workspace_id != authorization.workspace_id
+                or run.project_id != project.id
+                or run.id != authorization.run_id
+                or run.task_id != authorization.task_id
+                or authorization.agent_id != actor.personal_agent_id
+                or run.status is not AgentRunStatus.RUNNING
+                or (project.member_ids and actor.id not in project.member_ids)
+            ):
+                raise MemoryContextConflict("memory_context_run_not_found")
+            if run.task_id is not None:
+                task_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'tasks' AND id = ?",
+                    (run.task_id,),
+                ).fetchone()
+                task = Task.model_validate_json(task_row["payload"]) if task_row is not None else None
+                thread_row = (
+                    connection.execute(
+                        "SELECT payload FROM records WHERE collection = 'chat_threads' AND id = ?",
+                        (task.thread_id,),
+                    ).fetchone()
+                    if task is not None
+                    else None
+                )
+                thread = (
+                    ChatThread.model_validate_json(thread_row["payload"])
+                    if thread_row is not None
+                    else None
+                )
+                if (
+                    task is None
+                    or thread is None
+                    or thread.workspace_id != run.workspace_id
+                    or thread.project_id != run.project_id
+                ):
+                    raise MemoryContextConflict("memory_context_task_not_found")
+            binding = self._memory_binding_in_transaction(connection, authorization.agent_id)
+            if binding is not None and len(requests) > max(1, binding.max_results_per_query):
+                raise MemoryContextConflict("memory_use_binding_changed")
+
+            receipt_rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'memory_use_receipts'
+                  AND json_extract(payload, '$.run_id') = ?
+                """,
+                (run.id,),
+            ).fetchall()
+            reservation_rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'memory_citation_reservations'
+                  AND json_extract(payload, '$.run_id') = ?
+                """,
+                (run.id,),
+            ).fetchall()
+            existing_receipts = [
+                MemoryUseReceiptV1.model_validate_json(row["payload"])
+                for row in receipt_rows
+            ]
+            existing_reservations = [
+                MemoryCitationReservationV1.model_validate_json(row["payload"])
+                for row in reservation_rows
+            ]
+            by_identity = {
+                (
+                    item.memory_kind,
+                    item.memory_record_type,
+                    item.memory_id,
+                    item.memory_version,
+                ): item.citation_label
+                for item in [*existing_receipts, *existing_reservations]
+            }
+            used = {item.citation_label for item in [*existing_receipts, *existing_reservations]}
+            counters = {kind: 0 for kind in MemoryKind}
+            for label in used:
+                match = re.fullmatch(r"[PJT]([1-9][0-9]*)", label)
+                if match:
+                    prefix_kind = {
+                        "P": MemoryKind.PERSONAL,
+                        "J": MemoryKind.PROJECT,
+                        "T": MemoryKind.TEAM,
+                    }[label[0]]
+                    counters[prefix_kind] = max(counters[prefix_kind], int(match.group(1)))
+
+            reserved: list[MemoryCitationReservationV1] = []
+            for request in requests:
+                self._memory_item_for_use_in_transaction(
+                    connection,
+                    memory_id=request.memory_id,
+                    memory_kind=request.memory_kind,
+                    memory_record_type=request.memory_record_type,
+                    memory_version=request.memory_version,
+                    actor=actor,
+                    run=run,
+                    binding=binding,
+                )
+                identity = (
+                    request.memory_kind,
+                    request.memory_record_type,
+                    request.memory_id,
+                    request.memory_version,
+                )
+                label = by_identity.get(identity)
+                if label is None:
+                    counters[request.memory_kind] += 1
+                    label = {
+                        MemoryKind.PERSONAL: "P",
+                        MemoryKind.PROJECT: "J",
+                        MemoryKind.TEAM: "T",
+                    }[request.memory_kind] + str(counters[request.memory_kind])
+                reservation = MemoryCitationReservationV1(
+                    id="memory_citation_" + canonical_json_sha256(
+                        {
+                            "run_id": run.id,
+                            "memory_kind": request.memory_kind.value,
+                            "memory_record_type": request.memory_record_type,
+                            "memory_id": request.memory_id,
+                            "memory_version": request.memory_version,
+                        }
+                    )[:24],
+                    run_id=run.id,
+                    memory_id=request.memory_id,
+                    memory_kind=request.memory_kind,
+                    memory_record_type=request.memory_record_type,
+                    memory_version=request.memory_version,
+                    citation_label=label,
+                )
+                existing = next(
+                    (item for item in existing_reservations if item.id == reservation.id),
+                    None,
+                )
+                if existing is not None:
+                    reservation = existing
+                else:
+                    connection.execute(
+                        """
+                        INSERT INTO records(collection, id, payload)
+                        VALUES ('memory_citation_reservations', ?, ?)
+                        """,
+                        (reservation.id, reservation.model_dump_json()),
+                    )
+                    existing_reservations.append(reservation)
+                    by_identity[identity] = label
+                    used.add(label)
+                reserved.append(reservation)
+        return reserved
+
+    def commit_memory_use_receipts(
+        self,
+        *,
+        receipts: list[MemoryUseReceiptV1],
+        audit: AuditEvent,
+        authorization: MemoryUseAuthorizationV1,
+    ) -> list[MemoryUseReceiptV1]:
+        if not receipts:
+            return []
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            actor_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'users' AND id = ?",
+                (authorization.actor_id,),
+            ).fetchone()
+            project_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+                (authorization.project_id,),
+            ).fetchone()
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version, task_id FROM agent_runs WHERE id = ?",
+                (authorization.run_id,),
+            ).fetchone()
+            actor = User.model_validate_json(actor_row["payload"]) if actor_row is not None else None
+            project = Project.model_validate_json(project_row["payload"]) if project_row is not None else None
+            run = self._decode_agent_run_row(run_row) if run_row is not None else None
+            if (
+                actor is None
+                or actor.status != "active"
+                or project is None
+                or run is None
+                or actor.workspace_id != authorization.workspace_id
+                or project.workspace_id != authorization.workspace_id
+                or run.user_id != actor.id
+                or run.workspace_id != authorization.workspace_id
+                or run.project_id != project.id
+                or run.id != authorization.run_id
+                or run.task_id != authorization.task_id
+                or authorization.agent_id != actor.personal_agent_id
+                or run.status is not AgentRunStatus.RUNNING
+                or (project.member_ids and actor.id not in project.member_ids)
+            ):
+                raise MemoryContextConflict("memory_context_run_not_found")
+            if run.task_id is not None:
+                task_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'tasks' AND id = ?",
+                    (run.task_id,),
+                ).fetchone()
+                task = Task.model_validate_json(task_row["payload"]) if task_row is not None else None
+                if task is None:
+                    raise MemoryContextConflict("memory_context_task_not_found")
+                thread_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'chat_threads' AND id = ?",
+                    (task.thread_id,),
+                ).fetchone()
+                thread = ChatThread.model_validate_json(thread_row["payload"]) if thread_row is not None else None
+                if (
+                    thread is None
+                    or thread.workspace_id != run.workspace_id
+                    or thread.project_id != run.project_id
+                    or run.task_id != task.id
+                ):
+                    raise MemoryContextConflict("memory_context_task_not_found")
+
+            binding = self._memory_binding_in_transaction(connection, authorization.agent_id)
+            if binding is not None and len(receipts) > max(1, binding.max_results_per_query):
+                raise MemoryContextConflict("memory_use_binding_changed")
+            committed: list[MemoryUseReceiptV1] = []
+            reasons = {receipt.retrieval_reason for receipt in receipts}
+            query_hashes = {receipt.retrieval_query_hash for receipt in receipts}
+            if len(reasons) != 1 or len(query_hashes) != 1:
+                raise MemoryContextConflict("memory_use_receipt_batch_invalid")
+            for receipt in receipts:
+                if not (
+                    receipt.run_id == run.id
+                    and receipt.task_id == run.task_id
+                    and receipt.agent_id == authorization.agent_id
+                ):
+                    raise MemoryContextConflict("memory_use_receipt_identity_invalid")
+                item = self._memory_item_for_use_in_transaction(
+                    connection,
+                    memory_id=receipt.memory_id,
+                    memory_kind=receipt.memory_kind,
+                    memory_record_type=receipt.memory_record_type,
+                    memory_version=receipt.memory_version,
+                    actor=actor,
+                    run=run,
+                    binding=binding,
+                )
+                if (
+                    memory_content_hash(item) != receipt.memory_hash
+                    or receipt.source_ids
+                    != list(dict.fromkeys(source.id for source in item.sources[:3]))
+                ):
+                    raise MemoryContextConflict("memory_use_receipt_memory_changed")
+                reservation_row = connection.execute(
+                    """
+                    SELECT payload FROM records
+                    WHERE collection = 'memory_citation_reservations'
+                      AND json_extract(payload, '$.run_id') = ?
+                      AND json_extract(payload, '$.memory_id') = ?
+                      AND json_extract(payload, '$.memory_record_type') = ?
+                      AND json_extract(payload, '$.memory_version') = ?
+                    """,
+                    (
+                        run.id,
+                        receipt.memory_id,
+                        receipt.memory_record_type,
+                        receipt.memory_version,
+                    ),
+                ).fetchone()
+                reservation = (
+                    MemoryCitationReservationV1.model_validate_json(reservation_row["payload"])
+                    if reservation_row is not None
+                    else None
+                )
+                if (
+                    reservation is None
+                    or reservation.memory_kind is not receipt.memory_kind
+                    or reservation.citation_label != receipt.citation_label
+                    or receipt.memory_layer is not self._memory_layer_for_use(item)
+                ):
+                    raise MemoryContextConflict("memory_use_citation_not_reserved")
+                conflicting_label = connection.execute(
+                    """
+                    SELECT payload FROM records
+                    WHERE collection = 'memory_use_receipts'
+                      AND json_extract(payload, '$.run_id') = ?
+                      AND json_extract(payload, '$.citation_label') = ?
+                    LIMIT 1
+                    """,
+                    (run.id, receipt.citation_label),
+                ).fetchone()
+                if conflicting_label is not None:
+                    labeled = MemoryUseReceiptV1.model_validate_json(
+                        conflicting_label["payload"]
+                    )
+                    if (
+                        labeled.memory_kind,
+                        labeled.memory_record_type,
+                        labeled.memory_id,
+                        labeled.memory_version,
+                    ) != (
+                        receipt.memory_kind,
+                        receipt.memory_record_type,
+                        receipt.memory_id,
+                        receipt.memory_version,
+                    ):
+                        raise MemoryContextConflict("memory_use_citation_conflict")
+                existing_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'memory_use_receipts' AND id = ?",
+                    (receipt.id,),
+                ).fetchone()
+                if existing_row is not None:
+                    existing = MemoryUseReceiptV1.model_validate_json(existing_row["payload"])
+                    if existing != receipt.model_copy(update={"created_at": existing.created_at}):
+                        raise MemoryContextConflict("memory_use_receipt_conflict")
+                    committed.append(existing)
+                    continue
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES ('memory_use_receipts', ?, ?)",
+                    (receipt.id, receipt.model_dump_json()),
+                )
+                committed.append(receipt)
+
+            expected_metadata = {
+                "receipt_ids": [receipt.id for receipt in receipts],
+                "memory_count": len(receipts),
+                "retrieval_reason": receipts[0].retrieval_reason,
+                "query_hash": receipts[0].retrieval_query_hash,
+            }
+            if not (
+                audit.actor == actor.id
+                and audit.action == "record_memory_context_use"
+                and audit.target_type == "agent_run"
+                and audit.target_id == run.id
+                and audit.workspace_id == run.workspace_id
+                and audit.project_id == run.project_id
+                and audit.metadata == expected_metadata
+            ):
+                raise MemoryContextConflict("memory_use_audit_invalid")
+            audit_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'audit_events' AND id = ?",
+                (audit.id,),
+            ).fetchone()
+            if audit_row is None:
+                connection.execute(
+                    "INSERT INTO records(collection, id, payload) VALUES ('audit_events', ?, ?)",
+                    (audit.id, audit.model_dump_json()),
+                )
+            else:
+                existing_audit = AuditEvent.model_validate_json(audit_row["payload"])
+                if existing_audit != audit.model_copy(update={"created_at": existing_audit.created_at}):
+                    raise MemoryContextConflict("memory_use_audit_conflict")
+        return committed
 
     def add_memory_relation(self, relation: MemoryRelation) -> MemoryRelation:
         self._upsert("memory_relations", relation)

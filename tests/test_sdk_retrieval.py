@@ -5,7 +5,18 @@ from agents.testing import ScriptedModel, assistant_message
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.agents import PersonalAgent
-from agentmesh.models import AgentMemoryBinding, MemoryItem, MemoryLayer, MemoryStatus, Scope, Source, UserMemoryItem
+from agentmesh.models import (
+    AgentMemoryBinding,
+    AgentRun,
+    AgentRunStatus,
+    ChatThread,
+    MemoryItem,
+    MemoryLayer,
+    MemoryStatus,
+    Scope,
+    Source,
+    UserMemoryItem,
+)
 from agentmesh.retrieval import RetrievalProfile, RetrievalService
 from agentmesh.seed import TEAM_LEAD, USER, ensure_base_workspace_data
 from agentmesh.skill_runtime.service import SkillCatalogService
@@ -21,6 +32,49 @@ def _repository(tmp_path) -> SQLiteStore:
     repository.save_user(TEAM_LEAD)
     ensure_tool_seed_data(repository, granted_by="system")
     return repository
+
+
+def _run_context(
+    repository: SQLiteStore,
+    *,
+    run_id: str,
+    thread_id: str,
+    skill_id: str,
+    plan_id: str | None = None,
+    node_id: str | None = None,
+) -> AgentMeshRunContext:
+    repository.add_chat_thread(
+        ChatThread(
+            id=thread_id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            user_id=USER.id,
+            title="Retrieval runtime",
+        )
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id=run_id,
+            thread_id=thread_id,
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="memory search",
+            status=AgentRunStatus.RUNNING,
+            skill_id=skill_id,
+            plan_id=plan_id,
+        )
+    )
+    return AgentMeshRunContext(
+        user_id=USER.id,
+        workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        plan_id=plan_id,
+        node_id=node_id,
+        skill_id=skill_id,
+    )
 
 
 def test_retrieval_filters_private_memory_before_ranking(tmp_path) -> None:
@@ -203,12 +257,10 @@ def test_runtime_retrieval_prefilters_candidate_and_disputed_memory_before_ranki
 
     gateway = ToolGateway(repository)
     monkeypatch.setattr(gateway, "_retrieval_profile", lambda _context, _types: profile)
-    context = AgentMeshRunContext(
-        user_id=USER.id,
-        workspace_id=USER.workspace_id,
-        project_id=USER.default_project_id,
-        thread_id="thread_governed_retrieval",
+    context = _run_context(
+        repository,
         run_id="run_governed_retrieval",
+        thread_id="thread_governed_retrieval",
         skill_id="skill_governed_retrieval",
     )
     payload = gateway.memory_search(context, {"query": "Governed runtime memory"})
@@ -237,12 +289,10 @@ def test_memory_tool_rebinds_visible_sources_to_the_current_run(tmp_path) -> Non
             sources=[original],
         )
     )
-    context = AgentMeshRunContext(
-        user_id=USER.id,
-        workspace_id=USER.workspace_id,
-        project_id=USER.default_project_id,
-        thread_id="thread_run_scoped_source",
+    context = _run_context(
+        repository,
         run_id="run_scoped_source",
+        thread_id="thread_run_scoped_source",
         plan_id="plan_run_scoped_source",
         node_id="node_run_scoped_source",
         skill_id="skill_run_scoped_source",

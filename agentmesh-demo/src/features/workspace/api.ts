@@ -2,6 +2,7 @@ import { apiRequest } from '../../api/client'
 import type {
   AgentRunEvent,
   AgentRunEventsResponse,
+  AgentRunMutationResponse,
   AgentRunResponse,
   ChatResponse,
   ChatTurnReceipt,
@@ -190,7 +191,7 @@ export const workspaceApi = {
     orchestrationMode,
     planningMode,
   }: StartAgentRunInput) =>
-    apiRequest<AgentRunResponse>('/api/agent/runs', {
+    apiRequest<AgentRunMutationResponse>('/api/agent/runs', {
       method: 'POST',
       body: JSON.stringify({
         thread_id: threadId,
@@ -227,12 +228,12 @@ export const workspaceApi = {
       body: JSON.stringify(request),
     }),
   retryAgentRun: (runId: string, clientTurnId: string) =>
-    apiRequest<AgentRunResponse>(`/api/agent/runs/${pathId(runId)}/retry`, {
+    apiRequest<AgentRunMutationResponse>(`/api/agent/runs/${pathId(runId)}/retry`, {
       method: 'POST',
       body: JSON.stringify({ client_turn_id: clientTurnId }),
     }),
   cancelAgentRun: (runId: string) =>
-    apiRequest<AgentRunResponse>(`/api/agent/runs/${pathId(runId)}/cancel`, { method: 'POST' }),
+    apiRequest<AgentRunMutationResponse>(`/api/agent/runs/${pathId(runId)}/cancel`, { method: 'POST' }),
   recommendSkills: (content: string, threadId?: string | null) =>
     apiRequest<SkillRecommendationResponse>('/api/skills/recommendations', {
       method: 'POST',

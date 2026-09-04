@@ -24,6 +24,7 @@ class AgentMeshRunContext(BaseModel):
     approved_resource_hashes: dict[str, str] = Field(default_factory=dict)
     resource_manifest_frozen: bool = False
     source_ids: list[str] = Field(default_factory=list)
+    memory_use_receipt_ids: list[str] = Field(default_factory=list)
     artifact_ids: list[str] = Field(default_factory=list)
     resource_references: list[str] = Field(default_factory=list)
     tool_call_count: int = Field(default=0, ge=0)

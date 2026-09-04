@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agentmesh.memory_context.contracts import MemoryUseBacklinkV1
 from agentmesh.models import (
     MemoryLayer,
     MemoryProvenanceV1,
@@ -212,6 +213,7 @@ class MemoryLineageViewV1(BaseModel):
     superseded_by_memories: list[MemoryRevisionLinkV1] = Field(default_factory=list)
     memory_reviews: list[MemoryReviewViewV1] = Field(default_factory=list)
     governance_events: list[MemoryGovernanceEventV1] = Field(default_factory=list)
+    usage: list[MemoryUseBacklinkV1] = Field(default_factory=list)
 
 
 class TaskMemoryLinkV1(BaseModel):

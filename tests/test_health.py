@@ -66,6 +66,7 @@ class TestProviderHealthCheck:
         assert runtime["index_health"] in {"ready", "degraded"}
         assert runtime["planner_health"] in {"disabled", "ready", "degraded"}
         assert runtime["task_management_mode"] == "read_only"
+        assert runtime["memory_context_mode"] == "off"
         assert runtime["deepsearch_recovery_running"] is False
         assert not any(key.startswith("research_writer_") for key in runtime)
         assert not any(key.startswith("research_preview_") for key in runtime)
@@ -119,6 +120,25 @@ class TestProviderHealthCheck:
         assert bootstrap.json()["task_management_mode"] == effective
         runtime = next(item for item in health.json()["providers"] if item["name"] == "openai_agents_sdk")
         assert runtime["task_management_mode"] == effective
+
+    @pytest.mark.parametrize(
+        ("configured", "effective"),
+        [("off", "off"), ("observe", "observe"), ("inject", "inject"), ("invalid", "off")],
+    )
+    def test_bootstrap_and_health_expose_the_same_fail_closed_memory_context_mode(
+        self,
+        auth_client: TestClient,
+        configured: str,
+        effective: str,
+    ) -> None:
+        with patch.dict("os.environ", {"AGENTMESH_MEMORY_CONTEXT": configured}):
+            bootstrap = auth_client.get("/api/bootstrap")
+            health = auth_client.get("/api/health/providers")
+
+        assert bootstrap.status_code == 200
+        assert bootstrap.json()["memory_context_mode"] == effective
+        runtime = next(item for item in health.json()["providers"] if item["name"] == "openai_agents_sdk")
+        assert runtime["memory_context_mode"] == effective
 
     def test_health_projects_actual_recovery_task_state_instead_of_inferring_from_mode(
         self,

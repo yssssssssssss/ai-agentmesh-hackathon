@@ -965,6 +965,7 @@ class MemoryItem(BaseModel):
     summary: str
     memory_type: str
     scope: Scope
+    layer: MemoryLayer | None = None
     status: MemoryStatus = MemoryStatus.PROPOSED
     owner_user_id: str | None = None
     workspace_id: str | None = None
@@ -1082,6 +1083,49 @@ class ContributionPoint(BaseModel):
     redeemable: bool = False
     workspace_id: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
+
+
+class MemoryCitationReservationV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["memory-citation-reservation-v1"] = (
+        "memory-citation-reservation-v1"
+    )
+    id: str = Field(min_length=1, max_length=160)
+    run_id: str = Field(min_length=1, max_length=120)
+    memory_id: str = Field(min_length=1, max_length=120)
+    memory_kind: MemoryKind
+    memory_record_type: Literal["memory_item", "user_memory_item"]
+    memory_version: int = Field(ge=1)
+    citation_label: str = Field(pattern=r"^[PJT][1-9][0-9]*$")
+    created_at: datetime = Field(default_factory=now_utc)
+
+
+class MemoryUseReceiptV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["memory-use-receipt-v1"] = "memory-use-receipt-v1"
+    id: str = Field(min_length=1, max_length=160)
+    run_id: str = Field(min_length=1, max_length=120)
+    task_id: str | None = Field(default=None, max_length=120)
+    memory_id: str = Field(min_length=1, max_length=120)
+    memory_kind: MemoryKind
+    memory_layer: MemoryLayer
+    memory_record_type: Literal["memory_item", "user_memory_item"]
+    memory_version: int = Field(ge=1)
+    memory_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    retrieval_reason: str = Field(min_length=1, max_length=160)
+    retrieval_query_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    citation_label: str = Field(pattern=r"^[PJT][1-9][0-9]*$")
+    agent_id: str = Field(min_length=1, max_length=120)
+    source_ids: list[str] = Field(default_factory=list, max_length=50)
+    created_at: datetime = Field(default_factory=now_utc)
+
+    @model_validator(mode="after")
+    def validate_sources(self) -> MemoryUseReceiptV1:
+        if len(set(self.source_ids)) != len(self.source_ids):
+            raise ValueError("source_ids must be unique")
+        return self
 
 
 class MemoryRelation(BaseModel):
@@ -2773,6 +2817,7 @@ class BootstrapState(BaseModel):
     agent_runtime_ready: bool = False
     skill_orchestration_mode: Literal["off", "preview", "execute"] = "off"
     task_management_mode: Literal["read_only", "write"] = "read_only"
+    memory_context_mode: Literal["off", "observe", "inject"] = "off"
     deepsearch_availability: DeepSearchAvailability
 
 
