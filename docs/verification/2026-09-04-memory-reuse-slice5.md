@@ -80,6 +80,8 @@ No real LLM, embedding, web, O2, MCP, or data provider is required for this proo
 - OpenAPI client regeneration: passed (`npm --prefix agentmesh-demo run api:types`).
 - `git diff --check`: passed.
 - Final technical review: no remaining P0/P1/P2; merge verdict `OK`.
+- Slice 5 PR #27 merged as `9b9f453b6f9123946f3564c0dbc25576d19f2e2d`.
+- Post-merge `main` CI run `33836657154`: all four required jobs passed.
 
 ## Independent CI maintenance discovered during verification
 
