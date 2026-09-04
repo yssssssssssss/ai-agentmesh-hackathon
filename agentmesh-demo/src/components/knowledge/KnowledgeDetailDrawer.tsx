@@ -212,6 +212,25 @@ export function KnowledgeDetailDrawer({
                 ) : null}
               </SectionBlock>
             ) : null}
+            {lineage && (lineage.usage ?? []).length > 0 ? (
+              <SectionBlock icon={<Quote className="h-4 w-4" />} label="后续复用">
+                <ol className="space-y-2">
+                  {(lineage.usage ?? []).map((usage) => (
+                    <li key={usage.receipt_id} className="rounded-soft bg-surface-1 px-3 py-2 text-xs text-slate-300">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-mono font-semibold text-mint-300">[{usage.citation_label}]</span>
+                        <span className="text-slate-400">v{usage.memory_version} · {formatTime(usage.created_at)}</span>
+                      </div>
+                      <p className="mt-1 text-slate-400">{REUSE_REASON_LABELS[usage.retrieval_reason] ?? usage.retrieval_reason}</p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {usage.task_navigation_href ? <a className="text-mint-300 hover:underline" href={usage.task_navigation_href}>打开使用任务</a> : null}
+                        {usage.run_navigation_href ? <a className="text-mint-300 hover:underline" href={usage.run_navigation_href}>打开使用 Run</a> : null}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </SectionBlock>
+            ) : null}
             <SectionBlock icon={<History className="h-4 w-4" />} label="共享和引用记录">
               <div className="mb-2"><DataSourceBadge source={asset.citations.source} /></div>
               {asset.citations.value.length === 0 ? (
@@ -337,6 +356,11 @@ function MetaRow({ label, value, source }: { label: string; value: string; sourc
       <dd className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-200"><span>{value}</span><DataSourceBadge source={source} /></dd>
     </div>
   )
+}
+
+const REUSE_REASON_LABELS: Record<string, string> = {
+  automatic_run_context: '任务执行自动上下文',
+  tool_memory_search: '运行中显式记忆检索',
 }
 
 const STATUS_LABELS: Record<string, string> = {

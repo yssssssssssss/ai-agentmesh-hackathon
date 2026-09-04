@@ -43,6 +43,8 @@ from agentmesh.deepsearch.planning import (
     plan_content_hash,
 )
 from agentmesh.deepsearch.service import deepsearch_retry_disposition
+from agentmesh.memory_context.contracts import AgentRunDetailResponseV1
+from agentmesh.memory_context.service import MemoryContextError, MemoryContextService
 from agentmesh.memory_governance.contracts import MemoryBacklinksV1
 from agentmesh.memory_governance.service import MemoryGovernanceError, MemoryGovernanceService
 from agentmesh.models import (
@@ -788,9 +790,17 @@ async def start_agent_run(
     return ItemResponse(item=run)
 
 
-@router.get("/{run_id}", response_model=ItemResponse)
-def get_agent_run(run_id: str, user: User = Depends(current_user)) -> ItemResponse:
-    return ItemResponse(item=_visible_run(run_id, user))
+@router.get("/{run_id}", response_model=AgentRunDetailResponseV1)
+def get_agent_run(
+    run_id: str,
+    user: User = Depends(current_user),
+) -> AgentRunDetailResponseV1:
+    run = _visible_run(run_id, user)
+    try:
+        memory_uses = MemoryContextService(store).usage_for_run(run, user)
+    except MemoryContextError as error:
+        raise HTTPException(status_code=404, detail=error.code) from error
+    return AgentRunDetailResponseV1(item=run, memory_uses=memory_uses)
 
 
 @router.get("/{run_id}/memory-links", response_model=MemoryBacklinksV1)

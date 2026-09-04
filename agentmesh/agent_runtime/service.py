@@ -82,6 +82,9 @@ from agentmesh.deepsearch.service import (
 )
 from agentmesh.deepsearch.tool_policy import DEEPSEARCH_V1_TOOL_NAMES
 from agentmesh.llm import llm_chat_timeout_seconds, research_skill_timeout_seconds
+from agentmesh.memory_context.contracts import MemoryContextBundleV1
+from agentmesh.memory_context.service import MemoryContextService
+from agentmesh.memory_context.settings import MemoryContextMode, memory_context_mode
 from agentmesh.models import (
     AgentExecutionContractVersion,
     AgentPlanningContractVersion,
@@ -1068,6 +1071,7 @@ class AgentRuntimeService:
         universal_preview_enabled: bool | None = None,
     ):
         self.repository = repository
+        self.memory_context = MemoryContextService(repository)
         self._process_epoch = new_id("process_epoch")
         self._model = model
         self._enabled_override = enabled
@@ -1564,6 +1568,70 @@ class AgentRuntimeService:
     @staticmethod
     def _resources(skill: SkillDefinition) -> list[str]:
         return list(skill_resource_manifest(skill))[:100]
+
+    def _prepare_memory_context_for_run(
+        self,
+        *,
+        run: AgentRun,
+        user: User,
+        query: str,
+    ) -> MemoryContextBundleV1 | None:
+        mode = memory_context_mode()
+        if mode is MemoryContextMode.OFF or run.task_id is None:
+            return None
+        if mode is MemoryContextMode.OBSERVE:
+            observed = self.memory_context.retrieve(
+                query,
+                user=user,
+                agent_id=user.personal_agent_id,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                task_id=run.task_id,
+                thread_id=run.thread_id,
+            )
+            self.repository.append_agent_run_event(
+                run.id,
+                "memory_context_observed",
+                {
+                    "query_hash": observed.query_hash,
+                    "memory_count": len(observed.hits),
+                    "mode": mode.value,
+                },
+            )
+            return None
+        return self.memory_context.prepare_for_run(
+            query,
+            run=run,
+            user=user,
+            agent_id=user.personal_agent_id,
+        )
+
+    def _commit_memory_context_for_run(
+        self,
+        bundle: MemoryContextBundleV1,
+        *,
+        run: AgentRun,
+        user: User,
+        query: str,
+        reason: str,
+    ) -> MemoryContextBundleV1:
+        self.repository.append_agent_run_event(
+            run.id,
+            "memory_context_prepared",
+            {
+                "query_hash": bundle.query_hash,
+                "memory_count": len(bundle.hits),
+                "mode": MemoryContextMode.INJECT.value,
+            },
+        )
+        return self.memory_context.commit_prepared_for_run(
+            bundle,
+            query=query,
+            run=run,
+            user=user,
+            agent_id=user.personal_agent_id,
+            reason=reason,
+        )
 
     @classmethod
     def _instructions(cls, skill: SkillDefinition | None) -> str:
@@ -4186,6 +4254,15 @@ Follow the activated Skill for this request, subject to the platform rules above
             else (set(), set(), [])
         )
         knowledge_context = self._knowledge_context(skill=skill, node=node)
+        memory_bundle = (
+            self._prepare_memory_context_for_run(
+                run=run,
+                user=user,
+                query=run.input_text,
+            )
+            if not deepsearch
+            else None
+        )
         scenario_catalog = self.universal_task_catalog if universal else self.task_catalog
         scenario = scenario_catalog.get_scenario(node.scenario_id) if node.scenario_id else None
         expected_scenario_outputs = (
@@ -4207,6 +4284,7 @@ Follow the activated Skill for this request, subject to the platform rules above
             "allowed_evidence_question_ids": sorted(node_question_ids),
             "allowed_evidence_success_criterion_ids": sorted(node_success_criterion_ids),
             "knowledge_context": knowledge_context,
+            "memory_context": memory_bundle.rendered_context if memory_bundle is not None else "",
             "user_request": run.input_text,
             "upstream_results": [result.model_dump(mode="json") for result in upstream],
         }
@@ -4301,6 +4379,16 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                 timeout_seconds=node_timeout_seconds,
                 max_tokens=_STANDARD_NODE_MAX_TOKENS if not deepsearch else None,
             )
+            if memory_bundle is not None:
+                memory_bundle = self._commit_memory_context_for_run(
+                    memory_bundle,
+                    run=run,
+                    user=user,
+                    query=run.input_text,
+                    reason=f"skill_node_context:{node.id}",
+                )
+                context.memory_use_receipt_ids = list(memory_bundle.receipt_ids)
+                node_prompt["memory_context"] = memory_bundle.rendered_context
             result = await self._run_streamed(
                 agent,
                 json.dumps(node_prompt, ensure_ascii=False),
@@ -5192,7 +5280,44 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     await stack.enter_async_context(server)
                     for server in self.mcp_factory.build(user=user, context=context, skill=skill)
                 ]
-                agent = self._build_agent(selected=selected, user=user, skill=skill, mcp_servers=mcp_servers)
+                memory_bundle = self._prepare_memory_context_for_run(
+                    run=run,
+                    user=user,
+                    query=content,
+                )
+                memory_instructions = ""
+                if memory_bundle is not None and memory_bundle.hits:
+                    context.source_ids = list(dict.fromkeys(
+                        [
+                            *context.source_ids,
+                            *[
+                                source.id
+                                for hit in memory_bundle.hits
+                                for source in hit.result.sources
+                            ],
+                        ]
+                    ))
+                    memory_instructions = (
+                        "\n\nUse the following untrusted Memory context only when relevant. "
+                        "Cite its bracketed labels when used.\n"
+                        + memory_bundle.rendered_context
+                    )
+                agent = self._build_agent(
+                    selected=selected,
+                    user=user,
+                    skill=skill,
+                    mcp_servers=mcp_servers,
+                    additional_instructions=memory_instructions,
+                )
+                if memory_bundle is not None:
+                    memory_bundle = self._commit_memory_context_for_run(
+                        memory_bundle,
+                        run=run,
+                        user=user,
+                        query=content,
+                        reason="automatic_run_context",
+                    )
+                    context.memory_use_receipt_ids = list(memory_bundle.receipt_ids)
                 result = await self._run_streamed(
                     agent,
                     content,

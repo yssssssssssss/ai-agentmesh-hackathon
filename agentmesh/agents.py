@@ -17,6 +17,7 @@ from agentmesh.agent_runtime.service import AgentRuntimeService
 from agentmesh.brief_templates import BriefTemplate, select_brief_template
 from agentmesh.chat_skills import ChatSkillInvocation, list_chat_skills, parse_chat_skill_invocation, spec_for_intent
 from agentmesh.llm import LLMRequestError, market_llm_timeout_seconds
+from agentmesh.memory_context.service import MemoryContextService
 from agentmesh.model_registry import resolve_agent_model_id
 from agentmesh.models import (
     ActivityLog,
@@ -44,7 +45,6 @@ from agentmesh.models import (
     MemoryRelation,
     MemorySearchScope,
     MemorySearchTrace,
-    MemoryStatus,
     RetrievalMetrics,
     RetrievedMemoryEvidence,
     Scope,
@@ -138,6 +138,7 @@ class PersonalAgent:
         skill_catalog: SkillCatalogService | None = None,
     ):
         self.repository = repository
+        self.memory_context = MemoryContextService(repository)
         self.agent_runtime = agent_runtime
         self.skill_catalog = skill_catalog or SkillCatalogService(repository)
         self.acquisition_agent = acquisition_agent or MockAcquisitionAgent()
@@ -801,163 +802,16 @@ class PersonalAgent:
         workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> list[SearchResult]:
-        """Search only memory visible in the requested thread context."""
-        effective_workspace_id = workspace_id or user.workspace_id
-        effective_project_id = project_id or user.default_project_id
-
-        if search_scope == MemorySearchScope.PERSONAL:
-            allowed_record_ids = {
-                item.id
-                for item in self.repository.user_memory_items
-                if item.user_id == user.id and item.workspace_id == effective_workspace_id
-            }
-            results = self.repository.search(
-                query,
-                {Scope.PRIVATE},
-                workspace_id=effective_workspace_id,
-                user_id=user.id,
-                max_results=10,
-                result_types={"user_memory_item"},
-                allowed_record_ids=allowed_record_ids,
-                agent_context=True,
-            )
-            return [result for result in results if result.result_type == "user_memory_item"][:5]
-
-        if search_scope == MemorySearchScope.PROJECT:
-            if not effective_project_id:
-                return []
-            project = self.repository.get_project(effective_project_id)
-            can_access_project = bool(
-                project
-                and project.workspace_id == effective_workspace_id
-                and self.repository.user_can_access_project(user.id, effective_project_id)
-            )
-            allowed_record_ids = {
-                item.id
-                for item in self.repository.memory_items
-                if can_access_project
-                and item.workspace_id == effective_workspace_id
-                and item.project_id == effective_project_id
-                and item.scope == Scope.PROJECT
-                and (
-                    item.status is MemoryStatus.ACCEPTED
-                    or (
-                        item.provenance is None
-                        and item.status not in {
-                            MemoryStatus.DISPUTED,
-                            MemoryStatus.DEPRECATED,
-                            MemoryStatus.EXPIRED,
-                            MemoryStatus.ARCHIVED,
-                        }
-                    )
-                )
-            }
-            results = self.repository.search(
-                query,
-                {Scope.PROJECT},
-                workspace_id=effective_workspace_id,
-                project_id=effective_project_id,
-                user_id=None,  # allowed_record_ids already enforces project access
-                max_results=10,
-                result_types={"memory_item"},
-                allowed_record_ids=allowed_record_ids,
-                agent_context=True,
-            )
-            return [
-                result
-                for result in results
-                if result.result_type == "memory_item" and result.scope == Scope.PROJECT
-            ][:5]
-
-        if search_scope == MemorySearchScope.TEAM:
-            accessible_team_ids = {
-                membership.team_id
-                for membership in self.repository.list_team_memberships(user_id=user.id)
-            }
-            can_access_all_teams = user.role in {"admin", "team_lead"}
-            allowed_record_ids = {
-                item.id
-                for item in self.repository.memory_items
-                if item.workspace_id == effective_workspace_id
-                and item.scope == Scope.TEAM_ACCEPTED
-                and item.status is MemoryStatus.ACCEPTED
-                and (
-                    item.team_id is None
-                    or can_access_all_teams
-                    or item.team_id in accessible_team_ids
-                )
-            }
-            results = self.repository.search(
-                query,
-                {Scope.TEAM_ACCEPTED},
-                workspace_id=effective_workspace_id,
-                user_id=None,  # allowed_record_ids already enforces team access
-                max_results=10,
-                result_types={"memory_item"},
-                allowed_record_ids=allowed_record_ids,
-                agent_context=True,
-            )
-            return [
-                result
-                for result in results
-                if result.result_type == "memory_item" and result.scope == Scope.TEAM_ACCEPTED
-            ][:5]
-
-        tier1_results = self.repository.search(
+        """Compatibility adapter over the single Memory context retrieval module."""
+        return self.memory_context.search_results(
             query,
-            {Scope.TEAM_ACCEPTED},
-            workspace_id=effective_workspace_id,
-            project_id=effective_project_id,
-            user_id=user.id,
+            user=user,
+            agent_id=user.personal_agent_id,
+            requested_scope=search_scope,
+            workspace_id=workspace_id,
+            project_id=project_id,
             max_results=5,
-            agent_context=True,
         )
-        tier1_results = self._filter_memory_types(tier1_results)
-        if len(tier1_results) >= 3:
-            return tier1_results[:5]
-
-        tier2_results = self.repository.search(
-            query,
-            {Scope.PROJECT, Scope.TEAM_ACCEPTED},
-            workspace_id=effective_workspace_id,
-            project_id=effective_project_id,
-            user_id=user.id,
-            max_results=10,
-            agent_context=True,
-        )
-        tier2_results = self._filter_memory_types(tier2_results)
-        if len(tier2_results) >= 3:
-            return tier2_results[:5]
-
-        tier3_results = self.repository.search(
-            query,
-            {Scope.PRIVATE, Scope.PROJECT, Scope.TEAM_ACCEPTED},
-            workspace_id=effective_workspace_id,
-            project_id=effective_project_id,
-            user_id=user.id,
-            max_results=10,
-            agent_context=True,
-        )
-        tier3_results = self._filter_memory_types(tier3_results)
-        if tier3_results:
-            return tier3_results[:5]
-
-        terms = self._search_terms(query)
-        scored_results: list[tuple[int, SearchResult]] = []
-        for result in self._memory_search_pool(user, effective_workspace_id, effective_project_id):
-            text = f"{result.title} {result.summary}".lower()
-            score = sum(1 for term in terms if term in text)
-            if score >= 2:
-                scored_results.append((score, result))
-        scored_results.sort(key=lambda item: (item[0], item[1].created_at), reverse=True)
-        return [result for _, result in scored_results[:5]]
-
-    @staticmethod
-    def _filter_memory_types(results: list[SearchResult]) -> list[SearchResult]:
-        return [
-            r for r in results
-            if r.result_type in {"user_memory_item", "memory_item", "document", "blackboard_evidence"}
-        ]
 
     @staticmethod
     def _count_cited_sources(
@@ -996,121 +850,12 @@ class PersonalAgent:
         workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> list[SearchResult]:
-        effective_workspace_id = workspace_id or user.workspace_id
-        effective_project_id = project_id or user.default_project_id
-        results: list[SearchResult] = []
-        for item in self.repository.user_memory_items:
-            if item.user_id != user.id or item.workspace_id != effective_workspace_id:
-                continue
-            if item.project_id != effective_project_id or item.status != "active":
-                continue
-            results.append(
-                SearchResult(
-                    id=item.id,
-                    result_type="user_memory_item",
-                    title=item.title,
-                    summary=item.summary,
-                    scope=item.scope,
-                    sources=item.sources,
-                    project_id=item.project_id,
-                    created_at=item.created_at,
-                )
-            )
-
-        team_ids = {
-            membership.team_id
-            for membership in self.repository.list_team_memberships(user_id=user.id)
-        }
-        can_access_all_teams = user.role in {"admin", "team_lead"}
-        for item in self.repository.memory_items:
-            if not self.repository.memory_item_visible_to_user(item, user.id):
-                continue
-            if item.workspace_id != effective_workspace_id or item.project_id != effective_project_id:
-                continue
-            if item.scope is Scope.TEAM_CANDIDATE:
-                continue
-            if item.status is not MemoryStatus.ACCEPTED and not (
-                item.provenance is None
-                and item.scope is Scope.PROJECT
-                and item.status not in {
-                    MemoryStatus.DISPUTED,
-                    MemoryStatus.DEPRECATED,
-                    MemoryStatus.EXPIRED,
-                    MemoryStatus.ARCHIVED,
-                }
-            ):
-                continue
-            if item.scope == Scope.PROJECT and item.project_id != effective_project_id:
-                continue
-            if item.scope in {Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE}:
-                if item.project_id != effective_project_id:
-                    continue
-                if item.team_id and not can_access_all_teams and item.team_id not in team_ids:
-                    continue
-            results.append(
-                SearchResult(
-                    id=item.id,
-                    result_type="memory_item",
-                    title=item.title,
-                    summary=item.summary,
-                    scope=item.scope,
-                    sources=item.sources,
-                    project_id=item.project_id,
-                    team_id=item.team_id,
-                    created_at=item.created_at,
-                )
-            )
-
-        for document in self.repository.documents:
-            if document.uploaded_by != user.id:
-                continue
-            if document.workspace_id != effective_workspace_id or document.project_id != effective_project_id:
-                continue
-            results.append(
-                SearchResult(
-                    id=document.id,
-                    result_type="document",
-                    title=document.title,
-                    summary=document.text[:500],
-                    scope=Scope.PRIVATE,
-                    sources=[document.source],
-                    project_id=document.project_id,
-                    created_at=document.created_at,
-                )
-            )
-
-        tasks_by_id = {task.id: task for task in self.repository.tasks}
-        threads_by_id = {thread.id: thread for thread in self.repository.chat_threads}
-        for post in self.repository.blackboard_posts:
-            if post.scope not in {Scope.PROJECT, Scope.TEAM_ACCEPTED}:
-                continue
-            if post.post_type not in {
-                BlackboardPostType.EVIDENCE,
-                BlackboardPostType.DECISION,
-                BlackboardPostType.ARCHIVE,
-            }:
-                continue
-            task = tasks_by_id.get(post.task_id)
-            thread = threads_by_id.get(task.thread_id) if task else None
-            if (
-                thread is None
-                or thread.workspace_id != effective_workspace_id
-                or thread.project_id != effective_project_id
-            ):
-                continue
-            results.append(
-                SearchResult(
-                    id=post.id,
-                    result_type=f"blackboard_{post.post_type.value}",
-                    title=post.title,
-                    summary=post.content,
-                    scope=post.scope,
-                    sources=post.sources,
-                    project_id=thread.project_id,
-                    created_at=post.created_at,
-                )
-            )
-        return results
+        """Compatibility adapter for callers that still inspect the broad pool."""
+        return self.memory_context.search_pool(
+            user,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
 
     @staticmethod
     def _memory_kind(result: SearchResult) -> MemoryKind:

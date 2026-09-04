@@ -71,7 +71,14 @@ export type ChatResponse = Omit<components['schemas']['ChatResponse'], 'user_mes
 export type AgentRunStatus = components['schemas']['AgentRunStatus']
 export type AgentRun = Omit<components['schemas']['AgentRun'], 'id'> & { id: string }
 export type AgentRunEvent = components['schemas']['AgentRunEvent']
-export type AgentRunResponse = { item: AgentRun }
+type GeneratedMemoryUseView = components['schemas']['MemoryUseViewV1']
+export type MemoryUseView = Omit<GeneratedMemoryUseView, 'sources'> & { sources: Source[] }
+type GeneratedAgentRunResponse = components['schemas']['AgentRunDetailResponseV1']
+export type AgentRunResponse = Omit<GeneratedAgentRunResponse, 'item' | 'memory_uses'> & {
+  item: AgentRun
+  memory_uses: MemoryUseView[]
+}
+export type AgentRunMutationResponse = { item: AgentRun }
 export type AgentRunEventsResponse = components['schemas']['AgentRunEventsResponse']
 export type ResearchRunProjection = components['schemas']['ResearchRunProjection']
 export type SkillCandidate = components['schemas']['SkillRecommendationCandidateView']

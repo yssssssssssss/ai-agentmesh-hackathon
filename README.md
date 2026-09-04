@@ -87,6 +87,15 @@ After a Task Review is accepted, its Run owner may explicitly capture the frozen
 
 Accepted Team Knowledge is immutable in place. Its owner or a user with effective `manage_team_memory` permission may submit a revision candidate; accepting that candidate atomically activates the new version and deprecates its predecessor. Lifecycle managers can dispute, deprecate, expire, archive, and restore governed versions through versioned command endpoints. Inactive versions remain auditable but are excluded from automatic Agent retrieval.
 
+Automatic Task-linked Memory context is separately gated and defaults to `off`:
+
+```bash
+export AGENTMESH_MEMORY_CONTEXT=observe  # retrieve and measure; do not inject or write use receipts
+export AGENTMESH_MEMORY_CONTEXT=inject   # inject eligible Memory and persist MemoryUseReceiptV1
+```
+
+Only Memory that passes credential/prompt-injection quarantine and reaches the final model-context handoff receives an immutable use receipt. Explicit Runtime `memory_search` defers the receipt until its exact visible output passes encoding, size, safety, audit, and Tool settlement checks. Citation labels are transactionally reserved per Run so concurrent searches cannot assign one label to different Memory versions. Candidate, disputed, deprecated, expired, and archived versions remain excluded before retrieval ranking and budgets in every mode; the complete rendered context, including citation and Source metadata, is budgeted.
+
 Port `8000` is intentionally avoided because it may already be used by another local backend.
 If `8010` is already in use, first check whether AgentMesh is already running:
 

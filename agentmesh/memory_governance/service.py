@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from urllib.parse import quote
 
 from agentmesh.canonical_json import canonical_json_sha256
+from agentmesh.memory_context.service import MemoryContextService
 from agentmesh.memory_governance.contracts import (
     MemoryCaptureResponseV1,
     MemoryCaptureTarget,
@@ -84,6 +85,7 @@ class MemoryGovernanceService:
     def __init__(self, repository: SQLiteStore):
         self.repository = repository
         self.task_service = TaskManagementService(repository)
+        self.memory_context = MemoryContextService(repository)
 
     def capture_from_task_review(
         self,
@@ -156,6 +158,11 @@ class MemoryGovernanceService:
                 summary=request.summary,
                 memory_type=request.memory_type,
                 scope=Scope.TEAM_CANDIDATE,
+                layer=(
+                    request.layer
+                    if "layer" in request.model_fields_set
+                    else MemoryLayer.LONG_TERM
+                ),
                 status=MemoryStatus.PROPOSED,
                 owner_user_id=user.id,
                 workspace_id=user.workspace_id,
@@ -443,6 +450,7 @@ class MemoryGovernanceService:
             summary=request.summary,
             memory_type=request.memory_type,
             scope=Scope.TEAM_CANDIDATE,
+            layer=source.layer or MemoryLayer.LONG_TERM,
             status=MemoryStatus.PROPOSED,
             owner_user_id=user.id,
             workspace_id=source.workspace_id,
@@ -751,6 +759,7 @@ class MemoryGovernanceService:
             superseded_by_memories=[self._revision_link(item) for item in successor_items],
             memory_reviews=[self._review_view(memory_review, user)] if memory_review is not None else [],
             governance_events=governance_events,
+            usage=self.memory_context.usage_backlinks(entry.id, user),
         )
 
     def task_memory_links(self, task_id: str, user: User) -> list[TaskMemoryLinkV1]:
@@ -894,7 +903,14 @@ class MemoryGovernanceService:
             workspace_id=item.workspace_id or user.workspace_id,
             project_id=item.project_id,
             team_id=item.team_id,
-            layer=None,
+            layer=(
+                item.layer
+                or (
+                    MemoryLayer.LONG_TERM
+                    if item.scope in {Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED}
+                    else MemoryLayer.MID_TERM
+                )
+            ),
             version=item.version,
             content_hash=memory_content_hash(item),
             provenance=item.provenance,

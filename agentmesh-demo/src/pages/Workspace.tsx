@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Composer } from '../components/workspace/Composer'
 import { ConversationThread } from '../components/workspace/ConversationThread'
 import { DetailPanel } from '../components/workspace/DetailPanel'
+import { MemoryUsePanel } from '../components/workspace/MemoryUsePanel'
 import { ResearchExecution } from '../components/workspace/ResearchExecution'
 import { ResearchPreview } from '../components/workspace/ResearchPreview'
 import { SkillPlanningState } from '../components/workspace/SkillPlanningState'
@@ -529,6 +530,9 @@ export function Workspace() {
                     以新 Run 重试
                   </Button>
                 </div>
+              ) : null}
+              {currentRun && runQuery.data?.item.id === currentRun.id ? (
+                <MemoryUsePanel items={runQuery.data?.memory_uses ?? []} />
               ) : null}
             </div>
 

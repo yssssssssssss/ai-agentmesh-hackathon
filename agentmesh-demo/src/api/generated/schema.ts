@@ -2736,6 +2736,12 @@ export interface components {
             /** @default standard */
             planning_mode: components["schemas"]["AgentPlanningMode"];
         };
+        /** AgentRunDetailResponseV1 */
+        AgentRunDetailResponseV1: {
+            item: components["schemas"]["AgentRun"];
+            /** Memory Uses */
+            memory_uses?: components["schemas"]["MemoryUseViewV1"][];
+        };
         /** AgentRunEvent */
         AgentRunEvent: {
             /** Id */
@@ -3176,6 +3182,12 @@ export interface components {
              * @enum {string}
              */
             task_management_mode: "read_only" | "write";
+            /**
+             * Memory Context Mode
+             * @default off
+             * @enum {string}
+             */
+            memory_context_mode: "off" | "observe" | "inject";
             deepsearch_availability: components["schemas"]["DeepSearchAvailability"];
         };
         /** BriefConfirmRequest */
@@ -4832,6 +4844,7 @@ export interface components {
             /** Memory Type */
             memory_type: string;
             scope: components["schemas"]["Scope"];
+            layer?: components["schemas"]["MemoryLayer"] | null;
             /** @default proposed */
             status: components["schemas"]["MemoryStatus"];
             /** Owner User Id */
@@ -4883,6 +4896,7 @@ export interface components {
             /** Memory Type */
             memory_type: string;
             scope: components["schemas"]["Scope"];
+            layer?: components["schemas"]["MemoryLayer"] | null;
             /** @default proposed */
             status: components["schemas"]["MemoryStatus"];
             /** Owner User Id */
@@ -4968,6 +4982,8 @@ export interface components {
             memory_reviews?: components["schemas"]["MemoryReviewViewV1"][];
             /** Governance Events */
             governance_events?: components["schemas"]["MemoryGovernanceEventV1"][];
+            /** Usage */
+            usage?: components["schemas"]["MemoryUseBacklinkV1"][];
         };
         /** MemoryOverviewCounts */
         MemoryOverviewCounts: {
@@ -5214,6 +5230,94 @@ export interface components {
         MemoryUpdateRequest: {
             status?: components["schemas"]["MemoryStatus"] | null;
             scope?: components["schemas"]["Scope"] | null;
+        };
+        /** MemoryUseBacklinkV1 */
+        MemoryUseBacklinkV1: {
+            /** Receipt Id */
+            receipt_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Task Id */
+            task_id?: string | null;
+            /** Citation Label */
+            citation_label: string;
+            /** Memory Version */
+            memory_version: number;
+            /** Memory Hash */
+            memory_hash: string;
+            /** Retrieval Reason */
+            retrieval_reason: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Run Navigation Href */
+            run_navigation_href?: string | null;
+            /** Task Navigation Href */
+            task_navigation_href?: string | null;
+        };
+        /** MemoryUseReceiptV1 */
+        MemoryUseReceiptV1: {
+            /**
+             * Schema Version
+             * @default memory-use-receipt-v1
+             * @constant
+             */
+            schema_version: "memory-use-receipt-v1";
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Task Id */
+            task_id?: string | null;
+            /** Memory Id */
+            memory_id: string;
+            memory_kind: components["schemas"]["MemoryKind"];
+            memory_layer: components["schemas"]["MemoryLayer"];
+            /**
+             * Memory Record Type
+             * @enum {string}
+             */
+            memory_record_type: "memory_item" | "user_memory_item";
+            /** Memory Version */
+            memory_version: number;
+            /** Memory Hash */
+            memory_hash: string;
+            /** Retrieval Reason */
+            retrieval_reason: string;
+            /** Retrieval Query Hash */
+            retrieval_query_hash: string;
+            /** Citation Label */
+            citation_label: string;
+            /** Agent Id */
+            agent_id: string;
+            /** Source Ids */
+            source_ids?: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+        };
+        /** MemoryUseViewV1 */
+        MemoryUseViewV1: {
+            receipt: components["schemas"]["MemoryUseReceiptV1"];
+            /** Title */
+            title?: string | null;
+            scope?: components["schemas"]["Scope"] | null;
+            layer?: components["schemas"]["MemoryLayer"] | null;
+            /** Sources */
+            sources?: components["schemas"]["Source"][];
+            /**
+             * Cited In Output
+             * @default false
+             */
+            cited_in_output: boolean;
+            /** Memory Navigation Href */
+            memory_navigation_href?: string | null;
+            /** Task Navigation Href */
+            task_navigation_href?: string | null;
         };
         /** ModelDefinition */
         ModelDefinition: {
@@ -8286,7 +8390,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItemResponse"];
+                    "application/json": components["schemas"]["AgentRunDetailResponseV1"];
                 };
             };
             /** @description Validation Error */

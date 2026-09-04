@@ -32,11 +32,14 @@ def memory_content_hash(item: MemoryItem | UserMemoryItem) -> str:
         }
     else:
         payload = {
-            "schema_version": "memory-content-v1",
+            "schema_version": (
+                "memory-content-v2" if item.layer is not None else "memory-content-v1"
+            ),
             "id": item.id,
             "title": item.title,
             "summary": item.summary,
             "memory_type": item.memory_type,
+            **({"layer": item.layer} if item.layer is not None else {}),
             "owner_user_id": item.owner_user_id,
             "workspace_id": item.workspace_id,
             "project_id": item.project_id,
