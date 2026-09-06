@@ -186,7 +186,7 @@ def test_deepsearch_v2_persists_snapshot_before_planner_and_publishes_v2_artifac
     monkeypatch,
 ) -> None:
     repository, catalog, thread, skill, candidate, _identity, search_result = _setup(tmp_path)
-    created_at = datetime(2026, 8, 29, 9, 0, tzinfo=UTC)
+    created_at = datetime.now(UTC).replace(microsecond=0)
     payload = RequirementPayloadV1(
         goal="Create a research plan",
         scope=RequirementScopeV1(),
