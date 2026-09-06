@@ -463,6 +463,190 @@ def test_coverage_evaluation_caches_validated_profiles_without_changing_runtime_
     assert len(loaded_skill_ids) == skill_count * 2
 
 
+def test_universal_corpus_stage_filters_security_and_trust_boundaries(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "corpus-stage.sqlite3")
+    catalog = SkillCatalogService(repository)
+    approved = _profile_skill(
+        tmp_path,
+        {"review_state": "approved", "planner_eligible": True},
+        name="approved-corpus",
+    )
+    draft = _profile_skill(tmp_path, {}, name="draft-corpus")
+    disabled = _profile_skill(
+        tmp_path,
+        {"review_state": "approved", "planner_eligible": True},
+        name="disabled-corpus",
+    )
+    workspace = _profile_skill(
+        tmp_path,
+        {"review_state": "approved", "planner_eligible": True},
+        name="workspace-corpus",
+    ).model_copy(update={"source_scope": SkillSourceScope.WORKSPACE})
+    skills = [approved, draft, disabled, workspace]
+    for skill in skills:
+        repository.save_skill_definition(skill, defer_vector=True)
+        repository.save_skill_capability_profile(
+            load_capability_profile_record(skill).profile,
+            defer_vector=True,
+        )
+    repository.save_skill_binding(
+        SkillBinding(
+            id="disable-corpus-skill",
+            agent_id=USER.personal_agent_id,
+            skill_id=disabled.id,
+            enabled=False,
+            granted_by=USER.id,
+        )
+    )
+    catalog._skills = {skill.name: skill for skill in skills}
+    service = UniversalSkillSearchService(
+        repository,
+        catalog,
+        profile_trust=lambda _skill, _loaded: True,
+    )
+
+    runtime = service._build_corpus(
+        USER,
+        include_unreviewed=False,
+        assume_unreviewed_ready=False,
+    )
+    evaluation = service._build_corpus(
+        USER,
+        include_unreviewed=True,
+        assume_unreviewed_ready=False,
+    )
+
+    assert [entry.skill.id for entry in runtime.entries] == [approved.id]
+    assert runtime.searchable_count == 1
+    assert runtime.security_filtered_count == 3
+    assert [entry.skill.id for entry in evaluation.entries] == [approved.id, draft.id]
+    assert evaluation.searchable_count == 1
+    assert evaluation.security_filtered_count == 2
+
+
+def test_universal_ranking_stage_owns_batch_validation_thresholds_and_ordering(tmp_path) -> None:
+    service, skills, _calls = _controlled_universal_service(
+        tmp_path,
+        [
+            ("ranking-target", ["target_output"], "approved"),
+            ("ranking-unrelated", ["unrelated_output"], "approved"),
+        ],
+    )
+    service._profile_ranker = lambda queries, _ids: [
+        ([skills[0].id], [], ["embedding_disabled"]) for _query in queries
+    ]
+    intent = SkillIntent(goal="Need target_output", deliverables=["target_output"])
+    corpus = service._build_corpus(
+        USER,
+        include_unreviewed=False,
+        assume_unreviewed_ready=False,
+    )
+    requirements = recommendation_module._build_universal_requirements(
+        intent,
+        (entry.loaded_profile for entry in corpus.entries),
+        routing_result=None,
+        task_catalog=None,
+    )
+
+    ranking = service._assemble_ranked_candidates(
+        USER,
+        intent,
+        requirements,
+        corpus,
+        assume_unreviewed_ready=False,
+    )
+
+    assert ranking.candidates[0].skill_id == skills[0].id
+    assert all(
+        candidate.score.total >= recommendation_module._MIN_UNIVERSAL_RELEVANCE_SCORE
+        for candidate in ranking.candidates
+    )
+    assert ranking.retrieval_pool_ids == frozenset({skills[0].id})
+    assert set(ranking.diagnostics) == {"embedding_disabled"}
+
+
+def test_universal_readiness_stage_schedules_and_applies_remote_probe_results(tmp_path) -> None:
+    probed: list[str] = []
+
+    def probe(tool_name: str) -> _HealthDescriptor:
+        probed.append(tool_name)
+        return _HealthDescriptor("implementation-0", "1", "unavailable")
+
+    service, tool_names = _remote_tool_universal_service(
+        tmp_path,
+        ["target_output"],
+        probe=probe,
+    )
+    intent = SkillIntent(goal="Need target_output", deliverables=["target_output"])
+    corpus = service._build_corpus(
+        USER,
+        include_unreviewed=False,
+        assume_unreviewed_ready=False,
+    )
+    requirements = recommendation_module._build_universal_requirements(
+        intent,
+        (entry.loaded_profile for entry in corpus.entries),
+        routing_result=None,
+        task_catalog=None,
+    )
+    ranking = service._assemble_ranked_candidates(
+        USER,
+        intent,
+        requirements,
+        corpus,
+        assume_unreviewed_ready=False,
+    )
+
+    readiness = service._apply_readiness_probes(requirements, corpus, ranking)
+
+    assert probed == tool_names
+    assert readiness.unprobed_skill_ids == frozenset()
+    assert readiness.candidates[0].ready is False
+    assert readiness.candidates[0].diagnostics == ["required_tool_unhealthy"]
+
+
+def test_universal_coverage_stage_assembles_witnesses_gaps_and_quotas(tmp_path) -> None:
+    service, _skills, _calls = _controlled_universal_service(
+        tmp_path,
+        [
+            ("coverage-ready", ["experience_metrics"], "approved"),
+            ("coverage-blocked", ["measurement_plan"], "draft"),
+        ],
+    )
+    intent = SkillIntent(goal="建立体验指标并制定验证方案", deliverables=["experience_metrics"])
+    routing_result, task_catalog = _routing_result_for("metrics-validation")
+    corpus = service._build_corpus(
+        USER,
+        include_unreviewed=True,
+        assume_unreviewed_ready=False,
+    )
+    requirements = recommendation_module._build_universal_requirements(
+        intent,
+        (entry.loaded_profile for entry in corpus.entries),
+        routing_result=routing_result,
+        task_catalog=task_catalog,
+    )
+    ranking = service._assemble_ranked_candidates(
+        USER,
+        intent,
+        requirements,
+        corpus,
+        assume_unreviewed_ready=False,
+    )
+    readiness = service._apply_readiness_probes(requirements, corpus, ranking)
+
+    result = service._assemble_coverage_result(requirements, corpus, ranking, readiness)
+
+    assert result.outcome_code == "ok"
+    assert [candidate.skill_name for candidate in result.selectable_candidates] == ["coverage-ready"]
+    assert result.coverage_witness_skill_ids == (result.selectable_candidates[0].skill_id,)
+    assert [candidate.skill_name for candidate in result.blocked_matches] == ["coverage-blocked"]
+    assert {gap.requirement_id for gap in result.capability_gaps} == {
+        "scenario:metrics-validation:output:validation_plan",
+        "scenario:metrics-validation:output:observation_window",
+    }
+
+
 def test_universal_search_ranks_draft_profiles_only_in_explicit_offline_mode(
     tmp_path,
     configure_pilot_wiki,
@@ -570,7 +754,7 @@ def test_candidate_snapshot_freezes_ranked_identity_and_public_projection(tmp_pa
         candidate.skill_id for candidate in result.selectable_candidates
     ]
     assert set(snapshot.coverage_witness_skill_ids) == {skill.id for skill in skills}
-    assert snapshot.content_hash
+    assert snapshot.content_hash == "45c5c610c4f55766eeba79d59d9f4cfa22ed60efbe5b4ff1e2adcfc60f7acd8a"
     serialized = canonical_json_bytes(public)
     assert b"evidence_path_witnesses" not in serialized
     assert b"tool_implementation_id" not in serialized

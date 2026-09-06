@@ -479,6 +479,34 @@ class _CoverageVariant:
     score: float
 
 
+@dataclass(frozen=True, slots=True)
+class _UniversalCorpusEntry:
+    skill: SkillDefinition
+    loaded_profile: LoadedCapabilityProfile
+    runtime_enabled: bool
+    profile_trusted: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _UniversalCorpus:
+    entries: tuple[_UniversalCorpusEntry, ...]
+    searchable_count: int
+    security_filtered_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _UniversalRanking:
+    candidates: tuple[SkillCandidate, ...]
+    retrieval_pool_ids: frozenset[str]
+    diagnostics: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _UniversalReadiness:
+    candidates: tuple[SkillCandidate, ...]
+    unprobed_skill_ids: frozenset[str]
+
+
 def _ordered_unique(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(value for value in values if value))
 
@@ -1067,17 +1095,16 @@ class UniversalSkillSearchService:
             task_catalog=task_catalog,
         )
 
-    def _search(
+    def _build_corpus(
         self,
         user: User,
-        intent: SkillIntent,
         *,
         include_unreviewed: bool,
         assume_unreviewed_ready: bool,
-        routing_result: TaskRoutingResult | None,
-        task_catalog: TaskCatalogV2 | None,
-    ) -> UniversalSkillSearchResult:
-        corpus: list[tuple[SkillDefinition, LoadedCapabilityProfile, bool, bool]] = []
+    ) -> _UniversalCorpus:
+        """Load Profiles and apply source, binding, review, and trust boundaries."""
+
+        corpus: list[_UniversalCorpusEntry] = []
         searchable_count = 0
         security_filtered_count = 0
         bindings = {
@@ -1111,55 +1138,34 @@ class UniversalSkillSearchService:
             elif not include_unreviewed:
                 security_filtered_count += 1
                 continue
-            corpus.append((skill, loaded, runtime_enabled, trusted))
+            corpus.append(
+                _UniversalCorpusEntry(
+                    skill=skill,
+                    loaded_profile=loaded,
+                    runtime_enabled=runtime_enabled,
+                    profile_trusted=trusted,
+                )
+            )
 
-        requirements = _build_universal_requirements(
-            intent,
-            (loaded for _skill, loaded, _runtime_enabled, _trusted in corpus),
-            routing_result=routing_result,
-            task_catalog=task_catalog,
+        return _UniversalCorpus(
+            entries=tuple(corpus),
+            searchable_count=searchable_count,
+            security_filtered_count=security_filtered_count,
         )
-        query_atoms = requirements.query_atoms
-        if requirements.error_code is not None:
-            return UniversalSkillSearchResult(
-                retrieval_policy_version=UNIVERSAL_RETRIEVAL_POLICY_VERSION,
-                query_atoms=(),
-                required_coverage_atoms=(),
-                plannable_coverage_atom_ids=(),
-                required_synthesis_output_ids=(),
-                coverage_witness_skill_ids=(),
-                ranked_matches=(),
-                selectable_candidates=(),
-                blocked_matches=(),
-                capability_gaps=(),
-                outcome_code=requirements.error_code,
-                corpus_count=len(corpus),
-                searchable_count=searchable_count,
-                security_filtered_count=security_filtered_count,
-                diagnostics=(requirements.error_code,),
-            )
-        if not corpus or not query_atoms:
-            return UniversalSkillSearchResult(
-                retrieval_policy_version=UNIVERSAL_RETRIEVAL_POLICY_VERSION,
-                query_atoms=query_atoms,
-                required_coverage_atoms=requirements.coverage_atoms,
-                plannable_coverage_atom_ids=(),
-                required_synthesis_output_ids=requirements.synthesis_output_ids,
-                coverage_witness_skill_ids=(),
-                ranked_matches=(),
-                selectable_candidates=(),
-                blocked_matches=(),
-                capability_gaps=(),
-                outcome_code="no_matching_skill",
-                corpus_count=len(corpus),
-                searchable_count=searchable_count,
-                security_filtered_count=security_filtered_count,
-                diagnostics=(),
-            )
 
-        allowed_ids = {
-            skill.id for skill, _loaded, _runtime_enabled, _trusted in corpus
-        }
+    def _assemble_ranked_candidates(
+        self,
+        user: User,
+        intent: SkillIntent,
+        requirements: _RequirementSet,
+        corpus: _UniversalCorpus,
+        *,
+        assume_unreviewed_ready: bool,
+    ) -> _UniversalRanking:
+        """Fuse retrieval signals, thresholds, and deterministic candidate ordering."""
+
+        query_atoms = requirements.query_atoms
+        allowed_ids = {entry.skill.id for entry in corpus.entries}
         fts_scores: dict[str, float] = {}
         vector_scores: dict[str, float] = {}
         matched_atoms: dict[str, set[int]] = {}
@@ -1185,7 +1191,11 @@ class UniversalSkillSearchService:
 
         query_terms = profile_query_terms(" ".join(query_atoms))
         ranked: list[SkillCandidate] = []
-        for skill, loaded, runtime_enabled, profile_trusted in corpus:
+        for entry in corpus.entries:
+            skill = entry.skill
+            loaded = entry.loaded_profile
+            runtime_enabled = entry.runtime_enabled
+            profile_trusted = entry.profile_trusted
             profile = loaded.profile
             searchable_text = profile.search_text()
             lexical = _profile_overlap(query_terms, searchable_text)
@@ -1289,9 +1299,23 @@ class UniversalSkillSearchService:
                 candidate.skill_id,
             )
         )
-        skills_by_id = {
-            skill.id: skill for skill, _loaded, _runtime_enabled, _trusted in corpus
-        }
+        return _UniversalRanking(
+            candidates=tuple(ranked),
+            retrieval_pool_ids=frozenset(retrieval_pool_ids),
+            diagnostics=tuple(diagnostics),
+        )
+
+    def _apply_readiness_probes(
+        self,
+        requirements: _RequirementSet,
+        corpus: _UniversalCorpus,
+        ranking: _UniversalRanking,
+    ) -> _UniversalReadiness:
+        """Schedule bounded remote probes and apply their results to ranked candidates."""
+
+        ranked = list(ranking.candidates)
+        retrieval_pool_ids = set(ranking.retrieval_pool_ids)
+        skills_by_id = {entry.skill.id: entry.skill for entry in corpus.entries}
         remote_keys_by_skill: dict[str, list[tuple[str, str, str]]] = {}
         local_ready_without_remote: list[SkillCandidate] = []
         for candidate in ranked:
@@ -1383,6 +1407,24 @@ class UniversalSkillSearchService:
                 )
             health_checked.append(candidate)
         ranked = health_checked
+        return _UniversalReadiness(
+            candidates=tuple(ranked),
+            unprobed_skill_ids=frozenset(unprobed_skill_ids),
+        )
+
+    @staticmethod
+    def _assemble_coverage_result(
+        requirements: _RequirementSet,
+        corpus: _UniversalCorpus,
+        ranking: _UniversalRanking,
+        readiness: _UniversalReadiness,
+    ) -> UniversalSkillSearchResult:
+        """Assemble coverage witnesses, gaps, quotas, and the public result projection."""
+
+        ranked = list(readiness.candidates)
+        unprobed_skill_ids = set(readiness.unprobed_skill_ids)
+        diagnostics = list(ranking.diagnostics)
+        query_atoms = requirements.query_atoms
         ready_ranked = [candidate for candidate in ranked if candidate.ready]
         blocked_ranked = [
             candidate
@@ -1510,8 +1552,76 @@ class UniversalSkillSearchService:
             blocked_matches=tuple(blocked_ranked[:_MAX_BLOCKED_MATCHES]),
             capability_gaps=tuple(capability_gaps),
             outcome_code=outcome_code,
-            corpus_count=len(corpus),
-            searchable_count=searchable_count,
-            security_filtered_count=security_filtered_count,
+            corpus_count=len(corpus.entries),
+            searchable_count=corpus.searchable_count,
+            security_filtered_count=corpus.security_filtered_count,
             diagnostics=tuple(result_diagnostics),
         )
+
+    def _search(
+        self,
+        user: User,
+        intent: SkillIntent,
+        *,
+        include_unreviewed: bool,
+        assume_unreviewed_ready: bool,
+        routing_result: TaskRoutingResult | None,
+        task_catalog: TaskCatalogV2 | None,
+    ) -> UniversalSkillSearchResult:
+        corpus = self._build_corpus(
+            user,
+            include_unreviewed=include_unreviewed,
+            assume_unreviewed_ready=assume_unreviewed_ready,
+        )
+        requirements = _build_universal_requirements(
+            intent,
+            (entry.loaded_profile for entry in corpus.entries),
+            routing_result=routing_result,
+            task_catalog=task_catalog,
+        )
+        query_atoms = requirements.query_atoms
+        if requirements.error_code is not None:
+            return UniversalSkillSearchResult(
+                retrieval_policy_version=UNIVERSAL_RETRIEVAL_POLICY_VERSION,
+                query_atoms=(),
+                required_coverage_atoms=(),
+                plannable_coverage_atom_ids=(),
+                required_synthesis_output_ids=(),
+                coverage_witness_skill_ids=(),
+                ranked_matches=(),
+                selectable_candidates=(),
+                blocked_matches=(),
+                capability_gaps=(),
+                outcome_code=requirements.error_code,
+                corpus_count=len(corpus.entries),
+                searchable_count=corpus.searchable_count,
+                security_filtered_count=corpus.security_filtered_count,
+                diagnostics=(requirements.error_code,),
+            )
+        if not corpus.entries or not query_atoms:
+            return UniversalSkillSearchResult(
+                retrieval_policy_version=UNIVERSAL_RETRIEVAL_POLICY_VERSION,
+                query_atoms=query_atoms,
+                required_coverage_atoms=requirements.coverage_atoms,
+                plannable_coverage_atom_ids=(),
+                required_synthesis_output_ids=requirements.synthesis_output_ids,
+                coverage_witness_skill_ids=(),
+                ranked_matches=(),
+                selectable_candidates=(),
+                blocked_matches=(),
+                capability_gaps=(),
+                outcome_code="no_matching_skill",
+                corpus_count=len(corpus.entries),
+                searchable_count=corpus.searchable_count,
+                security_filtered_count=corpus.security_filtered_count,
+                diagnostics=(),
+            )
+        ranking = self._assemble_ranked_candidates(
+            user,
+            intent,
+            requirements,
+            corpus,
+            assume_unreviewed_ready=assume_unreviewed_ready,
+        )
+        readiness = self._apply_readiness_probes(requirements, corpus, ranking)
+        return self._assemble_coverage_result(requirements, corpus, ranking, readiness)
