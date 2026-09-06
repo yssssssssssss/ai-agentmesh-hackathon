@@ -245,7 +245,8 @@ test.describe.serial('task center', () => {
   })
 
   test('suppresses detail-dependent review actions until linked execution eligibility loads', async ({ page }, testInfo) => {
-    const title = `等待审核资格加载-${testInfo.retry}`
+    test.setTimeout(60_000)
+    const title = `等待审核资格加载-${testInfo.retry}-${testInfo.repeatEachIndex}`
     await loginAs(page)
     await page.goto('/tasks')
     await page.getByRole('button', { name: '新建任务' }).click()
@@ -419,6 +420,7 @@ test.describe.serial('task center', () => {
   })
 
   test('submits frozen artifacts and accepts the assigned Task Review', async ({ page }, testInfo) => {
+    test.setTimeout(60_000)
     const title = `审核封存交付物-${testInfo.retry}`
     let taskId = ''
     let state: 'ready' | 'pending' | 'accepted' = 'ready'

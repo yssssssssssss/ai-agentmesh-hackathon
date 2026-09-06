@@ -96,6 +96,8 @@ export AGENTMESH_MEMORY_CONTEXT=inject   # inject eligible Memory and persist Me
 
 Only Memory that passes credential/prompt-injection quarantine and reaches the final model-context handoff receives an immutable use receipt. Explicit Runtime `memory_search` defers the receipt until its exact visible output passes encoding, size, safety, audit, and Tool settlement checks. Citation labels are transactionally reserved per Run so concurrent searches cannot assign one label to different Memory versions. Candidate, disputed, deprecated, expired, and archived versions remain excluded before retrieval ranking and budgets in every mode; the complete rendered context, including citation and Source metadata, is budgeted.
 
+Project operations build on the same Task facts. Project managers can define parent and dependency relationships; the server rejects cross-project targets and graph cycles, and incomplete dependencies prevent both the `start` transition and new Task-linked AgentRun claims. `GET /api/task-operations/{project_id}` serves the project overview, milestone progress, calendar, and Agent queue; `GET /api/task-operations/{project_id}/task-options` serves bounded relationship choices. These are read models, not an automatic scheduler. The SQLite `task_operations_projection` is rebuilt from canonical Task and Thread records at startup and can be dropped without losing project facts.
+
 Port `8000` is intentionally avoided because it may already be used by another local backend.
 If `8010` is already in use, first check whether AgentMesh is already running:
 
@@ -188,6 +190,7 @@ Run the deterministic release gates before moving beyond `preview`:
 # two-operator approval file.
 .venv/bin/python scripts/quiesce_skill_orchestration.py --database data/agentmesh.sqlite3
 .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
+.venv/bin/python scripts/run_project_operations_benchmark.py --output /tmp/project-operations-benchmark.json
 .venv/bin/python -m pytest
 .venv/bin/ruff check agentmesh tests scripts eval
 npm --prefix agentmesh-demo test -- --run

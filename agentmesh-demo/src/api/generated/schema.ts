@@ -2239,6 +2239,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/task-operations/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Task Operations */
+        get: operations["project_task_operations_api_task_operations__project_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/task-operations/{project_id}/task-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Task Options */
+        get: operations["project_task_options_api_task_operations__project_id__task_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{task_id}/reviews": {
         parameters: {
             query?: never;
@@ -2627,6 +2661,33 @@ export interface components {
          * @enum {string}
          */
         AgentPlanningMode: "standard" | "deepsearch";
+        /** AgentQueueItemV1 */
+        AgentQueueItemV1: {
+            task: components["schemas"]["TaskOperationsTaskV1"];
+            queue_state: components["schemas"]["AgentQueueState"];
+            active_run_status?: components["schemas"]["AgentRunStatus"] | null;
+        };
+        /** AgentQueuePageV1 */
+        AgentQueuePageV1: {
+            /** Items */
+            items?: components["schemas"]["AgentQueueItemV1"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /**
+             * Has Next
+             * @default false
+             */
+            has_next: boolean;
+        };
+        /**
+         * AgentQueueState
+         * @enum {string}
+         */
+        AgentQueueState: "backlog" | "planned" | "waiting_dependencies" | "blocked" | "ready" | "running" | "review";
         /** AgentRun */
         AgentRun: {
             /** Id */
@@ -3100,6 +3161,14 @@ export interface components {
         BlackboardTaskCardsResponse: {
             /** Items */
             items: components["schemas"]["BlackboardTaskCard"][];
+            /** Total */
+            total?: number | null;
+            /** Page */
+            page?: number | null;
+            /** Page Size */
+            page_size?: number | null;
+            /** Has Next */
+            has_next?: boolean | null;
         };
         /**
          * BlackboardTaskDetail
@@ -6999,6 +7068,41 @@ export interface components {
          * @enum {string}
          */
         TaskAssigneeKind: "user" | "agent";
+        /** TaskCalendarItemV1 */
+        TaskCalendarItemV1: {
+            task: components["schemas"]["TaskOperationsTaskV1"];
+            /**
+             * Overdue
+             * @default false
+             */
+            overdue: boolean;
+        };
+        /** TaskCalendarPageV1 */
+        TaskCalendarPageV1: {
+            /** Items */
+            items?: components["schemas"]["TaskCalendarItemV1"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /**
+             * Has Next
+             * @default false
+             */
+            has_next: boolean;
+            /**
+             * Range Start
+             * Format: date-time
+             */
+            range_start: string;
+            /**
+             * Range End
+             * Format: date-time
+             */
+            range_end: string;
+        };
         /** TaskCreateRequest */
         TaskCreateRequest: {
             /** Command Id */
@@ -7020,6 +7124,10 @@ export interface components {
             assignee_id?: string | null;
             /** Tags */
             tags?: string[];
+            /** Parent Task Id */
+            parent_task_id?: string | null;
+            /** Dependency Task Ids */
+            dependency_task_ids?: string[];
         };
         /**
          * TaskDeliveryStage
@@ -7030,7 +7138,7 @@ export interface components {
          * TaskManagementAction
          * @enum {string}
          */
-        TaskManagementAction: "edit" | "assign" | "plan" | "start" | "submit_review" | "complete" | "reopen" | "block" | "unblock" | "cancel" | "archive" | "start_agent_run" | "review_deliverable";
+        TaskManagementAction: "edit" | "assign" | "manage_relationships" | "plan" | "start" | "submit_review" | "complete" | "reopen" | "block" | "unblock" | "cancel" | "archive" | "start_agent_run" | "review_deliverable";
         /** TaskManagementDetailV1 */
         TaskManagementDetailV1: {
             item: components["schemas"]["TaskManagementViewV1"];
@@ -7042,6 +7150,16 @@ export interface components {
             reviews?: components["schemas"]["TaskReviewViewV1"][];
             /** Memory Links */
             memory_links?: components["schemas"]["TaskMemoryLinkV1"][];
+            parent_task?: components["schemas"]["TaskRelationshipSummaryV1"] | null;
+            /** Dependency Tasks */
+            dependency_tasks?: components["schemas"]["TaskRelationshipSummaryV1"][];
+            /** Child Tasks */
+            child_tasks?: components["schemas"]["TaskRelationshipSummaryV1"][];
+            /**
+             * Relationships Truncated
+             * @default false
+             */
+            relationships_truncated: boolean;
             /**
              * Runs Truncated
              * @default false
@@ -7087,6 +7205,10 @@ export interface components {
             assignee_id?: string | null;
             /** Tags */
             tags?: string[];
+            /** Parent Task Id */
+            parent_task_id?: string | null;
+            /** Dependency Task Ids */
+            dependency_task_ids?: string[];
             /** Blocked Reason */
             blocked_reason?: string | null;
             /** Blocked At */
@@ -7124,6 +7246,7 @@ export interface components {
         TaskManagementViewV1: {
             task: components["schemas"]["Task"];
             management: components["schemas"]["TaskManagementMetadataV1"];
+            readiness: components["schemas"]["TaskReadinessV1"];
             /** Allowed Actions */
             allowed_actions?: components["schemas"]["TaskManagementAction"][];
         };
@@ -7143,11 +7266,206 @@ export interface components {
             /** Source Review Id */
             source_review_id: string;
         };
+        /** TaskMilestoneV1 */
+        TaskMilestoneV1: {
+            task: components["schemas"]["TaskOperationsTaskV1"];
+            /** Descendant Count */
+            descendant_count: number;
+            /** Completed Descendant Count */
+            completed_descendant_count: number;
+            /** Progress Percent */
+            progress_percent: number;
+            /**
+             * Overdue
+             * @default false
+             */
+            overdue: boolean;
+        };
+        /** TaskOperationsMetricsV1 */
+        TaskOperationsMetricsV1: {
+            /** Tasks By Stage */
+            tasks_by_stage?: {
+                [key: string]: number;
+            };
+            /** Tasks By Readiness */
+            tasks_by_readiness?: {
+                [key: string]: number;
+            };
+            /** Runs By Status */
+            runs_by_status?: {
+                [key: string]: number;
+            };
+            /** Reviews By Status */
+            reviews_by_status?: {
+                [key: string]: number;
+            };
+            /** Task Count */
+            task_count: number;
+            /** Open Task Count */
+            open_task_count: number;
+            /** Overdue Task Count */
+            overdue_task_count: number;
+            /** Blocked Task Count */
+            blocked_task_count: number;
+            /** Active Run Count */
+            active_run_count: number;
+            /** Pending Review Count */
+            pending_review_count: number;
+            /** Memory Use Count */
+            memory_use_count: number;
+            /** Cited Memory Use Count */
+            cited_memory_use_count: number;
+            /** Unique Reused Memory Count */
+            unique_reused_memory_count: number;
+            /** Accepted Team Knowledge Count */
+            accepted_team_knowledge_count: number;
+        };
+        /** TaskOperationsSnapshotV1 */
+        TaskOperationsSnapshotV1: {
+            /**
+             * Schema Version
+             * @default task-operations-snapshot-v1
+             * @constant
+             */
+            schema_version: "task-operations-snapshot-v1";
+            /** Project Id */
+            project_id: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            metrics: components["schemas"]["TaskOperationsMetricsV1"];
+            /** Critical Dependency Chain */
+            critical_dependency_chain?: components["schemas"]["TaskOperationsTaskV1"][];
+            /**
+             * Critical Dependency Chain Total
+             * @default 0
+             */
+            critical_dependency_chain_total: number;
+            /**
+             * Critical Dependency Chain Truncated
+             * @default false
+             */
+            critical_dependency_chain_truncated: boolean;
+            /** Milestones */
+            milestones?: components["schemas"]["TaskMilestoneV1"][];
+            /**
+             * Milestone Total
+             * @default 0
+             */
+            milestone_total: number;
+            /**
+             * Milestones Truncated
+             * @default false
+             */
+            milestones_truncated: boolean;
+            calendar: components["schemas"]["TaskCalendarPageV1"];
+            agent_queue: components["schemas"]["AgentQueuePageV1"];
+            /** Graph Task Count */
+            graph_task_count: number;
+        };
+        /** TaskOperationsTaskV1 */
+        TaskOperationsTaskV1: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            task_type: components["schemas"]["TaskType"];
+            delivery_stage: components["schemas"]["TaskDeliveryStage"];
+            priority?: components["schemas"]["TaskPriority"] | null;
+            /** Due At */
+            due_at?: string | null;
+            assignee_kind?: components["schemas"]["TaskAssigneeKind"] | null;
+            /** Assignee Id */
+            assignee_id?: string | null;
+            /** Parent Task Id */
+            parent_task_id?: string | null;
+            /** Dependency Task Ids */
+            dependency_task_ids?: string[];
+            readiness: components["schemas"]["TaskReadinessV1"];
+            /** Navigation Href */
+            navigation_href: string;
+        };
+        /** TaskOptionPageV1 */
+        TaskOptionPageV1: {
+            /** Items */
+            items?: components["schemas"]["TaskOptionV1"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /**
+             * Has Next
+             * @default false
+             */
+            has_next: boolean;
+        };
+        /** TaskOptionV1 */
+        TaskOptionV1: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            task_type: components["schemas"]["TaskType"];
+            delivery_stage: components["schemas"]["TaskDeliveryStage"];
+            /**
+             * Archived
+             * @default false
+             */
+            archived: boolean;
+        };
         /**
          * TaskPriority
          * @enum {string}
          */
         TaskPriority: "p0" | "p1" | "p2" | "p3";
+        /**
+         * TaskReadinessState
+         * @enum {string}
+         */
+        TaskReadinessState: "backlog" | "waiting_dependencies" | "blocked" | "planned" | "ready" | "running" | "review" | "done" | "cancelled" | "archived";
+        /** TaskReadinessV1 */
+        TaskReadinessV1: {
+            state: components["schemas"]["TaskReadinessState"];
+            /**
+             * Is Execution Ready
+             * @default false
+             */
+            is_execution_ready: boolean;
+            /** Dependency Count */
+            dependency_count: number;
+            /** Completed Dependency Count */
+            completed_dependency_count: number;
+            /** Blocking Task Ids */
+            blocking_task_ids?: string[];
+            /**
+             * Child Count
+             * @default 0
+             */
+            child_count: number;
+            /**
+             * Completed Child Count
+             * @default 0
+             */
+            completed_child_count: number;
+        };
+        /** TaskRelationshipSummaryV1 */
+        TaskRelationshipSummaryV1: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            delivery_stage: components["schemas"]["TaskDeliveryStage"];
+            priority?: components["schemas"]["TaskPriority"] | null;
+            /** Due At */
+            due_at?: string | null;
+            readiness_state: components["schemas"]["TaskReadinessState"];
+            /** Navigation Href */
+            navigation_href: string;
+        };
         /**
          * TaskReviewAllowedAction
          * @enum {string}
@@ -7391,6 +7709,10 @@ export interface components {
             assignee_id?: string | null;
             /** Tags */
             tags?: string[] | null;
+            /** Parent Task Id */
+            parent_task_id?: string | null;
+            /** Dependency Task Ids */
+            dependency_task_ids?: string[] | null;
         };
         /** Team */
         Team: {
@@ -9690,6 +10012,8 @@ export interface operations {
         parameters: {
             query: {
                 project_id: string;
+                page?: number;
+                page_size?: number;
             };
             header?: never;
             path?: never;
@@ -12188,6 +12512,81 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskManagementItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_task_operations_api_task_operations__project_id__get: {
+        parameters: {
+            query?: {
+                calendar_start?: string | null;
+                calendar_end?: string | null;
+                calendar_page?: number;
+                calendar_page_size?: number;
+                queue_page?: number;
+                queue_page_size?: number;
+                queue_agent_id?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskOperationsSnapshotV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_task_options_api_task_operations__project_id__task_options_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                query?: string | null;
+                exclude_task_id?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskOptionPageV1"];
                 };
             };
             /** @description Validation Error */

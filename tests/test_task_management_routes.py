@@ -76,6 +76,8 @@ def test_create_task_is_idempotent_and_persists_a_task_thread(monkeypatch) -> No
         "assignee_kind": "user",
         "assignee_id": USER.id,
         "tags": ["release", "review"],
+        "parent_task_id": None,
+        "dependency_task_ids": [],
         "blocked_reason": None,
         "blocked_at": None,
         "version": 1,
@@ -582,3 +584,79 @@ def test_task_routes_require_authentication(monkeypatch) -> None:
         "/api/tasks",
         json={"command_id": "task-anonymous", "title": "Anonymous task"},
     ).status_code == 401
+
+
+def test_project_operations_routes_expose_graph_calendar_queue_and_options(monkeypatch) -> None:
+    clear_store()
+    monkeypatch.setenv("AGENTMESH_TASK_MANAGEMENT", "write")
+    lead = authenticated_client(TEAM_LEAD.id)
+    parent = lead.post(
+        "/api/tasks",
+        json={
+            "command_id": "operations-route-parent",
+            "title": "Release milestone",
+            "task_type": "milestone",
+            "due_at": "2030-01-31T12:00:00Z",
+        },
+    )
+    assert parent.status_code == 201
+    parent_id = parent.json()["item"]["task"]["id"]
+    child = lead.post(
+        "/api/tasks",
+        json={
+            "command_id": "operations-route-child",
+            "title": "Prepare release evidence",
+            "parent_task_id": parent_id,
+            "dependency_task_ids": [],
+            "assignee_kind": "agent",
+            "assignee_id": TEAM_LEAD.personal_agent_id,
+            "due_at": "2030-01-15T12:00:00Z",
+        },
+    )
+    assert child.status_code == 201, child.text
+
+    snapshot = lead.get(
+        f"/api/task-operations/{TEAM_LEAD.default_project_id}",
+        params={
+            "calendar_start": "2030-01-01T00:00:00+00:00",
+            "calendar_end": "2030-02-01T00:00:00+00:00",
+            "calendar_page_size": 1,
+        },
+    )
+    assert snapshot.status_code == 200, snapshot.text
+    body = snapshot.json()
+    assert body["schema_version"] == "task-operations-snapshot-v1"
+    assert body["metrics"]["task_count"] >= 2
+    assert body["calendar"]["total"] >= 2
+    assert body["calendar"]["has_next"] is True
+    assert body["milestones"][0]["task"]["id"] == parent_id
+    assert body["agent_queue"]["total"] >= 1
+
+    options = lead.get(
+        f"/api/task-operations/{TEAM_LEAD.default_project_id}/task-options",
+        params={"query": "release", "page_size": 1},
+    )
+    assert options.status_code == 200
+    assert options.json()["total"] >= 2
+    assert len(options.json()["items"]) == 1
+    cards = lead.get(
+        "/api/blackboard/task-cards",
+        params={"project_id": TEAM_LEAD.default_project_id, "page": 1, "page_size": 1},
+    )
+    assert cards.status_code == 200
+    assert len(cards.json()["items"]) == 1
+    assert cards.json()["total"] >= 2
+    assert cards.json()["has_next"] is True
+
+    monkeypatch.setenv("AGENTMESH_TASK_MANAGEMENT", "read_only")
+    assert lead.get(f"/api/task-operations/{TEAM_LEAD.default_project_id}").status_code == 200
+    invalid_range = lead.get(
+        f"/api/task-operations/{TEAM_LEAD.default_project_id}",
+        params={
+            "calendar_start": "2030-02-01T00:00:00+00:00",
+            "calendar_end": "2030-01-01T00:00:00+00:00",
+        },
+    )
+    assert invalid_range.status_code == 422
+    assert invalid_range.json() == {"detail": "task_calendar_range_invalid"}
+    assert lead.get("/api/task-operations/project-not-visible").status_code == 404

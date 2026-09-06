@@ -35,7 +35,20 @@ export function taskManagementErrorMessage(error: unknown): string {
     task_block_reason_required: '阻塞任务时必须填写原因。',
     task_assignment_forbidden: '没有权限执行该分派。',
     task_agent_run_requires_in_progress: '任务进入“进行中”后才能启动 AgentRun。',
+    task_agent_run_already_active: '该任务已有活动中的 AgentRun。',
     task_agent_assignment_not_executable: '当前负责人不能通过个人 Agent 执行该任务。',
+    task_dependencies_incomplete: '前置依赖尚未完成，当前任务不能开始。',
+    task_dependency_cycle: '依赖关系会形成环，未保存更改。',
+    task_parent_cycle: '父子关系会形成环，未保存更改。',
+    task_relationship_target_not_found: '关联任务不存在或不在当前项目。',
+    task_relationship_target_archived: '不能关联已归档任务。',
+    task_relationship_overlap: '父任务不能同时作为前置依赖。',
+    task_dependency_graph_invalid: '项目任务关系异常，操作已安全停止。',
+    task_calendar_timezone_required: '日历时间范围必须包含时区。',
+    task_calendar_range_invalid: '日历时间范围无效。',
+    task_calendar_range_too_large: '单次日历范围不能超过 366 天。',
+    task_operations_page_invalid: '项目运营分页参数无效。',
+    task_options_page_invalid: '关联任务分页参数无效。',
     task_thread_identity_conflict: '任务上下文已变化，请刷新后重试。',
     task_action_forbidden: '没有权限修改该任务。',
     task_assignee_not_found: '负责人不存在或不在当前项目。',
@@ -69,17 +82,64 @@ async function invalidateTaskData(
   refreshBootstrap: () => Promise<void>,
 ) {
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: queryKeys.tasks.root }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.tasks.root, refetchType: 'none' }),
     queryClient.invalidateQueries({ queryKey: queryKeys.audit.root }),
     queryClient.invalidateQueries({ queryKey: queryKeys.inbox.root }),
     refreshBootstrap(),
   ])
+  await queryClient.refetchQueries({ queryKey: queryKeys.tasks.root, type: 'active' })
 }
 
-export function useManagedTasks(context: QueryScope) {
+export function useManagedTasks(context: QueryScope, enabled = true, page = 1, pageSize = 100) {
   return useQuery({
-    queryKey: queryKeys.tasks.management(context),
-    queryFn: () => taskManagementApi.list(context.projectId),
+    queryKey: [...queryKeys.tasks.management(context), page, pageSize],
+    queryFn: () => taskManagementApi.list(context.projectId, page, pageSize),
+    enabled,
+  })
+}
+
+export function useProjectOperations(
+  context: QueryScope,
+  options: {
+    calendarStart: string
+    calendarEnd: string
+    calendarPage: number
+    queuePage: number
+    queueAgentId: string
+  },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: queryKeys.tasks.operations(
+      context,
+      options.calendarStart,
+      options.calendarEnd,
+      options.calendarPage,
+      options.queuePage,
+      options.queueAgentId,
+    ),
+    queryFn: () => taskManagementApi.operations(context.projectId, {
+      ...options,
+      queueAgentId: options.queueAgentId || null,
+    }),
+    enabled,
+  })
+}
+
+export function useTaskOptions(
+  context: QueryScope,
+  query: string,
+  excludeTaskId: string | null,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: queryKeys.tasks.options(context, query, excludeTaskId ?? ''),
+    queryFn: () => taskManagementApi.taskOptions(context.projectId, {
+      query,
+      excludeTaskId,
+      pageSize: 50,
+    }),
+    enabled,
   })
 }
 

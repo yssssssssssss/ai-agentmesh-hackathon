@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -19,12 +19,14 @@ from agentmesh.models import (
     TaskType,
     now_utc,
 )
+from agentmesh.task_operations.contracts import TaskReadinessState, TaskReadinessV1
 from agentmesh.task_review.contracts import TaskReviewViewV1
 
 
 class TaskManagementAction(StrEnum):
     EDIT = "edit"
     ASSIGN = "assign"
+    MANAGE_RELATIONSHIPS = "manage_relationships"
     PLAN = "plan"
     START = "start"
     SUBMIT_REVIEW = "submit_review"
@@ -61,6 +63,10 @@ class TaskCreateRequest(BaseModel):
     assignee_kind: TaskAssigneeKind | None = None
     assignee_id: str | None = Field(default=None, max_length=120)
     tags: list[str] = Field(default_factory=list, max_length=12)
+    parent_task_id: str | None = Field(default=None, max_length=120)
+    dependency_task_ids: list[
+        Annotated[str, Field(min_length=1, max_length=120)]
+    ] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def validate_assignee(self) -> TaskCreateRequest:
@@ -68,6 +74,10 @@ class TaskCreateRequest(BaseModel):
             raise ValueError("assignee_kind and assignee_id must be set together")
         if self.due_at is not None and self.due_at.utcoffset() is None:
             raise ValueError("due_at must include a timezone")
+        if len(set(self.dependency_task_ids)) != len(self.dependency_task_ids):
+            raise ValueError("dependency_task_ids must be unique")
+        if self.parent_task_id is not None and self.parent_task_id in self.dependency_task_ids:
+            raise ValueError("parent_task_id cannot also be a dependency")
         return self
 
 
@@ -84,13 +94,17 @@ class TaskUpdateRequest(BaseModel):
     assignee_kind: TaskAssigneeKind | None = None
     assignee_id: str | None = Field(default=None, max_length=120)
     tags: list[str] | None = Field(default=None, max_length=12)
+    parent_task_id: str | None = Field(default=None, max_length=120)
+    dependency_task_ids: list[
+        Annotated[str, Field(min_length=1, max_length=120)]
+    ] | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
     def validate_patch(self) -> TaskUpdateRequest:
         fields = self.model_fields_set - {"command_id", "expected_version"}
         if not fields:
             raise ValueError("at least one task field is required")
-        for required_field in ("title", "description", "task_type"):
+        for required_field in ("title", "description", "task_type", "dependency_task_ids"):
             if required_field in fields and getattr(self, required_field) is None:
                 raise ValueError(f"{required_field} cannot be null")
         assignee_fields = {"assignee_kind", "assignee_id"}
@@ -100,6 +114,18 @@ class TaskUpdateRequest(BaseModel):
             raise ValueError("assignee_kind and assignee_id must be set together")
         if "due_at" in fields and self.due_at is not None and self.due_at.utcoffset() is None:
             raise ValueError("due_at must include a timezone")
+        if self.dependency_task_ids is not None and len(set(self.dependency_task_ids)) != len(
+            self.dependency_task_ids
+        ):
+            raise ValueError("dependency_task_ids must be unique")
+        if (
+            "parent_task_id" in fields
+            and "dependency_task_ids" in fields
+            and self.parent_task_id is not None
+            and self.dependency_task_ids is not None
+            and self.parent_task_id in self.dependency_task_ids
+        ):
+            raise ValueError("parent_task_id cannot also be a dependency")
         return self
 
 
@@ -128,7 +154,10 @@ class TaskCommandAuthorizationV1(BaseModel):
     require_project_manager: bool = False
     require_no_linked_runs: bool = False
     require_no_pending_review: bool = True
+    require_no_active_run: bool = False
+    require_dependencies_done: bool = False
     validate_assignee: bool = False
+    validate_relationships: bool = False
     assignee_kind: TaskAssigneeKind | None = None
     assignee_id: str | None = Field(default=None, max_length=120)
 
@@ -156,6 +185,7 @@ class TaskCommandReceiptV1(BaseModel):
 class TaskManagementViewV1(BaseModel):
     task: Task
     management: TaskManagementMetadataV1
+    readiness: TaskReadinessV1
     allowed_actions: list[TaskManagementAction] = Field(default_factory=list)
 
 
@@ -195,12 +225,26 @@ class TaskArtifactSummaryV1(BaseModel):
     created_at: datetime
 
 
+class TaskRelationshipSummaryV1(BaseModel):
+    id: str
+    title: str
+    delivery_stage: TaskDeliveryStage
+    priority: TaskPriority | None = None
+    due_at: datetime | None = None
+    readiness_state: TaskReadinessState
+    navigation_href: str
+
+
 class TaskManagementDetailV1(BaseModel):
     item: TaskManagementViewV1
     runs: list[TaskRunSummaryV1] = Field(default_factory=list)
     artifacts: list[TaskArtifactSummaryV1] = Field(default_factory=list)
     reviews: list[TaskReviewViewV1] = Field(default_factory=list)
     memory_links: list[TaskMemoryLinkV1] = Field(default_factory=list)
+    parent_task: TaskRelationshipSummaryV1 | None = None
+    dependency_tasks: list[TaskRelationshipSummaryV1] = Field(default_factory=list)
+    child_tasks: list[TaskRelationshipSummaryV1] = Field(default_factory=list)
+    relationships_truncated: bool = False
     runs_truncated: bool = False
     artifacts_truncated: bool = False
     reviews_truncated: bool = False

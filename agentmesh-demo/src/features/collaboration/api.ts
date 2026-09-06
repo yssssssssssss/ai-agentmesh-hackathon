@@ -71,9 +71,32 @@ interface ItemResponse<T> {
   item: T
 }
 
+export interface TaskCardPage {
+  items: TaskCard[]
+  total: number
+  page: number
+  page_size: number
+  has_next: boolean
+}
+
 export const collaborationApi = {
-  taskCards: (projectId: string) =>
-    apiRequest<{ items: TaskCard[] }>(`/api/blackboard/task-cards?project_id=${encodeURIComponent(projectId)}`),
+  taskCards: (projectId: string, page = 1, pageSize = 100) =>
+    apiRequest<TaskCardPage>(
+      `/api/blackboard/task-cards?project_id=${encodeURIComponent(projectId)}&page=${page}&page_size=${pageSize}`,
+    ),
+  allTaskCards: async (projectId: string) => {
+    const pageSize = 100
+    const items: TaskCard[] = []
+    let page = 1
+    let response: TaskCardPage
+    do {
+      response = await collaborationApi.taskCards(projectId, page, pageSize)
+      items.push(...response.items)
+      page += 1
+    } while (response.has_next && page <= 100)
+    if (response.has_next) throw new Error('task_card_page_limit_exceeded')
+    return { ...response, items, page: 1, page_size: pageSize, has_next: false }
+  },
   taskDetail: (taskId: string) =>
     apiRequest<TaskDetail>(`/api/blackboard/tasks/${encodeURIComponent(taskId)}`),
   marketStatus: () => apiRequest<MarketStatus>('/api/market/status'),

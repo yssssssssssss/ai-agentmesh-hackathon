@@ -51,7 +51,7 @@ async function invalidateTaskResources(
   taskId: string,
 ) {
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: collaborationKeys.cards(context), exact: true }),
+    queryClient.invalidateQueries({ queryKey: collaborationKeys.cards(context) }),
     queryClient.invalidateQueries({ queryKey: collaborationKeys.task(context, taskId), exact: true }),
     queryClient.invalidateQueries({ queryKey: queryKeys.audit.root }),
     refreshBootstrap(),
@@ -77,10 +77,20 @@ async function invalidateMarketResources(queryClient: QueryClient, refreshBootst
   ])
 }
 
-export function useTaskCards(context: CollaborationContext) {
+export function useTaskCards(
+  context: CollaborationContext,
+  enabled = true,
+  page?: number,
+  pageSize = 100,
+) {
   return useQuery({
-    queryKey: collaborationKeys.cards(context),
-    queryFn: () => collaborationApi.taskCards(context.projectId),
+    queryKey: [...collaborationKeys.cards(context), page ?? 'all', pageSize],
+    queryFn: () => (
+      page === undefined
+        ? collaborationApi.allTaskCards(context.projectId)
+        : collaborationApi.taskCards(context.projectId, page, pageSize)
+    ),
+    enabled,
   })
 }
 
