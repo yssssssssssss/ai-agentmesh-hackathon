@@ -100,12 +100,14 @@ The JSON evidence is stored at `docs/verification/2026-09-06-project-operations-
 - Playwright: **75 passed**, including project operations, relationship editing, server pagination, and 375px overflow coverage.
 - Rendered browser QA: populated overview inspected at 1512px and 390px; semantic headings/actions were present and page-level horizontal overflow was false.
 - Final code review: no remaining P0/P1/P2 found.
+- Slice 6 PR #30 merged as `adf3b104f141e2afc7b6f7461582e92faf5ca944`.
+- Post-merge `main` CI run `34019803741`: all four required jobs passed.
 
 ## Independent CI maintenance discovered during verification
 
 The full-suite rerun on 2026-09-06 exposed one remaining DeepSearch v2 recovery fixture whose fixed absolute expiry had crossed the wall clock. Production expiry behavior was correct. PR #29 (`47674656e2580fe3ab583fea9a2e9f6166aa4a8b`) derives that fixture time at test import, and all required CI jobs passed in run `34011127625`.
 
-The first Slice 6 PR run also exposed noise in the 84-Profile authoring smoke: retrieval quality remained 100%, but repeated YAML parsing pushed p95 to 502–515 ms on a shared runner. PR #31 (`088fc8f184c5e534e331e401fb7934e3adc9d84f`) caches validated Profiles only inside explicit offline coverage evaluation; production search continues to reload and revalidate. The focused smoke fell to 139.225 ms locally and required CI passed.
+The first Slice 6 PR run also exposed noise in the 84-Profile authoring smoke: retrieval quality remained 100%, but repeated YAML parsing pushed p95 to 502–515 ms on a shared runner. PR #31 (`088fc8f184c5e534e331e401fb7934e3adc9d84f`) caches validated Profiles only inside explicit offline coverage evaluation; production search continues to reload and revalidate. The focused smoke fell to 139.225 ms locally, and post-merge `main` CI run `34017491579` passed.
 
 ## Deployment posture
 
