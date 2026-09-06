@@ -437,6 +437,32 @@ def test_catalog_does_not_queue_draft_profile_text_for_external_embedding(
     assert not any(text.startswith("journey-map ") for text in captured)
 
 
+def test_coverage_evaluation_caches_validated_profiles_without_changing_runtime_search(
+    tmp_path,
+    configure_pilot_wiki,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, catalog = _catalog(tmp_path, configure_pilot_wiki)
+    original_loader = recommendation_module.load_capability_profile_record
+    loaded_skill_ids: list[str] = []
+
+    def counting_loader(skill):  # noqa: ANN001, ANN202
+        loaded_skill_ids.append(skill.id)
+        return original_loader(skill)
+
+    monkeypatch.setattr(recommendation_module, "load_capability_profile_record", counting_loader)
+    service = UniversalSkillSearchService(repository, catalog)
+    intent = deterministic_intent("把多场用户访谈横向归纳成主题、结论和洞察")
+    skill_count = len(catalog.list_for_agent(USER.personal_agent_id))
+
+    service.search_for_coverage_evaluation(USER, intent)
+    service.search_for_coverage_evaluation(USER, intent)
+    assert len(loaded_skill_ids) == skill_count
+
+    service.search_for_evaluation(USER, intent)
+    assert len(loaded_skill_ids) == skill_count * 2
+
+
 def test_universal_search_ranks_draft_profiles_only_in_explicit_offline_mode(
     tmp_path,
     configure_pilot_wiki,

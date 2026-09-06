@@ -972,6 +972,10 @@ class UniversalSkillSearchService:
         self._catalog = catalog
         self._profile_trust = profile_trust or runtime_profile_trust_verifier()
         self._profile_ranker = profile_ranker or repository.rank_skill_profiles_batch
+        self._coverage_profile_cache: dict[
+            tuple[str, str, str, str],
+            LoadedCapabilityProfile,
+        ] = {}
         if tool_health is None:
             gateways = []
 
@@ -984,6 +988,29 @@ class UniversalSkillSearchService:
 
             tool_health = ToolHealthProbeCoordinator(describe)
         self._tool_health = tool_health
+
+    def _load_profile(
+        self,
+        skill: SkillDefinition,
+        *,
+        cache_for_coverage: bool,
+    ) -> LoadedCapabilityProfile:
+        if not cache_for_coverage:
+            loaded = load_capability_profile_record(skill)
+            skill_capability_card(skill, loaded.profile)
+            return loaded
+        cache_key = (
+            skill.id,
+            skill.version,
+            skill.content_hash,
+            skill.source_path,
+        )
+        loaded = self._coverage_profile_cache.get(cache_key)
+        if loaded is None:
+            loaded = load_capability_profile_record(skill)
+            skill_capability_card(skill, loaded.profile)
+            self._coverage_profile_cache[cache_key] = loaded
+        return loaded
 
     def search(
         self,
@@ -1067,8 +1094,10 @@ class UniversalSkillSearchService:
                 security_filtered_count += 1
                 continue
             try:
-                loaded = load_capability_profile_record(skill)
-                skill_capability_card(skill, loaded.profile)
+                loaded = self._load_profile(
+                    skill,
+                    cache_for_coverage=assume_unreviewed_ready,
+                )
             except (ProfileError, ValueError):
                 security_filtered_count += 1
                 continue
