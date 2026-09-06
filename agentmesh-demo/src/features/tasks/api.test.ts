@@ -12,31 +12,50 @@ function jsonResponse(payload: object) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('task management API', () => {
-  it('loads every management page before rendering the board', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({
-        items: [{ task: { id: 'task-1' }, management: {}, allowed_actions: [] }],
-        total: 101,
-        page: 1,
-        page_size: 100,
-        has_next: true,
-        counts: {},
-      }))
-      .mockResolvedValueOnce(jsonResponse({
-        items: [{ task: { id: 'task-101' }, management: {}, allowed_actions: [] }],
-        total: 101,
-        page: 2,
-        page_size: 100,
-        has_next: false,
-        counts: {},
-      }))
+  it('loads one bounded management page', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      items: [{ task: { id: 'task-101' }, management: {}, readiness: {}, allowed_actions: [] }],
+      total: 101,
+      page: 2,
+      page_size: 100,
+      has_next: false,
+      counts: {},
+    }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await taskManagementApi.list('project/1')
+    const result = await taskManagementApi.list('project/1', 2, 100)
 
-    expect(result.items).toHaveLength(2)
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?project_id=project%2F1&page=1&page_size=100')
-    expect(fetchMock.mock.calls[1][0]).toBe('/api/tasks?project_id=project%2F1&page=2&page_size=100')
+    expect(result.items).toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?project_id=project%2F1&page=2&page_size=100')
+  })
+
+  it('loads paginated project operations and relationship options', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ project_id: 'project/1', metrics: {}, calendar: {}, agent_queue: {} }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], total: 0, page: 1, page_size: 25, has_next: false }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await taskManagementApi.operations('project/1', {
+      calendarStart: '2030-01-01T00:00:00Z',
+      calendarEnd: '2030-02-01T00:00:00Z',
+      calendarPage: 2,
+      queuePage: 3,
+      queueAgentId: 'agent/1',
+    })
+    await taskManagementApi.taskOptions('project/1', {
+      query: '发布 计划',
+      excludeTaskId: 'task/1',
+      pageSize: 25,
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/task-operations/project%2F1?')
+    expect(fetchMock.mock.calls[0][0]).toContain('calendar_page=2')
+    expect(fetchMock.mock.calls[0][0]).toContain('queue_page=3')
+    expect(fetchMock.mock.calls[0][0]).toContain('queue_agent_id=agent%2F1')
+    expect(fetchMock.mock.calls[1][0]).toContain('/api/task-operations/project%2F1/task-options?')
+    expect(fetchMock.mock.calls[1][0]).toContain('query=%E5%8F%91%E5%B8%83+%E8%AE%A1%E5%88%92')
+    expect(fetchMock.mock.calls[1][0]).toContain('exclude_task_id=task%2F1')
   })
 
   it('loads linked run and Artifact summaries from task detail', async () => {

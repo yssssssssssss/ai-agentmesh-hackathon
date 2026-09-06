@@ -8,7 +8,9 @@ import type {
   TaskAssigneeKind,
   TaskManagementAction,
   TaskMemoryLink,
+  TaskOption,
   TaskPriority,
+  TaskRelationshipSummary,
   TaskReviewView,
   TaskRunSummary,
   TaskType,
@@ -25,6 +27,8 @@ export interface TaskFormValues {
   assigneeKind: TaskAssigneeKind | null
   assigneeId: string | null
   tags: string[]
+  parentTaskId: string | null
+  dependencyTaskIds: string[]
 }
 
 interface TaskFormDialogProps {
@@ -32,12 +36,21 @@ interface TaskFormDialogProps {
   task: ManagedTask | null
   users: components['schemas']['User'][]
   agents: components['schemas']['Agent'][]
+  taskOptions: TaskOption[]
+  canManageRelationships: boolean
+  relationshipQuery: string
+  onRelationshipQueryChange: (value: string) => void
+  onOpenRelatedTask: (taskId: string) => void
   submitting: boolean
   runtimeReady: boolean
   runs: TaskRunSummary[]
   artifacts: TaskArtifactSummary[]
   reviews: TaskReviewView[]
   memoryLinks: TaskMemoryLink[]
+  parentTask: TaskRelationshipSummary | null
+  dependencyTasks: TaskRelationshipSummary[]
+  childTasks: TaskRelationshipSummary[]
+  relationshipsTruncated: boolean
   historyTruncated: boolean
   reviewsTruncated: boolean
   detailError: string | null
@@ -80,6 +93,19 @@ const PRIORITIES: Array<{ value: TaskPriority; label: string }> = [
   { value: 'p3', label: 'P3 低' },
 ]
 
+const READINESS_LABELS: Record<ManagedTask['readiness']['state'], string> = {
+  backlog: '待规划',
+  waiting_dependencies: '等待依赖',
+  blocked: '已阻塞',
+  planned: '已计划',
+  ready: '可执行',
+  running: '运行中',
+  review: '审核中',
+  done: '已完成',
+  cancelled: '已取消',
+  archived: '已归档',
+}
+
 const ACTION_LABELS: Partial<Record<TaskManagementAction, string>> = {
   plan: '进入计划',
   start: '开始任务',
@@ -106,12 +132,21 @@ export function TaskFormDialog({
   task,
   users,
   agents,
+  taskOptions,
+  canManageRelationships,
+  relationshipQuery,
+  onRelationshipQueryChange,
+  onOpenRelatedTask,
   submitting,
   runtimeReady,
   runs,
   artifacts,
   reviews,
   memoryLinks,
+  parentTask,
+  dependencyTasks,
+  childTasks,
+  relationshipsTruncated,
   historyTruncated,
   reviewsTruncated,
   detailError,
@@ -133,6 +168,8 @@ export function TaskFormDialog({
   const [dueAt, setDueAt] = useState('')
   const [assignee, setAssignee] = useState('')
   const [tags, setTags] = useState('')
+  const [parentTaskId, setParentTaskId] = useState('')
+  const [dependencyTaskIds, setDependencyTaskIds] = useState<string[]>([])
   const [blockReason, setBlockReason] = useState('')
   const [reviewRunId, setReviewRunId] = useState('')
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([])
@@ -164,6 +201,8 @@ export function TaskFormDialog({
         : '',
     )
     setTags(management?.tags.join(', ') ?? '')
+    setParentTaskId(management?.parent_task_id ?? '')
+    setDependencyTaskIds(management?.dependency_task_ids ?? [])
     setBlockReason(management?.blocked_reason ?? '')
     setReviewRunId('')
     setSelectedArtifactIds([])
@@ -194,6 +233,10 @@ export function TaskFormDialog({
       assigneeKind: (assigneeKind as TaskAssigneeKind | undefined) ?? null,
       assigneeId: assigneeId ?? null,
       tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+      parentTaskId: canManageRelationships ? parentTaskId || null : task?.management.parent_task_id ?? null,
+      dependencyTaskIds: canManageRelationships
+        ? dependencyTaskIds
+        : task?.management.dependency_task_ids ?? [],
     })
   }
 
@@ -209,6 +252,14 @@ export function TaskFormDialog({
       current.includes(artifactId)
         ? current.filter((candidate) => candidate !== artifactId)
         : [...current, artifactId]
+    ))
+  }
+
+  const toggleDependency = (taskId: string) => {
+    setDependencyTaskIds((current) => (
+      current.includes(taskId)
+        ? current.filter((candidate) => candidate !== taskId)
+        : [...current, taskId]
     ))
   }
 
@@ -290,11 +341,97 @@ export function TaskFormDialog({
         <Field label="标签" hint="使用英文逗号分隔，最多 12 个。">
           <input value={tags} disabled={!editable || submitting} onChange={(event) => setTags(event.target.value)} className={inputClassName} />
         </Field>
+        {canManageRelationships ? (
+          <section className="rounded-[10px] bg-surface-1 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" aria-label="任务关系">
+            <h3 className="text-sm font-semibold text-slate-200">任务关系</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">父子关系用于里程碑汇总；依赖关系决定任务是否可启动。服务端会拒绝关系环。</p>
+            <Field label="查找项目任务">
+              <input
+                type="search"
+                value={relationshipQuery}
+                onChange={(event) => onRelationshipQueryChange(event.target.value)}
+                placeholder="按标题筛选前 50 个可关联任务"
+                disabled={!editable || submitting}
+                className={inputClassName}
+              />
+            </Field>
+            <Field label="父任务">
+              <select
+                value={parentTaskId}
+                onChange={(event) => setParentTaskId(event.target.value)}
+                disabled={!editable || submitting}
+                className={inputClassName}
+              >
+                <option value="">无父任务</option>
+                {parentTaskId && !taskOptions.some((option) => option.id === parentTaskId) ? (
+                  <option value={parentTaskId}>{parentTaskId}</option>
+                ) : null}
+                {taskOptions
+                  .filter((option) => !dependencyTaskIds.includes(option.id))
+                  .map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}
+              </select>
+            </Field>
+            <fieldset className="mt-3">
+              <legend className="text-xs font-medium text-slate-400">前置依赖</legend>
+              <div className="mt-2 max-h-48 space-y-1 overflow-y-auto overscroll-contain pr-1">
+                {dependencyTaskIds
+                  .filter((taskId) => !taskOptions.some((option) => option.id === taskId))
+                  .map((taskId) => (
+                    <label key={taskId} className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-xs text-slate-300">
+                      <input type="checkbox" checked disabled={!editable || submitting} onChange={() => toggleDependency(taskId)} />
+                      <span className="break-all">{taskId}</span>
+                    </label>
+                  ))}
+                {taskOptions.filter((option) => option.id !== parentTaskId).map((option) => (
+                  <label key={option.id} className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-xs text-slate-300 hover:bg-white/[0.03]">
+                    <input
+                      type="checkbox"
+                      checked={dependencyTaskIds.includes(option.id)}
+                      disabled={!editable || submitting}
+                      onChange={() => toggleDependency(option.id)}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{option.title}</span>
+                    <span className="shrink-0 text-[11px] text-slate-600">{taskDeliveryStageLabel(option.delivery_stage)}</span>
+                  </label>
+                ))}
+                {taskOptions.length === 0 && dependencyTaskIds.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-slate-600">没有符合搜索条件的可关联任务。</p>
+                ) : null}
+              </div>
+            </fieldset>
+          </section>
+        ) : task && (task.management.parent_task_id || task.management.dependency_task_ids.length > 0) ? (
+          <section className="rounded-[10px] bg-surface-1 px-4 py-3 text-xs text-slate-500" aria-label="任务关系只读">
+            父任务：{task.management.parent_task_id ?? '无'} · 前置依赖：{task.management.dependency_task_ids.length} 项
+          </section>
+        ) : null}
+        {task && (parentTask || dependencyTasks.length > 0 || childTasks.length > 0) ? (
+          <section className="rounded-[10px] bg-surface-1 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" aria-label="任务结构">
+            <h3 className="text-sm font-semibold text-slate-200">任务结构</h3>
+            {parentTask ? (
+              <div className="mt-3"><p className="text-[11px] text-slate-600">父任务</p><RelationshipLink item={parentTask} onOpen={onOpenRelatedTask} /></div>
+            ) : null}
+            {dependencyTasks.length > 0 ? (
+              <div className="mt-3"><p className="text-[11px] text-slate-600">前置依赖</p><div className="mt-1 space-y-1">{dependencyTasks.map((item) => <RelationshipLink key={item.id} item={item} onOpen={onOpenRelatedTask} />)}</div></div>
+            ) : null}
+            {childTasks.length > 0 ? (
+              <div className="mt-3"><p className="text-[11px] text-slate-600">子任务</p><div className="mt-1 space-y-1">{childTasks.map((item) => <RelationshipLink key={item.id} item={item} onOpen={onOpenRelatedTask} />)}</div></div>
+            ) : null}
+            {relationshipsTruncated ? <p className="mt-2 text-[11px] text-remind">仅显示最近 50 个子任务。</p> : null}
+          </section>
+        ) : null}
         {task ? (
           <section className="border-t border-white/[0.06] pt-4" aria-label="任务状态操作">
             <p className="text-xs font-medium text-slate-400">
               交付阶段：<span className="text-slate-200">{taskDeliveryStageLabel(task.management.delivery_stage)}</span>
+              <span className="mx-2 text-slate-700">·</span>
+              执行就绪：<span className="text-slate-200">{READINESS_LABELS[task.readiness.state]}</span>
             </p>
+            {task.readiness.blocking_task_ids.length > 0 ? (
+              <p className="mt-2 break-all text-xs leading-5 text-remind">
+                等待前置任务：{task.readiness.blocking_task_ids.join('、')}
+              </p>
+            ) : null}
             {task.allowed_actions.includes('block') ? (
               <Field label="阻塞原因">
                 <input
@@ -311,6 +448,7 @@ export function TaskFormDialog({
                 .filter((action) => (
                   action !== 'edit'
                   && action !== 'assign'
+                  && action !== 'manage_relationships'
                   && action !== 'review_deliverable'
                   && !(action === 'submit_review' && linkedExecution)
                 ))
@@ -596,6 +734,25 @@ export function TaskFormDialog({
         {error ? <p role="alert" className="rounded-lg bg-rose/10 px-3 py-2 text-sm text-rose">{error}</p> : null}
       </form>
     </Modal>
+  )
+}
+
+function RelationshipLink({
+  item,
+  onOpen,
+}: {
+  item: TaskRelationshipSummary
+  onOpen: (taskId: string) => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(item.id)}
+      className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-white/[0.03] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+    >
+      <span className="min-w-0 truncate text-slate-300">{item.title}</span>
+      <span className="shrink-0 text-[11px] text-slate-600">{READINESS_LABELS[item.readiness_state]}</span>
+    </button>
   )
 }
 

@@ -4,6 +4,8 @@ import type {
   ManagedTaskDetail,
   ManagedTaskPage,
   MemoryCaptureResponse,
+  TaskOperationsSnapshot,
+  TaskOptionPage,
   TaskArchivePayload,
   TaskCreatePayload,
   TaskReviewDecisionPayload,
@@ -19,21 +21,10 @@ export interface ManagedTaskResponse {
 }
 
 export const taskManagementApi = {
-  list: async (projectId: string) => {
-    const pageSize = 100
-    const items: ManagedTask[] = []
-    let page = 1
-    let response: ManagedTaskPage
-    do {
-      response = await apiRequest<ManagedTaskPage>(
-        `/api/tasks?project_id=${encodeURIComponent(projectId)}&page=${page}&page_size=${pageSize}`,
-      )
-      items.push(...response.items)
-      page += 1
-    } while (response.has_next && page <= 100)
-    if (response.has_next) throw new Error('task_page_limit_exceeded')
-    return { ...response, items, page: 1, page_size: pageSize, has_next: false }
-  },
+  list: (projectId: string, page = 1, pageSize = 100) =>
+    apiRequest<ManagedTaskPage>(
+      `/api/tasks?project_id=${encodeURIComponent(projectId)}&page=${page}&page_size=${pageSize}`,
+    ),
   get: (taskId: string) =>
     apiRequest<ManagedTaskDetail>(`/api/tasks/${encodeURIComponent(taskId)}`),
   create: (payload: TaskCreatePayload) =>
@@ -71,4 +62,43 @@ export const taskManagementApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  operations: (
+    projectId: string,
+    options: {
+      calendarStart: string
+      calendarEnd: string
+      calendarPage: number
+      calendarPageSize?: number
+      queuePage: number
+      queuePageSize?: number
+      queueAgentId?: string | null
+    },
+  ) => {
+    const params = new URLSearchParams({
+      calendar_start: options.calendarStart,
+      calendar_end: options.calendarEnd,
+      calendar_page: String(options.calendarPage),
+      calendar_page_size: String(options.calendarPageSize ?? 20),
+      queue_page: String(options.queuePage),
+      queue_page_size: String(options.queuePageSize ?? 20),
+    })
+    if (options.queueAgentId) params.set('queue_agent_id', options.queueAgentId)
+    return apiRequest<TaskOperationsSnapshot>(
+      `/api/task-operations/${encodeURIComponent(projectId)}?${params.toString()}`,
+    )
+  },
+  taskOptions: (
+    projectId: string,
+    options: { query?: string; excludeTaskId?: string | null; page?: number; pageSize?: number } = {},
+  ) => {
+    const params = new URLSearchParams({
+      page: String(options.page ?? 1),
+      page_size: String(options.pageSize ?? 50),
+    })
+    if (options.query) params.set('query', options.query)
+    if (options.excludeTaskId) params.set('exclude_task_id', options.excludeTaskId)
+    return apiRequest<TaskOptionPage>(
+      `/api/task-operations/${encodeURIComponent(projectId)}/task-options?${params.toString()}`,
+    )
+  },
 }

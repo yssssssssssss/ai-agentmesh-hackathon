@@ -745,6 +745,10 @@ class TaskManagementMetadataV1(BaseModel):
     assignee_kind: TaskAssigneeKind | None = None
     assignee_id: str | None = Field(default=None, max_length=120)
     tags: list[str] = Field(default_factory=list, max_length=12)
+    parent_task_id: str | None = Field(default=None, max_length=120)
+    dependency_task_ids: list[
+        Annotated[str, Field(min_length=1, max_length=120)]
+    ] = Field(default_factory=list, max_length=50)
     blocked_reason: str | None = Field(default=None, max_length=1000)
     blocked_at: datetime | None = None
     version: int = Field(default=1, ge=1)
@@ -760,6 +764,10 @@ class TaskManagementMetadataV1(BaseModel):
             raise ValueError("blocked_at requires blocked_reason")
         if self.due_at is not None and self.due_at.utcoffset() is None:
             raise ValueError("due_at must include a timezone")
+        if len(set(self.dependency_task_ids)) != len(self.dependency_task_ids):
+            raise ValueError("dependency_task_ids must be unique")
+        if self.parent_task_id is not None and self.parent_task_id in self.dependency_task_ids:
+            raise ValueError("parent_task_id cannot also be a dependency")
         return self
 
 
@@ -3271,6 +3279,10 @@ class BlackboardTaskCard(BaseModel):
 class BlackboardTaskCardsResponse(BaseModel):
     """黑板任务卡片列表响应。"""
     items: list[BlackboardTaskCard]
+    total: int | None = Field(default=None, ge=0)
+    page: int | None = Field(default=None, ge=1)
+    page_size: int | None = Field(default=None, ge=1, le=100)
+    has_next: bool | None = None
 
 
 class BlackboardTaskDetail(BaseModel):

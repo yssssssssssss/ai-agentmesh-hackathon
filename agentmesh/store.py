@@ -131,8 +131,10 @@ from agentmesh.models import (
     TaskAssigneeKind,
     TaskDeliveryStage,
     TaskManagementMetadataV1,
+    TaskPriority,
     TaskReviewStatus,
     TaskReviewV1,
+    TaskType,
     Team,
     TeamMembership,
     ToolDefinition,
@@ -262,6 +264,31 @@ class MemoryGovernanceConflict(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class TaskOperationsProjectionRow:
+    task_id: str
+    thread_id: str
+    workspace_id: str
+    project_id: str
+    thread_user_id: str
+    thread_kind: ChatThreadKind
+    title: str
+    description: str
+    task_type: TaskType
+    delivery_stage: TaskDeliveryStage
+    priority: TaskPriority | None
+    due_at: datetime | None
+    assignee_kind: TaskAssigneeKind | None
+    assignee_id: str | None
+    tags: tuple[str, ...]
+    parent_task_id: str | None
+    dependency_task_ids: tuple[str, ...]
+    blocked_reason: str | None
+    archived_at: datetime | None
+    version: int
+    updated_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -693,6 +720,221 @@ class SQLiteStore:
         )
         connection.execute(
             """
+            CREATE INDEX IF NOT EXISTS idx_tasks_thread_updated
+            ON records(json_extract(payload, '$.thread_id'), json_extract(payload, '$.updated_at') DESC, id)
+            WHERE collection = 'tasks'
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace_project
+            ON records(
+                json_extract(payload, '$.workspace_id'),
+                json_extract(payload, '$.project_id'),
+                id
+            )
+            WHERE collection = 'chat_threads'
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS task_operations_projection (
+                task_id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                thread_user_id TEXT NOT NULL,
+                thread_kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                delivery_stage TEXT NOT NULL,
+                priority TEXT,
+                due_at TEXT,
+                assignee_kind TEXT,
+                assignee_id TEXT,
+                tags_json TEXT NOT NULL,
+                parent_task_id TEXT,
+                dependency_task_ids_json TEXT NOT NULL,
+                blocked_reason TEXT,
+                archived_at TEXT,
+                version INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_operations_project_updated
+            ON task_operations_projection(project_id, workspace_id, updated_at DESC, task_id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_operations_project_due
+            ON task_operations_projection(project_id, workspace_id, due_at, task_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_operations_project_agent
+            ON task_operations_projection(project_id, workspace_id, assignee_kind, assignee_id, updated_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_task_operations_parent
+            ON task_operations_projection(parent_task_id, task_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS task_operations_projection_insert
+            AFTER INSERT ON records
+            WHEN NEW.collection = 'tasks' AND json_type(NEW.payload, '$.management') = 'object'
+            BEGIN
+                INSERT OR REPLACE INTO task_operations_projection(
+                    task_id, thread_id, workspace_id, project_id, thread_user_id, thread_kind,
+                    title, description, task_type, delivery_stage, priority, due_at,
+                    assignee_kind, assignee_id, tags_json, parent_task_id,
+                    dependency_task_ids_json, blocked_reason, archived_at, version, updated_at
+                )
+                SELECT
+                    NEW.id,
+                    json_extract(NEW.payload, '$.thread_id'),
+                    json_extract(thread.payload, '$.workspace_id'),
+                    json_extract(thread.payload, '$.project_id'),
+                    json_extract(thread.payload, '$.user_id'),
+                    json_extract(thread.payload, '$.kind'),
+                    json_extract(NEW.payload, '$.title'),
+                    COALESCE(json_extract(NEW.payload, '$.management.description'), ''),
+                    COALESCE(json_extract(NEW.payload, '$.management.task_type'), 'project_action'),
+                    COALESCE(json_extract(NEW.payload, '$.management.delivery_stage'), 'backlog'),
+                    json_extract(NEW.payload, '$.management.priority'),
+                    json_extract(NEW.payload, '$.management.due_at'),
+                    json_extract(NEW.payload, '$.management.assignee_kind'),
+                    json_extract(NEW.payload, '$.management.assignee_id'),
+                    COALESCE(json_extract(NEW.payload, '$.management.tags'), '[]'),
+                    json_extract(NEW.payload, '$.management.parent_task_id'),
+                    COALESCE(json_extract(NEW.payload, '$.management.dependency_task_ids'), '[]'),
+                    json_extract(NEW.payload, '$.management.blocked_reason'),
+                    json_extract(NEW.payload, '$.management.archived_at'),
+                    COALESCE(json_extract(NEW.payload, '$.management.version'), 1),
+                    json_extract(NEW.payload, '$.updated_at')
+                FROM records AS thread
+                WHERE thread.collection = 'chat_threads'
+                  AND thread.id = json_extract(NEW.payload, '$.thread_id');
+            END
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS task_operations_projection_update
+            AFTER UPDATE OF payload ON records
+            WHEN NEW.collection = 'tasks'
+            BEGIN
+                DELETE FROM task_operations_projection WHERE task_id = NEW.id;
+                INSERT OR REPLACE INTO task_operations_projection(
+                    task_id, thread_id, workspace_id, project_id, thread_user_id, thread_kind,
+                    title, description, task_type, delivery_stage, priority, due_at,
+                    assignee_kind, assignee_id, tags_json, parent_task_id,
+                    dependency_task_ids_json, blocked_reason, archived_at, version, updated_at
+                )
+                SELECT
+                    NEW.id,
+                    json_extract(NEW.payload, '$.thread_id'),
+                    json_extract(thread.payload, '$.workspace_id'),
+                    json_extract(thread.payload, '$.project_id'),
+                    json_extract(thread.payload, '$.user_id'),
+                    json_extract(thread.payload, '$.kind'),
+                    json_extract(NEW.payload, '$.title'),
+                    COALESCE(json_extract(NEW.payload, '$.management.description'), ''),
+                    COALESCE(json_extract(NEW.payload, '$.management.task_type'), 'project_action'),
+                    COALESCE(json_extract(NEW.payload, '$.management.delivery_stage'), 'backlog'),
+                    json_extract(NEW.payload, '$.management.priority'),
+                    json_extract(NEW.payload, '$.management.due_at'),
+                    json_extract(NEW.payload, '$.management.assignee_kind'),
+                    json_extract(NEW.payload, '$.management.assignee_id'),
+                    COALESCE(json_extract(NEW.payload, '$.management.tags'), '[]'),
+                    json_extract(NEW.payload, '$.management.parent_task_id'),
+                    COALESCE(json_extract(NEW.payload, '$.management.dependency_task_ids'), '[]'),
+                    json_extract(NEW.payload, '$.management.blocked_reason'),
+                    json_extract(NEW.payload, '$.management.archived_at'),
+                    COALESCE(json_extract(NEW.payload, '$.management.version'), 1),
+                    json_extract(NEW.payload, '$.updated_at')
+                FROM records AS thread
+                WHERE json_type(NEW.payload, '$.management') = 'object'
+                  AND thread.collection = 'chat_threads'
+                  AND thread.id = json_extract(NEW.payload, '$.thread_id');
+            END
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS task_operations_projection_thread_update
+            AFTER UPDATE OF payload ON records
+            WHEN NEW.collection = 'chat_threads'
+            BEGIN
+                UPDATE task_operations_projection
+                SET workspace_id = json_extract(NEW.payload, '$.workspace_id'),
+                    project_id = json_extract(NEW.payload, '$.project_id'),
+                    thread_user_id = json_extract(NEW.payload, '$.user_id'),
+                    thread_kind = json_extract(NEW.payload, '$.kind')
+                WHERE thread_id = NEW.id;
+            END
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS task_operations_projection_delete
+            AFTER DELETE ON records
+            WHEN OLD.collection = 'tasks'
+            BEGIN
+                DELETE FROM task_operations_projection WHERE task_id = OLD.id;
+            END
+            """
+        )
+        connection.execute("DELETE FROM task_operations_projection")
+        connection.execute(
+            """
+            INSERT INTO task_operations_projection(
+                task_id, thread_id, workspace_id, project_id, thread_user_id, thread_kind,
+                title, description, task_type, delivery_stage, priority, due_at,
+                assignee_kind, assignee_id, tags_json, parent_task_id,
+                dependency_task_ids_json, blocked_reason, archived_at, version, updated_at
+            )
+            SELECT
+                task.id,
+                json_extract(task.payload, '$.thread_id'),
+                json_extract(thread.payload, '$.workspace_id'),
+                json_extract(thread.payload, '$.project_id'),
+                json_extract(thread.payload, '$.user_id'),
+                json_extract(thread.payload, '$.kind'),
+                json_extract(task.payload, '$.title'),
+                COALESCE(json_extract(task.payload, '$.management.description'), ''),
+                COALESCE(json_extract(task.payload, '$.management.task_type'), 'project_action'),
+                COALESCE(json_extract(task.payload, '$.management.delivery_stage'), 'backlog'),
+                json_extract(task.payload, '$.management.priority'),
+                json_extract(task.payload, '$.management.due_at'),
+                json_extract(task.payload, '$.management.assignee_kind'),
+                json_extract(task.payload, '$.management.assignee_id'),
+                COALESCE(json_extract(task.payload, '$.management.tags'), '[]'),
+                json_extract(task.payload, '$.management.parent_task_id'),
+                COALESCE(json_extract(task.payload, '$.management.dependency_task_ids'), '[]'),
+                json_extract(task.payload, '$.management.blocked_reason'),
+                json_extract(task.payload, '$.management.archived_at'),
+                COALESCE(json_extract(task.payload, '$.management.version'), 1),
+                json_extract(task.payload, '$.updated_at')
+            FROM records AS task
+            JOIN records AS thread
+              ON thread.collection = 'chat_threads'
+             AND thread.id = json_extract(task.payload, '$.thread_id')
+            WHERE task.collection = 'tasks'
+              AND json_type(task.payload, '$.management') = 'object'
+            """
+        )
+        connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_memory_use_receipts_run
             ON records(json_extract(payload, '$.run_id'), json_extract(payload, '$.created_at'), id)
             WHERE collection = 'memory_use_receipts'
@@ -824,6 +1066,12 @@ class SQLiteStore:
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_runs_task_id ON agent_runs(task_id, updated_at)"
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_agent_runs_project_updated
+            ON agent_runs(json_extract(payload, '$.project_id'), updated_at DESC, id DESC)
+            """
         )
         connection.execute(
             """
@@ -1614,9 +1862,276 @@ class SQLiteStore:
     def tasks(self) -> list[Task]:
         return self._list("tasks", Task)
 
+    def list_project_task_records(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+    ) -> list[tuple[Task, ChatThread]]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT task.payload AS task_payload, thread.payload AS thread_payload
+                FROM records AS thread
+                JOIN records AS task
+                  ON task.collection = 'tasks'
+                 AND json_extract(task.payload, '$.thread_id') = thread.id
+                WHERE thread.collection = 'chat_threads'
+                  AND json_extract(thread.payload, '$.workspace_id') = ?
+                  AND json_extract(thread.payload, '$.project_id') = ?
+                ORDER BY json_extract(task.payload, '$.updated_at') DESC, task.id DESC
+                """,
+                (workspace_id, project_id),
+            ).fetchall()
+        return [
+            (
+                Task.model_validate_json(row["task_payload"]),
+                ChatThread.model_validate_json(row["thread_payload"]),
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    def _task_operations_projection_from_row(row: sqlite3.Row) -> TaskOperationsProjectionRow:
+        return TaskOperationsProjectionRow(
+            task_id=row["task_id"],
+            thread_id=row["thread_id"],
+            workspace_id=row["workspace_id"],
+            project_id=row["project_id"],
+            thread_user_id=row["thread_user_id"],
+            thread_kind=ChatThreadKind(row["thread_kind"]),
+            title=row["title"],
+            description=row["description"],
+            task_type=TaskType(row["task_type"]),
+            delivery_stage=TaskDeliveryStage(row["delivery_stage"]),
+            priority=TaskPriority(row["priority"]) if row["priority"] else None,
+            due_at=datetime.fromisoformat(row["due_at"]) if row["due_at"] else None,
+            assignee_kind=(
+                TaskAssigneeKind(row["assignee_kind"]) if row["assignee_kind"] else None
+            ),
+            assignee_id=row["assignee_id"],
+            tags=tuple(json.loads(row["tags_json"])),
+            parent_task_id=row["parent_task_id"],
+            dependency_task_ids=tuple(json.loads(row["dependency_task_ids_json"])),
+            blocked_reason=row["blocked_reason"],
+            archived_at=(datetime.fromisoformat(row["archived_at"]) if row["archived_at"] else None),
+            version=int(row["version"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    def list_project_task_projection(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+    ) -> list[TaskOperationsProjectionRow]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM task_operations_projection
+                WHERE workspace_id = ? AND project_id = ?
+                ORDER BY updated_at DESC, task_id DESC
+                """,
+                (workspace_id, project_id),
+            ).fetchall()
+        return [self._task_operations_projection_from_row(row) for row in rows]
+
+    def get_task_operations_projection(self, task_id: str) -> TaskOperationsProjectionRow | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM task_operations_projection WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+        return self._task_operations_projection_from_row(row) if row is not None else None
+
+    def get_task_operations_projections(
+        self,
+        task_ids: list[str],
+    ) -> dict[str, TaskOperationsProjectionRow]:
+        unique_ids = list(dict.fromkeys(task_ids))
+        if not unique_ids:
+            return {}
+        placeholders = ",".join("?" for _ in unique_ids)
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM task_operations_projection WHERE task_id IN ({placeholders})",
+                unique_ids,
+            ).fetchall()
+        return {
+            row["task_id"]: self._task_operations_projection_from_row(row)
+            for row in rows
+        }
+
+    def list_task_children_projection(
+        self,
+        parent_task_id: str,
+        *,
+        limit: int = 51,
+    ) -> list[TaskOperationsProjectionRow]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM task_operations_projection
+                WHERE parent_task_id = ?
+                ORDER BY updated_at DESC, task_id DESC
+                LIMIT ?
+                """,
+                (parent_task_id, limit),
+            ).fetchall()
+        return [self._task_operations_projection_from_row(row) for row in rows]
+
+    def project_has_legacy_tasks(self, *, workspace_id: str, project_id: str) -> bool:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT 1
+                FROM records AS thread
+                JOIN records AS task
+                  ON task.collection = 'tasks'
+                 AND json_extract(task.payload, '$.thread_id') = thread.id
+                LEFT JOIN task_operations_projection AS projection ON projection.task_id = task.id
+                WHERE thread.collection = 'chat_threads'
+                  AND json_extract(thread.payload, '$.workspace_id') = ?
+                  AND json_extract(thread.payload, '$.project_id') = ?
+                  AND (
+                    projection.task_id IS NULL
+                    OR projection.thread_kind != 'task'
+                  )
+                LIMIT 1
+                """,
+                (workspace_id, project_id),
+            ).fetchone()
+        return row is not None
+
+    def query_managed_project_tasks(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+        page: int,
+        page_size: int,
+        include_archived: bool,
+        delivery_stage: TaskDeliveryStage | None,
+        priority: TaskPriority | None,
+        assignee_kind: TaskAssigneeKind | None,
+        assignee_id: str | None,
+        due_before: datetime | None,
+        due_after: datetime | None,
+        query: str,
+    ) -> tuple[list[tuple[Task, ChatThread]], int, dict[TaskDeliveryStage, int]]:
+        clauses = ["workspace_id = ?", "project_id = ?"]
+        parameters: list[object] = [workspace_id, project_id]
+        if not include_archived:
+            clauses.append("archived_at IS NULL")
+        if delivery_stage is not None:
+            clauses.append("delivery_stage = ?")
+            parameters.append(delivery_stage.value)
+        if priority is not None:
+            clauses.append("priority = ?")
+            parameters.append(priority.value)
+        if assignee_kind is not None:
+            clauses.append("assignee_kind = ?")
+            parameters.append(assignee_kind.value)
+        if assignee_id is not None:
+            clauses.append("assignee_id = ?")
+            parameters.append(assignee_id)
+        if due_before is not None:
+            clauses.append("due_at IS NOT NULL AND julianday(due_at) <= julianday(?)")
+            parameters.append(due_before.isoformat())
+        if due_after is not None:
+            clauses.append("due_at IS NOT NULL AND julianday(due_at) >= julianday(?)")
+            parameters.append(due_after.isoformat())
+        if query:
+            clauses.append(
+                "instr(lower(title || ' ' || description || ' ' || COALESCE(assignee_id, '') || ' ' || tags_json), lower(?)) > 0"
+            )
+            parameters.append(query)
+        where = " AND ".join(clauses)
+        with self._read_connect() as connection:
+            total = int(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM task_operations_projection WHERE {where}",
+                    parameters,
+                ).fetchone()[0]
+            )
+            count_rows = connection.execute(
+                f"""
+                SELECT delivery_stage, COUNT(*) AS value
+                FROM task_operations_projection
+                WHERE {where}
+                GROUP BY delivery_stage
+                """,
+                parameters,
+            ).fetchall()
+            id_rows = connection.execute(
+                f"""
+                SELECT task_id
+                FROM task_operations_projection
+                WHERE {where}
+                ORDER BY updated_at DESC, task_id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (*parameters, page_size, (page - 1) * page_size),
+            ).fetchall()
+            task_ids = [row["task_id"] for row in id_rows]
+            if not task_ids:
+                return [], total, {
+                    stage: next(
+                        (int(row["value"]) for row in count_rows if row["delivery_stage"] == stage.value),
+                        0,
+                    )
+                    for stage in TaskDeliveryStage
+                }
+            placeholders = ",".join("?" for _ in task_ids)
+            rows = connection.execute(
+                f"""
+                SELECT task.id, task.payload AS task_payload, thread.payload AS thread_payload
+                FROM records AS task
+                JOIN records AS thread
+                  ON thread.collection = 'chat_threads'
+                 AND thread.id = json_extract(task.payload, '$.thread_id')
+                WHERE task.collection = 'tasks' AND task.id IN ({placeholders})
+                """,
+                task_ids,
+            ).fetchall()
+        by_id = {
+            row["id"]: (
+                Task.model_validate_json(row["task_payload"]),
+                ChatThread.model_validate_json(row["thread_payload"]),
+            )
+            for row in rows
+        }
+        counts = {
+            stage: next(
+                (int(row["value"]) for row in count_rows if row["delivery_stage"] == stage.value),
+                0,
+            )
+            for stage in TaskDeliveryStage
+        }
+        return [by_id[task_id] for task_id in task_ids], total, counts
+
     @property
     def blackboard_posts(self) -> list[BlackboardPost]:
         return self._list("blackboard_posts", BlackboardPost)
+
+    def list_blackboard_posts_for_tasks(self, task_ids: list[str]) -> list[BlackboardPost]:
+        unique_ids = list(dict.fromkeys(task_ids))
+        if not unique_ids:
+            return []
+        if len(unique_ids) > 100:
+            raise ValueError("blackboard_task_page_limit_exceeded")
+        placeholders = ",".join("?" for _ in unique_ids)
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT payload FROM records
+                WHERE collection = 'blackboard_posts'
+                  AND json_extract(payload, '$.task_id') IN ({placeholders})
+                ORDER BY created_order
+                """,
+                unique_ids,
+            ).fetchall()
+        return [BlackboardPost.model_validate_json(row["payload"]) for row in rows]
 
     @property
     def auto_blackboard_post_requests(self) -> list[AutoBlackboardPostRequest]:
@@ -1765,6 +2280,58 @@ class SQLiteStore:
                 (memory_id,),
             ).fetchall()
         return [MemoryUseReceiptV1.model_validate_json(row["payload"]) for row in rows]
+
+    def list_memory_use_receipts_for_project(self, project_id: str) -> list[MemoryUseReceiptV1]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT receipt.payload
+                FROM records AS receipt
+                JOIN agent_runs AS run
+                  ON run.id = json_extract(receipt.payload, '$.run_id')
+                WHERE receipt.collection = 'memory_use_receipts'
+                  AND json_extract(run.payload, '$.project_id') = ?
+                ORDER BY json_extract(receipt.payload, '$.created_at'), receipt.id
+                """,
+                (project_id,),
+            ).fetchall()
+        return [MemoryUseReceiptV1.model_validate_json(row["payload"]) for row in rows]
+
+    def count_accepted_team_memory(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+        user_id: str,
+    ) -> int:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) FROM records
+                WHERE collection = 'memory_items'
+                  AND json_extract(payload, '$.workspace_id') = ?
+                  AND json_extract(payload, '$.project_id') = ?
+                  AND json_extract(payload, '$.scope') = ?
+                  AND json_extract(payload, '$.status') = ?
+                  AND (
+                    json_extract(payload, '$.team_id') IS NULL
+                    OR EXISTS (
+                        SELECT 1 FROM records AS membership
+                        WHERE membership.collection = 'team_memberships'
+                          AND json_extract(membership.payload, '$.team_id') = json_extract(records.payload, '$.team_id')
+                          AND json_extract(membership.payload, '$.user_id') = ?
+                    )
+                  )
+                """,
+                (
+                    workspace_id,
+                    project_id,
+                    Scope.TEAM_ACCEPTED.value,
+                    MemoryStatus.ACCEPTED.value,
+                    user_id,
+                ),
+            ).fetchone()
+        return int(row[0])
 
     @property
     def retrieval_metrics(self) -> list[RetrievalMetrics]:
@@ -2089,6 +2656,8 @@ class SQLiteStore:
         ).fetchall()
         rules = [PermissionPolicyRule.model_validate_json(row["payload"]) for row in rule_rows]
         project_manager = has_permission(actor, ACTION_MANAGE_PROJECT_TASKS, rules)
+        if task is None and authorization.require_project_manager and not project_manager:
+            raise TaskCommandConflict("task_action_forbidden")
         if task is not None:
             if thread is None or thread.workspace_id != actor.workspace_id or thread.project_id != project.id:
                 raise TaskCommandConflict("task_not_found")
@@ -2145,6 +2714,32 @@ class SQLiteStore:
                 ).fetchone()
                 if linked_run is not None:
                     raise TaskCommandConflict("task_artifact_review_required")
+            if authorization.require_no_active_run:
+                active_run = connection.execute(
+                    """
+                    SELECT 1 FROM agent_runs
+                    WHERE task_id = ?
+                      AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?)
+                    LIMIT 1
+                    """,
+                    (
+                        task.id,
+                        AgentRunStatus.CREATED.value,
+                        AgentRunStatus.PLANNING.value,
+                        AgentRunStatus.WAITING_CLARIFICATION.value,
+                        AgentRunStatus.RUNNING.value,
+                        AgentRunStatus.WAITING_PLAN_APPROVAL.value,
+                        AgentRunStatus.WAITING_APPROVAL.value,
+                    ),
+                ).fetchone()
+                if active_run is not None:
+                    raise TaskCommandConflict("task_agent_run_already_active")
+            if authorization.require_dependencies_done:
+                self._require_task_dependencies_done_in_transaction(
+                    connection,
+                    task=task,
+                    thread=thread,
+                )
         if not authorization.validate_assignee or authorization.assignee_id is None:
             return
         if authorization.assignee_kind == TaskAssigneeKind.USER:
@@ -2181,6 +2776,124 @@ class SQLiteStore:
             return
         raise TaskCommandConflict("task_assignment_forbidden")
 
+    @staticmethod
+    def _project_tasks_in_transaction(
+        connection: sqlite3.Connection,
+        *,
+        workspace_id: str,
+        project_id: str,
+    ) -> dict[str, tuple[Task, ChatThread]]:
+        rows = connection.execute(
+            """
+            SELECT task.payload AS task_payload, thread.payload AS thread_payload
+            FROM records AS thread
+            JOIN records AS task
+              ON task.collection = 'tasks'
+             AND json_extract(task.payload, '$.thread_id') = thread.id
+            WHERE thread.collection = 'chat_threads'
+              AND json_extract(thread.payload, '$.workspace_id') = ?
+              AND json_extract(thread.payload, '$.project_id') = ?
+            """,
+            (workspace_id, project_id),
+        ).fetchall()
+        return {
+            task.id: (task, ChatThread.model_validate_json(row["thread_payload"]))
+            for row in rows
+            if (task := Task.model_validate_json(row["task_payload"])) is not None
+        }
+
+    def _validate_task_relationships_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        proposed_task: Task,
+        proposed_thread: ChatThread,
+        workspace_id: str,
+        project_id: str,
+    ) -> None:
+        from agentmesh.task_operations.graph import TaskGraph, TaskGraphError, TaskGraphRecord
+
+        project_tasks = self._project_tasks_in_transaction(
+            connection,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+        project_tasks[proposed_task.id] = (proposed_task, proposed_thread)
+        management = proposed_task.management
+        if management is None:
+            return
+        target_ids = {
+            *management.dependency_task_ids,
+            *([management.parent_task_id] if management.parent_task_id is not None else []),
+        }
+        for target_id in target_ids:
+            target = project_tasks.get(target_id)
+            if target is None:
+                raise TaskCommandConflict("task_relationship_target_not_found")
+            target_management = target[0].management
+            if target_management is None or target[1].kind is not ChatThreadKind.TASK:
+                raise TaskCommandConflict("task_relationship_target_not_found")
+            if target_management.archived_at is not None:
+                raise TaskCommandConflict("task_relationship_target_archived")
+        records = {}
+        for task_id, (task, thread) in project_tasks.items():
+            task_management = (
+                task.management
+                if task.management is not None
+                else TaskManagementMetadataV1(
+                    created_by=thread.user_id,
+                    updated_by=thread.user_id,
+                )
+            )
+            records[task_id] = TaskGraphRecord(
+                task_id=task.id,
+                delivery_stage=task_management.delivery_stage,
+                parent_task_id=task_management.parent_task_id,
+                dependency_task_ids=tuple(task_management.dependency_task_ids),
+                blocked_reason=task_management.blocked_reason,
+                archived_at=task_management.archived_at,
+            )
+        try:
+            TaskGraph(records)
+        except TaskGraphError as error:
+            raise TaskCommandConflict(error.code) from error
+
+    @staticmethod
+    def _require_task_dependencies_done_in_transaction(
+        connection: sqlite3.Connection,
+        *,
+        task: Task,
+        thread: ChatThread,
+    ) -> None:
+        management = task.management
+        if management is None or not management.dependency_task_ids:
+            return
+        for dependency_id in management.dependency_task_ids:
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'tasks' AND id = ?",
+                (dependency_id,),
+            ).fetchone()
+            if row is None:
+                raise TaskCommandConflict("task_dependencies_incomplete")
+            dependency = Task.model_validate_json(row["payload"])
+            dependency_thread_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'chat_threads' AND id = ?",
+                (dependency.thread_id,),
+            ).fetchone()
+            dependency_thread = (
+                ChatThread.model_validate_json(dependency_thread_row["payload"])
+                if dependency_thread_row is not None
+                else None
+            )
+            if (
+                dependency_thread is None
+                or dependency_thread.workspace_id != thread.workspace_id
+                or dependency_thread.project_id != thread.project_id
+                or dependency.management is None
+                or dependency.management.delivery_stage is not TaskDeliveryStage.DONE
+            ):
+                raise TaskCommandConflict("task_dependencies_incomplete")
+
     def create_managed_task(
         self,
         *,
@@ -2210,6 +2923,14 @@ class SQLiteStore:
                 or task.thread_id != thread.id
             ):
                 raise TaskCommandConflict("task_context_invalid")
+            if authorization.validate_relationships:
+                self._validate_task_relationships_in_transaction(
+                    connection,
+                    proposed_task=task,
+                    proposed_thread=thread,
+                    workspace_id=authorization.workspace_id,
+                    project_id=authorization.project_id,
+                )
             for collection, record_id in (("chat_threads", thread.id), ("tasks", task.id)):
                 exists = connection.execute(
                     "SELECT 1 FROM records WHERE collection = ? AND id = ?",
@@ -2276,6 +2997,14 @@ class SQLiteStore:
                 raise TaskCommandConflict("task_version_conflict")
             if task.management is None or task.management.version != expected_version + 1:
                 raise TaskCommandConflict("task_version_invalid")
+            if authorization.validate_relationships:
+                self._validate_task_relationships_in_transaction(
+                    connection,
+                    proposed_task=task,
+                    proposed_thread=current_thread,
+                    workspace_id=authorization.workspace_id,
+                    project_id=authorization.project_id,
+                )
             merged_task = current_task.model_copy(
                 update={
                     "title": task.title,
@@ -2388,6 +3117,31 @@ class SQLiteStore:
                 LIMIT ?
                 """,
                 (task_id, task_id, limit),
+            ).fetchall()
+        return [self._task_review_from_row(row) for row in rows]
+
+    def list_task_reviews_for_project(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+    ) -> list[TaskReviewV1]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT review.*
+                FROM task_reviews AS review
+                JOIN records AS task
+                  ON task.collection = 'tasks'
+                 AND task.id = review.task_id
+                JOIN records AS thread
+                  ON thread.collection = 'chat_threads'
+                 AND thread.id = json_extract(task.payload, '$.thread_id')
+                WHERE json_extract(thread.payload, '$.workspace_id') = ?
+                  AND json_extract(thread.payload, '$.project_id') = ?
+                ORDER BY review.updated_at DESC, review.id DESC
+                """,
+                (workspace_id, project_id),
             ).fetchall()
         return [self._task_review_from_row(row) for row in rows]
 
@@ -11107,6 +11861,14 @@ class SQLiteStore:
             raise ResearchStoreConflict("task_agent_run_requires_in_progress")
         if management.blocked_reason is not None:
             raise ResearchStoreConflict("task_blocked")
+        try:
+            self._require_task_dependencies_done_in_transaction(
+                connection,
+                task=task,
+                thread=thread,
+            )
+        except TaskCommandConflict as error:
+            raise ResearchStoreConflict(error.code) from error
         personal_assignment = management.assignee_kind is None and management.created_by == run.user_id
         if management.assignee_kind == TaskAssigneeKind.USER:
             personal_assignment = management.assignee_id == run.user_id
@@ -12815,6 +13577,19 @@ class SQLiteStore:
             ).fetchall()
         runs = [self._decode_agent_run_row(row) for row in rows]
         return [run for run in runs if user_id is None or run.user_id == user_id]
+
+    def list_agent_runs_for_project(self, project_id: str) -> list[AgentRun]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload, orchestration_version, task_id
+                FROM agent_runs
+                WHERE json_extract(payload, '$.project_id') = ?
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._decode_agent_run_row(row) for row in rows]
 
     def append_agent_run_event(
         self,

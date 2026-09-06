@@ -51,6 +51,7 @@ from agentmesh.routes.memory_governance import router as memory_governance_route
 from agentmesh.routes.research import router as research_router
 from agentmesh.routes.risk import router as risk_router
 from agentmesh.routes.skills import router as skills_router
+from agentmesh.routes.task_operations import router as task_operations_router
 from agentmesh.routes.task_reviews import router as task_reviews_router
 from agentmesh.routes.tasks import router as tasks_router
 from agentmesh.routes.users import router as users_router
@@ -224,6 +225,7 @@ app.include_router(data_sources_router)
 app.include_router(risk_router)
 app.include_router(skills_router)
 app.include_router(tasks_router)
+app.include_router(task_operations_router)
 app.include_router(task_reviews_router)
 app.include_router(workspace_router)
 app.include_router(health_router)

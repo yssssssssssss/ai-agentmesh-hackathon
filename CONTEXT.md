@@ -47,6 +47,12 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
   deliverable quality decisions use the separate **Task Review** aggregate and project an assigned
   reviewer's pending work into Inbox.
 
+- **任务图 / Task graph** — the server-owned parent and dependency relationships between Project Tasks. Parent edges drive work-breakdown and milestone rollups; dependency edges gate `start` and new Task-linked AgentRun claims. Relationship mutation is project-scoped, versioned, idempotent, and cycle-checked in the write transaction. It does not alter `Task.status` or `Task.collaboration_stage`.
+
+- **项目运营投影 / Project operations projection** — a rebuildable SQLite projection over canonical Task and task-kind Thread records. It accelerates project overview, calendar, Agent queue, graph hydration, and pagination but does not own permissions, versions, transitions, reviews, or Run identity.
+
+- **Agent 队列 / Agent queue** — a read model of Agent-assigned Project Tasks classified as backlog, waiting for dependencies, blocked, ready, running, or review. It never auto-dispatches a Run or bypasses Task and Runtime admission gates.
+
 - **Task Review / 任务交付审核** — a versioned judgment about whether one frozen set of sealed
   Artifacts satisfies a Project Task. ✅ A pending Review binds one Task, one Run, Artifact IDs and
   content hashes. `accepted` may complete the Task; `changes_requested` and `rejected` return the

@@ -1,8 +1,8 @@
 # AgentMesh 独立项目任务与记忆闭环开发方案
 
 - 日期：2026-08-31
-- 状态：已批准；Slice 1～5 已合并，当前停在 Slice 5 检查点
-- 基线：`main` at `ce780c975811e91d4c0a10f408a8cfa4309fd136`
+- 状态：已批准；Slice 1～5 已合并，Slice 6 实现与本地验证完成，待合并
+- 基线：`main` at `088fc8f184c5e534e331e401fb7934e3adc9d84f`
 - 目标：在 AgentMesh 可独立安装和运行的前提下，打通“任务创建、Agent 执行、产物审核、记忆沉淀、后续复用、全程审计”的真实产品闭环
 - 适用范围：FastAPI、React、SQLite、Agent Runtime v2、Task Center、Artifact、Inbox、Memory/RAG
 - 相关方案：`docs/plans/2026-08-25-task-center-integration-plan.md`、`docs/memory-optimization-plan.md`
@@ -314,6 +314,8 @@ Receipt 是不可变事实。Memory 后续修订不能改写历史 Run 当时使
 | `PATCH /api/tasks/{task_id}` | 编辑管理字段 |
 | `POST /api/tasks/{task_id}/transitions` | plan、start、submit_review、complete、reopen、block、unblock、cancel |
 | `POST /api/tasks/{task_id}/archive` | 软归档 |
+| `GET /api/task-operations/{project_id}` | 项目指标、关键依赖链、里程碑、日历和 Agent 队列 |
+| `GET /api/task-operations/{project_id}/task-options` | 分页检索可建立父子/依赖关系的 Task |
 
 所有 POST mutation 包含 `command_id`。更新和 transition 包含 `expected_version`。
 
@@ -604,14 +606,20 @@ Memory 详情展示：
 
 ### Slice 6：完整项目管理和运营能力
 
+状态：实现与本地验证完成，待合并。
+
 交付：
 
-- 子任务、依赖、环检测和关键路径。
-- 里程碑、日历、项目总览和 Agent 队列。
-- Task/Run/Review/Memory 指标。
-- 分页和大数据量基准。
-- 必要时增加可重建的 SQLite 查询投影或表达式索引。
-- 清理跨页面重复状态推导和剩余 Mock。
+- `TaskManagementMetadataV1` additive parent/dependency identities；关系 mutation 复用 stable command ID、expected version、AuditEvent 和 SQLite 原子事务。
+- 父子图与依赖图分别拒绝 self-link、跨项目/legacy/archived target 和 cycle。
+- 依赖 readiness 同时约束 `planned → in_progress` 与新 Task-linked AgentRun claim；已有 Run 不因依赖后来 reopen 而被改写或取消。
+- “关键依赖链”定义为按边数计算的最长未完成依赖链，不伪造 CPM 工期预测。
+- 里程碑、日历、项目总览和只读 Agent 队列。
+- Task/Run/Review/Memory 使用指标，不做员工绩效评价。
+- 日历、Agent 队列与关系候选使用服务端分页。
+- 可重建 `task_operations_projection` 与表达式索引；权限、版本和状态事实仍由 canonical Task/Thread/Run/Review/Memory 持有。
+- 固定规模基准覆盖 10k Tasks、50k Task/Audit events、10k Memory 和 1k accepted Team Knowledge。
+- Task Center 复用现有深色 utility token，增加总览、日历、Agent 队列和关系编辑，不引入新前端依赖。
 
 独立价值：形成可日常使用的人机协同项目管理系统。
 

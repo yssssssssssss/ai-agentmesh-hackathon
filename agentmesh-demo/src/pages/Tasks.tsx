@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
+  Bot,
+  CalendarDays,
+  ChartNoAxesCombined,
   ChevronRight,
   Clock3,
   Columns3,
@@ -16,6 +19,10 @@ import {
 } from 'lucide-react'
 
 import { TaskDetailDrawer } from '../components/tasks/TaskDetailDrawer'
+import {
+  ProjectOperationsPanel,
+  type OperationsSection,
+} from '../components/tasks/ProjectOperationsPanel'
 import { TaskFormDialog, type TaskFormValues } from '../components/tasks/TaskFormDialog'
 import { ApiError } from '../api/client'
 import { Badge } from '../components/ui/Badge'
@@ -29,7 +36,9 @@ import {
   taskManagementErrorMessage,
   useManagedTaskDetail,
   useManagedTasks,
+  useProjectOperations,
   useTaskManagementMutations,
+  useTaskOptions,
 } from '../features/tasks/queries'
 import type { ManagedTask, TaskManagementAction, TaskTransitionPayload } from '../features/tasks/types'
 import { workspaceApi } from '../features/workspace/api'
@@ -45,6 +54,22 @@ import {
 import { cn } from '../lib/cn'
 
 type ViewMode = 'board' | 'list'
+type TaskSurface = 'tasks' | OperationsSection
+
+function positivePage(value: string | null): number {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1
+}
+
+function operationsDateRange(monthValue: string | null): { start: string; end: string } {
+  const now = new Date()
+  const match = monthValue?.match(/^(\d{4})-(\d{2})$/)
+  const year = match ? Number(match[1]) : now.getUTCFullYear()
+  const month = match ? Number(match[2]) - 1 : now.getUTCMonth()
+  const start = new Date(Date.UTC(year, month, 1))
+  const end = new Date(Date.UTC(year, month + 3, 1))
+  return { start: start.toISOString(), end: end.toISOString() }
+}
 
 const DATE_TIME_FORMAT = new Intl.DateTimeFormat('zh-CN', {
   month: '2-digit',
@@ -70,6 +95,8 @@ export function Tasks() {
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [mutationNotice, setMutationNotice] = useState<string | null>(null)
   const [runStarting, setRunStarting] = useState(false)
+  const [relationshipQuery, setRelationshipQuery] = useState('')
+  const deferredRelationshipQuery = useDeferredValue(relationshipQuery)
   const [formDetailReadyTaskId, setFormDetailReadyTaskId] = useState<string | null>(null)
   const formSession = useRef(0)
   const saveCommandId = useRef<string | null>(null)
@@ -81,8 +108,45 @@ export function Tasks() {
     workspaceId: user?.workspace_id ?? '',
     projectId: user?.default_project_id ?? '',
   }
-  const cardsQuery = useTaskCards(context)
-  const managedQuery = useManagedTasks(context)
+  const writeEnabled = bootstrap?.task_management_mode === 'write'
+  const canManageProjectTasks = (bootstrap?.capabilities ?? []).includes('manage_project_tasks')
+  const requestedSurface = searchParams.get('surface')
+  const surface: TaskSurface = (
+    requestedSurface === 'overview'
+    || requestedSurface === 'calendar'
+    || requestedSurface === 'agents'
+  ) ? requestedSurface : 'tasks'
+  const calendarPage = positivePage(searchParams.get('calendar_page'))
+  const taskPage = positivePage(searchParams.get('task_page'))
+  const calendarMonth = searchParams.get('calendar_month')
+  const queuePage = positivePage(searchParams.get('queue_page'))
+  const queueAgentId = searchParams.get('queue_agent') ?? ''
+  const requestedManageTaskId = searchParams.get('manage')?.trim() || null
+  const dateRange = useMemo(() => operationsDateRange(calendarMonth), [calendarMonth])
+  const cardsQuery = useTaskCards(context, surface === 'tasks', taskPage, 100)
+  const managedQuery = useManagedTasks(
+    context,
+    surface === 'tasks' || taskFormOpen || requestedManageTaskId !== null,
+    taskPage,
+    100,
+  )
+  const operationsQuery = useProjectOperations(
+    context,
+    {
+      calendarStart: dateRange.start,
+      calendarEnd: dateRange.end,
+      calendarPage,
+      queuePage,
+      queueAgentId,
+    },
+    surface !== 'tasks',
+  )
+  const taskOptionsQuery = useTaskOptions(
+    context,
+    deferredRelationshipQuery,
+    editingTask?.task.id ?? null,
+    taskFormOpen && canManageProjectTasks,
+  )
   const managedDetailQuery = useManagedTaskDetail(
     context,
     taskFormOpen && editingTask ? editingTask.task.id : null,
@@ -93,8 +157,17 @@ export function Tasks() {
     () => new Map((managedQuery.data?.items ?? []).map((item) => [item.task.id, item])),
     [managedQuery.data?.items],
   )
-  const writeEnabled = bootstrap?.task_management_mode === 'write'
-  const canManageProjectTasks = (bootstrap?.capabilities ?? []).includes('manage_project_tasks')
+  const taskPagesAligned = (cardsQuery.data?.items ?? []).every((card) => (
+    typeof card.task.id === 'string' && managedByTaskId.has(card.task.id)
+  ))
+  const taskPageMismatch = (
+    surface === 'tasks'
+    && cardsQuery.data !== undefined
+    && managedQuery.data !== undefined
+    && !cardsQuery.isFetching
+    && !managedQuery.isFetching
+    && !taskPagesAligned
+  )
   const projectMemberIds = new Set(bootstrap?.project.member_ids ?? [])
   const projectUsers = (bootstrap?.users ?? []).filter((candidate) => (
     candidate.workspace_id === user?.workspace_id
@@ -111,6 +184,9 @@ export function Tasks() {
       candidate.owner_user_id === user?.id
       || (canManageProjectTasks && candidate.owner_user_id == null && candidate.agent_type !== 'personal')
     )
+  ))
+  const operationsAgents = (bootstrap?.agents ?? []).filter((candidate) => (
+    candidate.workspace_id === user?.workspace_id && candidate.status === 'online'
   ))
   const managementAssigneeByTaskId = useMemo(() => {
     const labels = new Map<string, string>()
@@ -141,6 +217,34 @@ export function Tasks() {
     const next = new URLSearchParams(searchParams)
     if (!value || value === defaultValue) next.delete(key)
     else next.set(key, value)
+    if (key === 'q' || key === 'stage' || key === 'status') next.delete('task_page')
+    setSearchParams(next, { replace: true })
+  }
+
+  const setSurface = (value: TaskSurface) => {
+    const next = new URLSearchParams(searchParams)
+    if (value === 'tasks') next.delete('surface')
+    else next.set('surface', value)
+    if (value !== 'calendar') {
+      next.delete('calendar_page')
+      next.delete('calendar_month')
+    }
+    if (value !== 'agents') {
+      next.delete('queue_page')
+      next.delete('queue_agent')
+    }
+    setSearchParams(next, { replace: true })
+  }
+
+  const shiftCalendarWindow = (months: number) => {
+    const current = new Date(dateRange.start)
+    current.setUTCMonth(current.getUTCMonth() + months)
+    const next = new URLSearchParams(searchParams)
+    next.set(
+      'calendar_month',
+      `${current.getUTCFullYear()}-${String(current.getUTCMonth() + 1).padStart(2, '0')}`,
+    )
+    next.delete('calendar_page')
     setSearchParams(next, { replace: true })
   }
 
@@ -149,6 +253,7 @@ export function Tasks() {
     next.delete('q')
     next.delete('stage')
     next.delete('status')
+    next.delete('task_page')
     setSearchParams(next, { replace: true })
   }
 
@@ -162,6 +267,7 @@ export function Tasks() {
     saveCommandId.current = null
     actionCommand.current = null
     reviewCommand.current = null
+    setRelationshipQuery('')
     setFormDetailReadyTaskId(null)
     setTaskFormOpen(true)
   }
@@ -173,6 +279,7 @@ export function Tasks() {
     saveCommandId.current = null
     actionCommand.current = null
     reviewCommand.current = null
+    setRelationshipQuery('')
     setFormDetailReadyTaskId(null)
     setTaskFormOpen(true)
   }
@@ -184,6 +291,7 @@ export function Tasks() {
     saveCommandId.current = null
     actionCommand.current = null
     reviewCommand.current = null
+    setRelationshipQuery('')
     setFormDetailReadyTaskId(null)
   }
   const closeFormForSession = (session: number) => {
@@ -284,6 +392,12 @@ export function Tasks() {
     setMutationNotice(null)
     const stableCommandId = saveCommandId.current ?? commandId(editingTask ? 'update' : 'create')
     saveCommandId.current = stableCommandId
+    const relationshipsChanged = editingTask === null
+      || values.parentTaskId !== editingTask.management.parent_task_id
+      || values.dependencyTaskIds.length !== editingTask.management.dependency_task_ids.length
+      || values.dependencyTaskIds.some((taskId, index) => (
+        taskId !== editingTask.management.dependency_task_ids[index]
+      ))
     try {
       if (editingTask) {
         await mutations.update.mutateAsync({
@@ -299,6 +413,10 @@ export function Tasks() {
             assignee_kind: values.assigneeKind,
             assignee_id: values.assigneeId,
             tags: values.tags,
+            ...(canManageProjectTasks && relationshipsChanged ? {
+              parent_task_id: values.parentTaskId,
+              dependency_task_ids: values.dependencyTaskIds,
+            } : {}),
           },
         })
       } else {
@@ -312,6 +430,10 @@ export function Tasks() {
           assignee_kind: values.assigneeKind,
           assignee_id: values.assigneeId,
           tags: values.tags,
+          ...(canManageProjectTasks && relationshipsChanged ? {
+            parent_task_id: values.parentTaskId,
+            dependency_task_ids: values.dependencyTaskIds,
+          } : {}),
         })
       }
       closeFormForSession(session)
@@ -531,18 +653,46 @@ export function Tasks() {
           : '查看现有 Agent 与协作流程产生、且当前账号可见的任务。任务写入当前未开放。'}
         actions={(
           <div className="flex flex-wrap items-center gap-2">
-            {writeEnabled ? <Button icon={<Plus className="h-4 w-4" />} onClick={openCreate}>新建任务</Button> : null}
-            <ViewSwitcher value={viewMode} onChange={(mode) => setParameter('view', mode, 'board')} />
+            {writeEnabled && surface === 'tasks' ? <Button icon={<Plus className="h-4 w-4" />} onClick={openCreate}>新建任务</Button> : null}
+            <TaskSurfaceSwitcher value={surface} onChange={setSurface} />
+            {surface === 'tasks' ? (
+              <ViewSwitcher value={viewMode} onChange={(mode) => setParameter('view', mode, 'board')} />
+            ) : null}
           </div>
         )}
       />
 
-      {cardsQuery.error || managedQuery.error ? (
+      {surface !== 'tasks' ? (
+        <ProjectOperationsPanel
+          section={surface}
+          data={operationsQuery.data}
+          loading={operationsQuery.isLoading}
+          error={operationsQuery.error ? taskManagementErrorMessage(operationsQuery.error) : null}
+          agents={operationsAgents}
+          selectedAgentId={queueAgentId}
+          onAgentChange={(value) => {
+            const next = new URLSearchParams(searchParams)
+            if (value) next.set('queue_agent', value)
+            else next.delete('queue_agent')
+            next.delete('queue_page')
+            setSearchParams(next, { replace: true })
+          }}
+          onRetry={() => void operationsQuery.refetch()}
+          onCalendarPeriodPrevious={() => shiftCalendarWindow(-1)}
+          onCalendarPeriodNext={() => shiftCalendarWindow(1)}
+          onCalendarPrevious={() => setParameter('calendar_page', String(Math.max(1, calendarPage - 1)), '1')}
+          onCalendarNext={() => setParameter('calendar_page', String(calendarPage + 1), '1')}
+          onQueuePrevious={() => setParameter('queue_page', String(Math.max(1, queuePage - 1)), '1')}
+          onQueueNext={() => setParameter('queue_page', String(queuePage + 1), '1')}
+        />
+      ) : cardsQuery.error || managedQuery.error || taskPageMismatch ? (
         <section role="alert" className="flex flex-wrap items-center justify-between gap-4 rounded-[12px] border border-rose/25 bg-rose/10 p-4 text-sm text-rose">
           <div>
             <p className="font-medium">任务列表读取失败</p>
             <p className="mt-1 text-xs leading-5 text-rose/80">
-              {collaborationErrorMessage(cardsQuery.error ?? managedQuery.error)}
+              {taskPageMismatch
+                ? '任务卡片与管理投影暂未同步，请重试。'
+                : collaborationErrorMessage(cardsQuery.error ?? managedQuery.error)}
             </p>
           </div>
           <Button
@@ -555,12 +705,14 @@ export function Tasks() {
             重试
           </Button>
         </section>
-      ) : cardsQuery.isLoading || managedQuery.isLoading ? (
+      ) : cardsQuery.isLoading
+        || managedQuery.isLoading
+        || (!taskPagesAligned && (cardsQuery.isFetching || managedQuery.isFetching)) ? (
         <TaskCenterLoading />
       ) : (
         <>
           <TaskMetrics
-            total={view.stats.totalVisible}
+            total={cardsQuery.data?.total ?? view.stats.totalVisible}
             filtered={view.stats.filteredVisible}
             active={view.stats.activeVisible}
             blocked={view.stats.blockedVisible}
@@ -597,6 +749,14 @@ export function Tasks() {
               onManageTask={openEdit}
             />
           )}
+          {(cardsQuery.data?.has_next || taskPage > 1) ? (
+            <TaskPagePagination
+              page={taskPage}
+              hasNext={cardsQuery.data?.has_next === true}
+              onPrevious={() => setParameter('task_page', String(Math.max(1, taskPage - 1)), '1')}
+              onNext={() => setParameter('task_page', String(taskPage + 1), '1')}
+            />
+          ) : null}
         </>
       )}
 
@@ -605,6 +765,18 @@ export function Tasks() {
         task={taskForForm}
         users={assignableUsers}
         agents={assignableAgents}
+        taskOptions={taskOptionsQuery.data?.items ?? []}
+        canManageRelationships={
+          editingTask
+            ? taskForForm?.allowed_actions.includes('manage_relationships') === true
+            : canManageProjectTasks
+        }
+        relationshipQuery={relationshipQuery}
+        onRelationshipQueryChange={setRelationshipQuery}
+        onOpenRelatedTask={(taskId) => {
+          closeForm()
+          openTask(taskId)
+        }}
         submitting={
           mutationPending
           || (editingTask !== null && !formDetailUsable)
@@ -615,6 +787,10 @@ export function Tasks() {
         artifacts={managedDetailQuery.data?.artifacts ?? []}
         reviews={managedDetailQuery.data?.reviews ?? []}
         memoryLinks={managedDetailQuery.data?.memory_links ?? []}
+        parentTask={managedDetailQuery.data?.parent_task ?? null}
+        dependencyTasks={managedDetailQuery.data?.dependency_tasks ?? []}
+        childTasks={managedDetailQuery.data?.child_tasks ?? []}
+        relationshipsTruncated={managedDetailQuery.data?.relationships_truncated === true}
         historyTruncated={
           managedDetailQuery.data?.runs_truncated === true
           || managedDetailQuery.data?.artifacts_truncated === true
@@ -647,6 +823,58 @@ export function Tasks() {
         context={context}
         onClose={closeTask}
       />
+    </div>
+  )
+}
+
+function TaskPagePagination({
+  page,
+  hasNext,
+  onPrevious,
+  onNext,
+}: {
+  page: number
+  hasNext: boolean
+  onPrevious: () => void
+  onNext: () => void
+}) {
+  return (
+    <nav aria-label="任务列表分页" className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
+      <Button size="sm" variant="ghost" disabled={page <= 1} onClick={onPrevious}>上一页</Button>
+      <span className="min-w-12 text-center text-xs tabular-nums text-slate-500">第 {page} 页</span>
+      <Button size="sm" variant="ghost" disabled={!hasNext} onClick={onNext}>下一页</Button>
+    </nav>
+  )
+}
+
+function TaskSurfaceSwitcher({ value, onChange }: { value: TaskSurface; onChange: (value: TaskSurface) => void }) {
+  const items = [
+    { value: 'tasks', label: '任务', icon: ListChecks },
+    { value: 'overview', label: '总览', icon: ChartNoAxesCombined },
+    { value: 'calendar', label: '日历', icon: CalendarDays },
+    { value: 'agents', label: 'Agent 队列', icon: Bot },
+  ] as const
+  return (
+    <div className="flex max-w-full items-center overflow-x-auto rounded-[10px] bg-surface-1 p-1" aria-label="任务中心模块">
+      {items.map((item) => {
+        const Icon = item.icon
+        const active = item.value === value
+        return (
+          <button
+            key={item.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(item.value)}
+            className={cn(
+              'flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-[transform,background-color,color] duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50',
+              active ? 'bg-surface-3 text-white' : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200',
+            )}
+          >
+            <Icon className="h-4 w-4" aria-hidden="true" />
+            {item.label}
+          </button>
+        )
+      })}
     </div>
   )
 }

@@ -20,6 +20,8 @@ from agentmesh.models import (
     TaskDeliveryStage,
     TaskManagementMetadataV1,
     TaskPriority,
+    TaskReviewStatus,
+    TaskReviewV1,
     TaskStatus,
     User,
     UserRole,
@@ -30,7 +32,12 @@ from agentmesh.permissions import (
     ACTION_REVIEW_TASK_DELIVERABLES,
     has_permission,
 )
-from agentmesh.store import SQLiteStore, TaskCommandConflict, TaskReviewConflict
+from agentmesh.store import (
+    SQLiteStore,
+    TaskCommandConflict,
+    TaskOperationsProjectionRow,
+    TaskReviewConflict,
+)
 from agentmesh.task_management.access import task_assigned_to_user
 from agentmesh.task_management.contracts import (
     TaskArchiveRequest,
@@ -42,12 +49,15 @@ from agentmesh.task_management.contracts import (
     TaskManagementDetailV1,
     TaskManagementPageV1,
     TaskManagementViewV1,
+    TaskRelationshipSummaryV1,
     TaskRunSummaryV1,
     TaskTransitionAction,
     TaskTransitionRequest,
     TaskUpdateRequest,
 )
 from agentmesh.task_management.settings import TaskManagementMode, task_management_mode
+from agentmesh.task_operations.contracts import TaskReadinessState, TaskReadinessV1
+from agentmesh.task_operations.graph import TaskGraph, TaskGraphError, TaskGraphRecord
 
 
 class TaskManagementError(RuntimeError):
@@ -113,6 +123,9 @@ class TaskManagementService:
             self._visible_task(existing.task_id, user)
             return self.view(existing.result_task, user)
         self._require_write_mode()
+        relationships_requested = bool(request.parent_task_id or request.dependency_task_ids)
+        if relationships_requested:
+            self._require_project_manager(user)
         self._validate_assignee(user, request.assignee_kind, request.assignee_id, project.id)
 
         thread = ChatThread(
@@ -130,6 +143,8 @@ class TaskManagementService:
             assignee_kind=request.assignee_kind,
             assignee_id=request.assignee_id,
             tags=self._normalize_tags(request.tags),
+            parent_task_id=request.parent_task_id,
+            dependency_task_ids=list(request.dependency_task_ids),
             created_by=user.id,
             updated_by=user.id,
         )
@@ -152,7 +167,13 @@ class TaskManagementService:
             user,
             "create_project_task",
             task,
-            {"version": management.version, "task_type": management.task_type.value},
+            {
+                "version": management.version,
+                "task_type": management.task_type.value,
+                "parent_task_id": management.parent_task_id or "",
+                "dependency_task_ids": list(management.dependency_task_ids),
+                "dependency_count": len(management.dependency_task_ids),
+            },
         )
         try:
             result = self.repository.create_managed_task(
@@ -164,7 +185,9 @@ class TaskManagementService:
                     actor_id=user.id,
                     workspace_id=user.workspace_id,
                     project_id=project.id,
+                    require_project_manager=relationships_requested,
                     validate_assignee=True,
+                    validate_relationships=relationships_requested,
                     assignee_kind=request.assignee_kind,
                     assignee_id=request.assignee_id,
                 ),
@@ -181,11 +204,65 @@ class TaskManagementService:
         if query.due_after is not None and query.due_before is not None and query.due_after > query.due_before:
             raise TaskManagementError("task_due_filter_invalid", status_code=422)
         normalized_query = (query.query or "").strip().casefold()
-        items: list[TaskManagementViewV1] = []
-        for task in self.repository.tasks:
-            thread = self.repository.get_chat_thread(task.thread_id)
-            if thread is None or thread.workspace_id != user.workspace_id or thread.project_id != query.project_id:
-                continue
+        if not self.repository.project_has_legacy_tasks(
+            workspace_id=user.workspace_id,
+            project_id=query.project_id,
+        ):
+            projected = self.repository.list_project_task_projection(
+                workspace_id=user.workspace_id,
+                project_id=query.project_id,
+            )
+            graph = self._graph_from_projection(projected)
+            page_records, total, counts = self.repository.query_managed_project_tasks(
+                workspace_id=user.workspace_id,
+                project_id=query.project_id,
+                page=query.page,
+                page_size=query.page_size,
+                include_archived=query.include_archived,
+                delivery_stage=query.delivery_stage,
+                priority=query.priority,
+                assignee_kind=query.assignee_kind,
+                assignee_id=query.assignee_id,
+                due_before=query.due_before,
+                due_after=query.due_after,
+                query=normalized_query,
+            )
+            active_run_task_ids = self._active_run_task_ids(query.project_id)
+            pending_review_by_task = {
+                review.task_id: review
+                for review in self.repository.list_task_reviews_for_project(
+                    workspace_id=user.workspace_id,
+                    project_id=query.project_id,
+                )
+                if review.status is TaskReviewStatus.PENDING
+            }
+            return TaskManagementPageV1(
+                items=[
+                    self.view(
+                        task,
+                        user,
+                        thread=thread,
+                        management=self.management_for(task, thread),
+                        graph=graph,
+                        active_run_task_ids=active_run_task_ids,
+                        pending_review_by_task=pending_review_by_task,
+                    )
+                    for task, thread in page_records
+                ],
+                total=total,
+                page=query.page,
+                page_size=query.page_size,
+                has_next=query.page * query.page_size < total,
+                counts=counts,
+            )
+        project_records = self.repository.list_project_task_records(
+            workspace_id=user.workspace_id,
+            project_id=query.project_id,
+        )
+        graph = self._graph_from_records(project_records)
+        active_run_task_ids = self._active_run_task_ids(query.project_id)
+        records: list[tuple[Task, ChatThread, TaskManagementMetadataV1]] = []
+        for task, thread in project_records:
             if not self._task_visible(task, thread, user):
                 continue
             management = self.management_for(task, thread)
@@ -209,19 +286,39 @@ class TaskManagementService:
                 continue
             if normalized_query and normalized_query not in self._searchable_text(task, management):
                 continue
-            items.append(self.view(task, user, thread=thread, management=management))
-        items.sort(key=lambda item: (item.task.updated_at, item.task.id), reverse=True)
+            records.append((task, thread, management))
+        records.sort(key=lambda item: (item[0].updated_at, item[0].id), reverse=True)
         counts = {stage: 0 for stage in TaskDeliveryStage}
-        for item in items:
-            counts[item.management.delivery_stage] += 1
+        for _task, _thread, management in records:
+            counts[management.delivery_stage] += 1
         start = (query.page - 1) * query.page_size
         end = start + query.page_size
+        pending_review_by_task = {
+            review.task_id: review
+            for review in self.repository.list_task_reviews_for_project(
+                workspace_id=user.workspace_id,
+                project_id=query.project_id,
+            )
+            if review.status is TaskReviewStatus.PENDING
+        }
+        items = [
+            self.view(
+                task,
+                user,
+                thread=thread,
+                management=management,
+                graph=graph,
+                active_run_task_ids=active_run_task_ids,
+                pending_review_by_task=pending_review_by_task,
+            )
+            for task, thread, management in records[start:end]
+        ]
         return TaskManagementPageV1(
-            items=items[start:end],
-            total=len(items),
+            items=items,
+            total=len(records),
             page=query.page,
             page_size=query.page_size,
-            has_next=end < len(items),
+            has_next=end < len(records),
             counts=counts,
         )
 
@@ -295,7 +392,15 @@ class TaskManagementService:
             and run.status in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}
             and artifact_counts.get(run.id, 0) > 0
         }
-        item = self.view(task, user, thread=thread)
+        graph = self._graph_for_project(thread.workspace_id, thread.project_id)
+        active_run_task_ids = self._active_run_task_ids(thread.project_id)
+        item = self.view(
+            task,
+            user,
+            thread=thread,
+            graph=graph,
+            active_run_task_ids=active_run_task_ids,
+        )
         if runs and not reviewable_run_ids:
             item = item.model_copy(
                 update={
@@ -316,6 +421,43 @@ class TaskManagementService:
                     ]
                 }
             )
+        current_projection = self.repository.get_task_operations_projection(task.id)
+        relationship_ids = (
+            [
+                *(
+                    [current_projection.parent_task_id]
+                    if current_projection is not None
+                    and current_projection.parent_task_id is not None
+                    else []
+                ),
+                *(current_projection.dependency_task_ids if current_projection is not None else ()),
+            ]
+        )
+        related = self.repository.get_task_operations_projections(relationship_ids)
+        fetched_children = self.repository.list_task_children_projection(task.id, limit=51)
+        children_truncated = len(fetched_children) > 50
+        children = fetched_children[:50]
+        parent_task = (
+            self._relationship_summary(
+                related[current_projection.parent_task_id],
+                graph,
+                active_run_task_ids,
+            )
+            if current_projection is not None
+            and current_projection.parent_task_id in related
+            else None
+        )
+        dependency_tasks = [
+            self._relationship_summary(related[dependency_id], graph, active_run_task_ids)
+            for dependency_id in (
+                current_projection.dependency_task_ids if current_projection is not None else ()
+            )
+            if dependency_id in related
+        ]
+        child_tasks = [
+            self._relationship_summary(child, graph, active_run_task_ids)
+            for child in children
+        ]
         return TaskManagementDetailV1(
             item=item,
             runs=[
@@ -354,6 +496,10 @@ class TaskManagementService:
                 for artifact in artifacts
             ],
             reviews=review_page.items,
+            parent_task=parent_task,
+            dependency_tasks=dependency_tasks,
+            child_tasks=child_tasks,
+            relationships_truncated=children_truncated,
             runs_truncated=runs_truncated,
             artifacts_truncated=artifacts_truncated,
             reviews_truncated=review_page.truncated,
@@ -374,6 +520,7 @@ class TaskManagementService:
             raise TaskManagementError("task_agent_assignment_not_executable")
         if management.blocked_reason is not None:
             raise TaskManagementError("task_blocked")
+        self._require_dependencies_done(task, thread)
         if management.delivery_stage is not TaskDeliveryStage.IN_PROGRESS:
             raise TaskManagementError("task_agent_run_requires_in_progress")
         return task
@@ -393,6 +540,11 @@ class TaskManagementService:
         if management.version != request.expected_version:
             raise TaskManagementError("task_version_conflict")
         patch = request.model_dump(exclude={"command_id", "expected_version"}, exclude_unset=True)
+        relationships_changed = bool(
+            {"parent_task_id", "dependency_task_ids"}.intersection(patch)
+        )
+        if relationships_changed:
+            self._require_project_manager(user)
         if "assignee_kind" in patch:
             self._validate_assignee(
                 user,
@@ -416,6 +568,8 @@ class TaskManagementService:
             "due_at",
             "assignee_kind",
             "assignee_id",
+            "parent_task_id",
+            "dependency_task_ids",
         ):
             if field in patch:
                 setattr(updated_management, field, getattr(request, field))
@@ -423,6 +577,12 @@ class TaskManagementService:
         if "tags" in patch:
             updated_management.tags = self._normalize_tags(request.tags or [])
             changed_fields.append("tags")
+        if (
+            relationships_changed
+            and updated_management.parent_task_id is not None
+            and updated_management.parent_task_id in updated_management.dependency_task_ids
+        ):
+            raise TaskManagementError("task_relationship_overlap", status_code=422)
         updated_management.version += 1
         updated_management.updated_by = user.id
         updated_management = TaskManagementMetadataV1.model_validate(updated_management.model_dump())
@@ -437,8 +597,22 @@ class TaskManagementService:
             expected_version=request.expected_version,
             thread=thread_update,
             audit_action="update_project_task",
-            audit_metadata={"version": updated_management.version, "changed_fields": changed_fields},
+            audit_metadata={
+                "version": updated_management.version,
+                "changed_fields": changed_fields,
+                **(
+                    {
+                        "parent_task_id": updated_management.parent_task_id or "",
+                        "dependency_task_ids": list(updated_management.dependency_task_ids),
+                    }
+                    if relationships_changed
+                    else {}
+                ),
+            },
             validate_assignee="assignee_kind" in patch,
+            require_project_manager=relationships_changed,
+            require_no_active_run=relationships_changed,
+            validate_relationships=relationships_changed,
         )
 
     def transition_task(
@@ -462,6 +636,15 @@ class TaskManagementService:
             self._require_project_manager(user)
         if management.version != request.expected_version:
             raise TaskManagementError("task_version_conflict")
+        requires_ready_dependencies = (
+            request.action is TaskTransitionAction.START
+            or (
+                request.action is TaskTransitionAction.REOPEN
+                and management.delivery_stage is TaskDeliveryStage.DONE
+            )
+        )
+        if requires_ready_dependencies:
+            self._require_dependencies_done(task, thread)
         updated_management = management.model_copy(deep=True)
         if request.action == TaskTransitionAction.BLOCK:
             reason = (request.reason or "").strip()
@@ -510,6 +693,7 @@ class TaskManagementService:
             require_project_manager=request.action == TaskTransitionAction.COMPLETE,
             require_no_linked_runs=request.action
             in {TaskTransitionAction.SUBMIT_REVIEW, TaskTransitionAction.COMPLETE},
+            require_dependencies_done=requires_ready_dependencies,
         )
 
     def archive_task(self, task_id: str, request: TaskArchiveRequest, user: User) -> TaskManagementViewV1:
@@ -585,13 +769,30 @@ class TaskManagementService:
         *,
         thread: ChatThread | None = None,
         management: TaskManagementMetadataV1 | None = None,
+        graph: TaskGraph | None = None,
+        active_run_task_ids: set[str] | None = None,
+        pending_review_by_task: dict[str, TaskReviewV1] | None = None,
     ) -> TaskManagementViewV1:
         resolved_thread = thread or self.repository.get_chat_thread(task.thread_id)
         if resolved_thread is None:
             raise TaskManagementError("task_not_found", status_code=404)
         resolved_management = management or self.management_for(task, resolved_thread)
+        resolved_graph = graph or self._graph_for_project(
+            resolved_thread.workspace_id,
+            resolved_thread.project_id,
+        )
+        active_ids = (
+            active_run_task_ids
+            if active_run_task_ids is not None
+            else self._active_run_task_ids(resolved_thread.project_id)
+        )
+        readiness = resolved_graph.readiness(task.id, active_run=task.id in active_ids)
         try:
-            pending_review = self.repository.get_pending_task_review(task.id)
+            pending_review = (
+                pending_review_by_task.get(task.id)
+                if pending_review_by_task is not None
+                else self.repository.get_pending_task_review(task.id)
+            )
         except TaskReviewConflict as error:
             raise TaskManagementError(error.code) from error
         if pending_review is not None:
@@ -606,10 +807,11 @@ class TaskManagementService:
             )
             actions = [TaskManagementAction.REVIEW_DELIVERABLE] if can_review else []
         else:
-            actions = self.allowed_actions(user, resolved_management)
+            actions = self.allowed_actions(user, resolved_management, readiness)
         return TaskManagementViewV1(
             task=task,
             management=resolved_management,
+            readiness=readiness,
             allowed_actions=actions,
         )
 
@@ -617,12 +819,17 @@ class TaskManagementService:
         self,
         user: User,
         management: TaskManagementMetadataV1,
+        readiness: TaskReadinessV1 | None = None,
     ) -> list[TaskManagementAction]:
         if task_management_mode() is not TaskManagementMode.WRITE or management.archived_at is not None:
             return []
         if not self._can_manage(user, management):
             return []
         actions = [TaskManagementAction.EDIT, TaskManagementAction.ASSIGN]
+        if self._is_project_manager(user) and (
+            readiness is None or readiness.state is not TaskReadinessState.RUNNING
+        ):
+            actions.append(TaskManagementAction.MANAGE_RELATIONSHIPS)
         if management.blocked_reason is not None:
             actions.extend([TaskManagementAction.UNBLOCK, TaskManagementAction.CANCEL])
             return list(dict.fromkeys(actions))
@@ -631,13 +838,25 @@ class TaskManagementService:
         if (
             management.delivery_stage is TaskDeliveryStage.IN_PROGRESS
             and self._can_start_personal_agent(user, management)
+            and (readiness is None or readiness.is_execution_ready)
         ):
             actions.append(TaskManagementAction.START_AGENT_RUN)
         transitions = _TRANSITIONS.get(management.delivery_stage, {})
         actions.extend(
             TaskManagementAction(action.value)
             for action in transitions
-            if action != TaskTransitionAction.COMPLETE or self._is_project_manager(user)
+            if (action != TaskTransitionAction.COMPLETE or self._is_project_manager(user))
+            and not (
+                (
+                    action is TaskTransitionAction.START
+                    or (
+                        action is TaskTransitionAction.REOPEN
+                        and management.delivery_stage is TaskDeliveryStage.DONE
+                    )
+                )
+                and readiness is not None
+                and readiness.blocking_task_ids
+            )
         )
         if (
             management.delivery_stage in {TaskDeliveryStage.DONE, TaskDeliveryStage.CANCELLED}
@@ -681,6 +900,101 @@ class TaskManagementService:
             if values & personal_agent_ids:
                 return True
         return False
+
+    def _active_run_task_ids(self, project_id: str) -> set[str]:
+        active_statuses = {
+            AgentRunStatus.CREATED,
+            AgentRunStatus.PLANNING,
+            AgentRunStatus.WAITING_CLARIFICATION,
+            AgentRunStatus.WAITING_PLAN_APPROVAL,
+            AgentRunStatus.WAITING_APPROVAL,
+            AgentRunStatus.RUNNING,
+        }
+        return {
+            run.task_id
+            for run in self.repository.list_agent_runs()
+            if run.project_id == project_id
+            and run.task_id is not None
+            and run.status in active_statuses
+        }
+
+    @staticmethod
+    def _relationship_summary(
+        row: TaskOperationsProjectionRow,
+        graph: TaskGraph,
+        active_run_task_ids: set[str],
+    ) -> TaskRelationshipSummaryV1:
+        return TaskRelationshipSummaryV1(
+            id=row.task_id,
+            title=row.title,
+            delivery_stage=row.delivery_stage,
+            priority=row.priority,
+            due_at=row.due_at,
+            readiness_state=graph.readiness(
+                row.task_id,
+                active_run=row.task_id in active_run_task_ids,
+            ).state,
+            navigation_href=f"/tasks?task={quote(row.task_id, safe='')}",
+        )
+
+    @staticmethod
+    def _graph_from_projection(rows: list[TaskOperationsProjectionRow]) -> TaskGraph:
+        try:
+            return TaskGraph(
+                {
+                    row.task_id: TaskGraphRecord(
+                        task_id=row.task_id,
+                        delivery_stage=row.delivery_stage,
+                        parent_task_id=row.parent_task_id,
+                        dependency_task_ids=row.dependency_task_ids,
+                        blocked_reason=row.blocked_reason,
+                        archived_at=row.archived_at,
+                    )
+                    for row in rows
+                }
+            )
+        except TaskGraphError as error:
+            raise TaskManagementError(error.code) from error
+
+    def _graph_from_records(self, records: list[tuple[Task, ChatThread]]) -> TaskGraph:
+        graph_records: dict[str, TaskGraphRecord] = {}
+        for task, thread in records:
+            management = self.management_for(task, thread)
+            graph_records[task.id] = TaskGraphRecord(
+                task_id=task.id,
+                delivery_stage=management.delivery_stage,
+                parent_task_id=management.parent_task_id,
+                dependency_task_ids=tuple(management.dependency_task_ids),
+                blocked_reason=management.blocked_reason,
+                archived_at=management.archived_at,
+            )
+        try:
+            return TaskGraph(graph_records)
+        except TaskGraphError as error:
+            raise TaskManagementError(error.code) from error
+
+    def _graph_for_project(self, workspace_id: str, project_id: str) -> TaskGraph:
+        if not self.repository.project_has_legacy_tasks(
+            workspace_id=workspace_id,
+            project_id=project_id,
+        ):
+            return self._graph_from_projection(
+                self.repository.list_project_task_projection(
+                    workspace_id=workspace_id,
+                    project_id=project_id,
+                )
+            )
+        return self._graph_from_records(
+            self.repository.list_project_task_records(
+                workspace_id=workspace_id,
+                project_id=project_id,
+            )
+        )
+
+    def _require_dependencies_done(self, task: Task, thread: ChatThread) -> None:
+        graph = self._graph_for_project(thread.workspace_id, thread.project_id)
+        if not graph.dependencies_done(task.id):
+            raise TaskManagementError("task_dependencies_incomplete")
 
     def _can_manage(self, user: User, management: TaskManagementMetadataV1) -> bool:
         if has_permission(user, ACTION_MANAGE_PROJECT_TASKS, self.repository.permission_policy_rules):
@@ -812,7 +1126,10 @@ class TaskManagementService:
         thread: ChatThread | None = None,
         require_project_manager: bool = False,
         require_no_linked_runs: bool = False,
+        require_no_active_run: bool = False,
+        require_dependencies_done: bool = False,
         validate_assignee: bool = False,
+        validate_relationships: bool = False,
     ) -> TaskManagementViewV1:
         current_thread = thread or self.repository.get_chat_thread(task.thread_id)
         if current_thread is None:
@@ -839,7 +1156,10 @@ class TaskManagementService:
                     project_id=current_thread.project_id,
                     require_project_manager=require_project_manager,
                     require_no_linked_runs=require_no_linked_runs,
+                    require_no_active_run=require_no_active_run,
+                    require_dependencies_done=require_dependencies_done,
                     validate_assignee=validate_assignee,
+                    validate_relationships=validate_relationships,
                     assignee_kind=task.management.assignee_kind if task.management is not None else None,
                     assignee_id=task.management.assignee_id if task.management is not None else None,
                 ),
@@ -854,7 +1174,12 @@ class TaskManagementService:
 
     @staticmethod
     def _status_for_store_error(code: str) -> int:
-        if code in {"task_not_found", "project_not_found", "task_assignee_not_found"}:
+        if code in {
+            "task_not_found",
+            "project_not_found",
+            "task_assignee_not_found",
+            "task_relationship_target_not_found",
+        }:
             return 404
         if code in {"task_action_forbidden", "task_assignment_forbidden", "task_actor_not_authorized"}:
             return 403

@@ -276,6 +276,8 @@ def blackboard_posts(
 @router.get("/task-cards", response_model=BlackboardTaskCardsResponse)
 def blackboard_task_cards(
     project_id: str = Query(min_length=1, max_length=120),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
     user: User = Depends(current_user),
 ) -> BlackboardTaskCardsResponse:
     project = store.get_project(project_id)
@@ -285,19 +287,64 @@ def blackboard_task_cards(
         or not store.user_can_access_project(user.id, project_id)
     ):
         raise HTTPException(status_code=404, detail="Project not found")
+    if not store.project_has_legacy_tasks(
+        workspace_id=user.workspace_id,
+        project_id=project_id,
+    ):
+        page_records, total, _counts = store.query_managed_project_tasks(
+            workspace_id=user.workspace_id,
+            project_id=project_id,
+            page=page,
+            page_size=page_size,
+            include_archived=False,
+            delivery_stage=None,
+            priority=None,
+            assignee_kind=None,
+            assignee_id=None,
+            due_before=None,
+            due_after=None,
+            query="",
+        )
+        posts_by_task: dict[str, list[BlackboardPost]] = {}
+        for post in store.list_blackboard_posts_for_tasks(
+            [task.id for task, _thread in page_records]
+        ):
+            posts_by_task.setdefault(post.task_id, []).append(post)
+        cards = [
+            card
+            for task, _thread in page_records
+            if (card := build_task_card(task, posts_by_task.get(task.id, []), user)) is not None
+        ]
+        return BlackboardTaskCardsResponse(
+            items=cards,
+            total=total,
+            page=page,
+            page_size=page_size,
+            has_next=page * page_size < total,
+        )
     posts_by_task: dict[str, list[BlackboardPost]] = {}
     for post in store.blackboard_posts:
         posts_by_task.setdefault(post.task_id, []).append(post)
     cards = [
         card
-        for task in reversed(store.tasks)
-        if (thread := store.get_chat_thread(task.thread_id)) is not None
-        and thread.project_id == project_id
-        and thread.workspace_id == user.workspace_id
+        for task, thread in store.list_project_task_records(
+            workspace_id=user.workspace_id,
+            project_id=project_id,
+        )
+        if thread.workspace_id == user.workspace_id
         and (task.management is None or task.management.archived_at is None)
         and (card := build_task_card(task, posts_by_task.get(task.id, []), user)) is not None
     ]
-    return BlackboardTaskCardsResponse(items=cards)
+    cards.sort(key=lambda card: (card.task.updated_at, card.task.id), reverse=True)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return BlackboardTaskCardsResponse(
+        items=cards[start:end],
+        total=len(cards),
+        page=page,
+        page_size=page_size,
+        has_next=end < len(cards),
+    )
 
 
 @router.get("/tasks/{task_id}", response_model=BlackboardTaskDetail)
