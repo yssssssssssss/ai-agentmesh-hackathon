@@ -13,6 +13,7 @@ interface ComposerProps {
   skills: Skill[]
   sending: boolean
   locked?: boolean
+  lockedMessage?: string
   scrollbarGutter?: number
   planningMode: AgentPlanningMode
   deepSearchAvailability: DeepSearchAvailability
@@ -43,6 +44,7 @@ export function Composer({
   skills,
   sending,
   locked = false,
+  lockedMessage,
   scrollbarGutter = 0,
   planningMode,
   deepSearchAvailability,
@@ -301,9 +303,9 @@ export function Composer({
               }}
               rows={2}
               disabled={sending || interactionLocked}
-              placeholder={planningMode === 'deepsearch'
+              placeholder={lockedMessage ?? (planningMode === 'deepsearch'
                 ? '描述研究目标、范围、交付形式和判断标准…'
-                : '输入问题，或选择 Skill 执行明确工作流…'}
+                : '输入问题，或选择 Skill 执行明确工作流…')}
               className="max-h-40 w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none disabled:opacity-60"
             />
             <div className="flex items-center justify-between px-3 pb-3 pt-1">
@@ -321,11 +323,12 @@ export function Composer({
                 />
                 <button
                   type="button"
+                  disabled={interactionLocked}
                   onClick={() => fileInput.current?.click()}
-                  className="flex min-h-10 items-center gap-1.5 rounded-control px-2.5 py-1.5 text-xs text-slate-400 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.05] hover:text-slate-200"
+                  className="flex min-h-10 items-center gap-1.5 rounded-control px-2.5 py-1.5 text-xs text-slate-400 transition-[transform,background-color,color] duration-150 active:scale-95 hover:bg-white/[0.05] hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
-                  上传文档
+                  导入资料库
                 </button>
                 <button
                   type="button"

@@ -906,6 +906,7 @@ class TaskManagementService:
             AgentRunStatus.CREATED,
             AgentRunStatus.PLANNING,
             AgentRunStatus.WAITING_CLARIFICATION,
+            AgentRunStatus.WAITING_INPUT,
             AgentRunStatus.WAITING_PLAN_APPROVAL,
             AgentRunStatus.WAITING_APPROVAL,
             AgentRunStatus.RUNNING,

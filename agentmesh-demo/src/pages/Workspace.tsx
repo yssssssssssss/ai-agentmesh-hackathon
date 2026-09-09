@@ -12,6 +12,7 @@ import {
 } from '../components/workspace/ResourceCenterDrawer'
 import { ResearchExecution } from '../components/workspace/ResearchExecution'
 import { ResearchPreview } from '../components/workspace/ResearchPreview'
+import { SkillInputPreflightPanel } from '../components/workspace/SkillInputPreflightPanel'
 import { SkillPlanningState } from '../components/workspace/SkillPlanningState'
 import { SkillPlanPreview } from '../components/workspace/SkillPlanPreview'
 import { SkillPlanProgress } from '../components/workspace/SkillPlanProgress'
@@ -37,6 +38,8 @@ import {
   useAgentRunEventSubscription,
   useAgentRunQuery,
   useCancelAgentRunMutation,
+  useSkillInputMutations,
+  useSkillInputRequestQuery,
   useRetryAgentRunMutation,
   useResearchRunQuery,
   useSendAgentRunMutation,
@@ -66,6 +69,7 @@ const SINGLE_RUN_STATUS_LABEL = {
   created: '正在准备',
   planning: '正在规划',
   waiting_clarification: '等待你补充信息',
+  waiting_input: '等待你补充资料',
   waiting_plan_approval: '等待你确认计划',
   running: '正在执行',
   waiting_approval: '需要确认高风险操作',
@@ -122,6 +126,8 @@ export function Workspace() {
   const isRetiredResearch = isRetiredResearchRun(currentRun)
   const researchQuery = useResearchRunQuery(scope, isResearchV2 ? currentRun : null)
   const planQuery = useSkillPlanQuery(scope, runId, isStandardV1 ? currentRun?.plan_id : null)
+  const inputRequestQuery = useSkillInputRequestQuery(scope, isStandardV1 ? currentRun : null)
+  const inputMutations = useSkillInputMutations(scope, runId)
   const clarification = useDeepSearchClarificationMutation(scope, isDeepSearch ? runId : null)
   const reportQuery = useDeepSearchReportQuery(
     scope,
@@ -176,6 +182,7 @@ export function Workspace() {
     'created',
     'planning',
     'waiting_clarification',
+    'waiting_input',
     'waiting_plan_approval',
     'running',
     'waiting_approval',
@@ -273,6 +280,23 @@ export function Workspace() {
     ?? planMutations.approve.error
     ?? planMutations.reject.error
   const planError = planMutationError ? workspaceErrorMessage(planMutationError) : null
+  const inputPendingAction = inputMutations.upload.isPending
+    ? 'upload'
+    : inputMutations.remove.isPending
+      ? 'remove'
+      : inputMutations.submit.isPending
+        ? 'submit'
+        : cancelRun.isPending
+          ? 'cancel'
+          : null
+  const inputMutationError = inputMutations.upload.error
+    ?? inputMutations.remove.error
+    ?? inputMutations.submit.error
+  const inputError = inputRequestQuery.isError
+    ? workspaceErrorMessage(inputRequestQuery.error)
+    : inputMutationError
+      ? workspaceErrorMessage(inputMutationError)
+      : null
   const canRetryRun = Boolean(
     currentRun
     && !isDeepSearch
@@ -342,6 +366,7 @@ export function Workspace() {
     pending?.content,
     pending?.status,
     planDetail?.plan.updated_at,
+    inputRequestQuery.data?.item.version,
     deepSearchQuery.data?.active_requirement?.version,
     deepSearchQuery.data?.plan?.finalization_stage,
     deepSearchQuery.data?.plan?.report_artifact_id,
@@ -484,7 +509,34 @@ export function Workspace() {
                   onCancel={cancelCurrentRun}
                 />
               ) : null}
-              {isStandardV1 && currentRun && !currentRun.plan_id && !runIsPlanning ? (
+              {isStandardV1 && currentRun?.status === 'waiting_input' && inputRequestQuery.isLoading ? (
+                <section role="status" className="mt-6 rounded-soft bg-surface-1 px-5 py-8 text-center text-sm text-slate-400 shadow-card">
+                  正在恢复输入请求…
+                </section>
+              ) : null}
+              {isStandardV1 && currentRun?.status === 'waiting_input' && inputRequestQuery.isError ? (
+                <p role="alert" className="mt-6 rounded-soft bg-rose/10 px-4 py-3 text-sm text-rose">
+                  {inputError}
+                </p>
+              ) : null}
+              {isStandardV1 && currentRun?.status === 'waiting_input' && inputRequestQuery.data ? (
+                <SkillInputPreflightPanel
+                  response={inputRequestQuery.data}
+                  plan={planDetail?.plan}
+                  skills={skills.data?.items ?? []}
+                  pendingAction={inputPendingAction}
+                  error={inputError}
+                  onUpload={(fieldId, file) => inputMutations.upload.mutate({
+                    fieldId,
+                    expectedRequestVersion: inputRequestQuery.data.item.version,
+                    file,
+                  })}
+                  onRemove={(artifactId) => inputMutations.remove.mutate(artifactId)}
+                  onSubmit={(request) => inputMutations.submit.mutate(request)}
+                  onCancel={cancelCurrentRun}
+                />
+              ) : null}
+              {isStandardV1 && currentRun && !currentRun.plan_id && !runIsPlanning && currentRun.status !== 'waiting_input' ? (
                 <section aria-label="单 Skill 运行状态" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-soft bg-surface-1 px-5 py-4 shadow-card">
                   <div>
                     <p className="text-xs font-semibold text-mint-300">{currentRun.skill_name ? `$${currentRun.skill_name}` : 'Agent Runtime v2'}</p>
@@ -510,7 +562,7 @@ export function Workspace() {
                   onReject={(request) => planMutations.reject.mutate(request)}
                 />
               ) : null}
-              {isStandardV1 && currentRun?.plan_id && planDetail && currentRun.status !== 'waiting_plan_approval' ? (
+              {isStandardV1 && currentRun?.plan_id && planDetail && !['waiting_plan_approval', 'waiting_input'].includes(currentRun.status) ? (
                 <SkillPlanProgress
                   run={currentRun}
                   detail={planDetail}
@@ -554,6 +606,7 @@ export function Workspace() {
         skills={skills.data?.items ?? []}
         sending={sendMessage.isPending || sendAgentRun.isPending}
         locked={runIsActive}
+        lockedMessage={currentRun?.status === 'waiting_input' ? '请先完成上方资料补充' : undefined}
         scrollbarGutter={scrollbarGutter}
         planningMode={composerPlanningMode}
         deepSearchAvailability={deepSearchAvailability}

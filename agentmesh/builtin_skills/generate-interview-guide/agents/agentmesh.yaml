@@ -18,4 +18,5 @@ negative_examples:
   - 综合多场访谈材料并提炼跨场洞察
 required_capabilities: [wiki.corpus]
 side_effect: draft
+user_input_mode: prompt_only
 planner_eligible: true

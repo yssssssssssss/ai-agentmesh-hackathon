@@ -110,6 +110,7 @@ from agentmesh.models import (
     Scope,
     SkillCandidate,
     SkillDefinition,
+    SkillInputRequestStatus,
     SkillIntent,
     SkillIntentComplexity,
     SkillMemoryWritePolicy,
@@ -145,6 +146,10 @@ from agentmesh.skill_runtime.executor import (
     PlanExecutionConflict,
     PlanExecutionOutcome,
     skill_node_timeout_seconds,
+)
+from agentmesh.skill_runtime.input_preflight import (
+    SkillInputPreflightError,
+    SkillInputPreflightService,
 )
 from agentmesh.skill_runtime.plan_validation import PlanValidationError, build_plan, validate_draft
 from agentmesh.skill_runtime.planner import (
@@ -1072,6 +1077,7 @@ class AgentRuntimeService:
     ):
         self.repository = repository
         self.memory_context = MemoryContextService(repository)
+        self.input_preflight = SkillInputPreflightService(repository)
         self._process_epoch = new_id("process_epoch")
         self._model = model
         self._enabled_override = enabled
@@ -1852,7 +1858,7 @@ Follow the activated Skill for this request, subject to the platform rules above
     def new_dispatch_receipt(
         self,
         run_id: str,
-        operation_kind: Literal["approved_plan", "approval_resume"],
+        operation_kind: Literal["standard_direct", "approved_plan", "approval_resume"],
         *,
         generation: int = 1,
     ) -> RunDispatchReceiptV1:
@@ -1973,6 +1979,14 @@ Follow the activated Skill for this request, subject to the platform rules above
             created_at=created_at,
             updated_at=created_at,
         )
+        input_request = None
+        if skill is not None and planning_mode is AgentPlanningMode.STANDARD:
+            input_request = self.input_preflight.compile_for_skill(run=run, skill=skill)
+            if input_request is not None and input_request.status is SkillInputRequestStatus.OPEN:
+                run.status = AgentRunStatus.WAITING_INPUT
+                run.deadline_at = None
+                run.interaction_expires_at = input_request.expires_at
+                dispatch_kind = None
         dispatch = (
             RunDispatchReceiptV1(
                 operation_key=self._dispatch_operation_key(run.id, dispatch_kind),
@@ -1991,8 +2005,9 @@ Follow the activated Skill for this request, subject to the platform rules above
             run, created = self.repository.claim_new_agent_run(
                 run,
                 dispatch=dispatch,
+                input_request=input_request,
             )
-            if created and dispatch is None:
+            if created and dispatch is None and input_request is None:
                 self.repository.append_agent_run_event(
                     run.id,
                     "run_started",
@@ -2243,6 +2258,10 @@ Follow the activated Skill for this request, subject to the platform rules above
         try:
             if created:
                 self._ensure_run_user_message(run)
+            if run.status is AgentRunStatus.WAITING_INPUT:
+                if capacity_created:
+                    self.capacity.release_run(capacity_key)
+                return run
             dispatch = self._claim_dispatch(run.id, "standard_direct")
         except BaseException:
             if capacity_created:
@@ -2268,6 +2287,117 @@ Follow the activated Skill for this request, subject to the platform rules above
         task.add_done_callback(
             lambda completed, run_id=run.id, operation_key=dispatch.operation_key: self._finish_background_task(
                 run_id,
+                completed,
+                dispatch_operation_key=operation_key,
+                capacity_operation_key=capacity_key,
+            )
+        )
+        return run
+
+    def validate_input_resume(
+        self,
+        *,
+        run: AgentRun,
+        user: User,
+        request,
+    ) -> None:  # noqa: ANN001
+        if run.user_id != user.id or run.workspace_id != user.workspace_id:
+            raise PermissionError("Agent run is not visible")
+        if request.status is not SkillInputRequestStatus.COMPLETE:
+            raise RuntimeError("input_request_incomplete")
+        if run.plan_id is not None:
+            return
+        skill = self.repository.get_skill_definition(run.skill_id) if run.skill_id else None
+        authorized_skill = (
+            self.skill_catalog.get_by_name(run.skill_name, user.personal_agent_id)
+            if run.skill_name is not None
+            else None
+        )
+        if (
+            authorized_skill is None
+            or skill is None
+            or not skill.enabled
+            or authorized_skill.id != skill.id
+            or authorized_skill.content_hash != skill.content_hash
+        ):
+            raise PermissionError("Skill is no longer ready or authorized")
+        if not self.input_preflight.requires_preflight(authorized_skill):
+            raise RuntimeError("user_input_contract_revalidation_failed")
+        self.input_preflight.node_inputs(request, "direct", skill_id=skill.id)
+
+    async def resume_after_input(
+        self,
+        run_id: str,
+        *,
+        user: User,
+        dispatch_receipt: RunDispatchReceiptV1,
+    ) -> AgentRun:
+        run = self.repository.get_agent_run(run_id)
+        if run is None:
+            raise LookupError("Agent run not found")
+        if run.user_id != user.id or run.workspace_id != user.workspace_id:
+            raise PermissionError("Agent run is not visible")
+        if run.status is not AgentRunStatus.RUNNING:
+            return run
+        if run.plan_id is not None:
+            return await self.start_approved_skill_plan(
+                run.plan_id,
+                user=user,
+                dispatch_receipt=dispatch_receipt,
+            )
+        skill = self.repository.get_skill_definition(run.skill_id) if run.skill_id else None
+        if run.skill_name is not None:
+            authorized_skill = self.skill_catalog.get_by_name(
+                run.skill_name,
+                user.personal_agent_id,
+            )
+            if (
+                authorized_skill is None
+                or skill is None
+                or not skill.enabled
+                or authorized_skill.id != skill.id
+                or authorized_skill.content_hash != skill.content_hash
+            ):
+                raise PermissionError("Skill is no longer ready or authorized")
+            if not self.input_preflight.requires_preflight(authorized_skill):
+                raise RuntimeError("user_input_contract_revalidation_failed")
+            request = self.repository.get_skill_input_request_for_run(run.id)
+            if request is None:
+                raise RuntimeError("input_request_missing")
+            self.input_preflight.node_inputs(request, "direct", skill_id=skill.id)
+            skill = authorized_skill
+        selected = self._select_model(user)
+        if selected is None:
+            raise RuntimeError("Agent model is not configured")
+        capacity_key, capacity_created = self._claim_run_capacity(
+            user_id=run.user_id,
+            thread_id=run.thread_id,
+            client_turn_id=run.client_turn_id,
+            operation_kind="standard_direct",
+        )
+        claimed_dispatch = self._claim_dispatch(run.id, dispatch_receipt.operation_kind)
+        if claimed_dispatch is None:
+            if capacity_created:
+                self.capacity.release_run(capacity_key)
+            return run
+        self._ensure_run_user_message(run)
+        history = self.repository.list_recent_thread_messages(run.thread_id)
+        task = asyncio.create_task(
+            self._execute_run(
+                run=run,
+                selected=selected,
+                content=run.input_text,
+                user=user,
+                history=history,
+                skill=skill,
+                project_chat=True,
+            ),
+            name=f"agentmesh-run-{run.id}",
+        )
+        self._tasks[run.id] = task
+        task.add_done_callback(
+            lambda completed, operation_key=claimed_dispatch.operation_key: self._finish_background_task(
+                run.id,
                 completed,
                 dispatch_operation_key=operation_key,
                 capacity_operation_key=capacity_key,
@@ -2977,11 +3107,22 @@ Follow the activated Skill for this request, subject to the platform rules above
                 catalog=self.universal_task_catalog,
                 require_concrete_assignments=False,
             )
+            next_run_status = AgentRunStatus.WAITING_PLAN_APPROVAL
+            input_request = self.input_preflight.compile_for_plan(
+                run=run,
+                plan=plan,
+                next_run_status=next_run_status.value,
+            )
+            persisted_status = (
+                AgentRunStatus.WAITING_INPUT
+                if input_request is not None and input_request.status is SkillInputRequestStatus.OPEN
+                else next_run_status
+            )
             with self.admission.permit():
                 completed = self.repository.complete_standard_planning_skeleton(
                     plan=plan,
                     expected_version=skeleton.version,
-                    next_run_status=AgentRunStatus.WAITING_PLAN_APPROVAL,
+                    next_run_status=persisted_status,
                     events=[
                         (
                             "plan_created",
@@ -2993,10 +3134,19 @@ Follow the activated Skill for this request, subject to the platform rules above
                             },
                         )
                     ],
+                    input_request=input_request,
                 )
             if completed is None:
                 raise RuntimeError("standard_planning_completion_conflict")
-            persisted_plan, _persisted_run = completed
+            persisted_plan, persisted_run = completed
+            if persisted_run.status is AgentRunStatus.WAITING_INPUT:
+                return RuntimeAnswer(
+                    content="执行前需要补充资料。",
+                    llm_used=True,
+                    requested_model=selected.requested_model,
+                    actual_model=selected.actual_model,
+                    run_id=run.id,
+                )
             self.repository.append_agent_run_event(
                 run.id,
                 "plan_waiting_approval",
@@ -3021,6 +3171,8 @@ Follow the activated Skill for this request, subject to the platform rules above
                         if str(error) == "planner_context_budget_exceeded"
                         else "planner_coverage_unresolved"
                         if isinstance(error, PlanValidationError)
+                        else error.code
+                        if isinstance(error, SkillInputPreflightError)
                         else "planner_schema_invalid"
                     ),
                 )
@@ -3241,17 +3393,43 @@ Follow the activated Skill for this request, subject to the platform rules above
                 )
                 if item
             ) or None
-            self.repository.save_skill_plan(plan)
             run.plan_id = plan.id
-            run.status = AgentRunStatus.WAITING_PLAN_APPROVAL if waiting else AgentRunStatus.RUNNING
-            created_event = self.repository.save_agent_run_with_event(
-                run,
-                "plan_created",
-                {"plan_id": plan.id, "version": plan.version, "node_count": len(plan.nodes)},
-                expected_statuses={AgentRunStatus.PLANNING},
+            next_run_status = (
+                AgentRunStatus.WAITING_PLAN_APPROVAL if waiting else AgentRunStatus.RUNNING
             )
-            if created_event is None:
+            input_request = self.input_preflight.compile_for_plan(
+                run=run,
+                plan=plan,
+                next_run_status=next_run_status.value,
+            )
+            run.status = (
+                AgentRunStatus.WAITING_INPUT
+                if input_request is not None and input_request.status is SkillInputRequestStatus.OPEN
+                else next_run_status
+            )
+            transition = self.repository.save_standard_plan_and_run(
+                plan=plan,
+                run=run,
+                expected_run_status=AgentRunStatus.PLANNING,
+                event_type="plan_created",
+                event_payload={
+                    "plan_id": plan.id,
+                    "version": plan.version,
+                    "node_count": len(plan.nodes),
+                },
+                input_request=input_request,
+            )
+            if transition is None:
                 raise RuntimeError("Agent run changed while the Skill plan was being created")
+            plan, run = transition
+            if run.status is AgentRunStatus.WAITING_INPUT:
+                return RuntimeAnswer(
+                    content="执行前需要补充资料。",
+                    llm_used=True,
+                    requested_model=selected.requested_model,
+                    actual_model=selected.actual_model,
+                    run_id=run.id,
+                )
             if waiting:
                 self.repository.append_agent_run_event(
                     run.id,
@@ -3310,7 +3488,9 @@ Follow the activated Skill for this request, subject to the platform rules above
             }:
                 current.status = AgentRunStatus.FAILED
                 current.error_code = (
-                    str(error)
+                    error.code
+                    if isinstance(error, SkillInputPreflightError)
+                    else str(error)
                     if isinstance(error, PlannerUnavailable)
                     and str(error)
                     in {
@@ -4272,11 +4452,25 @@ Follow the activated Skill for this request, subject to the platform rules above
             if scenario is not None
             else []
         )
+        input_request = self.repository.get_skill_input_request_for_run(run.id)
+        if input_request is None:
+            if self.input_preflight.requires_preflight(skill):
+                raise RuntimeError("input_request_missing")
+            user_inputs = {}
+        elif input_request.status is not SkillInputRequestStatus.COMPLETE:
+            raise RuntimeError("input_request_incomplete")
+        else:
+            user_inputs = self.input_preflight.node_inputs(
+                input_request,
+                node.id,
+                skill_id=skill.id,
+            )
         node_prompt = {
             "goal": plan.intent.goal,
             "node_id": node.id,
             "skill_id": skill.id,
             "input_bindings": node.input_bindings,
+            "user_inputs": user_inputs,
             "output_contract": node.output_contract,
             "expected_scenario_outputs": expected_scenario_outputs,
             "completion_criteria": node.completion_criteria,
@@ -4928,6 +5122,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                         AgentRunStatus.REJECTED,
                         AgentRunStatus.CANCELLED,
                         AgentRunStatus.WAITING_CLARIFICATION,
+                        AgentRunStatus.WAITING_INPUT,
                         AgentRunStatus.WAITING_PLAN_APPROVAL,
                         AgentRunStatus.WAITING_APPROVAL,
                     }:
@@ -5103,6 +5298,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                     continue
                 if run.status in {
                     AgentRunStatus.WAITING_CLARIFICATION,
+                    AgentRunStatus.WAITING_INPUT,
                     AgentRunStatus.WAITING_PLAN_APPROVAL,
                     AgentRunStatus.WAITING_APPROVAL,
                 }:
@@ -5260,6 +5456,33 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
     ) -> RuntimeAnswer:
         if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
             raise RuntimeError("deepsearch_standard_execution_forbidden")
+        direct_user_inputs: dict[str, object] = {}
+        input_request = self.repository.get_skill_input_request_for_run(run.id)
+        requires_preflight = bool(skill and self.input_preflight.requires_preflight(skill))
+        if requires_preflight and input_request is None:
+            raise RuntimeError("input_request_missing")
+        if input_request is not None:
+            if input_request.status is not SkillInputRequestStatus.COMPLETE:
+                raise RuntimeError("input_request_incomplete")
+            if skill is None or run.skill_name is None:
+                raise RuntimeError("input_skill_missing")
+            authorized_skill = self.skill_catalog.get_by_name(
+                run.skill_name,
+                user.personal_agent_id,
+            )
+            if (
+                authorized_skill is None
+                or not skill.enabled
+                or authorized_skill.id != skill.id
+                or authorized_skill.content_hash != skill.content_hash
+            ):
+                raise PermissionError("Skill is no longer ready or authorized")
+            direct_user_inputs = self.input_preflight.node_inputs(
+                input_request,
+                "direct",
+                skill_id=skill.id,
+            )
+            skill = authorized_skill
         context = AgentMeshRunContext(
             user_id=user.id,
             workspace_id=run.workspace_id,
@@ -5318,9 +5541,18 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
                         reason="automatic_run_context",
                     )
                     context.memory_use_receipt_ids = list(memory_bundle.receipt_ids)
+                execution_content = content
+                if direct_user_inputs:
+                    execution_content = json.dumps(
+                        {
+                            "user_request": content,
+                            "user_inputs": direct_user_inputs,
+                        },
+                        ensure_ascii=False,
+                    )
                 result = await self._run_streamed(
                     agent,
-                    content,
+                    execution_content,
                     context=context,
                     run=run,
                     session=session,

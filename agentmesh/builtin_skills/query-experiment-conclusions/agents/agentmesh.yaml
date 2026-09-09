@@ -17,4 +17,5 @@ negative_examples:
   - 生成新的产品方案
 required_capabilities: [wiki.experiments]
 side_effect: read
+user_input_mode: prompt_only
 planner_eligible: true
