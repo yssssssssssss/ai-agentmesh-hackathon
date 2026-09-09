@@ -21,4 +21,6 @@ archetypes: [measurement, validation]
 required_resources: [wiki.corpus]
 report_policy: on_request
 side_effect: draft
+user_input_mode: preflight
+user_input_schema_ref: user-input.schema.json
 planner_eligible: true

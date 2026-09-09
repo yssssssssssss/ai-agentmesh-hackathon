@@ -31,6 +31,11 @@ from agentmesh.deepsearch.budget import (
     DeepSearchBudgetMutationResult,
     DeepSearchBudgetScope,
 )
+from agentmesh.input_adapters import (
+    MAX_RUN_INPUT_ARTIFACTS,
+    MAX_RUN_INPUT_TOTAL_BYTES,
+    MAX_RUN_NORMALIZED_INPUT_CHARS,
+)
 from agentmesh.memory_context.contracts import (
     MemoryCitationRequestV1,
     MemoryUseAuthorizationV1,
@@ -106,6 +111,8 @@ from agentmesh.models import (
     RiskPolicyRule,
     RunDispatchReceiptV1,
     RunDispatchState,
+    RunInputArtifactStatus,
+    RunInputArtifactV1,
     RunOutputProjectionReceiptV1,
     RuntimeToolCallClaimV1,
     RuntimeToolCallOutcomeV1,
@@ -116,6 +123,9 @@ from agentmesh.models import (
     SkillBinding,
     SkillCapabilityProfile,
     SkillDefinition,
+    SkillInputFieldStatus,
+    SkillInputRequestStatus,
+    SkillInputRequestV1,
     SkillNodeResult,
     SkillOrchestrationRequestMode,
     SkillPackage,
@@ -198,6 +208,15 @@ class RuntimeToolCallConflict(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+class SkillInputRequestConflict(RuntimeError):
+    """A stable Skill input request idempotency or CAS conflict."""
+
+    def __init__(self, code: str, *, current_version: int | None = None):
+        super().__init__(code)
+        self.code = code
+        self.current_version = current_version
 
 
 class DeepSearchRequirementConflict(ResearchStoreConflict):
@@ -1072,6 +1091,51 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS idx_agent_runs_project_updated
             ON agent_runs(json_extract(payload, '$.project_id'), updated_at DESC, id DESC)
             """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS skill_input_requests (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skill_input_requests_status "
+            "ON skill_input_requests(status, updated_at)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS run_input_artifacts (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                field_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                media_type TEXT NOT NULL,
+                byte_size INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                original_content BLOB NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+            )
+            """
+        )
+        SQLiteStore._ensure_column(
+            connection,
+            "run_input_artifacts",
+            "byte_size",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_run_input_artifacts_run_field "
+            "ON run_input_artifacts(run_id, field_id, created_at)"
         )
         connection.execute(
             """
@@ -2719,7 +2783,7 @@ class SQLiteStore:
                     """
                     SELECT 1 FROM agent_runs
                     WHERE task_id = ?
-                      AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?)
+                      AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?, ?)
                     LIMIT 1
                     """,
                     (
@@ -2727,6 +2791,7 @@ class SQLiteStore:
                         AgentRunStatus.CREATED.value,
                         AgentRunStatus.PLANNING.value,
                         AgentRunStatus.WAITING_CLARIFICATION.value,
+                        AgentRunStatus.WAITING_INPUT.value,
                         AgentRunStatus.RUNNING.value,
                         AgentRunStatus.WAITING_PLAN_APPROVAL.value,
                         AgentRunStatus.WAITING_APPROVAL.value,
@@ -6609,6 +6674,30 @@ class SQLiteStore:
             "external_outcome_unknown" if unknown_write else error_code
         )
         run.updated_at = cancelled_at
+        input_request_row = connection.execute(
+            "SELECT payload FROM skill_input_requests WHERE run_id = ?",
+            (run.id,),
+        ).fetchone()
+        if input_request_row is not None:
+            input_request = SkillInputRequestV1.model_validate_json(input_request_row["payload"])
+            if input_request.status is SkillInputRequestStatus.OPEN:
+                input_request.status = SkillInputRequestStatus.CANCELLED
+                input_request.version += 1
+                input_request.updated_at = cancelled_at
+                connection.execute(
+                    """
+                    UPDATE skill_input_requests
+                    SET status = ?, version = ?, payload = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        input_request.status.value,
+                        input_request.version,
+                        input_request.model_dump_json(),
+                        cancelled_at.isoformat(),
+                        input_request.id,
+                    ),
+                )
         connection.execute(
             "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
             (run.model_dump_json(), cancelled_at.isoformat(), run.id),
@@ -6703,12 +6792,14 @@ class SQLiteStore:
         expected_version: int,
         next_run_status: AgentRunStatus,
         events: list[tuple[str, dict[str, object]]],
+        input_request: SkillInputRequestV1 | None = None,
     ) -> tuple[SkillPlan, AgentRun] | None:
         if (
             plan.status not in {SkillPlanStatus.WAITING_APPROVAL, SkillPlanStatus.APPROVED}
             or plan.candidate_snapshot is None
             or not plan.nodes
             or next_run_status not in {
+                AgentRunStatus.WAITING_INPUT,
                 AgentRunStatus.WAITING_PLAN_APPROVAL,
                 AgentRunStatus.RUNNING,
             }
@@ -6744,12 +6835,29 @@ class SQLiteStore:
             plan.updated_at = now_utc()
             self._write_skill_plan(connection, plan)
             run.status = next_run_status
+            if input_request is not None and (
+                input_request.run_id != run.id
+                or input_request.plan_id != plan.id
+                or (
+                    input_request.status is SkillInputRequestStatus.OPEN
+                    and next_run_status is not AgentRunStatus.WAITING_INPUT
+                )
+                or (
+                    input_request.status is SkillInputRequestStatus.COMPLETE
+                    and next_run_status is AgentRunStatus.WAITING_INPUT
+                )
+            ):
+                raise ResearchStoreConflict("input_request_initial_state_invalid")
             run.updated_at = plan.updated_at
             connection.execute(
                 "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
                 (run.model_dump_json(), run.updated_at.isoformat(), run.id),
             )
             self._append_agent_run_events(connection, run.id, events)
+            if input_request is not None:
+                input_request.created_at = plan.updated_at
+                input_request.updated_at = plan.updated_at
+                self._insert_skill_input_request_in_transaction(connection, input_request)
             return plan, run
 
     def fail_standard_planning_skeleton(
@@ -6799,6 +6907,67 @@ class SQLiteStore:
             )
             return plan, run
 
+    def save_standard_plan_and_run(
+        self,
+        *,
+        plan: SkillPlan,
+        run: AgentRun,
+        expected_run_status: AgentRunStatus,
+        event_type: str,
+        event_payload: dict[str, object],
+        input_request: SkillInputRequestV1 | None = None,
+    ) -> tuple[SkillPlan, AgentRun] | None:
+        if plan.planning_mode is not AgentPlanningMode.STANDARD or plan.run_id != run.id:
+            raise ResearchStoreConflict("standard_plan_identity_invalid")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run.id,),
+            ).fetchone()
+            existing_plan = connection.execute(
+                "SELECT id FROM skill_plans WHERE id = ? OR run_id = ?",
+                (plan.id, run.id),
+            ).fetchone()
+            if run_row is None or existing_plan is not None:
+                return None
+            current_run = self._decode_agent_run_row(run_row)
+            if (
+                self._is_retired_research_run(current_run, run_row["orchestration_version"])
+                or current_run.status is not expected_run_status
+                or run.plan_id != plan.id
+            ):
+                return None
+            self._require_agent_run_creation_identity(current_run, run)
+            run.tool_call_count = max(run.tool_call_count, current_run.tool_call_count)
+            if input_request is not None and (
+                input_request.run_id != run.id
+                or input_request.plan_id != plan.id
+                or (
+                    input_request.status is SkillInputRequestStatus.OPEN
+                    and run.status is not AgentRunStatus.WAITING_INPUT
+                )
+                or (
+                    input_request.status is SkillInputRequestStatus.COMPLETE
+                    and run.status is AgentRunStatus.WAITING_INPUT
+                )
+            ):
+                raise ResearchStoreConflict("input_request_initial_state_invalid")
+            now = now_utc()
+            plan.updated_at = now
+            run.updated_at = now
+            self._write_skill_plan(connection, plan)
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            self._append_agent_run_events(connection, run.id, [(event_type, event_payload)])
+            if input_request is not None:
+                input_request.created_at = now
+                input_request.updated_at = now
+                self._insert_skill_input_request_in_transaction(connection, input_request)
+        return plan, run
+
     def save_skill_plan(self, plan: SkillPlan) -> SkillPlan:
         if plan.planning_mode is AgentPlanningMode.DEEPSEARCH:
             raise ResearchStoreConflict("DeepSearch Plans require dedicated persistence methods")
@@ -6830,6 +6999,7 @@ class SQLiteStore:
         *,
         expected_version: int,
         events: list[tuple[str, dict[str, object]]] | None = None,
+        input_request: SkillInputRequestV1 | None = None,
     ) -> bool:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -6862,7 +7032,57 @@ class SQLiteStore:
             plan.version = expected_version + 1
             plan.updated_at = now_utc()
             self._write_skill_plan(connection, plan)
-            self._append_agent_run_events(connection, plan.run_id, events or [])
+            transition_events = list(events or [])
+            if input_request is not None:
+                if input_request.run_id != run.id or input_request.plan_id != plan.id:
+                    raise ResearchStoreConflict("input_request_plan_identity_invalid")
+                existing_request_row = connection.execute(
+                    "SELECT payload FROM skill_input_requests WHERE run_id = ?",
+                    (run.id,),
+                ).fetchone()
+                if existing_request_row is None:
+                    if input_request.version != 1:
+                        raise ResearchStoreConflict("input_request_version_invalid")
+                    self._insert_skill_input_request_in_transaction(connection, input_request)
+                else:
+                    previous = SkillInputRequestV1.model_validate_json(existing_request_row["payload"])
+                    if input_request.id != previous.id or input_request.version != previous.version + 1:
+                        raise ResearchStoreConflict("input_request_version_invalid")
+                    connection.execute(
+                        """
+                        UPDATE skill_input_requests
+                        SET status = ?, version = ?, payload = ?, updated_at = ?
+                        WHERE id = ? AND version = ?
+                        """,
+                        (
+                            input_request.status.value,
+                            input_request.version,
+                            input_request.model_dump_json(),
+                            input_request.updated_at.isoformat(),
+                            input_request.id,
+                            previous.version,
+                        ),
+                    )
+                    transition_events.append(
+                        (
+                            "input_recompiled",
+                            {
+                                "input_request_id": input_request.id,
+                                "version": input_request.version,
+                                "missing_required_count": len(input_request.missing_required_field_ids),
+                            },
+                        )
+                    )
+                if input_request.status is SkillInputRequestStatus.OPEN:
+                    run.status = AgentRunStatus.WAITING_INPUT
+                    run.interaction_expires_at = input_request.expires_at
+                    run.deadline_at = None
+                    run.updated_at = input_request.updated_at
+                    connection.execute(
+                        "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                        (run.model_dump_json(), run.updated_at.isoformat(), run.id),
+                    )
+            self._append_agent_run_events(connection, plan.run_id, transition_events)
         return True
 
     def transition_skill_plan_and_run(
@@ -11300,6 +11520,7 @@ class SQLiteStore:
                 AgentRunStatus.CREATED,
                 AgentRunStatus.PLANNING,
                 AgentRunStatus.WAITING_CLARIFICATION,
+                AgentRunStatus.WAITING_INPUT,
                 AgentRunStatus.RUNNING,
                 AgentRunStatus.WAITING_PLAN_APPROVAL,
                 AgentRunStatus.WAITING_APPROVAL,
@@ -11358,6 +11579,499 @@ class SQLiteStore:
                 run,
                 stored_version=run_row["orchestration_version"],
                 reason="approval_expired",
+            )
+        return True
+
+    @staticmethod
+    def _insert_skill_input_request_in_transaction(
+        connection: sqlite3.Connection,
+        request: SkillInputRequestV1,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO skill_input_requests(id, run_id, status, version, payload, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                request.id,
+                request.run_id,
+                request.status.value,
+                request.version,
+                request.model_dump_json(),
+                request.updated_at.isoformat(),
+            ),
+        )
+        SQLiteStore._append_agent_run_events(
+            connection,
+            request.run_id,
+            [
+                (
+                    "input_requested" if request.status is SkillInputRequestStatus.OPEN else "input_ready",
+                    {
+                        "input_request_id": request.id,
+                        "version": request.version,
+                        "missing_required_count": len(request.missing_required_field_ids),
+                    },
+                )
+            ],
+        )
+
+    def get_skill_input_request_for_run(self, run_id: str) -> SkillInputRequestV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM skill_input_requests WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        return SkillInputRequestV1.model_validate_json(row["payload"]) if row is not None else None
+
+    def expire_skill_input_request_if_needed(
+        self,
+        run_id: str,
+        *,
+        user_id: str,
+        checked_at: datetime | None = None,
+    ) -> AgentRun | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            request_row = connection.execute(
+                "SELECT payload FROM skill_input_requests WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            run = self._decode_agent_run_row(run_row)
+            if request_row is None:
+                return run
+            request = SkillInputRequestV1.model_validate_json(request_row["payload"])
+            now = checked_at or now_utc()
+            if (
+                run.user_id != user_id
+                or run.status is not AgentRunStatus.WAITING_INPUT
+                or request.status is not SkillInputRequestStatus.OPEN
+                or now < request.expires_at
+            ):
+                return run
+            request.status = SkillInputRequestStatus.EXPIRED
+            request.version += 1
+            request.updated_at = now
+            connection.execute(
+                """
+                UPDATE skill_input_requests
+                SET status = ?, version = ?, payload = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    request.status.value,
+                    request.version,
+                    request.model_dump_json(),
+                    now.isoformat(),
+                    request.id,
+                ),
+            )
+            return self._cancel_agent_run_tree_in_transaction(
+                connection,
+                run,
+                stored_version=run_row["orchestration_version"],
+                reason="input_request_expired",
+                error_code="input_request_expired",
+                cancelled_at=now,
+            )
+
+    def create_skill_input_request(
+        self,
+        request: SkillInputRequestV1,
+        *,
+        expected_run_statuses: set[AgentRunStatus],
+    ) -> tuple[SkillInputRequestV1, AgentRun] | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT payload FROM skill_input_requests WHERE run_id = ?",
+                (request.run_id,),
+            ).fetchone()
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (request.run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            run = self._decode_agent_run_row(run_row)
+            if existing is not None:
+                return SkillInputRequestV1.model_validate_json(existing["payload"]), run
+            if (
+                self._is_retired_research_run(run, run_row["orchestration_version"])
+                or run.planning_mode is AgentPlanningMode.DEEPSEARCH
+                or run.status not in expected_run_statuses
+                or request.plan_id != run.plan_id
+            ):
+                return None
+            now = now_utc()
+            request.created_at = now
+            request.updated_at = now
+            if request.status is SkillInputRequestStatus.OPEN:
+                run.status = AgentRunStatus.WAITING_INPUT
+                run.interaction_expires_at = request.expires_at
+                run.deadline_at = None
+            elif request.status is SkillInputRequestStatus.COMPLETE:
+                run.status = AgentRunStatus(request.next_run_status)
+                run.interaction_expires_at = None
+            else:
+                raise SkillInputRequestConflict("input_request_state_invalid")
+            run.updated_at = now
+            self._insert_skill_input_request_in_transaction(connection, request)
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+        return request, run
+
+    def update_skill_input_request(
+        self,
+        request: SkillInputRequestV1,
+        *,
+        expected_version: int,
+        dispatch: RunDispatchReceiptV1 | None = None,
+    ) -> tuple[SkillInputRequestV1, AgentRun, bool]:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            request_row = connection.execute(
+                "SELECT payload FROM skill_input_requests WHERE run_id = ?",
+                (request.run_id,),
+            ).fetchone()
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (request.run_id,),
+            ).fetchone()
+            if request_row is None or run_row is None:
+                raise SkillInputRequestConflict("input_request_not_found")
+            current = SkillInputRequestV1.model_validate_json(request_row["payload"])
+            run = self._decode_agent_run_row(run_row)
+            if current.last_command_id == request.last_command_id and current.last_command_id is not None:
+                if current.last_payload_hash != request.last_payload_hash:
+                    raise SkillInputRequestConflict(
+                        "input_submission_idempotency_conflict",
+                        current_version=current.version,
+                    )
+                return current, run, True
+            if current.version != expected_version:
+                raise SkillInputRequestConflict(
+                    "input_request_version_conflict",
+                    current_version=current.version,
+                )
+            if (
+                self._is_retired_research_run(run, run_row["orchestration_version"])
+                or run.planning_mode is AgentPlanningMode.DEEPSEARCH
+                or run.status is not AgentRunStatus.WAITING_INPUT
+                or current.status is not SkillInputRequestStatus.OPEN
+                or request.id != current.id
+                or request.plan_id != current.plan_id
+                or request.contract_snapshots != current.contract_snapshots
+                or request.version != expected_version + 1
+            ):
+                raise SkillInputRequestConflict(
+                    "input_request_state_conflict",
+                    current_version=current.version,
+                )
+            artifacts = {
+                binding.value_ref: binding
+                for binding in request.frozen_bindings
+                if binding.value_kind == "artifact"
+            }
+            for artifact_id, binding in artifacts.items():
+                artifact_row = connection.execute(
+                    "SELECT payload FROM run_input_artifacts WHERE id = ? AND run_id = ?",
+                    (artifact_id, run.id),
+                ).fetchone()
+                if artifact_row is None:
+                    raise SkillInputRequestConflict("input_artifact_not_found")
+                artifact = RunInputArtifactV1.model_validate_json(artifact_row["payload"])
+                expected_field_id = next(
+                    (
+                        field.id
+                        for field in request.fields
+                        if field.node_id == binding.node_id and field.field_id == binding.field_id
+                    ),
+                    None,
+                )
+                if (
+                    artifact.status is not RunInputArtifactStatus.READY
+                    or artifact.field_id != expected_field_id
+                    or artifact.content_hash != binding.content_hash
+                    or artifact.user_id != run.user_id
+                    or artifact.workspace_id != run.workspace_id
+                    or artifact.project_id != run.project_id
+                ):
+                    raise SkillInputRequestConflict("input_artifact_binding_invalid")
+            now = now_utc()
+            request.updated_at = now
+            if request.status is SkillInputRequestStatus.COMPLETE:
+                run.status = AgentRunStatus(request.next_run_status)
+                run.interaction_expires_at = None
+                if run.status is AgentRunStatus.RUNNING:
+                    run.deadline_at = now + timedelta(minutes=15)
+                event_type = "input_completed"
+            elif request.status is SkillInputRequestStatus.OPEN:
+                run.status = AgentRunStatus.WAITING_INPUT
+                run.interaction_expires_at = request.expires_at
+                event_type = "input_updated"
+            else:
+                raise SkillInputRequestConflict("input_request_state_invalid")
+            run.updated_at = now
+            connection.execute(
+                """
+                UPDATE skill_input_requests
+                SET status = ?, version = ?, payload = ?, updated_at = ?
+                WHERE id = ? AND version = ?
+                """,
+                (
+                    request.status.value,
+                    request.version,
+                    request.model_dump_json(),
+                    now.isoformat(),
+                    request.id,
+                    expected_version,
+                ),
+            )
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            if dispatch is not None:
+                if request.status is not SkillInputRequestStatus.COMPLETE or run.status is not AgentRunStatus.RUNNING:
+                    raise SkillInputRequestConflict("input_dispatch_state_invalid")
+                if dispatch.run_id != run.id:
+                    raise SkillInputRequestConflict("input_dispatch_identity_invalid")
+                self._settle_active_run_dispatches_for_handoff(
+                    connection,
+                    run_id=run.id,
+                    next_operation_key=dispatch.operation_key,
+                    settled_at=now,
+                )
+                self._insert_run_dispatch_in_transaction(connection, dispatch)
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        event_type,
+                        {
+                            "input_request_id": request.id,
+                            "version": request.version,
+                            "missing_required_count": len(request.missing_required_field_ids),
+                            "binding_count": len(request.frozen_bindings),
+                        },
+                    )
+                ],
+            )
+        return request, run, False
+
+    def save_run_input_artifact(
+        self,
+        artifact: RunInputArtifactV1,
+        original_content: bytes,
+        *,
+        expected_request_version: int,
+    ) -> RunInputArtifactV1:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (artifact.run_id,),
+            ).fetchone()
+            request_row = connection.execute(
+                "SELECT payload FROM skill_input_requests WHERE run_id = ?",
+                (artifact.run_id,),
+            ).fetchone()
+            if run_row is None or request_row is None:
+                raise SkillInputRequestConflict("input_request_not_found")
+            run = self._decode_agent_run_row(run_row)
+            request = SkillInputRequestV1.model_validate_json(request_row["payload"])
+            field = next((item for item in request.fields if item.id == artifact.field_id), None)
+            if (
+                self._is_retired_research_run(run, run_row["orchestration_version"])
+                or run.status is not AgentRunStatus.WAITING_INPUT
+                or request.status is not SkillInputRequestStatus.OPEN
+                or request.version != expected_request_version
+                or field is None
+                or field.value_kind != "artifact"
+                or (
+                    artifact.status is RunInputArtifactStatus.READY
+                    and artifact.media_type not in field.accepted_media_types
+                )
+                or artifact.user_id != run.user_id
+                or artifact.workspace_id != run.workspace_id
+                or artifact.project_id != run.project_id
+                or artifact.byte_size != len(original_content)
+                or artifact.content_hash != hashlib.sha256(original_content).hexdigest()
+            ):
+                raise SkillInputRequestConflict(
+                    "input_artifact_upload_invalid",
+                    current_version=request.version,
+                )
+            aggregate = connection.execute(
+                "SELECT COUNT(*), COALESCE(SUM(byte_size), 0) FROM run_input_artifacts WHERE run_id = ?",
+                (run.id,),
+            ).fetchone()
+            artifact_count = int(aggregate[0])
+            total_bytes = int(aggregate[1])
+            field_count = connection.execute(
+                "SELECT COUNT(*) FROM run_input_artifacts WHERE run_id = ? AND field_id = ?",
+                (run.id, artifact.field_id),
+            ).fetchone()[0]
+            field_limit = field.max_items or (20 if field.multiple else 1)
+            if artifact_count >= MAX_RUN_INPUT_ARTIFACTS or total_bytes + artifact.byte_size > MAX_RUN_INPUT_TOTAL_BYTES:
+                raise SkillInputRequestConflict(
+                    "input_run_quota_exceeded",
+                    current_version=request.version,
+                )
+            if field_count >= field_limit:
+                raise SkillInputRequestConflict(
+                    "input_artifact_count_invalid",
+                    current_version=request.version,
+                )
+            if artifact.status is RunInputArtifactStatus.READY:
+                existing_rows = connection.execute(
+                    "SELECT payload FROM run_input_artifacts WHERE run_id = ?",
+                    (run.id,),
+                ).fetchall()
+                normalized_chars = len(artifact.normalized_text or "") + sum(
+                    len(RunInputArtifactV1.model_validate_json(row["payload"]).normalized_text or "")
+                    for row in existing_rows
+                )
+                if normalized_chars > MAX_RUN_NORMALIZED_INPUT_CHARS:
+                    raise SkillInputRequestConflict(
+                        "input_content_too_large",
+                        current_version=request.version,
+                    )
+            connection.execute(
+                """
+                INSERT INTO run_input_artifacts(
+                    id, run_id, field_id, status, media_type, byte_size, content_hash,
+                    payload, original_content, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    artifact.id,
+                    artifact.run_id,
+                    artifact.field_id,
+                    artifact.status.value,
+                    artifact.media_type,
+                    artifact.byte_size,
+                    artifact.content_hash,
+                    artifact.model_dump_json(),
+                    original_content,
+                    artifact.created_at.isoformat(),
+                    artifact.updated_at.isoformat(),
+                ),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "input_artifact_uploaded",
+                        {
+                            "input_request_id": request.id,
+                            "artifact_id": artifact.id,
+                            "field_id": artifact.field_id,
+                            "status": artifact.status.value,
+                            "content_hash": artifact.content_hash,
+                        },
+                    )
+                ],
+            )
+        return artifact
+
+    def get_run_input_artifact(self, artifact_id: str) -> RunInputArtifactV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM run_input_artifacts WHERE id = ?",
+                (artifact_id,),
+            ).fetchone()
+        return RunInputArtifactV1.model_validate_json(row["payload"]) if row is not None else None
+
+    def list_run_input_artifacts(self, run_id: str) -> list[RunInputArtifactV1]:
+        with self._read_connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM run_input_artifacts WHERE run_id = ? ORDER BY created_at, id",
+                (run_id,),
+            ).fetchall()
+        return [RunInputArtifactV1.model_validate_json(row["payload"]) for row in rows]
+
+    def delete_run_input_artifact(
+        self,
+        artifact_id: str,
+        *,
+        run_id: str,
+        user_id: str,
+    ) -> bool:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            request_row = connection.execute(
+                "SELECT payload FROM skill_input_requests WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            artifact_row = connection.execute(
+                "SELECT payload FROM run_input_artifacts WHERE id = ? AND run_id = ?",
+                (artifact_id, run_id),
+            ).fetchone()
+            if run_row is None or request_row is None or artifact_row is None:
+                return False
+            run = AgentRun.model_validate_json(run_row["payload"])
+            request = SkillInputRequestV1.model_validate_json(request_row["payload"])
+            artifact = RunInputArtifactV1.model_validate_json(artifact_row["payload"])
+            if (
+                run.user_id != user_id
+                or run.status is not AgentRunStatus.WAITING_INPUT
+                or request.status is not SkillInputRequestStatus.OPEN
+                or artifact.id in {binding.value_ref for binding in request.frozen_bindings}
+            ):
+                return False
+            connection.execute("DELETE FROM run_input_artifacts WHERE id = ?", (artifact.id,))
+            updated_fields = []
+            for current_field in request.fields:
+                field = current_field.model_copy(deep=True)
+                if field.id == artifact.field_id:
+                    field.artifact_ids = [item for item in field.artifact_ids if item != artifact.id]
+                    minimum = field.min_items if field.min_items is not None else (1 if field.required else 0)
+                    if len(field.artifact_ids) < minimum:
+                        field.status = SkillInputFieldStatus.MISSING
+                        field.error_codes = []
+                updated_fields.append(field)
+            request.fields = updated_fields
+            request.missing_required_field_ids = [
+                field.id
+                for field in request.fields
+                if field.required and field.status is not SkillInputFieldStatus.SATISFIED
+            ]
+            request.version += 1
+            request.updated_at = now_utc()
+            connection.execute(
+                """
+                UPDATE skill_input_requests
+                SET status = ?, version = ?, payload = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    request.status.value,
+                    request.version,
+                    request.model_dump_json(),
+                    request.updated_at.isoformat(),
+                    request.id,
+                ),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [("input_artifact_deleted", {"artifact_id": artifact.id, "field_id": artifact.field_id})],
             )
         return True
 
@@ -11573,7 +12287,7 @@ class SQLiteStore:
             SELECT payload, orchestration_version FROM agent_runs
             WHERE json_extract(payload, '$.user_id') = ?
               AND json_extract(payload, '$.thread_id') = ?
-              AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?)
+              AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run.user_id,
@@ -11581,6 +12295,7 @@ class SQLiteStore:
                 AgentRunStatus.CREATED.value,
                 AgentRunStatus.PLANNING.value,
                 AgentRunStatus.WAITING_CLARIFICATION.value,
+                AgentRunStatus.WAITING_INPUT.value,
                 AgentRunStatus.RUNNING.value,
                 AgentRunStatus.WAITING_PLAN_APPROVAL.value,
                 AgentRunStatus.WAITING_APPROVAL.value,
@@ -11608,6 +12323,47 @@ class SQLiteStore:
                     )
                     continue
                 raise RuntimeError("Another Agent run is already active for this thread")
+            if active.status is AgentRunStatus.WAITING_INPUT:
+                request_row = connection.execute(
+                    "SELECT payload FROM skill_input_requests WHERE run_id = ?",
+                    (active.id,),
+                ).fetchone()
+                request = (
+                    SkillInputRequestV1.model_validate_json(request_row["payload"])
+                    if request_row is not None
+                    else None
+                )
+                if (
+                    request is not None
+                    and request.status is SkillInputRequestStatus.OPEN
+                    and checked_at >= request.expires_at
+                ):
+                    request.status = SkillInputRequestStatus.EXPIRED
+                    request.version += 1
+                    request.updated_at = checked_at
+                    connection.execute(
+                        """
+                        UPDATE skill_input_requests
+                        SET status = ?, version = ?, payload = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            request.status.value,
+                            request.version,
+                            request.model_dump_json(),
+                            checked_at.isoformat(),
+                            request.id,
+                        ),
+                    )
+                    self._cancel_agent_run_tree_in_transaction(
+                        connection,
+                        active,
+                        stored_version=active_row["orchestration_version"],
+                        reason="input_request_expired",
+                        error_code="input_request_expired",
+                        cancelled_at=checked_at,
+                    )
+                    continue
             if (
                 active.status == AgentRunStatus.WAITING_PLAN_APPROVAL
                 and active.deadline_at is not None
@@ -11894,7 +12650,7 @@ class SQLiteStore:
             """
             SELECT 1 FROM agent_runs
             WHERE task_id = ?
-              AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?)
+              AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?, ?)
             LIMIT 1
             """,
             (
@@ -11902,6 +12658,7 @@ class SQLiteStore:
                 AgentRunStatus.CREATED.value,
                 AgentRunStatus.PLANNING.value,
                 AgentRunStatus.WAITING_CLARIFICATION.value,
+                AgentRunStatus.WAITING_INPUT.value,
                 AgentRunStatus.RUNNING.value,
                 AgentRunStatus.WAITING_PLAN_APPROVAL.value,
                 AgentRunStatus.WAITING_APPROVAL.value,
@@ -11929,6 +12686,7 @@ class SQLiteStore:
         run: AgentRun,
         *,
         dispatch: RunDispatchReceiptV1 | None = None,
+        input_request: SkillInputRequestV1 | None = None,
     ) -> tuple[AgentRun, bool]:
         if run.orchestration_version == "research-v2":
             raise ResearchStoreConflict("research-v2 writer is retired")
@@ -11937,8 +12695,21 @@ class SQLiteStore:
         self._require_new_deepsearch_run_invariants(run)
         if dispatch is not None and dispatch.run_id != run.id:
             raise ResearchStoreConflict("run_dispatch_identity_invalid")
+        if input_request is not None and (
+            input_request.run_id != run.id
+            or input_request.plan_id != run.plan_id
+            or (
+                input_request.status is SkillInputRequestStatus.OPEN
+                and (run.status is not AgentRunStatus.WAITING_INPUT or dispatch is not None)
+            )
+            or (
+                input_request.status is SkillInputRequestStatus.COMPLETE
+                and run.status is not AgentRunStatus.RUNNING
+            )
+        ):
+            raise ResearchStoreConflict("input_request_initial_state_invalid")
         if not run.client_turn_id:
-            if dispatch is None and run.task_id is None and run.retry_of_run_id is None:
+            if dispatch is None and input_request is None and run.task_id is None and run.retry_of_run_id is None:
                 return self.save_agent_run(run), True
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
@@ -11946,12 +12717,15 @@ class SQLiteStore:
                 self._require_agent_run_task_available(connection, run)
                 self._require_agent_run_thread_available(connection, run)
                 self._insert_agent_run_claim(connection, run)
-                if dispatch is not None:
+                if dispatch is not None or input_request is not None:
                     self._append_agent_run_events(
                         connection,
                         run.id,
                         [("run_started", {"skill_name": run.skill_name or ""})],
                     )
+                if input_request is not None:
+                    self._insert_skill_input_request_in_transaction(connection, input_request)
+                if dispatch is not None:
                     self._insert_run_dispatch_in_transaction(connection, dispatch)
             return run, True
         expected_hash = agent_run_create_request_hash_for_run(run)
@@ -11969,12 +12743,15 @@ class SQLiteStore:
             self._require_agent_run_task_available(connection, run)
             self._require_agent_run_thread_available(connection, run)
             self._insert_agent_run_claim(connection, run)
-            if dispatch is not None:
+            if dispatch is not None or input_request is not None:
                 self._append_agent_run_events(
                     connection,
                     run.id,
                     [("run_started", {"skill_name": run.skill_name or ""})],
                 )
+            if input_request is not None:
+                self._insert_skill_input_request_in_transaction(connection, input_request)
+            if dispatch is not None:
                 self._insert_run_dispatch_in_transaction(connection, dispatch)
         return run, True
 
@@ -12338,6 +13115,7 @@ class SQLiteStore:
                     AgentRunStatus.REJECTED,
                     AgentRunStatus.CANCELLED,
                     AgentRunStatus.WAITING_CLARIFICATION,
+                    AgentRunStatus.WAITING_INPUT,
                     AgentRunStatus.WAITING_PLAN_APPROVAL,
                     AgentRunStatus.WAITING_APPROVAL,
                 }
@@ -13539,7 +14317,7 @@ class SQLiteStore:
                 """
                 SELECT 1 FROM agent_runs
                 WHERE task_id = ?
-                  AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?)
+                  AND json_extract(payload, '$.status') IN (?, ?, ?, ?, ?, ?, ?)
                 LIMIT 1
                 """,
                 (
@@ -13547,6 +14325,7 @@ class SQLiteStore:
                     AgentRunStatus.CREATED.value,
                     AgentRunStatus.PLANNING.value,
                     AgentRunStatus.WAITING_CLARIFICATION.value,
+                    AgentRunStatus.WAITING_INPUT.value,
                     AgentRunStatus.RUNNING.value,
                     AgentRunStatus.WAITING_PLAN_APPROVAL.value,
                     AgentRunStatus.WAITING_APPROVAL.value,

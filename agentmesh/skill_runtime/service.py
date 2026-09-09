@@ -288,6 +288,9 @@ class SkillCatalogService:
                     "input_kinds": profile.input_kinds,
                     "output_kinds": profile.output_kinds,
                     "side_effect": profile.side_effect.value,
+                    "user_input_mode": (
+                        profile.user_input_mode.value if profile.user_input_mode is not None else None
+                    ),
                 }
             )
         return payload

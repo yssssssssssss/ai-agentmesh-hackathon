@@ -353,6 +353,11 @@ class SkillSideEffect(StrEnum):
     EXTERNAL_WRITE = "external_write"
 
 
+class SkillUserInputMode(StrEnum):
+    PROMPT_ONLY = "prompt_only"
+    PREFLIGHT = "preflight"
+
+
 class SkillDefinition(BaseModel):
     """A parsed, versioned Agent Skills definition available to AgentMesh."""
 
@@ -424,6 +429,9 @@ class SkillCapabilityProfile(BaseModel):
     required_resources: list[str] = Field(default_factory=list)
     input_schema_ref: str | None = Field(default=None, max_length=240)
     output_schema_ref: str | None = Field(default=None, max_length=240)
+    user_input_mode: SkillUserInputMode | None = None
+    user_input_schema_ref: str | None = Field(default=None, max_length=240)
+    user_input_contract_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     produces_factual_claims: bool = False
     report_policy: Literal["never", "on_request", "default"] = "never"
     cost_level: Literal["low", "medium", "high"] = "low"
@@ -476,6 +484,7 @@ class SkillCatalogItem(BaseModel):
     input_kinds: list[str] = Field(default_factory=list)
     output_kinds: list[str] = Field(default_factory=list)
     side_effect: SkillSideEffect | None = None
+    user_input_mode: SkillUserInputMode | None = None
 
 
 class SkillCatalogResponse(BaseModel):
@@ -2890,6 +2899,7 @@ class AgentRunStatus(StrEnum):
     CREATED = "created"
     PLANNING = "planning"
     WAITING_CLARIFICATION = "waiting_clarification"
+    WAITING_INPUT = "waiting_input"
     RUNNING = "running"
     WAITING_PLAN_APPROVAL = "waiting_plan_approval"
     WAITING_APPROVAL = "waiting_approval"
@@ -2898,6 +2908,232 @@ class AgentRunStatus(StrEnum):
     FAILED = "failed"
     REJECTED = "rejected"
     CANCELLED = "cancelled"
+
+
+class SkillInputRequestStatus(StrEnum):
+    OPEN = "open"
+    COMPLETE = "complete"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+
+
+class SkillInputFieldStatus(StrEnum):
+    MISSING = "missing"
+    SATISFIED = "satisfied"
+    INVALID = "invalid"
+    PROCESSING = "processing"
+
+
+class RunInputArtifactStatus(StrEnum):
+    UPLOADED = "uploaded"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+    QUARANTINED = "quarantined"
+
+
+class SkillInputContractSnapshotV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str = Field(min_length=1, max_length=120)
+    skill_id: str = Field(min_length=1, max_length=120)
+    skill_name: str = Field(min_length=1, max_length=64)
+    skill_version: str = Field(min_length=1, max_length=40)
+    skill_content_hash: str = Field(min_length=1, max_length=128)
+    contract_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    contract: dict[str, Any]
+
+
+class SkillInputFieldV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=260)
+    node_id: str = Field(min_length=1, max_length=120)
+    skill_id: str = Field(min_length=1, max_length=120)
+    skill_name: str = Field(min_length=1, max_length=64)
+    field_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1000)
+    required: bool = False
+    value_kind: Literal["text", "artifact"]
+    multiple: bool = False
+    accepted_media_types: list[str] = Field(default_factory=list, max_length=8)
+    min_length: int | None = Field(default=None, ge=0, le=100_000)
+    max_length: int | None = Field(default=None, ge=1, le=100_000)
+    min_items: int | None = Field(default=None, ge=0, le=20)
+    max_items: int | None = Field(default=None, ge=1, le=20)
+    required_columns: list[str] = Field(default_factory=list, max_length=64)
+    options: list[str] = Field(default_factory=list, max_length=50)
+    text_value: str | None = Field(default=None, max_length=100_000)
+    artifact_ids: list[str] = Field(default_factory=list, max_length=20)
+    status: SkillInputFieldStatus = SkillInputFieldStatus.MISSING
+    error_codes: list[str] = Field(default_factory=list, max_length=20)
+
+
+class SkillInputBindingV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    plan_id: str | None = Field(default=None, max_length=120)
+    node_id: str = Field(min_length=1, max_length=120)
+    field_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    value_kind: Literal["text", "artifact"]
+    value_ref: str = Field(min_length=1, max_length=100_000)
+    value_version: int = Field(default=1, ge=1)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    contract_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SkillInputRequestV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: new_id("input_request"))
+    run_id: str = Field(min_length=1, max_length=120)
+    plan_id: str | None = Field(default=None, max_length=120)
+    version: int = Field(default=1, ge=1)
+    schema_version: Literal["skill-input-request-v1"] = "skill-input-request-v1"
+    status: SkillInputRequestStatus = SkillInputRequestStatus.OPEN
+    contract_snapshots: list[SkillInputContractSnapshotV1] = Field(min_length=1, max_length=20)
+    fields: list[SkillInputFieldV1] = Field(default_factory=list, max_length=200)
+    missing_required_field_ids: list[str] = Field(default_factory=list, max_length=200)
+    frozen_bindings: list[SkillInputBindingV1] = Field(default_factory=list, max_length=200)
+    last_command_id: str | None = Field(default=None, max_length=120)
+    last_payload_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    next_run_status: Literal["waiting_plan_approval", "running"]
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+    expires_at: datetime
+
+
+class RunInputArtifactV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: new_id("input_artifact"))
+    run_id: str = Field(min_length=1, max_length=120)
+    workspace_id: str = Field(min_length=1, max_length=120)
+    project_id: str = Field(min_length=1, max_length=120)
+    user_id: str = Field(min_length=1, max_length=120)
+    field_id: str = Field(min_length=1, max_length=260)
+    file_name: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(min_length=1, max_length=120)
+    byte_size: int = Field(ge=0, le=20 * 1024 * 1024)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    adapter_id: str = Field(min_length=1, max_length=80)
+    adapter_version: str = Field(min_length=1, max_length=40)
+    status: RunInputArtifactStatus
+    normalized_text: str | None = Field(default=None, max_length=100_000)
+    structured_payload: dict[str, Any] | None = None
+    error_code: str | None = Field(default=None, max_length=120)
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
+class SkillInputSubmitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_turn_id: str = Field(min_length=1, max_length=120)
+    expected_request_version: int = Field(ge=1)
+    expected_plan_version: int | None = Field(default=None, ge=1)
+    text_values: dict[str, str] = Field(default_factory=dict, max_length=200)
+    artifact_ids: dict[str, list[str]] = Field(default_factory=dict, max_length=200)
+    advance: bool = True
+
+
+class RunInputArtifactPublicV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    run_id: str
+    field_id: str
+    file_name: str
+    media_type: str
+    byte_size: int
+    content_hash: str
+    status: RunInputArtifactStatus
+    summary: dict[str, Any] | None = None
+    error_code: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_artifact(cls, artifact: RunInputArtifactV1) -> RunInputArtifactPublicV1:
+        payload = artifact.structured_payload or {}
+        summary = {
+            key: payload[key]
+            for key in ("columns", "row_count", "column_count")
+            if key in payload
+        } or None
+        return cls(
+            id=artifact.id,
+            run_id=artifact.run_id,
+            field_id=artifact.field_id,
+            file_name=artifact.file_name,
+            media_type=artifact.media_type,
+            byte_size=artifact.byte_size,
+            content_hash=artifact.content_hash,
+            status=artifact.status,
+            summary=summary,
+            error_code=artifact.error_code,
+            created_at=artifact.created_at,
+            updated_at=artifact.updated_at,
+        )
+
+
+class SkillInputContractIdentityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str
+    skill_id: str
+    skill_name: str
+    skill_version: str
+    skill_content_hash: str
+    contract_hash: str
+
+
+class SkillInputRequestPublicV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    run_id: str
+    plan_id: str | None
+    version: int
+    schema_version: Literal["skill-input-request-v1"]
+    status: SkillInputRequestStatus
+    contract_snapshots: list[SkillInputContractIdentityV1]
+    fields: list[SkillInputFieldV1]
+    missing_required_field_ids: list[str]
+    next_run_status: Literal["waiting_plan_approval", "running"]
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime
+
+    @classmethod
+    def from_request(cls, request: SkillInputRequestV1) -> SkillInputRequestPublicV1:
+        payload = request.model_dump(
+            mode="python",
+            exclude={"frozen_bindings", "last_command_id", "last_payload_hash"},
+        )
+        payload["contract_snapshots"] = [
+            SkillInputContractIdentityV1.model_validate(
+                snapshot.model_dump(mode="python", exclude={"contract"})
+            )
+            for snapshot in request.contract_snapshots
+        ]
+        return cls.model_validate(payload)
+
+
+class SkillInputRequestResponse(BaseModel):
+    item: SkillInputRequestPublicV1
+    artifacts: list[RunInputArtifactPublicV1] = Field(default_factory=list)
+
+
+class RunInputArtifactResponse(BaseModel):
+    item: RunInputArtifactPublicV1
+
+
+class SkillInputSubmitResponse(BaseModel):
+    run: AgentRun
+    input_request: SkillInputRequestPublicV1
+    artifacts: list[RunInputArtifactPublicV1] = Field(default_factory=list)
 
 
 class RunDispatchState(StrEnum):

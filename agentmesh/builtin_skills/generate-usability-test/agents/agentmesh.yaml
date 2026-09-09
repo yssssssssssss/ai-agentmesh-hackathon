@@ -17,4 +17,5 @@ negative_examples:
   - 生成市场调查问卷
 required_capabilities: [wiki.corpus]
 side_effect: draft
+user_input_mode: prompt_only
 planner_eligible: true

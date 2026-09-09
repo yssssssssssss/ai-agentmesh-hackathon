@@ -330,6 +330,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/runs/{run_id}/input-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Agent Run Input Request */
+        get: operations["get_agent_run_input_request_api_agent_runs__run_id__input_request_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/input-artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Agent Run Input Artifact */
+        post: operations["upload_agent_run_input_artifact_api_agent_runs__run_id__input_artifacts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/input-artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Agent Run Input Artifact */
+        delete: operations["delete_agent_run_input_artifact_api_agent_runs__run_id__input_artifacts__artifact_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}/inputs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Agent Run Inputs */
+        post: operations["submit_agent_run_inputs_api_agent_runs__run_id__inputs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/runs/{run_id}/memory-links": {
         parameters: {
             query?: never;
@@ -2837,7 +2905,7 @@ export interface components {
          * AgentRunStatus
          * @enum {string}
          */
-        AgentRunStatus: "created" | "planning" | "waiting_clarification" | "running" | "waiting_plan_approval" | "waiting_approval" | "completed" | "partial" | "failed" | "rejected" | "cancelled";
+        AgentRunStatus: "created" | "planning" | "waiting_clarification" | "waiting_input" | "running" | "waiting_plan_approval" | "waiting_approval" | "completed" | "partial" | "failed" | "rejected" | "cancelled";
         /** AgentToolsUpdateRequest */
         AgentToolsUpdateRequest: {
             /** Tool Ids */
@@ -3192,6 +3260,15 @@ export interface components {
         };
         /** Body_import_skill_package_api_skills_packages_import_post */
         Body_import_skill_package_api_skills_packages_import_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_upload_agent_run_input_artifact_api_agent_runs__run_id__input_artifacts_post */
+        Body_upload_agent_run_input_artifact_api_agent_runs__run_id__input_artifacts_post: {
+            /** Field Id */
+            field_id: string;
+            /** Expected Request Version */
+            expected_request_version: number;
             /** File */
             file: string;
         };
@@ -6176,6 +6253,49 @@ export interface components {
             /** Data Scope */
             data_scope?: string | null;
         };
+        /** RunInputArtifactPublicV1 */
+        RunInputArtifactPublicV1: {
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Field Id */
+            field_id: string;
+            /** File Name */
+            file_name: string;
+            /** Media Type */
+            media_type: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Content Hash */
+            content_hash: string;
+            status: components["schemas"]["RunInputArtifactStatus"];
+            /** Summary */
+            summary?: {
+                [key: string]: unknown;
+            } | null;
+            /** Error Code */
+            error_code?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** RunInputArtifactResponse */
+        RunInputArtifactResponse: {
+            item: components["schemas"]["RunInputArtifactPublicV1"];
+        };
+        /**
+         * RunInputArtifactStatus
+         * @enum {string}
+         */
+        RunInputArtifactStatus: "uploaded" | "processing" | "ready" | "failed" | "quarantined";
         /** ScenarioAssignmentOptionV1 */
         ScenarioAssignmentOptionV1: {
             /** Scenario Id */
@@ -6418,6 +6538,7 @@ export interface components {
             /** Output Kinds */
             output_kinds?: string[];
             side_effect?: components["schemas"]["SkillSideEffect"] | null;
+            user_input_mode?: components["schemas"]["SkillUserInputMode"] | null;
         };
         /** SkillCatalogItemResponse */
         SkillCatalogItemResponse: {
@@ -6427,6 +6548,166 @@ export interface components {
         SkillCatalogResponse: {
             /** Items */
             items: components["schemas"]["SkillCatalogItem"][];
+        };
+        /** SkillInputContractIdentityV1 */
+        SkillInputContractIdentityV1: {
+            /** Node Id */
+            node_id: string;
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Name */
+            skill_name: string;
+            /** Skill Version */
+            skill_version: string;
+            /** Skill Content Hash */
+            skill_content_hash: string;
+            /** Contract Hash */
+            contract_hash: string;
+        };
+        /**
+         * SkillInputFieldStatus
+         * @enum {string}
+         */
+        SkillInputFieldStatus: "missing" | "satisfied" | "invalid" | "processing";
+        /** SkillInputFieldV1 */
+        SkillInputFieldV1: {
+            /** Id */
+            id: string;
+            /** Node Id */
+            node_id: string;
+            /** Skill Id */
+            skill_id: string;
+            /** Skill Name */
+            skill_name: string;
+            /** Field Id */
+            field_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Value Kind
+             * @enum {string}
+             */
+            value_kind: "text" | "artifact";
+            /**
+             * Multiple
+             * @default false
+             */
+            multiple: boolean;
+            /** Accepted Media Types */
+            accepted_media_types?: string[];
+            /** Min Length */
+            min_length?: number | null;
+            /** Max Length */
+            max_length?: number | null;
+            /** Min Items */
+            min_items?: number | null;
+            /** Max Items */
+            max_items?: number | null;
+            /** Required Columns */
+            required_columns?: string[];
+            /** Options */
+            options?: string[];
+            /** Text Value */
+            text_value?: string | null;
+            /** Artifact Ids */
+            artifact_ids?: string[];
+            /** @default missing */
+            status: components["schemas"]["SkillInputFieldStatus"];
+            /** Error Codes */
+            error_codes?: string[];
+        };
+        /** SkillInputRequestPublicV1 */
+        SkillInputRequestPublicV1: {
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Plan Id */
+            plan_id: string | null;
+            /** Version */
+            version: number;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "skill-input-request-v1";
+            status: components["schemas"]["SkillInputRequestStatus"];
+            /** Contract Snapshots */
+            contract_snapshots: components["schemas"]["SkillInputContractIdentityV1"][];
+            /** Fields */
+            fields: components["schemas"]["SkillInputFieldV1"][];
+            /** Missing Required Field Ids */
+            missing_required_field_ids: string[];
+            /**
+             * Next Run Status
+             * @enum {string}
+             */
+            next_run_status: "waiting_plan_approval" | "running";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /** SkillInputRequestResponse */
+        SkillInputRequestResponse: {
+            item: components["schemas"]["SkillInputRequestPublicV1"];
+            /** Artifacts */
+            artifacts?: components["schemas"]["RunInputArtifactPublicV1"][];
+        };
+        /**
+         * SkillInputRequestStatus
+         * @enum {string}
+         */
+        SkillInputRequestStatus: "open" | "complete" | "expired" | "cancelled";
+        /** SkillInputSubmitRequest */
+        SkillInputSubmitRequest: {
+            /** Client Turn Id */
+            client_turn_id: string;
+            /** Expected Request Version */
+            expected_request_version: number;
+            /** Expected Plan Version */
+            expected_plan_version?: number | null;
+            /** Text Values */
+            text_values?: {
+                [key: string]: string;
+            };
+            /** Artifact Ids */
+            artifact_ids?: {
+                [key: string]: string[];
+            };
+            /**
+             * Advance
+             * @default true
+             */
+            advance: boolean;
+        };
+        /** SkillInputSubmitResponse */
+        SkillInputSubmitResponse: {
+            run: components["schemas"]["AgentRun"];
+            input_request: components["schemas"]["SkillInputRequestPublicV1"];
+            /** Artifacts */
+            artifacts?: components["schemas"]["RunInputArtifactPublicV1"][];
         };
         /** SkillIntent */
         SkillIntent: {
@@ -6950,6 +7231,11 @@ export interface components {
             /** Artifact Ids */
             artifact_ids?: string[];
         };
+        /**
+         * SkillUserInputMode
+         * @enum {string}
+         */
+        SkillUserInputMode: "prompt_only" | "preflight";
         /** Source */
         Source: {
             /** Id */
@@ -8713,6 +8999,137 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentRunDetailResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_run_input_request_api_agent_runs__run_id__input_request_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillInputRequestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_agent_run_input_artifact_api_agent_runs__run_id__input_artifacts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_agent_run_input_artifact_api_agent_runs__run_id__input_artifacts_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunInputArtifactResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_agent_run_input_artifact_api_agent_runs__run_id__input_artifacts__artifact_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_agent_run_inputs_api_agent_runs__run_id__inputs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillInputSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillInputSubmitResponse"];
                 };
             };
             /** @description Validation Error */
