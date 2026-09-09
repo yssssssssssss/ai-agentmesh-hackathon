@@ -1,4 +1,4 @@
-import { FileSearch, Search } from 'lucide-react'
+import { FileSearch, Files, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -6,6 +6,10 @@ import { Composer } from '../components/workspace/Composer'
 import { ConversationThread } from '../components/workspace/ConversationThread'
 import { DetailPanel } from '../components/workspace/DetailPanel'
 import { MemoryUsePanel } from '../components/workspace/MemoryUsePanel'
+import {
+  DOCUMENT_JOB_STATUS_LABEL,
+  ResourceCenterDrawer,
+} from '../components/workspace/ResourceCenterDrawer'
 import { ResearchExecution } from '../components/workspace/ResearchExecution'
 import { ResearchPreview } from '../components/workspace/ResearchPreview'
 import { SkillPlanningState } from '../components/workspace/SkillPlanningState'
@@ -13,7 +17,6 @@ import { SkillPlanPreview } from '../components/workspace/SkillPlanPreview'
 import { SkillPlanProgress } from '../components/workspace/SkillPlanProgress'
 import { SkillSynthesisView } from '../components/workspace/SkillSynthesisView'
 import { failureReason } from '../components/workspace/skillPlanPresentation'
-import { WORKSPACE_RESOURCE_GRID_CLASS } from '../components/workspace/layout'
 import { Button } from '../components/ui/Button'
 import { useAuth } from '../features/auth/AuthProvider'
 import { DeepSearchWorkspace } from '../features/deepsearch/DeepSearchWorkspace'
@@ -36,7 +39,6 @@ import {
   useCancelAgentRunMutation,
   useRetryAgentRunMutation,
   useResearchRunQuery,
-  useSearchQuery,
   useSendAgentRunMutation,
   useSendMessageMutation,
   useSkillPlanMutations,
@@ -59,13 +61,6 @@ function threadIdFromPath(pathname: string): string | null {
     return null
   }
 }
-
-const JOB_STATUS_LABEL = {
-  queued: '排队中',
-  running: '处理中',
-  completed: '完成',
-  failed: '失败',
-} as const
 
 const SINGLE_RUN_STATUS_LABEL = {
   created: '正在准备',
@@ -151,9 +146,7 @@ export function Workspace() {
   } | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
   const [selection, setSelection] = useState<ResourceSelection | null>(null)
-  const [searchInput, setSearchInput] = useState('')
-  const [submittedSearch, setSubmittedSearch] = useState('')
-  const searchQuery = useSearchQuery(scope, submittedSearch)
+  const [resourcesOpen, setResourcesOpen] = useState(false)
   const [activeTool, setActiveTool] = useState<WorkspaceToolId | null>(null)
   const closeActiveTool = useCallback(() => setActiveTool(null), [])
   const updateDraft = useCallback((value: string) => {
@@ -357,7 +350,22 @@ export function Workspace() {
     composerClearance,
   ])
   const uploadFileName = upload.variables?.name
-  const showResources = Boolean(upload.isPending || upload.data || upload.isError || jobs.data?.items.length)
+  const documentJobs = jobs.data?.items ?? []
+  const requestedUploadJob = upload.data?.job
+  const latestUploadJob = requestedUploadJob
+    ? documentJobs.find((job) => job.id === requestedUploadJob.id) ?? requestedUploadJob
+    : null
+  const activeImportCount = documentJobs.filter((job) => job.status === 'queued' || job.status === 'running').length
+  const showUploadStatus = Boolean(upload.isPending || upload.data || upload.isError)
+  const uploadStatusText = upload.isPending
+    ? '正在提交…'
+    : upload.isError
+      ? workspaceErrorMessage(upload.error)
+      : upload.data?.item
+        ? `已导入 · ${upload.data.item.completed_chunks}/${upload.data.item.expected_chunks} chunks`
+        : latestUploadJob
+          ? `${DOCUMENT_JOB_STATUS_LABEL[latestUploadJob.status]} · ${latestUploadJob.completed_chunks}/${latestUploadJob.expected_chunks} chunks`
+          : null
 
   useLayoutEffect(() => {
     const scrollContainer = scrollRef.current
@@ -378,7 +386,7 @@ export function Workspace() {
           className="mx-auto max-w-[1040px] px-4 pt-6 md:px-6 md:pt-8"
           style={{ paddingBottom: composerClearance }}
         >
-          <div className={showResources ? WORKSPACE_RESOURCE_GRID_CLASS : ''}>
+          <div className="min-w-0">
             <div className="min-w-0">
               {sendError ? (
                 <p role="alert" className="mb-4 rounded-soft border border-rose/25 bg-rose/10 px-4 py-3 text-sm text-rose">
@@ -536,100 +544,6 @@ export function Workspace() {
               ) : null}
             </div>
 
-            {showResources ? <aside className="space-y-4" aria-label="Workspace resources">
-              <section className="rounded-soft border border-white/[0.07] bg-surface-1 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-                  <Search className="h-4 w-4 text-mint-300" aria-hidden="true" />
-                  搜索可见资料
-                </div>
-                <form
-                  className="mt-3 flex gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    setSubmittedSearch(searchInput.trim())
-                  }}
-                >
-                  <input
-                    aria-label="搜索资料"
-                    value={searchInput}
-                    onChange={(event) => setSearchInput(event.target.value)}
-                    className="min-w-0 flex-1 rounded-soft border border-white/[0.08] bg-base px-3 py-2 text-xs text-slate-100 outline-none focus:border-mint-400/40"
-                    placeholder="关键词"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!searchInput.trim()}
-                    className="rounded-soft bg-mint-400 px-3 py-2 text-xs font-semibold text-[#06231c] disabled:opacity-40"
-                  >
-                    搜索
-                  </button>
-                </form>
-                {searchQuery.isFetching ? <p className="mt-3 text-xs text-slate-400">正在搜索…</p> : null}
-                {searchQuery.isError ? <p role="alert" className="mt-3 text-xs text-rose">{workspaceErrorMessage(searchQuery.error)}</p> : null}
-                {searchQuery.data?.items.length === 0 ? <p className="mt-3 text-xs text-slate-400">没有可见结果。</p> : null}
-                <div className="mt-3 space-y-2">
-                  {searchQuery.data?.items.map((result) => (
-                    <article
-                      key={`${result.result_type}-${result.id}`}
-                      data-testid="search-result"
-                      className="rounded-soft border border-white/[0.06] bg-base p-3"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold text-slate-200">{result.title}</p>
-                          <p className="mt-1 text-[11px] text-slate-400">{result.result_type} · {result.scope}</p>
-                        </div>
-                        {result.result_type === 'document' || result.sources?.[0] ? (
-                          <button
-                            type="button"
-                            onClick={() => setSelection(
-                              result.result_type === 'document'
-                                ? { kind: 'document', id: result.id }
-                                : { kind: 'source', source: result.sources![0] },
-                            )}
-                            className="shrink-0 text-[11px] font-semibold text-mint-300"
-                          >
-                            查看详情
-                          </button>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-400">{result.summary}</p>
-                      {result.sources?.map((source) => (
-                        <p key={source.id ?? source.reference} className="mt-1 truncate text-[11px] text-slate-400">
-                          来源：{source.title} · {source.source_type}
-                        </p>
-                      ))}
-                    </article>
-                  ))}
-                </div>
-              </section>
-
-              {upload.isPending || upload.data || upload.isError ? (
-                <section data-testid="upload-status" className="rounded-soft border border-white/[0.07] bg-surface-1 p-4 text-xs">
-                  <div className="flex items-center gap-2 font-semibold text-slate-200"><FileSearch className="h-4 w-4 text-mint-300" aria-hidden="true" />文档上传</div>
-                  <p className="mt-2 break-all text-slate-400">{uploadFileName}</p>
-                  {upload.isPending ? <p className="mt-1 text-slate-400">正在提交…</p> : null}
-                  {upload.data?.item ? <p className="mt-1 text-mint-300">已导入 · {upload.data.item.completed_chunks}/{upload.data.item.expected_chunks} chunks</p> : null}
-                  {upload.data?.job ? <p className="mt-1 text-amber-300">已进入任务队列</p> : null}
-                  {upload.isError ? <p role="alert" className="mt-1 text-rose">{workspaceErrorMessage(upload.error)}</p> : null}
-                </section>
-              ) : null}
-
-              {jobs.data?.items.length ? (
-                <section className="rounded-soft border border-white/[0.07] bg-surface-1 p-4">
-                  <h2 className="text-sm font-semibold text-slate-200">我的导入任务</h2>
-                  <div className="mt-3 space-y-2">
-                    {jobs.data.items.map((job) => (
-                      <article key={job.id} data-testid="document-job" className="rounded-soft bg-base p-3 text-xs">
-                        <div className="flex items-center justify-between gap-2"><span className="truncate text-slate-300">{job.file_name}</span><span className={job.status === 'failed' ? 'text-rose' : 'text-mint-300'}>{JOB_STATUS_LABEL[job.status]}</span></div>
-                        <p className="mt-1 text-slate-400">{job.completed_chunks}/{job.expected_chunks} chunks</p>
-                        {job.status === 'failed' ? <p role="alert" className="mt-2 text-rose">{job.error ?? '导入失败'}</p> : null}
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-            </aside> : null}
           </div>
         </div>
       </div>
@@ -640,18 +554,83 @@ export function Workspace() {
         skills={skills.data?.items ?? []}
         sending={sendMessage.isPending || sendAgentRun.isPending}
         locked={runIsActive}
-        hasResourceRail={showResources}
         scrollbarGutter={scrollbarGutter}
         planningMode={composerPlanningMode}
         deepSearchAvailability={deepSearchAvailability}
         sendState={pending?.status === 'sending' ? null : pending?.status ?? null}
         statusMessage={pending?.status === 'sending' ? null : sendError}
         toolLauncher={(
-          <ToolLauncherBar
-            activeTool={activeTool}
-            skillRecommendationsEnabled={runtimeV2}
-            onOpen={setActiveTool}
-          />
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <ToolLauncherBar
+                  activeTool={activeTool}
+                  skillRecommendationsEnabled={runtimeV2}
+                  onOpen={setActiveTool}
+                />
+              </div>
+              <button
+                type="button"
+                aria-label={activeImportCount > 0 ? `打开资料中心，${activeImportCount} 个任务处理中` : '打开资料中心'}
+                aria-expanded={resourcesOpen}
+                onClick={() => {
+                  setSelection(null)
+                  setResourcesOpen(true)
+                }}
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-surface-1 px-3 text-xs font-semibold text-slate-300 transition-[transform,background-color,color,border-color] duration-150 hover:border-white/[0.14] hover:bg-white/[0.06] hover:text-white active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-400/50"
+              >
+                <Files className="h-3.5 w-3.5 text-mint-300" aria-hidden="true" />
+                资料中心
+                {activeImportCount > 0 ? (
+                  <span className="min-w-5 rounded-full bg-amber-300/15 px-1.5 py-0.5 text-center text-[10px] text-amber-200">
+                    {activeImportCount}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+
+            {showUploadStatus ? (
+              <section
+                data-testid="upload-status"
+                role={upload.isError || latestUploadJob?.status === 'failed' ? 'alert' : 'status'}
+                aria-live="polite"
+                className={`flex items-center gap-3 rounded-soft border px-3 py-2.5 text-xs ${
+                  upload.isError || latestUploadJob?.status === 'failed'
+                    ? 'border-rose/25 bg-rose/10'
+                    : 'border-white/[0.08] bg-surface-1'
+                }`}
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-soft bg-white/[0.05] text-mint-300">
+                  <FileSearch className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-slate-200" title={uploadFileName}>{uploadFileName}</p>
+                  <p className={upload.isError || latestUploadJob?.status === 'failed' ? 'mt-0.5 text-rose' : 'mt-0.5 text-slate-400'}>
+                    {uploadStatusText}
+                  </p>
+                </div>
+                {latestUploadJob ? (
+                  <button
+                    type="button"
+                    onClick={() => setResourcesOpen(true)}
+                    className="shrink-0 rounded-control px-2 py-1 font-semibold text-mint-300 hover:bg-white/[0.05]"
+                  >
+                    查看任务
+                  </button>
+                ) : null}
+                {!upload.isPending ? (
+                  <button
+                    type="button"
+                    aria-label="关闭上传状态"
+                    onClick={() => upload.reset()}
+                    className="shrink-0 rounded-control p-1.5 text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                ) : null}
+              </section>
+            ) : null}
+          </div>
         )}
         onChange={updateDraft}
         onPlanningModeChange={(mode) => {
@@ -666,6 +645,13 @@ export function Workspace() {
         activeTool={activeTool}
         onClose={closeActiveTool}
         onUseSkill={useRecommendedSkill}
+      />
+      <ResourceCenterDrawer
+        open={resourcesOpen}
+        scope={scope}
+        jobs={documentJobs}
+        onClose={() => setResourcesOpen(false)}
+        onSelect={setSelection}
       />
       <DetailPanel selection={selection} scope={scope} onClose={() => setSelection(null)} />
     </div>

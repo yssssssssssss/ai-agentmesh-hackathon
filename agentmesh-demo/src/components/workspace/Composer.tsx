@@ -6,7 +6,6 @@ import type { AgentPlanningMode, DeepSearchAvailability } from '../../features/d
 import type { Skill } from '../../features/workspace/types'
 import { groupSkillsByDesignStage, isCallableSkill } from '../../features/workspace/skillPresentation'
 import { cn } from '../../lib/cn'
-import { WORKSPACE_RESOURCE_GRID_CLASS } from './layout'
 
 interface ComposerProps {
   rootRef?: Ref<HTMLDivElement>
@@ -14,7 +13,6 @@ interface ComposerProps {
   skills: Skill[]
   sending: boolean
   locked?: boolean
-  hasResourceRail?: boolean
   scrollbarGutter?: number
   planningMode: AgentPlanningMode
   deepSearchAvailability: DeepSearchAvailability
@@ -45,7 +43,6 @@ export function Composer({
   skills,
   sending,
   locked = false,
-  hasResourceRail = false,
   scrollbarGutter = 0,
   planningMode,
   deepSearchAvailability,
@@ -118,10 +115,7 @@ export function Composer({
     >
       <div
         data-testid="workspace-composer"
-        className={cn(
-          'pointer-events-auto mx-auto w-full max-w-[992px]',
-          hasResourceRail && WORKSPACE_RESOURCE_GRID_CLASS,
-        )}
+        className="pointer-events-auto mx-auto w-full max-w-[992px]"
       >
         <div className="min-w-0">
           {toolLauncher ? <div className="mb-2">{toolLauncher}</div> : null}
