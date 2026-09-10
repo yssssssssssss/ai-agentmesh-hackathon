@@ -26,6 +26,7 @@ jobs:
       - run: .venv/bin/python -m pip install -e '.[dev]'
       - run: .venv/bin/ruff check .
       - run: .venv/bin/python scripts/skill_catalog_report.py agentmesh/builtin_skills
+      - run: .venv/bin/python -m eval.run_closed_loop_eval --mode validate --batch D0
       - run: .venv/bin/python eval/run_skill_retrieval_eval.py
       - run: .venv/bin/python eval/run_universal_skill_retrieval_eval.py
       - run: .venv/bin/python -m eval.run_universal_skill_profile_smoke --mode fts-only
