@@ -907,7 +907,7 @@ def _profile_overlap(query: set[str], text: str) -> float:
 
 
 def _tool_definition(repository: SQLiteStore, reference: str) -> ToolDefinition | None:
-    return next(
+    direct = next(
         (
             item
             for item in repository.tool_definitions
@@ -915,6 +915,15 @@ def _tool_definition(repository: SQLiteStore, reference: str) -> ToolDefinition 
         ),
         None,
     )
+    if direct is not None:
+        return direct
+    try:
+        from agentmesh.tool_runtime.mcp import resolve_mcp_requirement
+
+        resolution = resolve_mcp_requirement(repository, reference)
+    except (OSError, ValueError):
+        return None
+    return resolution.definition if resolution is not None else None
 
 
 def _tool_granted(repository: SQLiteStore, user: User, reference: str) -> bool:
@@ -969,15 +978,8 @@ def _universal_readiness_diagnostics(
         except ValueError:
             diagnostics.append("public_resource_unavailable")
     required_tools = sorted({*tool_names_for_profile(profile), *skill.requested_tools})
-    supported_names = {
-        identifier
-        for tool in repository.tool_definitions
-        if tool.enabled
-        for identifier in (tool.id, tool.name, tool.external_name)
-        if identifier
-    }
     for tool_name in required_tools:
-        if tool_name not in supported_names:
+        if _tool_definition(repository, tool_name) is None:
             diagnostics.append("required_tool_unavailable")
         elif not _tool_granted(repository, user, tool_name):
             diagnostics.append("tool_grant_missing")

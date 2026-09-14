@@ -320,6 +320,8 @@ Public Agents are registered by backend code first, then exposed through API:
 
 Tools are explicitly granted to Agents. Some tools now have MVP execution paths (`document_upload`, local data queries, risk rules, and configurable web research), but web research still requires a provider to be configured.
 
+A user-managed local Zero MCP service can be connected through the governed read-only example at `config/zero-mcp.readonly.example.json`. It exposes only the six verified read capabilities mapped by imported Skill aliases and grants nothing automatically. See [Zero MCP read-only integration](docs/runbooks/zero-mcp-readonly.md).
+
 ## Oxygen-CLI Internal Provider
 
 Oxygen-CLI is treated as an internal company capability provider, not the only data source. AgentMesh keeps external Web providers, uploaded documents, local memory, and future BI/database connectors as separate sources.
