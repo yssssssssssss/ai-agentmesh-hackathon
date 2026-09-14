@@ -70,6 +70,14 @@ class SkillCandidateRetriever:
             None,
         )
         if tool is None:
+            try:
+                from agentmesh.tool_runtime.mcp import resolve_mcp_requirement
+
+                resolution = resolve_mcp_requirement(self.repository, tool_name)
+            except (OSError, ValueError):
+                resolution = None
+            tool = resolution.definition if resolution is not None else None
+        if tool is None:
             return False
         return any(
             grant.agent_id == user.personal_agent_id and grant.tool_id == tool.id and grant.enabled

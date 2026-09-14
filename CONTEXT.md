@@ -102,6 +102,7 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
 - **Planning contract** — the immutable generation marker chosen when a plan-producing Run is first created. It determines the compatible Task Catalog and frozen Plan representation; deployment phase never reinterprets an existing Run.
 - **Blocked match / capability gap** — a blocked match is a relevant but currently non-executable Skill disclosed through safe diagnostics. It becomes a capability gap only when a required output has no ready alternative; gaps prevent a completed outcome.
 - **Task/Scenario** — the source of intent, canonical output requirements, evidence requirements, and completion criteria. It can influence ranking but is not a Runtime Skill permission boundary or candidate whitelist.
+- **Zero MCP gateway** — an optional user-managed local MCP integration. AgentMesh maps imported `mcp__zero-design__*` requirements to a separately granted, read-only gateway and exposes only the active Skill's requested remote tools. Host-level `Bash`/file capabilities and Zero write tools are not implied by this connection.
 
 ## Research orchestration retirement
 

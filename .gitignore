@@ -12,6 +12,7 @@ data/*.sqlite3-*
 data/**/*.sqlite3
 data/**/*.sqlite3-*
 data/*.writer.lock
+config/*.local.json
 .DS_Store
 
 # React/Vite/Playwright generated artifacts
