@@ -28,4 +28,5 @@ cost_level: medium
 risk_level: medium
 owner: research-platform
 side_effect: draft
+user_input_mode: prompt_only
 planner_eligible: true

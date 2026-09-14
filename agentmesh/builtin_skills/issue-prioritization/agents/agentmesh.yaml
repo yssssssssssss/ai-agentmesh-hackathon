@@ -21,4 +21,5 @@ archetypes: [prioritization, roadmap]
 required_resources: [wiki.corpus]
 report_policy: on_request
 side_effect: draft
+user_input_mode: prompt_only
 planner_eligible: true

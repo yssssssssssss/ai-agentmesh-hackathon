@@ -6,9 +6,10 @@ import asyncio
 import hashlib
 import re
 import threading
+from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from agentmesh.agent_run_identity import (
@@ -43,6 +44,7 @@ from agentmesh.deepsearch.planning import (
     plan_content_hash,
 )
 from agentmesh.deepsearch.service import deepsearch_retry_disposition
+from agentmesh.input_adapters import RunInputAdapterError, parse_run_input
 from agentmesh.memory_context.contracts import AgentRunDetailResponseV1
 from agentmesh.memory_context.service import MemoryContextError, MemoryContextService
 from agentmesh.memory_governance.contracts import MemoryBacklinksV1
@@ -62,9 +64,18 @@ from agentmesh.models import (
     ChatThread,
     ChatThreadKind,
     ItemResponse,
+    RunInputArtifactPublicV1,
+    RunInputArtifactResponse,
+    RunInputArtifactStatus,
+    RunInputArtifactV1,
     RuntimeToolCallClaimV1,
     RuntimeToolCallOutcomeV1,
     ScenarioAssignmentOptionV1,
+    SkillInputRequestPublicV1,
+    SkillInputRequestResponse,
+    SkillInputRequestStatus,
+    SkillInputSubmitRequest,
+    SkillInputSubmitResponse,
     SkillOrchestrationRequestMode,
     SkillPlanDetailResponse,
     SkillPlanDraft,
@@ -78,9 +89,14 @@ from agentmesh.models import (
     now_utc,
 )
 from agentmesh.report_html import render_report_html
+from agentmesh.risk import RiskDecision, assess_external_content
 from agentmesh.routes.deps import current_user, require_default_project
 from agentmesh.runtime_admission import current_orchestration_admission
 from agentmesh.runtime_capacity import RuntimeCapacityError
+from agentmesh.skill_runtime.input_preflight import (
+    SkillInputPreflightError,
+    SkillInputPreflightService,
+)
 from agentmesh.skill_runtime.plan_validation import PlanValidationError, adjust_plan, validate_draft
 from agentmesh.skill_runtime.quiesce import OrchestrationQuiescingError
 from agentmesh.skill_runtime.recommendation import revalidate_candidate_snapshot
@@ -95,7 +111,12 @@ from agentmesh.skill_runtime.universal_plan import (
     scenario_assignment_options,
     validate_universal_plan,
 )
-from agentmesh.store import DeepSearchRequirementConflict, ResearchStoreConflict, store
+from agentmesh.store import (
+    DeepSearchRequirementConflict,
+    ResearchStoreConflict,
+    SkillInputRequestConflict,
+    store,
+)
 from agentmesh.task_management.service import TaskManagementError, TaskManagementService
 from agentmesh.task_routing.catalog import (
     TaskCatalogLoadError,
@@ -104,6 +125,7 @@ from agentmesh.task_routing.catalog import (
     load_task_catalog_by_identity,
     load_universal_task_catalog,
 )
+from agentmesh.tool_runtime.guardrails import contains_credential
 
 router = APIRouter(prefix="/api/agent/runs", tags=["agent-runs"])
 _TERMINAL = {"completed", "partial", "failed", "rejected", "cancelled"}
@@ -803,6 +825,269 @@ def get_agent_run(
     return AgentRunDetailResponseV1(item=run, memory_uses=memory_uses)
 
 
+@router.get("/{run_id}/input-request", response_model=SkillInputRequestResponse)
+def get_agent_run_input_request(
+    run_id: str,
+    user: User = Depends(current_user),
+) -> SkillInputRequestResponse:
+    run = _visible_run(run_id, user)
+    if run.status is AgentRunStatus.WAITING_INPUT:
+        refreshed = store.expire_skill_input_request_if_needed(run.id, user_id=user.id)
+        if refreshed is None:
+            raise HTTPException(status_code=404, detail="Agent run not found")
+        run = refreshed
+    request = store.get_skill_input_request_for_run(run.id)
+    if request is None:
+        raise HTTPException(status_code=404, detail={"code": "input_request_not_found"})
+    return SkillInputRequestResponse(
+        item=SkillInputRequestPublicV1.from_request(request),
+        artifacts=[
+            RunInputArtifactPublicV1.from_artifact(artifact)
+            for artifact in store.list_run_input_artifacts(run.id)
+        ],
+    )
+
+
+@router.post(
+    "/{run_id}/input-artifacts",
+    response_model=RunInputArtifactResponse,
+)
+async def upload_agent_run_input_artifact(
+    run_id: str,
+    field_id: str = Form(...),
+    expected_request_version: int = Form(...),
+    file: UploadFile = File(...),
+    user: User = Depends(current_user),
+) -> RunInputArtifactResponse:
+    run = _visible_run(run_id, user)
+    if run.status is AgentRunStatus.WAITING_INPUT:
+        refreshed = store.expire_skill_input_request_if_needed(run.id, user_id=user.id)
+        if refreshed is None:
+            raise HTTPException(status_code=404, detail="Agent run not found")
+        run = refreshed
+    if run.status is AgentRunStatus.CANCELLED and run.error_code == "input_request_expired":
+        raise HTTPException(status_code=409, detail={"code": "input_request_expired"})
+    request = store.get_skill_input_request_for_run(run.id)
+    if (
+        run.status is not AgentRunStatus.WAITING_INPUT
+        or request is None
+        or request.status is not SkillInputRequestStatus.OPEN
+    ):
+        raise HTTPException(status_code=409, detail={"code": "input_request_state_conflict"})
+    if request.version != expected_request_version:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "input_request_version_conflict", "current_version": request.version},
+        )
+    field = next((item for item in request.fields if item.id == field_id), None)
+    if field is None:
+        raise HTTPException(status_code=400, detail={"code": "input_field_unknown"})
+    if field.value_kind != "artifact":
+        raise HTTPException(status_code=400, detail={"code": "input_field_type_mismatch"})
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail={"code": "input_file_too_large"})
+    file_name = Path((file.filename or "input.txt").replace("\\", "/")).name
+    content_hash = hashlib.sha256(content).hexdigest()
+    try:
+        parsed = parse_run_input(
+            file_name=file_name,
+            declared_media_type=file.content_type or "",
+            content=content,
+            accepted_media_types=field.accepted_media_types,
+            required_columns=field.required_columns,
+        )
+        credential_detected = contains_credential(parsed.normalized_text)
+        assessment = assess_external_content(parsed.normalized_text)
+        quarantined = credential_detected or assessment.decision is not RiskDecision.ALLOW
+        artifact = RunInputArtifactV1(
+            run_id=run.id,
+            workspace_id=run.workspace_id,
+            project_id=run.project_id,
+            user_id=run.user_id,
+            field_id=field.id,
+            file_name=file_name,
+            media_type=parsed.media_type,
+            byte_size=len(content),
+            content_hash=content_hash,
+            adapter_id=parsed.adapter_id,
+            adapter_version=parsed.adapter_version,
+            status=(
+                RunInputArtifactStatus.QUARANTINED
+                if quarantined
+                else RunInputArtifactStatus.READY
+            ),
+            normalized_text=parsed.normalized_text if not quarantined else None,
+            structured_payload=parsed.structured_payload if not quarantined else None,
+            error_code=(
+                "input_credential_detected"
+                if credential_detected
+                else "input_content_quarantined"
+                if quarantined
+                else None
+            ),
+        )
+    except RunInputAdapterError as error:
+        artifact = RunInputArtifactV1(
+            run_id=run.id,
+            workspace_id=run.workspace_id,
+            project_id=run.project_id,
+            user_id=run.user_id,
+            field_id=field.id,
+            file_name=file_name,
+            media_type=(field.accepted_media_types[0] if field.accepted_media_types else "application/octet-stream"),
+            byte_size=len(content),
+            content_hash=content_hash,
+            adapter_id="rejected",
+            adapter_version="1",
+            status=RunInputArtifactStatus.FAILED,
+            error_code=error.code,
+        )
+    try:
+        stored = store.save_run_input_artifact(
+            artifact,
+            content,
+            expected_request_version=expected_request_version,
+        )
+    except SkillInputRequestConflict as error:
+        raise HTTPException(
+            status_code=(
+                400
+                if error.code in {"input_run_quota_exceeded", "input_artifact_count_invalid"}
+                else 409
+            ),
+            detail={"code": error.code, "current_version": error.current_version},
+        ) from error
+    return RunInputArtifactResponse(item=RunInputArtifactPublicV1.from_artifact(stored))
+
+
+@router.delete("/{run_id}/input-artifacts/{artifact_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_agent_run_input_artifact(
+    run_id: str,
+    artifact_id: str,
+    user: User = Depends(current_user),
+) -> None:
+    _visible_run(run_id, user)
+    if not store.delete_run_input_artifact(artifact_id, run_id=run_id, user_id=user.id):
+        raise HTTPException(status_code=409, detail={"code": "input_artifact_delete_conflict"})
+
+
+@router.post("/{run_id}/inputs", response_model=SkillInputSubmitResponse)
+async def submit_agent_run_inputs(
+    run_id: str,
+    submission: SkillInputSubmitRequest,
+    user: User = Depends(current_user),
+) -> SkillInputSubmitResponse:
+    from agentmesh.routes.chat import agent
+
+    run = _visible_run(run_id, user)
+    if run.status is AgentRunStatus.WAITING_INPUT:
+        refreshed = store.expire_skill_input_request_if_needed(run.id, user_id=user.id)
+        if refreshed is None:
+            raise HTTPException(status_code=404, detail="Agent run not found")
+        run = refreshed
+    if run.status is AgentRunStatus.CANCELLED and run.error_code == "input_request_expired":
+        raise HTTPException(status_code=409, detail={"code": "input_request_expired"})
+    current = store.get_skill_input_request_for_run(run.id)
+    if current is None:
+        raise HTTPException(status_code=404, detail={"code": "input_request_not_found"})
+    if current.plan_id is not None:
+        current_plan = store.get_skill_plan(current.plan_id)
+        if (
+            current_plan is None
+            or submission.expected_plan_version != current_plan.version
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "input_plan_version_conflict",
+                    "current_plan_version": current_plan.version if current_plan is not None else None,
+                },
+            )
+    elif submission.expected_plan_version is not None:
+        raise HTTPException(status_code=400, detail={"code": "input_plan_identity_invalid"})
+    try:
+        updated, _payload_hash = SkillInputPreflightService(store).apply_submission(current, submission)
+    except SkillInputPreflightError as error:
+        status_code = 409 if error.code in {
+            "input_request_expired",
+            "input_request_frozen",
+            "input_request_version_conflict",
+            "input_submission_idempotency_conflict",
+        } else 400
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": error.code, "current_version": current.version},
+        ) from error
+    if updated.version == current.version:
+        return SkillInputSubmitResponse(
+            run=run,
+            input_request=SkillInputRequestPublicV1.from_request(current),
+            artifacts=[
+                RunInputArtifactPublicV1.from_artifact(artifact)
+                for artifact in store.list_run_input_artifacts(run.id)
+            ],
+        )
+    runtime = agent.agent_runtime
+    dispatch_receipt = None
+    if updated.status is SkillInputRequestStatus.COMPLETE and updated.next_run_status == "running":
+        if runtime is None or not runtime.enabled:
+            raise HTTPException(status_code=409, detail={"code": "agent_runtime_unavailable"})
+        try:
+            runtime.validate_input_resume(run=run, user=user, request=updated)
+        except (PermissionError, RuntimeError) as error:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": str(error)},
+            ) from error
+        operation_kind = "approved_plan" if updated.plan_id is not None else "standard_direct"
+        dispatch_receipt = runtime.new_dispatch_receipt(run.id, operation_kind)
+    try:
+        persisted_request, persisted_run, _replayed = store.update_skill_input_request(
+            updated,
+            expected_version=submission.expected_request_version,
+            dispatch=dispatch_receipt,
+        )
+    except SkillInputRequestConflict as error:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": error.code, "current_version": error.current_version},
+        ) from error
+    if (
+        persisted_request.status is SkillInputRequestStatus.COMPLETE
+        and persisted_run.status is AgentRunStatus.WAITING_PLAN_APPROVAL
+        and persisted_run.plan_id is not None
+    ):
+        plan = store.get_skill_plan(persisted_run.plan_id)
+        if plan is None:
+            raise HTTPException(status_code=409, detail={"code": "skill_plan_not_found"})
+        transition = await approve_agent_run_plan(
+            persisted_run.id,
+            SkillPlanVersionRequest(expected_version=plan.version),
+            user,
+        )
+        persisted_run = transition.run
+    elif dispatch_receipt is not None and persisted_run.status is AgentRunStatus.RUNNING:
+        try:
+            await runtime.resume_after_input(
+                persisted_run.id,
+                user=user,
+                dispatch_receipt=dispatch_receipt,
+            )
+        except (LookupError, PermissionError) as error:
+            raise HTTPException(status_code=409, detail={"code": "input_resume_conflict"}) from error
+        except (RuntimeError, OrchestrationQuiescingError):
+            runtime.wake_dispatch_pump()
+    return SkillInputSubmitResponse(
+        run=persisted_run,
+        input_request=SkillInputRequestPublicV1.from_request(persisted_request),
+        artifacts=[
+            RunInputArtifactPublicV1.from_artifact(artifact)
+            for artifact in store.list_run_input_artifacts(run.id)
+        ],
+    )
+
+
 @router.get("/{run_id}/memory-links", response_model=MemoryBacklinksV1)
 def get_agent_run_memory_links(
     run_id: str,
@@ -943,6 +1228,18 @@ def update_agent_run_plan(
     except (PlanValidationError, ValueError) as error:
         codes = error.codes if isinstance(error, PlanValidationError) else [str(error)]
         raise HTTPException(status_code=400, detail={"codes": codes}) from error
+    recompiled_input_request = None
+    if run.planning_mode is not AgentPlanningMode.DEEPSEARCH:
+        previous_input_request = store.get_skill_input_request_for_run(run.id)
+        try:
+            recompiled_input_request = SkillInputPreflightService(store).compile_for_plan(
+                run=run,
+                plan=adjusted,
+                next_run_status="waiting_plan_approval",
+                previous=previous_input_request,
+            )
+        except SkillInputPreflightError as error:
+            raise HTTPException(status_code=409, detail={"code": error.code}) from error
     if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
         adjusted.version = request.expected_version + 1
         try:
@@ -986,6 +1283,7 @@ def update_agent_run_plan(
         updated = store.compare_and_swap_skill_plan(
             adjusted,
             expected_version=request.expected_version,
+            input_request=recompiled_input_request,
             events=[
                 (
                     "plan_updated",
@@ -1021,6 +1319,9 @@ async def approve_agent_run_plan(
     from agentmesh.routes.chat import agent
 
     run, plan = _visible_plan(run_id, user)
+    input_request = store.get_skill_input_request_for_run(run.id)
+    if input_request is not None and input_request.status is not SkillInputRequestStatus.COMPLETE:
+        raise HTTPException(status_code=409, detail={"code": "input_request_incomplete"})
     run = _expire_deepsearch_mutation(run, user)
     _reject_expired_plan_approval(run, user)
     _require_planned_mutation_enabled(run)

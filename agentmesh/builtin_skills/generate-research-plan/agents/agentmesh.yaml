@@ -17,4 +17,5 @@ negative_examples:
   - 直接分析竞品战略
 required_capabilities: [wiki.corpus]
 side_effect: draft
+user_input_mode: prompt_only
 planner_eligible: true

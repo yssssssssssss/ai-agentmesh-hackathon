@@ -17,4 +17,5 @@ negative_examples:
   - 只检查代码技术实现
 required_capabilities: []
 side_effect: draft
+user_input_mode: prompt_only
 planner_eligible: true

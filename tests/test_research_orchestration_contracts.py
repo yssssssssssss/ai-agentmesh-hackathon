@@ -41,6 +41,7 @@ def test_legacy_agent_run_defaults_to_v1_and_status_enum_adds_clarification() ->
         "created",
         "planning",
         "waiting_clarification",
+        "waiting_input",
         "running",
         "waiting_plan_approval",
         "waiting_approval",

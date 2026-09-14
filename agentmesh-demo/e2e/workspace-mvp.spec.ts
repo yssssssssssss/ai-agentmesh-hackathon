@@ -299,6 +299,9 @@ test('renders requested and actual model provenance after reload', async ({ page
 
 test('handles synchronous upload, queued own job, search source, and stable document detail', async ({ page }) => {
   const uploadInput = page.getByLabel('上传文档')
+  const composerWidthBeforeUpload = await page.getByTestId('workspace-composer').evaluate(
+    (element) => element.getBoundingClientRect().width,
+  )
   const syncFileName = `workspace-source-${researchMarker}.txt`
   const queuedFileName = `workspace-large-source-${researchMarker}.txt`
   await uploadInput.setInputFiles({
@@ -308,6 +311,11 @@ test('handles synchronous upload, queued own job, search source, and stable docu
   })
   await expect(page.getByTestId('upload-status')).toContainText(syncFileName)
   await expect(page.getByTestId('upload-status')).toContainText(/已导入|完成/)
+  await expect(page.getByRole('dialog', { name: '资料中心' })).toHaveCount(0)
+  const composerWidthAfterUpload = await page.getByTestId('workspace-composer').evaluate(
+    (element) => element.getBoundingClientRect().width,
+  )
+  expect(composerWidthAfterUpload).toBe(composerWidthBeforeUpload)
 
   const queuedUploadResponse = page.waitForResponse((response) =>
     response.url().endsWith('/api/documents/upload') && response.request().method() === 'POST',
@@ -350,13 +358,16 @@ test('handles synchronous upload, queued own job, search source, and stable docu
   expect(completedDocumentPayload.item.id).toBe(completedJob!.document_id)
   expect(completedDocumentPayload.item.completed_chunks).toBe(completedJob!.completed_chunks)
 
-  const job = page.getByTestId('document-job').filter({ hasText: queuedFileName }).first()
+  await page.getByRole('button', { name: /^打开资料中心/ }).click()
+  const resourceCenter = page.getByRole('dialog', { name: '资料中心' })
+  await expect(resourceCenter).toBeVisible()
+  const job = resourceCenter.getByTestId('document-job').filter({ hasText: queuedFileName }).first()
   await expect(job).toContainText('完成')
   await expect(job).toContainText(`${completedJob!.completed_chunks}/${completedJob!.expected_chunks} chunks`)
 
-  await page.getByLabel('搜索资料').fill(researchMarker)
-  await page.getByRole('button', { name: '搜索', exact: true }).click()
-  const result = page
+  await resourceCenter.getByLabel('搜索资料').fill(researchMarker)
+  await resourceCenter.getByRole('button', { name: '搜索', exact: true }).click()
+  const result = resourceCenter
     .getByTestId('search-result')
     .filter({ hasText: syncFileName })
     .filter({ has: page.getByRole('button', { name: '查看详情' }) })
@@ -446,7 +457,10 @@ test('renders a failed import job separately from successful queued completion',
     mimeType: 'text/plain',
     buffer: Buffer.from('failure rendering fixture'.repeat(10)),
   })
-  const failed = page.getByTestId('document-job').filter({ hasText: failedFileName })
+  await page.getByRole('button', { name: /^打开资料中心/ }).click()
+  const failed = page.getByRole('dialog', { name: '资料中心' })
+    .getByTestId('document-job')
+    .filter({ hasText: failedFileName })
   await expect(failed).toContainText('失败')
   await expect(failed.getByRole('alert')).toHaveText('Injected parser failure')
   await expect(failed).toContainText('1/2 chunks')

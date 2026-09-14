@@ -29,6 +29,7 @@ const RUN_STATUS_LABEL = {
   created: '正在准备执行计划',
   planning: '正在准备执行计划',
   waiting_clarification: '等待你补充信息',
+  waiting_input: '等待你补充资料',
   waiting_plan_approval: '等待你确认计划',
   running: '执行计划进行中',
   waiting_approval: '需要确认高风险操作',
@@ -61,7 +62,7 @@ export function SkillPlanProgress({
   const nodes = detail.plan.nodes ?? []
   const resultsByNode = new Map((detail.results ?? []).map((result) => [result.node_id, result]))
   const runFailure = run.error_code ? runFailurePresentation(run.error_code, nodes) : null
-  const active = ['created', 'planning', 'waiting_clarification', 'running', 'waiting_approval'].includes(run.status)
+  const active = ['created', 'planning', 'waiting_clarification', 'waiting_input', 'running', 'waiting_approval'].includes(run.status)
   const previewOnly = run.status === 'completed' && detail.plan.status === 'approved'
   const statusLabel = previewOnly ? '计划已确认，预览模式未执行' : RUN_STATUS_LABEL[run.status]
   const runningNodes = nodes.filter((node) => node.status === 'running')

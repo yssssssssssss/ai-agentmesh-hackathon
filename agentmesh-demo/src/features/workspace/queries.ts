@@ -22,6 +22,8 @@ import type {
   ChatResponse,
   ChatThread,
   DocumentJobsResponse,
+  SkillInputRequestResponse,
+  SkillInputSubmitRequest,
   ThreadDetailResponse,
   ThreadListResponse,
   ThreadUpdateRequest,
@@ -59,12 +61,31 @@ export class ChatSendError extends Error {
 }
 
 
+const INPUT_ERROR_MESSAGES: Record<string, string> = {
+  input_request_version_conflict: '资料版本已更新，请核对最新内容后再提交。',
+  input_submission_idempotency_conflict: '本次提交标识已被用于不同内容，请重新提交。',
+  input_request_expired: '资料补充已超时，请重新发起任务。',
+  input_request_frozen: '资料已冻结，不能再修改。',
+  input_request_state_conflict: '当前运行状态已变化，请刷新后重试。',
+  input_plan_version_conflict: '执行计划已更新，请核对最新计划后再确认。',
+  input_artifact_upload_invalid: '文件不属于当前资料字段，请刷新后重试。',
+  input_artifact_delete_conflict: '该文件当前不能删除。',
+  input_run_quota_exceeded: '本次任务的文件数量或总大小已达到上限。',
+  input_artifact_count_invalid: '该字段的文件数量已达到上限。',
+  input_required_fields_missing: '请先补齐所有必填资料。',
+  input_fields_invalid: '请先移除或修正未通过校验的资料。',
+}
+
 export function workspaceErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (typeof error.detail === 'string') return error.detail
     if (error.detail && typeof error.detail === 'object' && 'message' in error.detail) {
       const message = error.detail.message
       if (typeof message === 'string' && message.trim()) return message
+    }
+    if (error.detail && typeof error.detail === 'object' && 'code' in error.detail) {
+      const code = error.detail.code
+      if (typeof code === 'string') return INPUT_ERROR_MESSAGES[code] ?? code
     }
   }
   if (error instanceof Error) return error.message
@@ -160,6 +181,75 @@ export function useAgentRunQuery(scope: WorkspaceScope, runId: string | null) {
     queryFn: () => workspaceApi.agentRun(runId ?? ''),
     enabled: Boolean(runId),
   })
+}
+
+export function useSkillInputRequestQuery(
+  scope: WorkspaceScope,
+  run: AgentRun | null | undefined,
+) {
+  const runId = run?.status === 'waiting_input' ? run.id : null
+  return useQuery({
+    queryKey: workspaceKeys.inputRequest(scope, runId ?? 'none'),
+    queryFn: () => workspaceApi.inputRequest(runId ?? ''),
+    enabled: Boolean(runId),
+  })
+}
+
+export function useSkillInputMutations(scope: WorkspaceScope, runId: string | null) {
+  const queryClient = useQueryClient()
+  const refresh = async () => {
+    if (!runId) return
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true }),
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.inputRequest(scope, runId), exact: true }),
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, runId), exact: true }),
+    ])
+  }
+  const upload = useMutation({
+    mutationFn: ({
+      fieldId,
+      expectedRequestVersion,
+      file,
+    }: {
+      fieldId: string
+      expectedRequestVersion: number
+      file: File
+    }) => {
+      if (!runId) throw new Error('缺少 Agent Run')
+      return workspaceApi.uploadRunInput(runId, fieldId, expectedRequestVersion, file)
+    },
+    onSuccess: refresh,
+    onError: async (error) => {
+      if (error instanceof ApiError && error.status === 409) await refresh()
+    },
+  })
+  const remove = useMutation({
+    mutationFn: (artifactId: string) => {
+      if (!runId) throw new Error('缺少 Agent Run')
+      return workspaceApi.deleteRunInput(runId, artifactId)
+    },
+    onSuccess: refresh,
+  })
+  const submit = useMutation({
+    mutationFn: (request: SkillInputSubmitRequest) => {
+      if (!runId) throw new Error('缺少 Agent Run')
+      return workspaceApi.submitRunInputs(runId, request)
+    },
+    onSuccess: async (response) => {
+      if (runId) {
+        queryClient.setQueryData(workspaceKeys.run(scope, runId), { item: response.run })
+        queryClient.setQueryData<SkillInputRequestResponse>(
+          workspaceKeys.inputRequest(scope, runId),
+          { item: response.input_request, artifacts: response.artifacts },
+        )
+      }
+      await refresh()
+    },
+    onError: async (error) => {
+      if (error instanceof ApiError && error.status === 409) await refresh()
+    },
+  })
+  return { upload, remove, submit }
 }
 
 export function useResearchRunQuery(scope: WorkspaceScope, run: AgentRun | null | undefined) {
@@ -394,7 +484,11 @@ export function useSkillPlanMutations(
         queryClient.setQueryData(workspaceKeys.plan(scope, runId), detail)
       }
       if (runId) {
-        await queryClient.invalidateQueries({ queryKey: workspaceKeys.deepSearch(scope, runId), exact: true })
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: workspaceKeys.run(scope, runId), exact: true }),
+          queryClient.invalidateQueries({ queryKey: workspaceKeys.inputRequest(scope, runId), exact: true }),
+          queryClient.invalidateQueries({ queryKey: workspaceKeys.deepSearch(scope, runId), exact: true }),
+        ])
       }
     },
     onError: refreshOnConflict,
@@ -493,6 +587,9 @@ export async function invalidateAgentRunEvent(
   ]
   if (run.planning_mode === 'deepsearch') {
     work.push(queryClient.invalidateQueries({ queryKey: workspaceKeys.deepSearch(scope, run.id), exact: true }))
+  }
+  if (eventType.startsWith('input_')) {
+    work.push(queryClient.invalidateQueries({ queryKey: workspaceKeys.inputRequest(scope, run.id), exact: true }))
   }
   if (PLAN_EVENT_PREFIXES.some((prefix) => eventType.startsWith(prefix))) {
     work.push(queryClient.invalidateQueries({ queryKey: workspaceKeys.plan(scope, run.id), exact: true }))

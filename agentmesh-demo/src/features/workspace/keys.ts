@@ -15,6 +15,8 @@ export const workspaceKeys = {
   skillCatalog: (scope: WorkspaceScope) => [...scopedRoot(scope), 'skill-catalog'] as const,
   runRoot: (scope: WorkspaceScope) => [...scopedRoot(scope), 'agent-runs'] as const,
   run: (scope: WorkspaceScope, runId: string) => [...scopedRoot(scope), 'agent-runs', runId] as const,
+  inputRequest: (scope: WorkspaceScope, runId: string) =>
+    [...scopedRoot(scope), 'agent-runs', runId, 'input-request'] as const,
   research: (scope: WorkspaceScope, runId: string) =>
     [...scopedRoot(scope), 'agent-runs', runId, 'research'] as const,
   deepSearch: (scope: WorkspaceScope, runId: string) =>

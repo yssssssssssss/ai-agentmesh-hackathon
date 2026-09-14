@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentmesh://skills/build-experience-metrics/user-input-v1",
+  "schema_version": "skill-user-input-v1",
+  "type": "object",
+  "required": ["product_goal"],
+  "properties": {
+    "product_goal": {
+      "type": "string",
+      "title": "产品与业务目标",
+      "description": "说明产品形态、核心目标和不可恶化的护栏。",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "baseline_metrics": {
+      "type": "array",
+      "title": "历史指标数据",
+      "description": "可选。提供 CSV 可帮助建立可验证的基线和指标口径。",
+      "items": {
+        "type": "string",
+        "title": "CSV 文件",
+        "format": "agentmesh-input-artifact",
+        "contentMediaType": "text/csv"
+      },
+      "maxItems": 3
+    },
+    "event_definition": {
+      "type": "string",
+      "title": "埋点口径说明",
+      "description": "可选。上传 UTF-8 Markdown 文件说明已有事件和字段口径。",
+      "format": "agentmesh-input-artifact",
+      "contentMediaType": "text/markdown"
+    }
+  },
+  "additionalProperties": false
+}

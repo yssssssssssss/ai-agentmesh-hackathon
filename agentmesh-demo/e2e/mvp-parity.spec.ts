@@ -37,9 +37,11 @@ test('React default UI carries the MVP parity journey without local demo state',
   })
   await expect(page.getByTestId('upload-status')).toContainText(uploadName)
   await expect(page.getByTestId('upload-status')).toContainText('已导入', { timeout: 15_000 })
-  await page.getByLabel('搜索资料').fill(marker)
-  await page.getByRole('button', { name: '搜索', exact: true }).click()
-  const documentResult = page
+  await page.getByRole('button', { name: /^打开资料中心/ }).click()
+  const resourceCenter = page.getByRole('dialog', { name: '资料中心' })
+  await resourceCenter.getByLabel('搜索资料').fill(marker)
+  await resourceCenter.getByRole('button', { name: '搜索', exact: true }).click()
+  const documentResult = resourceCenter
     .getByTestId('search-result')
     .filter({ hasText: uploadName })
     .filter({ has: page.getByRole('button', { name: '查看详情' }) })

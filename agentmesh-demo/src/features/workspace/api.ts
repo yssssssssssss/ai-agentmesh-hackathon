@@ -14,7 +14,11 @@ import type {
   PlanDetailResponse,
   PlanTransitionResponse,
   ResearchRunProjection,
+  RunInputArtifactResponse,
   SearchResponse,
+  SkillInputRequestResponse,
+  SkillInputSubmitRequest,
+  SkillInputSubmitResponse,
   SkillPlanUpdateRequest,
   SkillPlanVersionRequest,
   SkillMatchResponse,
@@ -80,6 +84,12 @@ const RUN_EVENT_TYPES = [
   'deepsearch_report_sealed',
   'deepsearch_finalization_stage_changed',
   'skill_candidates_ranked',
+  'input_requested',
+  'input_updated',
+  'input_completed',
+  'input_ready',
+  'input_artifact_uploaded',
+  'input_artifact_deleted',
   'plan_created',
   'plan_waiting_approval',
   'plan_updated',
@@ -204,6 +214,27 @@ export const workspaceApi = {
       }),
     }),
   agentRun: (runId: string) => apiRequest<AgentRunResponse>(`/api/agent/runs/${pathId(runId)}`),
+  inputRequest: (runId: string) =>
+    apiRequest<SkillInputRequestResponse>(`/api/agent/runs/${pathId(runId)}/input-request`),
+  uploadRunInput: (runId: string, fieldId: string, expectedRequestVersion: number, file: File) => {
+    const body = new FormData()
+    body.set('field_id', fieldId)
+    body.set('expected_request_version', String(expectedRequestVersion))
+    body.set('file', file)
+    return apiRequest<RunInputArtifactResponse>(`/api/agent/runs/${pathId(runId)}/input-artifacts`, {
+      method: 'POST',
+      body,
+    })
+  },
+  deleteRunInput: (runId: string, artifactId: string) =>
+    apiRequest<null>(`/api/agent/runs/${pathId(runId)}/input-artifacts/${pathId(artifactId)}`, {
+      method: 'DELETE',
+    }),
+  submitRunInputs: (runId: string, request: SkillInputSubmitRequest) =>
+    apiRequest<SkillInputSubmitResponse>(`/api/agent/runs/${pathId(runId)}/inputs`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }),
   researchRun: (runId: string) =>
     apiRequest<ResearchRunProjection>(`/api/agent/runs/${pathId(runId)}/research`),
   agentRunEvents: (runId: string, afterSequence = 0) =>

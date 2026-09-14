@@ -80,6 +80,19 @@ export type AgentRunResponse = Omit<GeneratedAgentRunResponse, 'item' | 'memory_
 }
 export type AgentRunMutationResponse = { item: AgentRun }
 export type AgentRunEventsResponse = components['schemas']['AgentRunEventsResponse']
+export type SkillInputRequest = components['schemas']['SkillInputRequestPublicV1']
+type GeneratedRunInputArtifact = components['schemas']['RunInputArtifactPublicV1']
+export type RunInputArtifact = Omit<GeneratedRunInputArtifact, 'id'> & { id: string }
+type GeneratedSkillInputRequestResponse = components['schemas']['SkillInputRequestResponse']
+export type SkillInputRequestResponse = Omit<GeneratedSkillInputRequestResponse, 'artifacts'> & {
+  artifacts: RunInputArtifact[]
+}
+export type SkillInputSubmitRequest = components['schemas']['SkillInputSubmitRequest']
+type GeneratedSkillInputSubmitResponse = components['schemas']['SkillInputSubmitResponse']
+export type SkillInputSubmitResponse = Omit<GeneratedSkillInputSubmitResponse, 'artifacts'> & {
+  artifacts: RunInputArtifact[]
+}
+export type RunInputArtifactResponse = { item: RunInputArtifact }
 export type ResearchRunProjection = components['schemas']['ResearchRunProjection']
 export type SkillCandidate = components['schemas']['SkillRecommendationCandidateView']
 export type SkillRecommendationRequest = components['schemas']['SkillRecommendationRequest']

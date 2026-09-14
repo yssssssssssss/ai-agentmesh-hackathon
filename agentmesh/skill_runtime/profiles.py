@@ -17,6 +17,11 @@ from agentmesh.models import (
     SkillLifecycleStage,
     SkillSideEffect,
     SkillSourceScope,
+    SkillUserInputMode,
+)
+from agentmesh.skill_runtime.input_contracts import (
+    UserInputContractError,
+    load_user_input_contract,
 )
 from agentmesh.skill_runtime.matching import positive_skill_description
 
@@ -98,6 +103,8 @@ class _ProfileDocument(BaseModel):
     required_resources: list[_ProfileResource] = Field(default_factory=list, max_length=20)
     input_schema_ref: str | None = Field(default=None, max_length=240)
     output_schema_ref: str | None = Field(default=None, max_length=240)
+    user_input_mode: SkillUserInputMode | None = None
+    user_input_schema_ref: str | None = Field(default=None, max_length=240)
     produces_factual_claims: bool = False
     report_policy: str = Field(default="never", pattern="^(never|on_request|default)$")
     cost_level: str = Field(default="low", pattern="^(low|medium|high)$")
@@ -222,6 +229,26 @@ def load_capability_profile_record(skill: SkillDefinition) -> LoadedCapabilityPr
         raise ProfileError("profile_skill_version_mismatch")
     if document.skill_content_hash != skill.content_hash:
         raise ProfileError("profile_skill_hash_mismatch")
+    if document.user_input_mode is SkillUserInputMode.PROMPT_ONLY and document.user_input_schema_ref:
+        raise ProfileError("user_input_contract_invalid")
+    if document.user_input_mode is SkillUserInputMode.PREFLIGHT and not document.user_input_schema_ref:
+        raise ProfileError("user_input_contract_missing")
+    if (
+        document.planner_eligible
+        and document.review_state != "draft"
+        and is_pilot_orchestration_skill(skill)
+        and document.user_input_mode is None
+    ):
+        raise ProfileError("user_input_contract_unclassified")
+    user_input_contract_hash = None
+    if document.user_input_mode is SkillUserInputMode.PREFLIGHT:
+        try:
+            user_input_contract_hash = load_user_input_contract(
+                skill,
+                document.user_input_schema_ref or "",
+            ).content_hash
+        except UserInputContractError as error:
+            raise ProfileError(str(error)) from error
     lifecycle_tags = document.lifecycle_tags or [document.primary_stage]
     profile = SkillCapabilityProfile(
         id=skill.id,
@@ -248,6 +275,9 @@ def load_capability_profile_record(skill: SkillDefinition) -> LoadedCapabilityPr
         required_resources=document.required_resources,
         input_schema_ref=document.input_schema_ref,
         output_schema_ref=document.output_schema_ref,
+        user_input_mode=document.user_input_mode,
+        user_input_schema_ref=document.user_input_schema_ref,
+        user_input_contract_hash=user_input_contract_hash,
         produces_factual_claims=document.produces_factual_claims,
         report_policy=document.report_policy,
         cost_level=document.cost_level,
