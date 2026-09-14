@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import CallToolResult, GetPromptResult, ListPromptsResult, TextContent
+from mcp.types import CallToolResult, GetPromptResult, ListPromptsResult, TextContent, Tool
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.models import (
@@ -24,6 +25,7 @@ from agentmesh.skill_runtime.quiesce import (
     OrchestrationQuiesceController,
     OrchestrationQuiescingError,
 )
+from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore, store
 from agentmesh.tool_runtime.mcp import (
     AgentMeshMCPFactory,
@@ -31,7 +33,9 @@ from agentmesh.tool_runtime.mcp import (
     MCPConfigFile,
     MCPServerConfig,
     load_mcp_config,
+    resolve_mcp_requirement,
 )
+from agentmesh.tools import ZERO_DESIGN_READ_TOOL_ID, ensure_tool_seed_data
 
 
 def _context() -> AgentMeshRunContext:
@@ -216,6 +220,266 @@ def test_wiki_imported_skill_mcp_servers_are_fail_closed(tmp_path) -> None:
         context=_context(),
         skill=imported.model_copy(update={"requested_tools": ["mcp_test_gateway"]}),
     ) == []
+
+
+def test_mcp_requirement_alias_exposes_only_the_remote_tool_requested_by_skill() -> None:
+    _grant()
+    config = MCPConfigFile(
+        servers=[
+            MCPServerConfig(
+                name="zero-design-read",
+                tool_id="tool_mcp_test",
+                allowed_tool_names=["get_design_metadata", "get_screenshot"],
+                requirement_aliases={
+                    "mcp__zero-design__get_design_metadata": "get_design_metadata",
+                    "mcp__zero-design__get_screenshot": "get_screenshot",
+                },
+                transport="streamable_http",
+                url="http://127.0.0.1:27618/mcp",
+            )
+        ]
+    )
+    skill = SkillDefinition(
+        id="skill_zero_metadata",
+        name="zero-metadata",
+        title="Zero metadata",
+        description="Read metadata",
+        instructions="Read metadata through the governed gateway.",
+        source_path="tests/zero-metadata/SKILL.md",
+        source_scope=SkillSourceScope.BUILTIN,
+        content_hash="zero-metadata-hash",
+        requested_tools=["mcp__zero-design__get_design_metadata"],
+    )
+
+    servers = AgentMeshMCPFactory(store, config).build(user=USER, context=_context(), skill=skill)
+
+    assert len(servers) == 1
+    assert servers[0].allowed_tool_names == {"get_design_metadata"}
+    resolution = resolve_mcp_requirement(
+        store,
+        "mcp__zero-design__get_design_metadata",
+        config,
+    )
+    assert resolution is not None
+    assert resolution.definition.name == "mcp_test_gateway"
+    assert resolution.remote_tool_name == "get_design_metadata"
+
+
+def test_governed_mcp_presents_alias_and_calls_remote_tool(tmp_path) -> None:
+    repository = SQLiteStore(tmp_path / "aliased-mcp.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
+    context = _context().model_copy(
+        update={"thread_id": "thread_aliased_mcp", "run_id": "run_aliased_mcp"}
+    )
+    repository.add_chat_thread(
+        ChatThread(
+            id=context.thread_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            user_id=context.user_id,
+            title="Aliased MCP",
+        )
+    )
+    repository.save_agent_run(
+        AgentRun(
+            id=context.run_id,
+            thread_id=context.thread_id,
+            user_id=context.user_id,
+            workspace_id=context.workspace_id,
+            project_id=context.project_id,
+            input_text="read Zero metadata",
+            status=AgentRunStatus.RUNNING,
+        )
+    )
+    definition = repository.save_tool_definition(
+        ToolDefinition(
+            id="tool_aliased_mcp",
+            name="zero_design_read",
+            description="Aliased MCP",
+            category="integration",
+            side_effect="read",
+        )
+    )
+    repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_aliased_mcp",
+            agent_id=USER.personal_agent_id,
+            tool_id=definition.id,
+            granted_by="test",
+        )
+    )
+
+    class AliasInner(_UnsafeInner):
+        def __init__(self) -> None:
+            super().__init__()
+            self.called_names: list[str] = []
+
+        async def list_tools(self, run_context=None, agent=None):
+            del run_context, agent
+            return [
+                Tool(name="get_design_metadata", description="Read metadata", inputSchema={"type": "object"}),
+                Tool(name="get_screenshot", description="Read screenshot", inputSchema={"type": "object"}),
+            ]
+
+        async def call_tool(self, tool_name, arguments, meta=None):
+            del arguments, meta
+            self.calls += 1
+            self.called_names.append(tool_name)
+            return CallToolResult(content=[TextContent(text="safe metadata")])
+
+    inner = AliasInner()
+    alias = "mcp__zero-design__get_design_metadata"
+    server = GovernedMCPServer(
+        inner,
+        repository=repository,
+        context=context,
+        definition=definition,
+        allowed_tool_names={"get_design_metadata"},
+        tool_aliases={alias: "get_design_metadata"},
+    )
+
+    listed = asyncio.run(server.list_tools())
+    result = asyncio.run(server.call_tool(alias, {}))
+
+    assert [tool.name for tool in listed] == [alias]
+    assert result.is_error is False
+    assert inner.called_names == ["get_design_metadata"]
+
+
+def test_mcp_requirement_alias_target_must_be_allowlisted() -> None:
+    with pytest.raises(ValueError, match="requirement alias target"):
+        MCPServerConfig(
+            name="zero-design-read",
+            tool_id="tool_mcp_test",
+            allowed_tool_names=["get_design_metadata"],
+            requirement_aliases={"mcp__zero-design__get_screenshot": "get_screenshot"},
+            transport="streamable_http",
+            url="http://127.0.0.1:27618/mcp",
+        )
+
+
+def test_zero_mcp_readonly_example_exposes_only_verified_read_tools() -> None:
+    config_path = Path(__file__).parents[1] / "config" / "zero-mcp.readonly.example.json"
+
+    config = load_mcp_config(config_path)
+
+    assert len(config.servers) == 1
+    server = config.servers[0]
+    assert server.tool_id == ZERO_DESIGN_READ_TOOL_ID
+    assert server.url == "http://127.0.0.1:27618/mcp"
+    assert server.require_read_only_tool_annotations is True
+    assert set(server.allowed_tool_names) == {
+        "resources_list",
+        "resources_read",
+        "get_design_metadata",
+        "get_design_context",
+        "get_screenshot",
+        "get_variables",
+    }
+    assert set(server.requirement_aliases.values()) == set(server.allowed_tool_names)
+    assert "use_design_script" not in server.allowed_tool_names
+    assert "export_image" not in server.allowed_tool_names
+
+
+def test_readonly_mcp_server_hides_tools_without_readonly_annotation() -> None:
+    class AnnotationInner(_UnsafeInner):
+        async def list_tools(self, run_context=None, agent=None):
+            del run_context, agent
+            return [
+                Tool(
+                    name="get_design_metadata",
+                    description="Read metadata",
+                    inputSchema={"type": "object"},
+                    annotations={"readOnlyHint": True},
+                ),
+                Tool(
+                    name="use_design_script",
+                    description="Write design",
+                    inputSchema={"type": "object"},
+                    annotations={"readOnlyHint": False},
+                ),
+            ]
+
+    server = GovernedMCPServer(
+        AnnotationInner(),
+        repository=SimpleNamespace(get_agent_run=lambda _run_id: None),  # type: ignore[arg-type]
+        context=_context(),
+        definition=ToolDefinition(
+            id="tool_readonly_annotations",
+            name="zero_design_read",
+            description="Read-only Zero tools",
+            category="integration",
+            side_effect="read",
+        ),
+        allowed_tool_names={"get_design_metadata", "use_design_script"},
+        require_read_only_tool_annotations=True,
+    )
+
+    listed = asyncio.run(server.list_tools())
+
+    assert [tool.name for tool in listed] == ["get_design_metadata"]
+
+
+def test_configured_zero_mcp_aliases_are_supported_without_an_implicit_grant(tmp_path, monkeypatch) -> None:
+    repository = SQLiteStore(tmp_path / "zero-mcp.sqlite3")
+    ensure_base_workspace_data(repository)
+    ensure_tool_seed_data(repository, granted_by="test")
+    config_path = tmp_path / "zero-mcp.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "servers": [
+                    {
+                        "name": "zero-design-read",
+                        "tool_id": ZERO_DESIGN_READ_TOOL_ID,
+                        "allowed_tool_names": ["get_design_metadata", "get_screenshot"],
+                        "requirement_aliases": {
+                            "mcp__zero-design__get_design_metadata": "get_design_metadata",
+                            "mcp__zero-design__get_screenshot": "get_screenshot",
+                        },
+                        "transport": "streamable_http",
+                        "url": "http://127.0.0.1:27618/mcp",
+                    }
+                ]
+            }
+        )
+    )
+    monkeypatch.setenv("AGENTMESH_MCP_CONFIG", str(config_path))
+
+    supported = SkillCatalogService(repository).supported_tool_names()
+
+    assert "zero_design_read" in supported
+    assert "mcp__zero-design__get_design_metadata" in supported
+    assert "mcp__zero-design__get_screenshot" in supported
+    assert "mcp__zero-design__use_design_script" not in supported
+    assert repository.get_tool_definition(ZERO_DESIGN_READ_TOOL_ID) is not None
+    assert ZERO_DESIGN_READ_TOOL_ID not in {
+        grant.tool_id
+        for grant in repository.list_agent_tool_grants(USER.personal_agent_id)
+        if grant.enabled
+    }
+
+
+def test_zero_mcp_aliases_remove_only_configured_requirements_from_skill_gap(
+    tmp_path,
+    monkeypatch,
+    configure_pilot_wiki,
+) -> None:
+    configure_pilot_wiki(tmp_path / "wiki")
+    repository = SQLiteStore(tmp_path / "zero-catalog.sqlite3")
+    ensure_base_workspace_data(repository)
+    ensure_tool_seed_data(repository, granted_by="test")
+    config_path = Path(__file__).parents[1] / "config" / "zero-mcp.readonly.example.json"
+    monkeypatch.setenv("AGENTMESH_MCP_CONFIG", str(config_path))
+    catalog = SkillCatalogService(repository)
+    catalog.reload()
+    skill = catalog._skills["design-review"]
+
+    item = catalog.to_chat_skill(skill)
+
+    assert not any(str(name).startswith("mcp__zero-design__") for name in item["missing_tools"])
+    assert set(item["missing_tools"]) == {"Bash", "Edit", "Read", "Write"}
 
 
 def test_mcp_config_rejects_unresolved_header_secret(tmp_path, monkeypatch) -> None:

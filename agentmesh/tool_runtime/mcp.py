@@ -3,12 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from agents.mcp import MCPServer, MCPServerStdio, MCPServerStreamableHttp
 from mcp.types import CallToolResult, TextContent
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.canonical_json import canonical_json_sha256
@@ -52,6 +53,7 @@ class MCPServerConfig(BaseModel):
     name: str
     tool_id: str
     allowed_tool_names: list[str] = Field(min_length=1)
+    requirement_aliases: dict[str, str] = Field(default_factory=dict)
     transport: Literal["stdio", "streamable_http"]
     command: str | None = None
     args: list[str] = Field(default_factory=list)
@@ -60,10 +62,42 @@ class MCPServerConfig(BaseModel):
     # Retained for config compatibility. AgentMesh always requires approval for MCP calls.
     require_approval: bool = True
     cache_tools_list: bool = True
+    require_read_only_tool_annotations: bool = False
+
+    @model_validator(mode="after")
+    def validate_requirement_aliases(self) -> MCPServerConfig:
+        if len(self.allowed_tool_names) != len(set(self.allowed_tool_names)):
+            raise ValueError("allowed MCP tool names must be unique")
+        if any(not alias or not target for alias, target in self.requirement_aliases.items()):
+            raise ValueError("MCP requirement aliases must be non-empty")
+        unknown_targets = sorted(set(self.requirement_aliases.values()) - set(self.allowed_tool_names))
+        if unknown_targets:
+            raise ValueError(f"requirement alias target is not allowlisted: {', '.join(unknown_targets)}")
+        if len(self.requirement_aliases.values()) != len(set(self.requirement_aliases.values())):
+            raise ValueError("MCP requirement alias targets must be unique")
+        return self
 
 
 class MCPConfigFile(BaseModel):
     servers: list[MCPServerConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_alias_ownership(self) -> MCPConfigFile:
+        aliases = [alias for server in self.servers for alias in server.requirement_aliases]
+        if len(aliases) != len(set(aliases)):
+            raise ValueError("MCP requirement aliases must be unique across servers")
+        return self
+
+
+@dataclass(frozen=True, slots=True)
+class MCPRequirementResolution:
+    definition: ToolDefinition
+    server: MCPServerConfig
+    remote_tool_name: str
+
+
+def _resolve_mcp_config(config: MCPConfigFile | None) -> MCPConfigFile:
+    return config if config is not None else load_mcp_config()
 
 
 def _resolve_value(value: str) -> str:
@@ -80,6 +114,55 @@ def load_mcp_config(path: str | Path | None = None) -> MCPConfigFile:
     return MCPConfigFile.model_validate(payload)
 
 
+def resolve_mcp_requirement(
+    repository: SQLiteStore,
+    reference: str,
+    config: MCPConfigFile | None = None,
+) -> MCPRequirementResolution | None:
+    resolved_config = _resolve_mcp_config(config)
+    definitions = {
+        tool.id: tool
+        for tool in repository.tool_definitions
+        if tool.enabled
+    }
+    for server in resolved_config.servers:
+        definition = definitions.get(server.tool_id)
+        if definition is None:
+            continue
+        remote_tool_name = server.requirement_aliases.get(reference)
+        if remote_tool_name is not None:
+            return MCPRequirementResolution(
+                definition=definition,
+                server=server,
+                remote_tool_name=remote_tool_name,
+            )
+    return None
+
+
+def supported_mcp_requirement_names(
+    repository: SQLiteStore,
+    config: MCPConfigFile | None = None,
+) -> set[str]:
+    resolved_config = _resolve_mcp_config(config)
+    definitions = {
+        tool.id: tool
+        for tool in repository.tool_definitions
+        if tool.enabled
+    }
+    supported: set[str] = set()
+    for server in resolved_config.servers:
+        definition = definitions.get(server.tool_id)
+        if definition is None:
+            continue
+        supported.add(definition.name)
+        supported.update(
+            requirement
+            for requirement, remote_name in server.requirement_aliases.items()
+            if remote_name in server.allowed_tool_names
+        )
+    return supported
+
+
 class GovernedMCPServer(MCPServer):
     """MCP adapter that enforces AgentMesh approval, filtering, audit, and output policy."""
 
@@ -91,6 +174,8 @@ class GovernedMCPServer(MCPServer):
         context: AgentMeshRunContext,
         definition: ToolDefinition,
         allowed_tool_names: set[str],
+        tool_aliases: dict[str, str] | None = None,
+        require_read_only_tool_annotations: bool = False,
         admission: OrchestrationQuiesceController | None = None,
         capacity: RuntimeCapacityController | None = None,
     ):
@@ -100,6 +185,17 @@ class GovernedMCPServer(MCPServer):
         self.context = context
         self.definition = definition
         self.allowed_tool_names = allowed_tool_names
+        self.tool_aliases = dict(tool_aliases or {})
+        if not set(self.tool_aliases.values()) <= self.allowed_tool_names:
+            raise ValueError("MCP tool alias target is not allowed")
+        if len(self.tool_aliases.values()) != len(set(self.tool_aliases.values())):
+            raise ValueError("MCP tool alias targets must be unique")
+        self._public_name_by_remote = {
+            remote_name: public_name
+            for public_name, remote_name in self.tool_aliases.items()
+        }
+        self.require_read_only_tool_annotations = require_read_only_tool_annotations
+        self._confirmed_read_only_tools: set[str] = set()
         self.admission = admission or current_orchestration_admission()
         self.capacity = capacity or current_runtime_capacity()
 
@@ -124,7 +220,21 @@ class GovernedMCPServer(MCPServer):
         if _is_deepsearch_context(self.repository, self.context):
             return []
         tools = await self.inner.list_tools(run_context, agent)
-        return [tool for tool in tools if tool.name in self.allowed_tool_names]
+        visible = [
+            tool
+            for tool in tools
+            if tool.name in self.allowed_tool_names
+            and (
+                not self.require_read_only_tool_annotations
+                or (tool.annotations is not None and tool.annotations.read_only_hint is True)
+            )
+        ]
+        if self.require_read_only_tool_annotations:
+            self._confirmed_read_only_tools = {tool.name for tool in visible}
+        return [
+            tool.model_copy(update={"name": self._public_name_by_remote.get(tool.name, tool.name)})
+            for tool in visible
+        ]
 
     def _claim(self, tool_name: str, arguments: dict[str, Any], meta: dict[str, Any] | None) -> RuntimeToolCallClaimV1:
         arguments_hash = hashlib.sha256(
@@ -190,7 +300,11 @@ class GovernedMCPServer(MCPServer):
             for tool in list_agent_tools(self.repository, user.personal_agent_id)
         ):
             return CallToolResult(content=[TextContent(text="Agent tool grant was revoked.")], isError=True)
-        if tool_name not in self.allowed_tool_names:
+        remote_tool_name = self.tool_aliases.get(tool_name, tool_name)
+        if remote_tool_name not in self.allowed_tool_names or (
+            self.require_read_only_tool_annotations
+            and remote_tool_name not in self._confirmed_read_only_tools
+        ):
             return CallToolResult(content=[TextContent(text="MCP tool is not granted by AgentMesh.")], isError=True)
         raw_arguments = json.dumps(arguments or {}, ensure_ascii=False, default=str)
         if contains_credential(raw_arguments):
@@ -213,7 +327,10 @@ class GovernedMCPServer(MCPServer):
                 )
             ):
                 raise PermissionError("Agent tool grant was revoked")
-            if tool_name not in self.allowed_tool_names:
+            if remote_tool_name not in self.allowed_tool_names or (
+                self.require_read_only_tool_annotations
+                and remote_tool_name not in self._confirmed_read_only_tools
+            ):
                 raise PermissionError("MCP tool is not granted by AgentMesh")
             with self.admission.permit():
                 claimed = self.repository.claim_runtime_tool_call(claim)
@@ -236,6 +353,7 @@ class GovernedMCPServer(MCPServer):
                         "run_id": self.context.run_id,
                         "server": self.name,
                         "tool_name": tool_name,
+                        "remote_tool_name": remote_tool_name,
                     },
                 )
             )
@@ -257,7 +375,7 @@ class GovernedMCPServer(MCPServer):
                 self.capacity.release_tool()
             raise
         try:
-            result = await self.inner.call_tool(tool_name, arguments, meta)
+            result = await self.inner.call_tool(remote_tool_name, arguments, meta)
             output = result.model_dump_json(by_alias=True)
             if len(output.encode("utf-8")) > _MAX_MCP_PROVIDER_OUTPUT_BYTES:
                 raise RuntimeError("mcp_output_limit_exceeded")
@@ -275,6 +393,7 @@ class GovernedMCPServer(MCPServer):
                             "run_id": self.context.run_id,
                             "server": self.name,
                             "tool_name": tool_name,
+                            "remote_tool_name": remote_tool_name,
                             "reason": unsafe_reason,
                         },
                     )
@@ -315,6 +434,7 @@ class GovernedMCPServer(MCPServer):
                         "run_id": self.context.run_id,
                         "server": self.name,
                         "tool_name": tool_name,
+                        "remote_tool_name": remote_tool_name,
                         "artifact_id": artifact_id,
                     },
                 )
@@ -404,7 +524,19 @@ class AgentMeshMCPFactory:
         servers: list[MCPServer] = []
         for config in self.config.servers:
             definition = granted.get(config.tool_id)
-            if definition is None or (requested is not None and definition.name not in requested):
+            if definition is None:
+                continue
+            if requested is None or definition.name in requested:
+                allowed_tool_names = set(config.allowed_tool_names)
+                tool_aliases: dict[str, str] = {}
+            else:
+                tool_aliases = {
+                    requirement: remote_name
+                    for requirement, remote_name in config.requirement_aliases.items()
+                    if requirement in requested
+                }
+                allowed_tool_names = set(tool_aliases.values())
+            if not allowed_tool_names:
                 continue
             if config.transport == "stdio":
                 if not config.command:
@@ -433,7 +565,9 @@ class AgentMeshMCPFactory:
                     repository=self.repository,
                     context=context,
                     definition=definition,
-                    allowed_tool_names=set(config.allowed_tool_names),
+                    allowed_tool_names=allowed_tool_names,
+                    tool_aliases=tool_aliases,
+                    require_read_only_tool_annotations=config.require_read_only_tool_annotations,
                     admission=self.admission,
                     capacity=self.capacity,
                 )
