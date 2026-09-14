@@ -89,6 +89,50 @@ def _insert_historical_artifact(artifact: Artifact) -> Artifact:
     return artifact
 
 
+def test_completed_workspace_run_can_be_saved_to_personal_memory() -> None:
+    run = store.save_agent_run(
+        AgentRun(
+            id="run_manual_memory_route",
+            thread_id="thread_manual_memory_route",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=USER.default_project_id,
+            input_text="整理设计讨论",
+            status=AgentRunStatus.COMPLETED,
+            output_text="确认首屏入口优先级，并保留转化率护栏。",
+            project_chat=True,
+        )
+    )
+    client = TestClient(app)
+    _login(client, USER.id, "designer123")
+
+    before = client.get(f"/api/agent/runs/{run.id}")
+    assert before.status_code == 200
+    assert before.json()["memory_item_id"] is None
+
+    saved = client.post(
+        f"/api/agent/runs/{run.id}/memory",
+        json={"title": "首屏入口设计讨论"},
+    )
+    replay = client.post(
+        f"/api/agent/runs/{run.id}/memory",
+        json={"title": "重复请求不应改写"},
+    )
+
+    assert saved.status_code == 200
+    assert replay.status_code == 200
+    assert replay.json()["item"]["id"] == saved.json()["item"]["id"]
+    assert saved.json()["item"]["source_kind"] == "agent_run_manual"
+    assert saved.json()["item"]["layer"] == "short_term"
+    after = client.get(f"/api/agent/runs/{run.id}")
+    assert after.json()["memory_item_id"] == saved.json()["item"]["id"]
+    assert after.json()["memory_disposition"] == "projected"
+
+    other = TestClient(app)
+    _login(other, TEAM_LEAD.id, "lead123")
+    assert other.post(f"/api/agent/runs/{run.id}/memory", json={}).status_code == 404
+
+
 def test_agent_run_create_is_idempotent_by_client_turn(monkeypatch) -> None:
     runtime = AgentRuntimeService(
         store,

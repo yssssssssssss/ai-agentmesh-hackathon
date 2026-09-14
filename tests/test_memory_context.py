@@ -708,6 +708,48 @@ def test_tool_memory_search_records_the_context_exposed_to_the_model(tmp_path, m
     assert receipts[0].retrieval_reason == "tool_memory_search"
 
 
+def test_unlinked_workspace_runtime_injects_memory_in_inject_mode(tmp_path, monkeypatch) -> None:
+    repository = _repository(tmp_path)
+    run = repository.save_agent_run(
+        AgentRun(
+            id="run_memory_context_workspace",
+            thread_id="thread_memory_context_workspace",
+            user_id=USER.id,
+            workspace_id=USER.workspace_id,
+            project_id=PROJECT.id,
+            input_text="checkout evidence reusable guidance",
+            status=AgentRunStatus.RUNNING,
+            project_chat=True,
+        )
+    )
+    _accepted_memory(repository, "memory_context_workspace")
+    model = ScriptedModel([[assistant_message("Applied Workspace memory [T1]")]])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    selected = runtime._select_model(USER)
+    assert selected is not None
+    monkeypatch.setenv("AGENTMESH_MEMORY_CONTEXT", "inject")
+
+    answer = asyncio.run(
+        runtime._execute_run(
+            run=run,
+            selected=selected,
+            content=run.input_text,
+            user=USER,
+            history=[],
+            skill=None,
+            project_chat=True,
+        )
+    )
+
+    assert answer.content == "Applied Workspace memory [T1]"
+    assert model.first_call is not None
+    assert "agentmesh_memory_context" in (model.first_call.system_instructions or "")
+    receipts = repository.list_memory_use_receipts_for_run(run.id)
+    assert len(receipts) == 1
+    assert receipts[0].citation_label == "T1"
+    repository.close()
+
+
 def test_linked_runtime_injects_memory_context_only_in_inject_mode(tmp_path, monkeypatch) -> None:
     repository = _repository(tmp_path)
     run = _linked_run(repository, monkeypatch, "runtime")

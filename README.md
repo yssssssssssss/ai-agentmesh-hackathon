@@ -87,14 +87,16 @@ After a Task Review is accepted, its Run owner may explicitly capture the frozen
 
 Accepted Team Knowledge is immutable in place. Its owner or a user with effective `manage_team_memory` permission may submit a revision candidate; accepting that candidate atomically activates the new version and deprecates its predecessor. Lifecycle managers can dispute, deprecate, expire, archive, and restore governed versions through versioned command endpoints. Inactive versions remain auditable but are excluded from automatic Agent retrieval.
 
-Automatic Task-linked Memory context is separately gated and defaults to `off`:
+Automatic Task-linked and private Workspace AgentRun Memory context is separately gated and defaults to `off`:
 
 ```bash
 export AGENTMESH_MEMORY_CONTEXT=observe  # retrieve and measure; do not inject or write use receipts
 export AGENTMESH_MEMORY_CONTEXT=inject   # inject eligible Memory and persist MemoryUseReceiptV1
 ```
 
-Only Memory that passes credential/prompt-injection quarantine and reaches the final model-context handoff receives an immutable use receipt. Explicit Runtime `memory_search` defers the receipt until its exact visible output passes encoding, size, safety, audit, and Tool settlement checks. Citation labels are transactionally reserved per Run so concurrent searches cannot assign one label to different Memory versions. Candidate, disputed, deprecated, expired, and archived versions remain excluded before retrieval ranking and budgets in every mode; the complete rendered context, including citation and Source metadata, is budgeted.
+Only Task-linked Runs and private Workspace Runs (`project_chat=true`) are eligible for this automatic path. Only Memory that passes credential/prompt-injection quarantine and reaches the final model-context handoff receives an immutable use receipt. Explicit Runtime `memory_search` defers the receipt until its exact visible output passes encoding, size, safety, audit, and Tool settlement checks. Citation labels are transactionally reserved per Run so concurrent searches cannot assign one label to different Memory versions. Candidate, disputed, deprecated, expired, and archived versions remain excluded before retrieval ranking and budgets in every mode; the complete rendered context, including citation and Source metadata, is budgeted.
+
+Completed direct Skills that declare `private_short_term` and completed Standard Skill Plans containing such Skills project exactly one private short-term Memory per Run. Ordinary Workspace conversations remain policy-skipped, but their owner can explicitly save a completed or partial result through the Workspace action; this never publishes Team Knowledge. Task-derived Team Knowledge continues to require accepted Task Review, explicit capture, and independent Memory Review.
 
 Project operations build on the same Task facts. Project managers can define parent and dependency relationships; the server rejects cross-project targets and graph cycles, and incomplete dependencies prevent both the `start` transition and new Task-linked AgentRun claims. `GET /api/task-operations/{project_id}` serves the project overview, milestone progress, calendar, and Agent queue; `GET /api/task-operations/{project_id}/task-options` serves bounded relationship choices. These are read models, not an automatic scheduler. The SQLite `task_operations_projection` is rebuilt from canonical Task and Thread records at startup and can be dropped without losing project facts.
 

@@ -19,6 +19,7 @@ import {
 import { workspaceKeys } from './keys'
 import type {
   AgentRun,
+  AgentRunResponse,
   ChatResponse,
   ChatThread,
   DocumentJobsResponse,
@@ -74,6 +75,9 @@ const INPUT_ERROR_MESSAGES: Record<string, string> = {
   input_artifact_count_invalid: '该字段的文件数量已达到上限。',
   input_required_fields_missing: '请先补齐所有必填资料。',
   input_fields_invalid: '请先移除或修正未通过校验的资料。',
+  memory_title_unsafe: '记忆标题包含不安全内容，请修改后重试。',
+  run_output_memory_unsafe: '当前结果包含不适合写入记忆的内容。',
+  run_output_memory_unavailable: '当前运行结果不能保存为记忆。',
 }
 
 export function workspaceErrorMessage(error: unknown): string {
@@ -180,6 +184,15 @@ export function useAgentRunQuery(scope: WorkspaceScope, runId: string | null) {
     queryKey: workspaceKeys.run(scope, runId ?? 'none'),
     queryFn: () => workspaceApi.agentRun(runId ?? ''),
     enabled: Boolean(runId),
+    refetchInterval: (query) => {
+      const response = query.state.data
+      return response
+        && ['completed', 'partial'].includes(response.item.status)
+        && response.memory_disposition === 'not_applicable'
+        && query.state.dataUpdateCount < 6
+        ? 500
+        : false
+    },
   })
 }
 
@@ -524,6 +537,26 @@ export function useSkillPlanMutations(
     onError: refreshOnConflict,
   })
   return { update, approve, reject }
+}
+
+export function useSaveAgentRunMemoryMutation(scope: WorkspaceScope) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ runId, title }: { runId: string; title?: string }) => (
+      workspaceApi.saveAgentRunMemory(runId, title)
+    ),
+    onSuccess: async (response, { runId }) => {
+      queryClient.setQueryData<AgentRunResponse>(workspaceKeys.run(scope, runId), (current) => (
+        current
+          ? { ...current, memory_item_id: response.item.id, memory_disposition: 'projected' }
+          : current
+      ))
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryRoots.memory }),
+        queryClient.invalidateQueries({ queryKey: queryRoots.audit }),
+      ])
+    },
+  })
 }
 
 export function useCancelAgentRunMutation(scope: WorkspaceScope) {

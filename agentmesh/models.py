@@ -31,6 +31,12 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:12]}"
 
 
+def run_output_memory_id(run_id: str) -> str:
+    return "memory_run_output_" + canonical_json_sha256(
+        {"run_id": run_id, "kind": "skill_output"}
+    )[:24]
+
+
 class Scope(StrEnum):
     PRIVATE = "private"
     PROJECT = "project"
@@ -3214,6 +3220,16 @@ class AgentRun(BaseModel):
         ):
             raise ValueError("execution_contract_version requires Standard Universal planning")
         return self
+
+
+class AgentRunMemorySaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+
+
+class AgentRunMemorySaveResponse(BaseModel):
+    item: UserMemoryItem
 
 
 class SkillPlanTransitionResponse(BaseModel):

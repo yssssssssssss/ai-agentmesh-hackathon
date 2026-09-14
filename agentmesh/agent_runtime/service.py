@@ -126,11 +126,13 @@ from agentmesh.models import (
     SkillResultSource,
     SkillSideEffect,
     SkillSynthesisResult,
+    Source,
     ToolDefinition,
     User,
     UserMemoryItem,
     new_id,
     now_utc,
+    run_output_memory_id,
 )
 from agentmesh.runtime_admission import current_orchestration_admission
 from agentmesh.runtime_capacity import (
@@ -1583,7 +1585,7 @@ class AgentRuntimeService:
         query: str,
     ) -> MemoryContextBundleV1 | None:
         mode = memory_context_mode()
-        if mode is MemoryContextMode.OFF or run.task_id is None:
+        if mode is MemoryContextMode.OFF or (run.task_id is None and not run.project_chat):
             return None
         if mode is MemoryContextMode.OBSERVE:
             observed = self.memory_context.retrieve(
@@ -5594,6 +5596,80 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             self._project_background_answer(run, answer)
         return answer
 
+    def _run_output_memory_item(
+        self,
+        run: AgentRun,
+        answer: RuntimeAnswer,
+    ) -> UserMemoryItem | None:
+        if run.status not in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}:
+            return None
+        skill = self.repository.get_skill_definition(run.skill_id) if run.skill_id else None
+        if skill is not None:
+            if skill.memory_write_policy != SkillMemoryWritePolicy.PRIVATE_SHORT_TERM:
+                return None
+            return UserMemoryItem(
+                id=run_output_memory_id(run.id),
+                user_id=run.user_id,
+                layer=MemoryLayer.SHORT_TERM,
+                title=skill.title,
+                summary=answer.content[:4000],
+                source_kind=f"sdk_skill:{skill.name}",
+                memory_type="skill_output",
+                scope=Scope.PRIVATE,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                source_thread_id=run.thread_id,
+                source_task_id=run.task_id,
+            )
+        if run.plan_id is None or run.planning_mode is not AgentPlanningMode.STANDARD:
+            return None
+        plan = self.repository.get_skill_plan(run.plan_id)
+        if (
+            plan is None
+            or plan.status not in {SkillPlanStatus.COMPLETED, SkillPlanStatus.PARTIAL}
+            or not any(
+                definition is not None
+                and definition.memory_write_policy == SkillMemoryWritePolicy.PRIVATE_SHORT_TERM
+                for node in plan.nodes
+                for definition in [self.repository.get_skill_definition(node.skill_id)]
+            )
+        ):
+            return None
+        summary = answer.content
+        if plan.synthesis is not None:
+            try:
+                summary = SkillSynthesisResult.model_validate(plan.synthesis).summary
+            except ValueError:
+                summary = answer.content
+        sources: list[Source] = []
+        seen_source_ids: set[str] = set()
+        for result in self.repository.list_skill_node_results(plan.id):
+            for source in result.sources:
+                stored_source = self.repository.get_source(source.id)
+                if stored_source is None or stored_source.id in seen_source_ids:
+                    continue
+                seen_source_ids.add(stored_source.id)
+                sources.append(stored_source)
+                if len(sources) >= 20:
+                    break
+            if len(sources) >= 20:
+                break
+        return UserMemoryItem(
+            id=run_output_memory_id(run.id),
+            user_id=run.user_id,
+            layer=MemoryLayer.SHORT_TERM,
+            title=(plan.intent.goal or "Skill 计划结果")[:160],
+            summary=summary[:4000],
+            source_kind="sdk_skill_plan",
+            memory_type="skill_plan_output",
+            scope=Scope.PRIVATE,
+            workspace_id=run.workspace_id,
+            project_id=run.project_id,
+            source_thread_id=run.thread_id,
+            source_task_id=run.task_id,
+            sources=sources,
+        )
+
     def _project_background_answer(
         self,
         run: AgentRun,
@@ -5618,27 +5694,7 @@ Do not include hidden reasoning. Cite only sources actually supplied by tools, a
             actual_model=answer.actual_model,
             provider_mode="real" if answer.llm_used else "fallback",
         )
-        skill = self.repository.get_skill_definition(run.skill_id) if run.skill_id else None
-        memory_item = (
-            UserMemoryItem(
-                id="memory_run_output_"
-                + canonical_json_sha256({"run_id": run.id, "kind": "skill_output"})[:24],
-                user_id=run.user_id,
-                layer=MemoryLayer.SHORT_TERM,
-                title=skill.title,
-                summary=answer.content[:4000],
-                source_kind=f"sdk_skill:{skill.name}",
-                memory_type="skill_output",
-                scope=Scope.PRIVATE,
-                workspace_id=run.workspace_id,
-                project_id=run.project_id,
-                source_thread_id=run.thread_id,
-            )
-            if run.status in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}
-            and skill is not None
-            and skill.memory_write_policy == SkillMemoryWritePolicy.PRIVATE_SHORT_TERM
-            else None
-        )
+        memory_item = self._run_output_memory_item(run, answer)
         self.repository.project_terminal_run_output(
             run_id=run.id,
             content=answer.content,

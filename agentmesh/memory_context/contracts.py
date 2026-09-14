@@ -106,3 +106,5 @@ class MemoryUseBacklinkV1(BaseModel):
 class AgentRunDetailResponseV1(BaseModel):
     item: AgentRun
     memory_uses: list[MemoryUseViewV1] = Field(default_factory=list)
+    memory_item_id: str | None = None
+    memory_disposition: Literal["projected", "policy_skipped", "not_applicable"] = "not_applicable"

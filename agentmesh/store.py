@@ -153,6 +153,7 @@ from agentmesh.models import (
     UserRole,
     Workspace,
     now_utc,
+    run_output_memory_id,
 )
 from agentmesh.research_orchestration.contracts import (
     ExecutionAttempt,
@@ -5880,6 +5881,78 @@ class SQLiteStore:
                 ],
             )
         return receipt, message, memory_item
+
+    def save_terminal_run_memory(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        title: str | None = None,
+    ) -> UserMemoryItem | None:
+        memory_id = run_output_memory_id(run_id)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            run = self._decode_agent_run_row(run_row)
+            if (
+                run.user_id != user_id
+                or run.status not in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}
+                or not run.output_text
+            ):
+                return None
+            existing_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("user_memory_items", memory_id),
+            ).fetchone()
+            if existing_row is not None:
+                existing = UserMemoryItem.model_validate_json(existing_row["payload"])
+                if (
+                    existing.user_id != run.user_id
+                    or existing.workspace_id != run.workspace_id
+                    or existing.project_id != run.project_id
+                    or existing.source_thread_id != run.thread_id
+                ):
+                    raise ResearchStoreConflict("run_output_memory_identity_conflict")
+                return existing
+            normalized_title = " ".join((title or run.input_text or "Agent Run 结果").split())
+            item = UserMemoryItem(
+                id=memory_id,
+                user_id=run.user_id,
+                layer=MemoryLayer.SHORT_TERM,
+                title=normalized_title[:160] or "Agent Run 结果",
+                summary=run.output_text[:4000],
+                source_kind="agent_run_manual",
+                memory_type="run_output",
+                scope=Scope.PRIVATE,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                source_thread_id=run.thread_id,
+                source_task_id=run.task_id,
+            )
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                ("user_memory_items", item.id, item.model_dump_json()),
+            )
+            self._sync_fts(connection, "user_memory_items", item)
+            audit = AuditEvent(
+                actor=user_id,
+                action="save_agent_run_to_personal_memory",
+                target_type="user_memory_item",
+                target_id=item.id,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                metadata={"run_id": run.id, "memory_layer": item.layer.value},
+            )
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                ("audit_events", audit.id, audit.model_dump_json()),
+            )
+        return item
 
     def get_run_output_projection(
         self,

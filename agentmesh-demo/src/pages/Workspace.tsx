@@ -42,6 +42,7 @@ import {
   useSkillInputRequestQuery,
   useRetryAgentRunMutation,
   useResearchRunQuery,
+  useSaveAgentRunMemoryMutation,
   useSendAgentRunMutation,
   useSendMessageMutation,
   useSkillPlanMutations,
@@ -137,6 +138,7 @@ export function Workspace() {
   const planMutations = useSkillPlanMutations(scope, runId, Boolean(isDeepSearch))
   const cancelRun = useCancelAgentRunMutation(scope)
   const retryRun = useRetryAgentRunMutation(scope)
+  const saveRunMemory = useSaveAgentRunMemoryMutation(scope)
   useAgentRunEventSubscription(scope, currentRun)
   const runtimeV2 = bootstrap?.agent_runtime_enabled === true
   const orchestrationMode = bootstrap?.skill_orchestration_mode ?? 'off'
@@ -302,6 +304,15 @@ export function Workspace() {
     && !isDeepSearch
     && !isRetiredResearch
     && ['partial', 'failed', 'rejected', 'cancelled'].includes(currentRun.status),
+  )
+  const runMemoryItemId = currentRun && runQuery.data?.item.id === currentRun.id
+    ? runQuery.data.memory_item_id
+    : null
+  const canSaveRunMemory = Boolean(
+    isCurrentRun
+    && currentRun?.output_text
+    && ['completed', 'partial'].includes(currentRun.status)
+    && !runMemoryItemId,
   )
 
   const openSkillSource = (source: SkillResultSource) => {
@@ -590,6 +601,40 @@ export function Workspace() {
                     以新 Run 重试
                   </Button>
                 </div>
+              ) : null}
+              {isCurrentRun && currentRun && ['completed', 'partial'].includes(currentRun.status) ? (
+                <section aria-label="运行记忆状态" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-soft border border-white/[0.07] bg-surface-1 px-4 py-3 shadow-card">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-200">
+                      {runMemoryItemId ? '已保存到个人短期记忆' : '本次结果尚未保存到记忆'}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      {runMemoryItemId
+                        ? '后续任务可在权限和上下文预算允许时检索这条记忆。'
+                        : '保存后仅当前用户可见，不会自动发布为团队知识。'}
+                    </p>
+                    {saveRunMemory.isError ? (
+                      <p role="alert" className="mt-1 text-[11px] text-rose">{workspaceErrorMessage(saveRunMemory.error)}</p>
+                    ) : null}
+                  </div>
+                  {runMemoryItemId ? (
+                    <Button variant="secondary" size="sm" onClick={() => navigate(`/knowledge?memory=${encodeURIComponent(runMemoryItemId)}`)}>
+                      查看记忆
+                    </Button>
+                  ) : canSaveRunMemory ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      loading={saveRunMemory.isPending}
+                      onClick={() => saveRunMemory.mutate({
+                        runId: currentRun.id,
+                        title: thread.data?.thread.title || currentRun.input_text,
+                      })}
+                    >
+                      保存到个人记忆
+                    </Button>
+                  ) : null}
+                </section>
               ) : null}
               {currentRun && runQuery.data?.item.id === currentRun.id ? (
                 <MemoryUsePanel items={runQuery.data?.memory_uses ?? []} />

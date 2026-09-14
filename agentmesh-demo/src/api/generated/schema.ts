@@ -330,6 +330,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/runs/{run_id}/memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save Agent Run Memory */
+        post: operations["save_agent_run_memory_api_agent_runs__run_id__memory_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/runs/{run_id}/input-request": {
         parameters: {
             query?: never;
@@ -2870,6 +2887,14 @@ export interface components {
             item: components["schemas"]["AgentRun"];
             /** Memory Uses */
             memory_uses?: components["schemas"]["MemoryUseViewV1"][];
+            /** Memory Item Id */
+            memory_item_id?: string | null;
+            /**
+             * Memory Disposition
+             * @default not_applicable
+             * @enum {string}
+             */
+            memory_disposition: "projected" | "policy_skipped" | "not_applicable";
         };
         /** AgentRunEvent */
         AgentRunEvent: {
@@ -2895,6 +2920,15 @@ export interface components {
         AgentRunEventsResponse: {
             /** Items */
             items: components["schemas"]["AgentRunEvent"][];
+        };
+        /** AgentRunMemorySaveRequest */
+        AgentRunMemorySaveRequest: {
+            /** Title */
+            title?: string | null;
+        };
+        /** AgentRunMemorySaveResponse */
+        AgentRunMemorySaveResponse: {
+            item: components["schemas"]["UserMemoryItem"];
         };
         /** AgentRunRetryRequest */
         AgentRunRetryRequest: {
@@ -8999,6 +9033,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentRunDetailResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_agent_run_memory_api_agent_runs__run_id__memory_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentRunMemorySaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunMemorySaveResponse"];
                 };
             };
             /** @description Validation Error */
