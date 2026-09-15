@@ -246,7 +246,11 @@ The command prints only redacted provider readiness, mode, latency, and stable e
 
 ```bash
 .venv/bin/python -m pytest
+.venv/bin/python -m eval.run_closed_loop_eval --mode validate --batch D0
+.venv/bin/python -m eval.run_closed_loop_eval --mode deterministic --batch D1 --output data/eval/closed-loop
 ```
+
+D0 validates the frozen 24-task/96-case dataset. D1 executes all 96 cases with isolated SQLite databases, blocked network access, and `ScriptedModel`; it never calls a real Provider or consumes billable model tokens.
 
 Tests use an isolated SQLite database under the system temp directory, so they do not clear `data/agentmesh.sqlite3`.
 The pytest bootstrap also clears default LLM environment variables so unit tests stay deterministic and do not call the real model service unless a test explicitly configures a mocked model endpoint.
