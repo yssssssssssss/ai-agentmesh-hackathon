@@ -252,6 +252,17 @@ The command prints only redacted provider readiness, mode, latency, and stable e
 
 D0 validates the frozen 24-task/96-case dataset. D1 executes all 96 cases with isolated SQLite databases, blocked network access, and `ScriptedModel`; it never calls a real Provider or consumes billable model tokens.
 
+R1 is manual and billable. It is forbidden in CI and requires an explicit acknowledgement and budget:
+
+```bash
+.venv/bin/python -m eval.run_closed_loop_eval \
+  --mode real --batch R1 \
+  --max-runs 24 --max-total-tokens 500000 \
+  --initial-token-reserve 40000 \
+  --ack-real-provider --env-file .env \
+  --output data/eval/closed-loop-r1
+```
+
 Tests use an isolated SQLite database under the system temp directory, so they do not clear `data/agentmesh.sqlite3`.
 The pytest bootstrap also clears default LLM environment variables so unit tests stay deterministic and do not call the real model service unless a test explicitly configures a mocked model endpoint.
 

@@ -603,7 +603,44 @@ def build_skill_resource_tool(
                 requested_paths = set(ctx.context.resource_references)
                 requested_paths.update(references)
                 if len(requested_paths) > _STANDARD_RESOURCE_PATH_LIMIT:
-                    raise ValueError("Standard Skill node resource limit is 12 paths")
+                    encoded_response = json.dumps(
+                        {
+                            "error": "standard_resource_path_limit_exceeded",
+                            "limit": _STANDARD_RESOURCE_PATH_LIMIT,
+                            "already_read": len(ctx.context.resource_references),
+                            "requested": len(references),
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    repository.add_audit_event(
+                        AuditEvent(
+                            actor=ctx.context.user_id,
+                            action="sdk_skill_resource_limit_reached",
+                            target_type="skill_definition",
+                            target_id=skill.id,
+                            workspace_id=ctx.context.workspace_id,
+                            project_id=ctx.context.project_id,
+                            metadata={
+                                "run_id": ctx.context.run_id,
+                                "limit": _STANDARD_RESOURCE_PATH_LIMIT,
+                                "already_read": len(ctx.context.resource_references),
+                                "requested": len(references),
+                            },
+                        )
+                    )
+                    try:
+                        repository.finish_runtime_tool_call(
+                            RuntimeToolCallOutcomeV1(
+                                call_id=call_id,
+                                run_id=ctx.context.run_id,
+                                outcome="settled",
+                                result_hash=hashlib.sha256(encoded_response.encode("utf-8")).hexdigest(),
+                            )
+                        )
+                    finally:
+                        capacity.release_tool()
+                    return encoded_response
 
             resolved_resources: list[tuple[str, Path, str]] = []
             total_size = 0

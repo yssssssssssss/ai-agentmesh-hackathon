@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import subprocess
@@ -7,7 +8,9 @@ import sys
 from collections import Counter
 
 import pytest
+from agents.testing import ScriptedModel, assistant_message
 
+from agentmesh.agent_runtime.model_factory import SelectedSDKModel
 from agentmesh.canonical_json import canonical_json_sha256
 from eval.closed_loop.contracts import (
     DEFAULT_MANIFEST_PATH,
@@ -17,6 +20,12 @@ from eval.closed_loop.contracts import (
     render_case_input,
     scan_sensitive_text,
     validate_evaluation_dataset,
+)
+from eval.closed_loop.real_runner import (
+    RealDeliverableV1,
+    RealTaskOutputV1,
+    run_real_r1,
+    validate_real_output,
 )
 from eval.closed_loop.runner import run_deterministic_evaluation
 
@@ -263,3 +272,116 @@ def test_d1_cli_runs_only_the_bounded_core_pr_case_set(tmp_path) -> None:
     assert summary["provider_calls"] == 0
     assert summary["failure_count"] == 0
     assert summary["results_path"] == str(tmp_path / "d1-summary.json")
+
+
+def test_r1_cli_requires_explicit_real_provider_acknowledgement(tmp_path) -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "eval.run_closed_loop_eval",
+            "--mode",
+            "real",
+            "--batch",
+            "R1",
+            "--output",
+            str(tmp_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "--ack-real-provider" in completed.stderr
+    assert not (tmp_path / "r1-checkpoint.json").exists()
+
+
+def test_r1_validator_does_not_treat_jtbd_as_a_tbd_placeholder() -> None:
+    dataset = load_evaluation_dataset(DEFAULT_MANIFEST_PATH, DEFAULT_TASKS_PATH)
+    case = next(item for item in dataset.cases if item.id == "CLV1-T18-V0")
+    task = next(item for item in dataset.tasks if item.id == "T18")
+    output = RealTaskOutputV1(
+        case_id=case.id,
+        summary="A complete Jobs to Be Done analysis based on the synthetic interviews.",
+        deliverables=[
+            RealDeliverableV1(
+                kind="jtbd_analysis",
+                content="The JTBD analysis separates the triggering situation, functional job, emotional job, and "
+                "evidence-backed desired outcomes for first purchase.",
+            ),
+            RealDeliverableV1(
+                kind="opportunity_definition",
+                content="Prioritize transparent handoff state, source visibility, and recoverable execution while "
+                "keeping external publication behind explicit confirmation.",
+            ),
+        ],
+    )
+
+    assert validate_real_output(output, case=case, task=task, requires_memory_citation=False) == []
+
+
+def test_r1_runner_can_checkpoint_one_real_model_contract_with_scripted_model(tmp_path) -> None:
+    dataset = load_evaluation_dataset(DEFAULT_MANIFEST_PATH, DEFAULT_TASKS_PATH)
+    output = RealTaskOutputV1(
+        case_id="CLV1-T01-V0",
+        summary="A complete synthetic experience-metrics delivery.",
+        deliverables=[
+            RealDeliverableV1(
+                kind="experience_metrics",
+                content="Define relevance success, reformulation, no-click, and satisfaction metrics with segment cuts. "
+                "Track weekly baselines, guardrails, and owners for every metric.",
+            ),
+            RealDeliverableV1(
+                kind="measurement_plan",
+                content="Instrument query, result, click, reformulation, and satisfaction events. Compare weekly cohorts and "
+                "investigate changes outside the agreed guardrail thresholds.",
+            ),
+        ],
+        assumptions=["All fixture data is synthetic."],
+        limitations=[],
+        next_actions=["Validate event definitions."],
+    )
+    selected = SelectedSDKModel(
+        model=ScriptedModel([[assistant_message(output.model_dump_json())]]),
+        requested_model="test",
+        actual_model="scripted-test",
+    )
+
+    report = asyncio.run(
+        run_real_r1(
+            dataset,
+            selected=selected,
+            output_dir=tmp_path,
+            max_runs=1,
+            max_total_tokens=100_000,
+            initial_reserved_tokens=0,
+        )
+    )
+
+    assert report.completed_cases == 1
+    assert report.stopped_reason is None
+    assert report.results[0].case_id == "CLV1-T01-V0"
+    assert report.results[0].contract_passed is True
+    assert report.results[0].status == "passed"
+    assert report.usage.total_tokens == 0
+    assert report.budget_used_tokens == 0
+    assert (tmp_path / "r1-checkpoint.json").is_file()
+    assert (tmp_path / "cases" / "CLV1-T01-V0.json").is_file()
+
+    resumed = asyncio.run(
+        run_real_r1(
+            dataset,
+            selected=SelectedSDKModel(
+                model=ScriptedModel([]),
+                requested_model="test",
+                actual_model="scripted-test",
+            ),
+            output_dir=tmp_path,
+            max_runs=1,
+            max_total_tokens=100_000,
+            initial_reserved_tokens=0,
+        )
+    )
+    assert resumed.results == report.results
+    assert resumed.usage == report.usage
