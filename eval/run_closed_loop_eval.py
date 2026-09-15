@@ -17,6 +17,7 @@ from eval.closed_loop.contracts import (
     load_evaluation_dataset,
     validate_evaluation_dataset,
 )
+from eval.closed_loop.r2_runner import run_real_r2
 from eval.closed_loop.real_runner import load_env_file, run_real_r1, selected_real_model
 from eval.closed_loop.runner import run_deterministic_evaluation
 
@@ -24,7 +25,7 @@ from eval.closed_loop.runner import run_deterministic_evaluation
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("validate", "deterministic", "real"), required=True)
-    parser.add_argument("--batch", choices=("D0", "D1", "R1"), required=True)
+    parser.add_argument("--batch", choices=("D0", "D1", "R1", "R2"), required=True)
     parser.add_argument("--case-set", choices=("all", "core_pr"), default="all")
     parser.add_argument("--output", type=Path, default=ROOT_OUTPUT)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST_PATH)
@@ -47,8 +48,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("validate", "D0"),
         ("deterministic", "D1"),
         ("real", "R1"),
+        ("real", "R2"),
     }:
-        _parser().error("validate requires D0, deterministic requires D1, and real requires R1")
+        _parser().error("validate requires D0, deterministic requires D1, and real requires R1 or R2")
     if arguments.mode == "real":
         if not arguments.ack_real_provider:
             _parser().error("real mode requires --ack-real-provider")
@@ -91,16 +93,31 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             repository = SQLiteStore(Path(directory) / "model.sqlite3")
             selected = selected_real_model(repository, model_id)
-            report = asyncio.run(
-                run_real_r1(
-                    dataset,
-                    selected=selected,
-                    output_dir=arguments.output,
-                    max_runs=arguments.max_runs,
-                    max_total_tokens=arguments.max_total_tokens,
-                    initial_reserved_tokens=arguments.initial_token_reserve,
+            if arguments.batch == "R1":
+                report = asyncio.run(
+                    run_real_r1(
+                        dataset,
+                        selected=selected,
+                        output_dir=arguments.output,
+                        max_runs=arguments.max_runs,
+                        max_total_tokens=arguments.max_total_tokens,
+                        initial_reserved_tokens=arguments.initial_token_reserve,
+                    )
                 )
-            )
+                results_path = arguments.output / "r1-checkpoint.json"
+            else:
+                report = asyncio.run(
+                    run_real_r2(
+                        dataset,
+                        selected=selected,
+                        repository=repository,
+                        output_dir=arguments.output,
+                        max_runs=arguments.max_runs,
+                        max_total_tokens=arguments.max_total_tokens,
+                        initial_reserved_tokens=arguments.initial_token_reserve,
+                    )
+                )
+                results_path = arguments.output / "r2-checkpoint.json"
             repository.close()
         summary = {
             "actual_model": report.actual_model,
@@ -112,7 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "reserved_tokens": report.initial_reserved_tokens + report.failure_reserved_tokens,
             "budget_used_tokens": report.budget_used_tokens,
             "requested_model": report.requested_model,
-            "results_path": str(arguments.output / "r1-checkpoint.json"),
+            "results_path": str(results_path),
             "stopped_reason": report.stopped_reason,
         }
         print(json.dumps(summary, ensure_ascii=False, sort_keys=True))

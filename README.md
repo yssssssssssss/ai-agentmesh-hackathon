@@ -261,6 +261,13 @@ R1 is manual and billable. It is forbidden in CI and requires an explicit acknow
   --initial-token-reserve 40000 \
   --ack-real-provider --env-file .env \
   --output data/eval/closed-loop-r1
+
+.venv/bin/python -m eval.run_closed_loop_eval \
+  --mode real --batch R2 \
+  --max-runs 24 --max-total-tokens 250000 \
+  --initial-token-reserve 0 \
+  --ack-real-provider --env-file .env \
+  --output data/eval/closed-loop-r2
 ```
 
 Tests use an isolated SQLite database under the system temp directory, so they do not clear `data/agentmesh.sqlite3`.
