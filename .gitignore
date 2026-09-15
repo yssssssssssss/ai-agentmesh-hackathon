@@ -12,6 +12,7 @@ data/*.sqlite3-*
 data/**/*.sqlite3
 data/**/*.sqlite3-*
 data/*.writer.lock
+data/eval/
 config/*.local.json
 .DS_Store
 

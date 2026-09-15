@@ -1,7 +1,7 @@
 # AgentMesh 合成闭环与真实模型分批测试方案
 
 - 日期：2026-09-06
-- 状态：已批准；D0 数据集与静态验证已实现，D1 与真实模型批次待实现
+- 状态：已批准；D0 与 D1 已实现并纳入 CI，真实模型批次待执行
 - 基线：`main` at `91bf558c33c11fd76729b17973418696fc2ea5b9`
 - 目标：在真实用户数量有限的条件下，用 96 个确定性案例覆盖任务和安全边界，再用 24 个代表性任务测量真实模型的质量与 Token 消耗。剩余真实模型案例等待维护者评估后分批运行。
 - 核心原则：保留 96 个案例的覆盖面，但不要求每个案例都经过完整 Review、Memory 和恢复链路。
@@ -276,7 +276,9 @@ D1 使用：
 - `ScriptedModel` 覆盖成功、澄清、部分完成、拒绝和恢复。
 - 网络禁用和 Provider 调用计数器。
 
-执行深度遵循 5.3，不要求每个案例都进入 Review 或 Memory。D1 任一安全、权限、血缘或幂等断言失败时，不得进入 R1。
+执行深度遵循 5.3，不要求每个案例都进入 Review 或 Memory。D1 任一安全、权限、血缘或幂等断言失败时，不得进入 R1。D1 为避免重复现有 DeepSearch 状态机测试，T04 和 T05 也使用 Standard universal 的 Scripted Artifact 合同；它们只有在 R1 中才实际进入 DeepSearch 路径。
+
+当前实现结果：96 个案例全部达到预期边界，包含 48 个 sealed Artifact、24 个 `waiting_input`、24 个安全边界、9 个合成 Task Review、6 个合成 Memory Review、6 个 MemoryUseReceipt 和 8 个故障恢复验证。真实 Provider 调用为 0，完整冷启动约 7 秒。
 
 ### 8.3 R1：24 个标准案例调用真实模型
 
@@ -441,10 +443,7 @@ AI 辅助语义评分默认关闭。如果后续启用：
 
 ### 12.2 D1 的 CI 决策
 
-实现后先记录完整 D1 的冷启动和热启动时间：
-
-- 若冷启动不超过 120 秒，96 个确定性案例全部进入 PR CI。
-- 若冷启动超过 120 秒，PR CI 运行固定的 24 个 `core_pr` 案例，完整 D1 在相关模块变更和发布候选时手动运行。
+完整 D1 冷启动实测约 7 秒，低于 120 秒门槛。因此每个 PR 都运行全部 96 个确定性案例，`core_pr` 保留为本地快速诊断入口，不替代完整 CI。
 
 `core_pr` 固定包含：
 
@@ -494,7 +493,7 @@ CI 不运行：
 eval/closed_loop/contracts.py
 eval/closed_loop/manifest-v1.json
 eval/closed_loop/tasks-v1.json
-eval/closed_loop/validators.py
+eval/closed_loop/runner.py
 eval/run_closed_loop_eval.py
 tests/test_closed_loop_eval.py
 ```

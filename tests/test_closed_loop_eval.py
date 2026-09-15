@@ -18,6 +18,7 @@ from eval.closed_loop.contracts import (
     scan_sensitive_text,
     validate_evaluation_dataset,
 )
+from eval.closed_loop.runner import run_deterministic_evaluation
 
 PILOT_PROFILES = {
     "build-experience-metrics",
@@ -205,3 +206,60 @@ def test_closed_loop_d0_cli_reports_validation_without_provider_calls() -> None:
         "scenario_count": 11,
         "task_count": 24,
     }
+
+
+def test_d1_executes_all_cases_to_their_expected_boundary_without_provider_calls(tmp_path) -> None:
+    dataset = load_evaluation_dataset(DEFAULT_MANIFEST_PATH, DEFAULT_TASKS_PATH)
+
+    report = run_deterministic_evaluation(dataset, output_dir=tmp_path)
+
+    assert report.batch == "D1"
+    assert report.case_count == 96
+    assert report.provider_calls == 0
+    assert report.scripted_model_calls == 48
+    assert report.boundary_counts == {
+        "sealed_artifact": 24,
+        "input_gap": 24,
+        "partial_or_gap": 24,
+        "security_boundary": 24,
+    }
+    assert all(item.actual_boundary == item.expected_boundary for item in report.results)
+    assert report.task_count == 96
+    assert report.run_count == 72
+    assert report.artifact_count == 48
+    assert report.synthetic_task_review_count == 9
+    assert report.synthetic_memory_review_count == 6
+    assert report.memory_use_receipt_count == 6
+    assert report.fault_case_count == 8
+    assert report.failure_count == 0
+    assert (tmp_path / "d1-summary.json").is_file()
+
+
+def test_d1_cli_runs_only_the_bounded_core_pr_case_set(tmp_path) -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "eval.run_closed_loop_eval",
+            "--mode",
+            "deterministic",
+            "--batch",
+            "D1",
+            "--case-set",
+            "core_pr",
+            "--output",
+            str(tmp_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    summary = json.loads(completed.stdout)
+    assert summary["batch"] == "D1"
+    assert summary["case_set"] == "core_pr"
+    assert summary["case_count"] == 24
+    assert summary["provider_calls"] == 0
+    assert summary["failure_count"] == 0
+    assert summary["results_path"] == str(tmp_path / "d1-summary.json")
