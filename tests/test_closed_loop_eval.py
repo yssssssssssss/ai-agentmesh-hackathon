@@ -12,6 +12,7 @@ from agents.testing import ScriptedModel, assistant_message
 
 from agentmesh.agent_runtime.model_factory import SelectedSDKModel
 from agentmesh.canonical_json import canonical_json_sha256
+from agentmesh.store import SQLiteStore
 from eval.closed_loop.contracts import (
     DEFAULT_MANIFEST_PATH,
     DEFAULT_TASKS_PATH,
@@ -20,6 +21,11 @@ from eval.closed_loop.contracts import (
     render_case_input,
     scan_sensitive_text,
     validate_evaluation_dataset,
+)
+from eval.closed_loop.r2_runner import (
+    MissingInputOutputV1,
+    run_real_r2,
+    validate_missing_input_output,
 )
 from eval.closed_loop.real_runner import (
     RealDeliverableV1,
@@ -385,3 +391,57 @@ def test_r1_runner_can_checkpoint_one_real_model_contract_with_scripted_model(tm
     )
     assert resumed.results == report.results
     assert resumed.usage == report.usage
+
+
+def test_r2_validator_requires_missing_input_and_clarifying_question() -> None:
+    dataset = load_evaluation_dataset(DEFAULT_MANIFEST_PATH, DEFAULT_TASKS_PATH)
+    case = next(item for item in dataset.cases if item.id == "CLV1-T06-V1")
+    task = next(item for item in dataset.tasks if item.id == "T06")
+    output = MissingInputOutputV1(
+        case_id=case.id,
+        disposition="clarification_required",
+        missing_inputs=["目标访谈人群"],
+        clarifying_questions=["本次应访谈哪类首次使用者？"],
+        bounded_deliverables=[],
+        assumptions=[],
+        limitations=["未提供目标人群，不能确定问题措辞和招募口径。"],
+    )
+
+    assert validate_missing_input_output(output, case=case, task=task) == []
+
+
+def test_r2_runner_checkpoints_one_missing_input_case(tmp_path) -> None:
+    dataset = load_evaluation_dataset(DEFAULT_MANIFEST_PATH, DEFAULT_TASKS_PATH)
+    output = MissingInputOutputV1(
+        case_id="CLV1-T01-V1",
+        disposition="clarification_required",
+        missing_inputs=["搜索成功指标定义"],
+        clarifying_questions=["成功搜索应由点击、不再改写还是满意度定义？"],
+        bounded_deliverables=[],
+        assumptions=[],
+        limitations=["未获得成功指标定义，不生成确定性指标树。"],
+    )
+    selected = SelectedSDKModel(
+        model=ScriptedModel([[assistant_message(output.model_dump_json())]]),
+        requested_model="test",
+        actual_model="scripted-test",
+    )
+    repository = SQLiteStore(tmp_path / "r2.sqlite3")
+
+    report = asyncio.run(
+        run_real_r2(
+            dataset,
+            selected=selected,
+            repository=repository,
+            output_dir=tmp_path,
+            max_runs=1,
+            max_total_tokens=100_000,
+        )
+    )
+
+    assert report.completed_cases == 1
+    assert report.results[0].case_id == "CLV1-T01-V1"
+    assert report.results[0].contract_passed is True
+    assert report.results[0].preflight_status == "complete"
+    assert (tmp_path / "r2-checkpoint.json").is_file()
+    repository.close()
