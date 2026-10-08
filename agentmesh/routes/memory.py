@@ -418,7 +418,7 @@ async def daily_memory_worker_loop() -> None:
         await asyncio.sleep(delay_seconds)
         daily_summary_worker_state["last_run_at"] = now_utc().isoformat()
         try:
-            result = await asyncio.to_thread(generate_daily_memory_summaries, daily_summary_target_date())
+            result = await asyncio.to_thread(generate_daily_memory_summaries, daily_summary_target_date(next_run))
             _record_daily_summary_worker_result(result)
         except Exception as error:  # pragma: no cover - defensive worker boundary
             daily_summary_worker_state["last_error"] = str(error)
