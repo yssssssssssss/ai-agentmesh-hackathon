@@ -16,7 +16,7 @@ from agentmesh.models import (
     WorkspaceCreateRequest,
     now_utc,
 )
-from agentmesh.permissions import ACTION_VIEW_AUDIT, ensure_admin
+from agentmesh.permissions import ACTION_VIEW_AUDIT, ensure_admin, is_admin
 from agentmesh.routes.deps import current_user, require_permission
 from agentmesh.seed import WORKSPACE, list_projects, list_workspaces
 from agentmesh.store import store
@@ -171,7 +171,16 @@ def create_workspace(request: WorkspaceCreateRequest, user: User = Depends(curre
 def projects(workspace_id: str | None = None, user: User = Depends(current_user)) -> dict[str, object]:
     resolved_workspace_id = workspace_id or user.workspace_id
     if resolved_workspace_id != user.workspace_id:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+        if not is_admin(user) or store.get_workspace(resolved_workspace_id) is None:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        # Directory readback for admin-created projects does not grant business access.
+        return {
+            "items": [
+                project
+                for project in list_projects(store, workspace_id=resolved_workspace_id)
+                if user.id in project.member_ids
+            ]
+        }
     return {
         "items": [
             project

@@ -14,11 +14,27 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agentmesh.models import MemoryItem, MemoryStatus, Project, Scope, Team, TeamMembership, User, UserRole
+from agentmesh.memory_context.service import MemoryContextError, MemoryContextService
+from agentmesh.models import (
+    AgentRun,
+    ChatThread,
+    MemoryItem,
+    MemoryStatus,
+    Project,
+    Scope,
+    Team,
+    TeamMembership,
+    User,
+    UserRole,
+    Workspace,
+)
 from agentmesh.routes import memory as memory_routes
+from agentmesh.routes import task_operations as task_operations_routes
+from agentmesh.routes import tasks as task_routes
 from agentmesh.routes import workspace as workspace_routes
 from agentmesh.routes.deps import current_user
 from agentmesh.store import SQLiteStore
+from agentmesh.task_management.service import TaskManagementService
 
 
 @dataclass
@@ -38,6 +54,8 @@ class VisibilityCase:
 def visibility_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[VisibilityCase]:
     db_path = tmp_path / "read-visibility.sqlite3"
     db = SQLiteStore(db_path=db_path)
+    for workspace_id in ("ws_visibility", "ws_other"):
+        db.save_workspace(Workspace(id=workspace_id, name=workspace_id, description="Test workspace"))
     users = {
         user_id: User(
             id=user_id,
@@ -72,6 +90,14 @@ def visibility_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
             id="project_foreign", workspace_id="ws_other", name="Foreign", goal="Other workspace",
             member_ids=["alice", "lead", "admin"],
         ),
+        "foreign_restricted": Project(
+            id="project_foreign_restricted", workspace_id="ws_other", name="Foreign restricted",
+            goal="Other member's work", member_ids=["bob"],
+        ),
+        "foreign_legacy": Project(
+            id="project_foreign_legacy", workspace_id="ws_other", name="Foreign legacy",
+            goal="Legacy open project", member_ids=[],
+        ),
     }
     for project in projects.values():
         db.save_project(project)
@@ -99,8 +125,12 @@ def visibility_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
     app = FastAPI()
     app.include_router(workspace_routes.router)
     app.include_router(memory_routes.router)
+    app.include_router(task_routes.router)
+    app.include_router(task_operations_routes.router)
     monkeypatch.setattr(workspace_routes, "store", db)
     monkeypatch.setattr(memory_routes, "store", db)
+    monkeypatch.setattr(task_routes, "service", TaskManagementService(db))
+    monkeypatch.setattr(task_operations_routes, "store", db)
     with TestClient(app) as client:
         case = VisibilityCase(db, db_path, client, users, projects, memories)
         case.sign_in("alice")
@@ -129,6 +159,110 @@ def test_projects_list_only_accessible_projects(
     response = case.client.get("/api/projects", params=params)
     assert response.status_code == 200, response.text
     assert {item["id"] for item in response.json()["items"]} == {"project_shared", "project_legacy"}
+
+
+def test_admin_explicit_foreign_catalog_lists_only_memberships(visibility_case: VisibilityCase) -> None:
+    case = visibility_case
+    case.sign_in("admin")
+    response = case.client.get("/api/projects", params={"workspace_id": "ws_other"})
+    assert response.status_code == 200, response.text
+    assert {item["id"] for item in response.json()["items"]} == {"project_foreign"}
+
+
+@pytest.mark.parametrize("user_id", ["alice", "lead"])
+def test_foreign_catalog_requires_admin_even_with_membership(
+    visibility_case: VisibilityCase, user_id: str,
+) -> None:
+    case = visibility_case
+    case.sign_in(user_id)
+    response = case.client.get("/api/projects", params={"workspace_id": "ws_other"})
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Workspace not found"}
+
+
+@pytest.mark.parametrize("user_id", ["alice", "lead", "admin"])
+def test_missing_workspace_is_hidden_even_with_orphan_membership(
+    visibility_case: VisibilityCase, user_id: str,
+) -> None:
+    case = visibility_case
+    case.db.save_project(Project(
+        id="project_orphan", workspace_id="ws_missing", name="Orphan", goal="Missing workspace",
+        member_ids=[user_id],
+    ))
+    case.sign_in(user_id)
+    response = case.client.get("/api/projects", params={"workspace_id": "ws_missing"})
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Workspace not found"}
+
+
+@pytest.mark.parametrize("reopen", [False, True])
+def test_foreign_catalog_revocation_is_effective_without_legacy_fallback(
+    visibility_case: VisibilityCase, monkeypatch: pytest.MonkeyPatch, reopen: bool,
+) -> None:
+    case = visibility_case
+    case.sign_in("admin")
+    response = case.client.get("/api/projects", params={"workspace_id": "ws_other"})
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == ["project_foreign"]
+    case.db.save_project(case.projects["foreign"].model_copy(update={"member_ids": []}))
+    if reopen:
+        monkeypatch.setattr(workspace_routes, "store", SQLiteStore(db_path=case.db_path))
+    response = case.client.get("/api/projects", params={"workspace_id": "ws_other"})
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+
+
+def test_foreign_catalog_read_does_not_switch_default_workspace(visibility_case: VisibilityCase) -> None:
+    case = visibility_case
+    case.sign_in("admin")
+    assert case.client.get("/api/projects", params={"workspace_id": "ws_other"}).status_code == 200
+    for params in ({}, {"workspace_id": "ws_visibility"}):
+        response = case.client.get("/api/projects", params=params)
+        assert response.status_code == 200
+        assert {item["id"] for item in response.json()["items"]} == {"project_shared", "project_legacy"}
+
+
+@pytest.mark.parametrize("endpoint,params", [
+    ("/api/projects/project_foreign", {}),
+    ("/api/activity/today", {"project_id": "project_foreign"}),
+    ("/api/insights/audit", {"project_id": "project_foreign"}),
+    ("/api/memory", {"project_id": "project_foreign"}),
+    ("/api/memory/overview", {"project_id": "project_foreign"}),
+    ("/api/tasks", {"project_id": "project_foreign"}),
+    ("/api/task-operations/project_foreign", {}),
+    ("/api/search", {"q": "Foreign", "workspace_id": "ws_other", "project_id": "project_foreign"}),
+])
+def test_admin_foreign_catalog_does_not_grant_business_reads(
+    visibility_case: VisibilityCase, endpoint: str, params: dict[str, str],
+) -> None:
+    case = visibility_case
+    case.sign_in("admin")
+    catalog = case.client.get("/api/projects", params={"workspace_id": "ws_other"})
+    assert catalog.status_code == 200
+    assert [item["id"] for item in catalog.json()["items"]] == ["project_foreign"]
+    response = case.client.get(endpoint, params=params)
+    assert response.status_code == 404
+
+
+def test_foreign_catalog_membership_does_not_admit_agent_context(visibility_case: VisibilityCase) -> None:
+    case = visibility_case
+    case.sign_in("admin")
+    catalog = case.client.get("/api/projects", params={"workspace_id": "ws_other"})
+    assert catalog.status_code == 200
+    assert [item["id"] for item in catalog.json()["items"]] == ["project_foreign"]
+    thread = case.db.add_chat_thread(ChatThread(
+        workspace_id="ws_other", project_id="project_foreign", user_id="admin", title="Foreign context",
+    ))
+    run = case.db.save_agent_run(AgentRun(
+        thread_id=thread.id, user_id="admin", workspace_id="ws_other", project_id="project_foreign",
+        input_text="Read foreign project knowledge",
+    ))
+    user = case.users["admin"]
+    with pytest.raises(MemoryContextError, match="memory_context_run_not_found"):
+        MemoryContextService(case.db).prepare_for_run(
+            run.input_text, run=run, user=user, agent_id=user.personal_agent_id,
+        )
+    assert case.db.list_memory_use_receipts_for_run(run.id) == []
 
 
 @pytest.mark.parametrize("user_id", ["alice", "lead", "admin"])
