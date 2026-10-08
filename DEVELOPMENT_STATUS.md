@@ -1,6 +1,6 @@
 # AgentMesh 开发进度
 
-更新时间：2026-10-09 00:22（Asia/Shanghai）。
+更新时间：2026-10-09 00:45（Asia/Shanghai）。
 
 ## 当前工作
 
@@ -9,7 +9,7 @@
 - 唯一活动源码目录：`/Users/heyunshen/work/PROJECT/jdc/agentmesh-t01`。
 - 工作分支：`fix/t01-admin-workspace-compat`。
 - 基线：`5fe161b5697ea00fa2fdb3444da801db601007c7`，来自本轮实际 fetch 的 `origin/fix/s0-t01-read-visibility`。
-- 本轮代码、测试、CONTEXT 和本状态文件纳入同一本地提交；在活动目录运行 `git log -1 --oneline` 可查看提交标识。
+- T01 代码、测试、CONTEXT 和首轮状态记录的本地提交：`8ec017a3ede4f6c9e26836e004f3593f9a788e42`。
 - 开发规格：用户提供的 `AGENTMESH_DEVELOPMENT.md` 原文副本已放在活动目录，与原工程相同；副本保留未跟踪，不纳入 T01 修复提交。
 - 本地 Codex 统一负责分析、实现、测试、失败修复和记录。旧交接包的云端修复/本地回传分工已取消。
 - 未执行推送、合并、部署、保护规则修改、真实数据破坏或付费模型调用。
@@ -81,6 +81,8 @@ cd /Users/heyunshen/work/PROJECT/jdc/agentmesh-t01
 日志为 `logs/demo.log`，停机用启动终端 Ctrl+C。无需读取原 `.env`、复制原数据库或调用外部模型。
 
 用户只需集中体验：
+
+完整可勾选清单：[T01_ACCEPTANCE_CHECKLIST.md](T01_ACCEPTANCE_CHECKLIST.md)。清单包含已准备好的只读接口链接，可验证管理员目录读回及跨 Workspace 拒绝；用户体验仍为 NOT_RUN，未凭清单编写自动标记通过。
 
 1. 打开 `http://localhost:18011`，选择「以平台管理员身份进入」，查看任务中心、我的知识、协作网络，并刷新一次。
 2. 退出后选择「以何云深身份进入」，确认身份切换且管理入口消失。`T数据` 来自隔离演示库；`M数据` 为既有参考展示。
