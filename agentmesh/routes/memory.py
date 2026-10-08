@@ -35,7 +35,6 @@ from agentmesh.models import (
     User,
     UserMemoryCreateRequest,
     UserMemoryItem,
-    UserRole,
     memory_date_for,
     now_utc,
 )
@@ -419,7 +418,7 @@ async def daily_memory_worker_loop() -> None:
         await asyncio.sleep(delay_seconds)
         daily_summary_worker_state["last_run_at"] = now_utc().isoformat()
         try:
-            result = await asyncio.to_thread(generate_daily_memory_summaries, daily_summary_target_date(next_run))
+            result = await asyncio.to_thread(generate_daily_memory_summaries, daily_summary_target_date())
             _record_daily_summary_worker_result(result)
         except Exception as error:  # pragma: no cover - defensive worker boundary
             daily_summary_worker_state["last_error"] = str(error)
@@ -491,22 +490,11 @@ def memory_item_view(item: MemoryItem, user: User) -> MemoryItemView:
 
 
 def _visible_memory_items(user: User, project_id: str) -> list[MemoryItem]:
-    items: list[MemoryItem] = []
-    for item in store.memory_items:
-        if item.project_id != project_id:
-            continue
-        if item.scope == Scope.PRIVATE and item.owner_user_id != user.id:
-            continue
-        if item.scope == Scope.TEAM_CANDIDATE and item.owner_user_id != user.id:
-            if item.provenance is None:
-                if user.role not in {UserRole.TEAM_LEAD, UserRole.ADMIN}:
-                    continue
-            elif not has_permission(user, ACTION_ACCEPT_TEAM_MEMORY, store.permission_policy_rules):
-                continue
-        if item.workspace_id is not None and item.workspace_id != user.workspace_id:
-            continue
-        items.append(item)
-    return items
+    return [
+        item
+        for item in store.memory_items
+        if item.project_id == project_id and store.memory_item_visible_to_user(item, user.id)
+    ]
 
 
 def _visible_team_memory_items(user: User, project_id: str, memory_type: str | None = None) -> list[MemoryItem]:
