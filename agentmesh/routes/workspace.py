@@ -168,16 +168,22 @@ def create_workspace(request: WorkspaceCreateRequest, user: User = Depends(curre
 
 
 @router.get("/projects")
-def projects(workspace_id: str | None = None, _: User = Depends(current_user)) -> dict[str, object]:
-    return {"items": list_projects(store, workspace_id=workspace_id)}
+def projects(workspace_id: str | None = None, user: User = Depends(current_user)) -> dict[str, object]:
+    resolved_workspace_id = workspace_id or user.workspace_id
+    if resolved_workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return {
+        "items": [
+            project
+            for project in list_projects(store, workspace_id=resolved_workspace_id)
+            if store.user_can_access_project(user.id, project.id)
+        ]
+    }
 
 
 @router.get("/projects/{project_id}")
-def project_detail(project_id: str, _: User = Depends(current_user)) -> dict[str, object]:
-    project = store.get_project(project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return {"item": project}
+def project_detail(project_id: str, user: User = Depends(current_user)) -> dict[str, object]:
+    return {"item": require_read_model_project(user, project_id)}
 
 
 @router.post("/projects")
