@@ -7,15 +7,15 @@
 
 ## 用户体验清单（约 5–10 分钟）
 
-下列项目默认未勾选，表示等待用户体验，不代表工程检查失败。只需浏览器，不需要终端、数据库修改或真实模型调用。
+勾选表示用户已反馈符合预期；未勾选表示仍待用户体验，不代表工程检查失败。只需浏览器，不需要终端、数据库修改或真实模型调用。
 本轮 Codex 已在隔离演示库创建「T01 本地目录验收」Workspace 和「T01 管理目录读回」项目；以下接口链接仅进行 GET 查询。
 先在同一浏览器登录，再打开查询链接。API 页面显示 JSON 是正常行为。
 
 - [ ] **M01：进入修复后的实例。** 打开 [http://localhost:18011](http://localhost:18011)，确认可以显示登录页或已登录页面。使用 `18011`；`18010` 是旧验收实例。
 - [ ] **M02：管理员登录。** 如果当前是其他账号，先退出；选择「以平台管理员身份进入」。预期身份为「平台管理员」，侧栏有「管理控制台」。
-- [ ] **M03：默认项目可用。** 打开 [默认项目列表](http://localhost:18011/api/projects)。预期 `items` 包含「618 家电会场首页改版」，不会混入下述跨 Workspace 的「T01 管理目录读回」。
-- [ ] **M04：管理员目录读回成功。** 打开 [T01 管理目录](http://localhost:18011/api/projects?workspace_id=ws_7349cf873a30)。预期 HTTP 200，`items` 包含「T01 管理目录读回」，ID 为 `prj_4aebda39927c`，成员包含 `usr_admin`。这是本次修复的直接收益。
-- [ ] **M05：目录可读不扩大业务权限。** 在管理员身份下打开 [该项目详情](http://localhost:18011/api/projects/prj_4aebda39927c) 和 [该项目知识](http://localhost:18011/api/memory?project_id=prj_4aebda39927c)。两者均应为 HTTP 404，正文 `{"detail":"Project not found"}`。这两项的拒绝是通过条件。
+- [x] **M03：默认项目可用。** 打开 [默认项目列表](http://localhost:18011/api/projects)。预期 `items` 包含「618 家电会场首页改版」，不会混入下述跨 Workspace 的「T01 管理目录读回」。用户截图已确认列表内容。
+- [x] **M04：管理员目录读回成功。** 打开 [T01 管理目录](http://localhost:18011/api/projects?workspace_id=ws_7349cf873a30)。预期 HTTP 200，`items` 包含「T01 管理目录读回」，ID 为 `prj_4aebda39927c`，成员包含 `usr_admin`。这是本次修复的直接收益；用户截图已确认目录内容。
+- [ ] **M05：目录可读不扩大业务权限。** 在管理员身份下打开 [该项目详情](http://localhost:18011/api/projects/prj_4aebda39927c) 和 [该项目知识](http://localhost:18011/api/memory?project_id=prj_4aebda39927c)。两者均应为 HTTP 404，正文 `{"detail":"Project not found"}`。用户已反馈详情拒绝符合预期；项目知识拒绝仍待确认，因此整项暂不勾选。
 - [ ] **M06：当前项目上下文保持正常。** 返回 [任务中心](http://localhost:18011/tasks)，查看 [我的知识](http://localhost:18011/knowledge) 和 [协作网络](http://localhost:18011/collaboration)，刷新一次。预期登录保持、页面正常加载，当前项目没有被目录查询切换为「T01 管理目录读回」。
 - [ ] **M07：账号切换生效。** 退出管理员，选择「以何云深身份进入」。预期身份变为普通成员，侧栏的「管理控制台」入口消失。
 - [ ] **M08：普通成员边界生效。** 在普通成员身份下再次打开 [T01 管理目录](http://localhost:18011/api/projects?workspace_id=ws_7349cf873a30)。预期 HTTP 404，正文 `{"detail":"Workspace not found"}`；[默认项目列表](http://localhost:18011/api/projects) 仍可正常读取当前项目。
@@ -54,4 +54,4 @@ M01–M08 均符合预期，可记录「T01 用户体验通过」。其中 M04 �
 实际结果：页面文字、JSON 或 HTTP 状态
 ```
 
-用户体验结果尚未确认；动态结论由 Codex 更新到 `DEVELOPMENT_STATUS.md`。后续开发工作为 T02「成员创建后的项目加入」。
+用户体验部分已确认，依据此次两张截图及文字反馈记录；本轮没有重跑工程检查。动态结论由 Codex 更新到 `DEVELOPMENT_STATUS.md`。后续开发工作为 T02「成员创建后的项目加入」。

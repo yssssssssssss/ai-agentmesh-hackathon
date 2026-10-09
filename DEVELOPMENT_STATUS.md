@@ -1,6 +1,6 @@
 # AgentMesh 开发进度
 
-更新时间：2026-10-09 00:45（Asia/Shanghai）。
+更新时间：2026-10-09 11:33（Asia/Shanghai）。
 
 ## 当前工作
 
@@ -64,7 +64,7 @@
 - 失败记录：[Backend clean install, Ruff, pytest](https://github.com/yssssssssssss/ai-agentmesh-hackathon/actions/runs/37761712458/job/113259851190)。本地修复尚未推送，该记录未被此次本地通过替换。
 - 新本地提交的远端 CI：**NOT_RUN**；当前未获推送授权。GitHub / main 尚未包含本地修复，PR 未通过全部检查。
 - 本轮完整 Playwright suite：**NOT_RUN**；无前端改动，采用当前隔离实例的 Ego Lite 冒烟。旧 head 的远端 Playwright success 不能归到新本地代码。
-- 真人产品体验：**NOT_RUN**；下列步骤供集中体验，不作为工程检查前置条件。
+- 真人产品体验：**PARTIAL**（用户截图及文字反馈）。M03 默认项目列表、M04 管理员跨 Workspace 目录读回符合预期；M05 的项目详情拒绝符合预期，知识拒绝尚未确认。页面、刷新及账号切换仍待确认，没有标记整体人工验收通过。
 - 真实 Provider、付费模型、OAuth/O2 实际系统、外部 Wiki 语料、模型质量评估、部署验收：**NOT_RUN**，不在本轮 T01 范围。S0 其他工作项及整个产品没有因此完成。
 
 ## 本地运行与集中体验
@@ -82,7 +82,7 @@ cd /Users/heyunshen/work/PROJECT/jdc/agentmesh-t01
 
 用户只需集中体验：
 
-完整可勾选清单：[T01_ACCEPTANCE_CHECKLIST.md](T01_ACCEPTANCE_CHECKLIST.md)。清单包含已准备好的只读接口链接，可验证管理员目录读回及跨 Workspace 拒绝；用户体验仍为 NOT_RUN，未凭清单编写自动标记通过。
+完整可勾选清单：[T01_ACCEPTANCE_CHECKLIST.md](T01_ACCEPTANCE_CHECKLIST.md)。已按用户反馈勾选 M03/M04，M05 仅详情拒绝已确认；其余保留待验收。`/api/...` 返回 JSON 是接口契约，实际页面从 `http://localhost:18011` 进入；本轮未新增可视化 Workspace/项目管理页。
 
 1. 打开 `http://localhost:18011`，选择「以平台管理员身份进入」，查看任务中心、我的知识、协作网络，并刷新一次。
 2. 退出后选择「以何云深身份进入」，确认身份切换且管理入口消失。`T数据` 来自隔离演示库；`M数据` 为既有参考展示。
