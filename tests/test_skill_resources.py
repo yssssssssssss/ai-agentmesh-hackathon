@@ -307,9 +307,17 @@ def test_standard_resource_tool_limits_total_paths_across_calls(tmp_path: Path) 
     first = asyncio.run(tool.on_invoke_tool(wrapper, json.dumps({"paths": paths[:12]})))
 
     assert len(json.loads(first)["resources"]) == 12
-    with pytest.raises(ValueError, match="Standard Skill node resource limit is 12 paths"):
-        asyncio.run(tool.on_invoke_tool(wrapper, json.dumps({"paths": [paths[12]]})))
+    denied = asyncio.run(tool.on_invoke_tool(wrapper, json.dumps({"paths": [paths[12]]})))
+    assert json.loads(denied) == {
+        "error": "standard_resource_path_limit_exceeded",
+        "limit": 12,
+        "already_read": 12,
+        "requested": 1,
+    }
     assert wrapper.context.resource_references == paths[:12]
+    claims, outcomes = repository.list_runtime_tool_call_history(wrapper.context.run_id)
+    assert len(claims) == len(outcomes) == 2
+    assert all(outcome.outcome == "settled" for outcome in outcomes)
 
 
 def test_resource_manifest_snapshot_freezes_requirements_paths_and_bytes(

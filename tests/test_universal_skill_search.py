@@ -38,7 +38,7 @@ from agentmesh.skill_runtime.service import SkillCatalogService
 from agentmesh.store import SQLiteStore
 from agentmesh.task_routing.catalog import TaskCatalogV2, load_universal_task_catalog
 from agentmesh.task_routing.contracts import ScenarioRoute, TaskRoute, TaskRoutingResult
-from agentmesh.tools import ensure_tool_seed_data
+from agentmesh.tools import ZERO_DESIGN_READ_TOOL_ID, ensure_tool_seed_data
 
 DRAFT_PROFILE_NAMES = {
     "analyze-satisfaction",
@@ -1099,6 +1099,64 @@ def test_tool_health_timeout_is_a_confirmed_blocked_match(tmp_path) -> None:
     assert result.outcome_code == "no_executable_skill"
     assert result.selectable_candidates == ()
     assert result.blocked_matches[0].diagnostics == ["tool_health_timeout"]
+
+
+def test_universal_search_accepts_granted_mcp_requirement_alias(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alias = "mcp__zero-design__get_design_metadata"
+    skill = _profile_skill(
+        tmp_path,
+        {
+            "review_state": "approved",
+            "planner_eligible": True,
+            "required_tools": [alias],
+        },
+        name="zero-metadata-candidate",
+    )
+    repository = SQLiteStore(tmp_path / "zero-metadata-universal.sqlite3")
+    ensure_tool_seed_data(repository, granted_by="test")
+    repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_zero_design_read",
+            agent_id=USER.personal_agent_id,
+            tool_id=ZERO_DESIGN_READ_TOOL_ID,
+            granted_by="test",
+        )
+    )
+    repository.save_skill_definition(skill, defer_vector=True)
+    repository.save_skill_capability_profile(
+        load_capability_profile_record(skill).profile,
+        defer_vector=True,
+    )
+    config_path = Path(__file__).parents[1] / "config" / "zero-mcp.readonly.example.json"
+    monkeypatch.setenv("AGENTMESH_MCP_CONFIG", str(config_path))
+    catalog = SkillCatalogService(repository)
+    catalog._skills = {skill.name: skill}
+    definition = repository.get_tool_definition(ZERO_DESIGN_READ_TOOL_ID)
+    assert definition is not None
+    health = ToolHealthProbeCoordinator(
+        lambda _name: _HealthDescriptor(
+            definition.implementation_id or "",
+            definition.implementation_version,
+            "healthy",
+        )
+    )
+
+    result = UniversalSkillSearchService(
+        repository,
+        catalog,
+        profile_trust=lambda _skill, _loaded: True,
+        profile_ranker=lambda queries, _ids: [([], [skill.id], []) for _query in queries],
+        tool_health=health,
+    ).search(
+        USER,
+        SkillIntent(goal="Read design metadata", deliverables=["research_insight"]),
+    )
+
+    assert result.outcome_code == "ok", result
+    assert [candidate.skill_id for candidate in result.selectable_candidates] == [skill.id]
 
 
 def test_universal_search_marks_missing_declared_resource_as_blocked(tmp_path) -> None:

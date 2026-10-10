@@ -1,0 +1,548 @@
+{
+  "actual_model": "GPT-5.2-joybuilder",
+  "bounded_deliverable_cases": 4,
+  "budget_used_tokens": 167658,
+  "by_profile": {
+    "build-experience-metrics": {
+      "cases": 3,
+      "tokens": 30927
+    },
+    "competitive-analysis": {
+      "cases": 2,
+      "tokens": 15281
+    },
+    "generate-interview-guide": {
+      "cases": 2,
+      "tokens": 9791
+    },
+    "generate-research-plan": {
+      "cases": 3,
+      "tokens": 18468
+    },
+    "generate-survey": {
+      "cases": 2,
+      "tokens": 10978
+    },
+    "generate-usability-test": {
+      "cases": 2,
+      "tokens": 12354
+    },
+    "issue-prioritization": {
+      "cases": 3,
+      "tokens": 23900
+    },
+    "jobs-to-be-done": {
+      "cases": 2,
+      "tokens": 19171
+    },
+    "prd-feasibility": {
+      "cases": 3,
+      "tokens": 18536
+    },
+    "query-experiment-conclusions": {
+      "cases": 2,
+      "tokens": 8252
+    }
+  },
+  "cases": [
+    {
+      "case_id": "CLV1-T01-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 25803,
+      "output_hash": "f881f875d8abc68b7c245b5f2df0c2f27ab9967588b990786c39dc8f60d2aa36",
+      "preflight_status": "complete",
+      "profile_name": "build-experience-metrics",
+      "status": "passed",
+      "task_id": "T01",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 8672,
+        "output_tokens": 1024,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 9696
+      }
+    },
+    {
+      "case_id": "CLV1-T02-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 47355,
+      "output_hash": "617d251f686ea57d76ea9c0b1bcff6cb436d594ba1b31f179a180bf4dcdf692c",
+      "preflight_status": "complete",
+      "profile_name": "build-experience-metrics",
+      "status": "passed",
+      "task_id": "T02",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 8723,
+        "output_tokens": 2477,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 11200
+      }
+    },
+    {
+      "case_id": "CLV1-T03-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 26077,
+      "output_hash": "e1e962dad12caed5ccc22f5069008ebf1f5e9bc971986ed4143687419a714eba",
+      "preflight_status": "complete",
+      "profile_name": "build-experience-metrics",
+      "status": "passed",
+      "task_id": "T03",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 8944,
+        "output_tokens": 1087,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 10031
+      }
+    },
+    {
+      "case_id": "CLV1-T04-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 22387,
+      "output_hash": "15ef707d82c35af533cb2049945af4cd104cb1e399f29b9c4e785305d0afd702",
+      "preflight_status": "prompt_only",
+      "profile_name": "competitive-analysis",
+      "status": "passed",
+      "task_id": "T04",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 6774,
+        "output_tokens": 873,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 7647
+      }
+    },
+    {
+      "case_id": "CLV1-T05-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 18472,
+      "output_hash": "5bbd55e3957c6d8b32a1c121926056b34cb81f6b187b5e8bac06215025543ffc",
+      "preflight_status": "prompt_only",
+      "profile_name": "competitive-analysis",
+      "status": "passed",
+      "task_id": "T05",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 6779,
+        "output_tokens": 855,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 7634
+      }
+    },
+    {
+      "case_id": "CLV1-T06-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 20720,
+      "output_hash": "0a92c2229d330431763f8d7e344edd2f6d5f573a85d6e400487317b38433fa73",
+      "preflight_status": "prompt_only",
+      "profile_name": "generate-interview-guide",
+      "status": "passed",
+      "task_id": "T06",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 4092,
+        "output_tokens": 729,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 4821
+      }
+    },
+    {
+      "case_id": "CLV1-T07-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 21141,
+      "output_hash": "733dd521587c9a4e0e08d1e718c25d1ec7b49b38375409493ae85034ab6efaa8",
+      "preflight_status": "prompt_only",
+      "profile_name": "generate-interview-guide",
+      "status": "passed",
+      "task_id": "T07",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 4181,
+        "output_tokens": 789,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 4970
+      }
+    },
+    {
+      "case_id": "CLV1-T08-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 25406,
+      "output_hash": "15821fdfdbf2bd3ba7978b23f746677ebbd23ce692204c9624f5de5eedfc00b9",
+      "preflight_status": "prompt_only",
+      "profile_name": "generate-research-plan",
+      "status": "passed",
+      "task_id": "T08",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 5068,
+        "output_tokens": 1102,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 6170
+      }
+    },
+    {
+      "case_id": "CLV1-T09-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 17543,
+      "output_hash": "887920b396653e599a8f7ddda045794f09a387b076beabd620568fec54e5381b",
+      "preflight_status": "prompt_only",
+      "profile_name": "generate-research-plan",
+      "status": "passed",
+      "task_id": "T09",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 5156,
+        "output_tokens": 884,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 6040
+      }
+    },
+    {
+      "case_id": "CLV1-T10-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 21267,
+      "output_hash": "7a0a385272ba02e5a16649308d5065cbb0ee54f59bc06f871b773760fcbc8e3b",
+      "preflight_status": "prompt_only",
+      "profile_name": "generate-research-plan",
+      "status": "passed",
+      "task_id": "T10",
+      "usage": {
+        "cached_tokens": 4736,
+        "input_tokens": 5270,
+        "output_tokens": 988,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 6258
+      }
+    },
+    {
+      "case_id": "CLV1-T11-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 17047,
+      "output_hash": "727b7bcf6c3f34f774db258811798149ece486484cd3c4742651fc55413b9ba5",
+      "preflight_status": "prompt_only",
+      "profile_name": "generate-survey",
+      "status": "passed",
+      "task_id": "T11",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 4632,
+        "output_tokens": 773,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 5405
+      }
+    },
+    {
+      "case_id": "CLV1-T12-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 26196,
+      "output_hash": "21bd7c2ce5304f0fa5bba8e1f334b04e1658dc9c429b467e791f35031fed9c22",
+      "preflight_status": "prompt_only",
+      "profile_name": "generate-survey",
+      "status": "passed",
+      "task_id": "T12",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 4598,
+        "output_tokens": 975,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 5573
+      }
+    },
+    {
+      "case_id": "CLV1-T13-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 18735,
+      "output_hash": "a8c347579038946367e5c2c6b92e8cacb4d41beabdb106f80b0c2c198865a578",
+      "preflight_status": "prompt_only",
+      "profile_name": "generate-usability-test",
+      "status": "passed",
+      "task_id": "T13",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 5423,
+        "output_tokens": 717,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 6140
+      }
+    },
+    {
+      "case_id": "CLV1-T14-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 18451,
+      "output_hash": "373dcd897d23b4c11ecf136116cf4767080e2810b9e03f9f4a39ebad28463b5e",
+      "preflight_status": "prompt_only",
+      "profile_name": "generate-usability-test",
+      "status": "passed",
+      "task_id": "T14",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 5423,
+        "output_tokens": 791,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 6214
+      }
+    },
+    {
+      "case_id": "CLV1-T15-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 22142,
+      "output_hash": "0d8f0a4b310a40cda06a81efab0f40838b7f2e2f41588f9ce395965662715d87",
+      "preflight_status": "prompt_only",
+      "profile_name": "issue-prioritization",
+      "status": "passed",
+      "task_id": "T15",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 6914,
+        "output_tokens": 903,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 7817
+      }
+    },
+    {
+      "case_id": "CLV1-T16-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 23941,
+      "output_hash": "af8032a25630806cd84af40c2f0be19568e3c523ebc5fa6c0972e30242662d58",
+      "preflight_status": "prompt_only",
+      "profile_name": "issue-prioritization",
+      "status": "passed",
+      "task_id": "T16",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 7268,
+        "output_tokens": 1136,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 8404
+      }
+    },
+    {
+      "case_id": "CLV1-T17-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 17535,
+      "output_hash": "bc966179e42a1aeac982bd1094fb0b1fd749d9b52051a9733347f0420bbef811",
+      "preflight_status": "prompt_only",
+      "profile_name": "issue-prioritization",
+      "status": "passed",
+      "task_id": "T17",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 6861,
+        "output_tokens": 818,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 7679
+      }
+    },
+    {
+      "case_id": "CLV1-T18-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 22290,
+      "output_hash": "a4d1e7c245c6680a1dfa65875259ae5defea2da760dad4c1ba4df9a055da7c00",
+      "preflight_status": "prompt_only",
+      "profile_name": "jobs-to-be-done",
+      "status": "passed",
+      "task_id": "T18",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 8679,
+        "output_tokens": 846,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 9525
+      }
+    },
+    {
+      "case_id": "CLV1-T19-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 18241,
+      "output_hash": "c6bbcebf0cca6a20a370764fabe059b13981e71a0e13a4c6263b817ccdabc166",
+      "preflight_status": "prompt_only",
+      "profile_name": "jobs-to-be-done",
+      "status": "passed",
+      "task_id": "T19",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 8916,
+        "output_tokens": 730,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 9646
+      }
+    },
+    {
+      "case_id": "CLV1-T20-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 43781,
+      "output_hash": "217e92bea96154dac2b55b5f313975740539fa530808e975d9ccc56d7e073b44",
+      "preflight_status": "prompt_only",
+      "profile_name": "prd-feasibility",
+      "status": "passed",
+      "task_id": "T20",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 4242,
+        "output_tokens": 2324,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 6566
+      }
+    },
+    {
+      "case_id": "CLV1-T21-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 22819,
+      "output_hash": "0eb1462bbbd0f937e0b315041d25a8c67f4a51e5c0b0357f59529ade4f091fdb",
+      "preflight_status": "prompt_only",
+      "profile_name": "prd-feasibility",
+      "status": "passed",
+      "task_id": "T21",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 4234,
+        "output_tokens": 986,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 5220
+      }
+    },
+    {
+      "case_id": "CLV1-T22-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 44785,
+      "output_hash": "890de6f6d222daf9d6d1a1c3385be8017b7c0bb840865dc26f92fe811ae629a4",
+      "preflight_status": "prompt_only",
+      "profile_name": "prd-feasibility",
+      "status": "passed",
+      "task_id": "T22",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 4531,
+        "output_tokens": 2219,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 6750
+      }
+    },
+    {
+      "case_id": "CLV1-T23-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 29573,
+      "output_hash": "6c9f2773fb8bc41b651003042b578ed0eacff643580815301f5ae4350e3e98c8",
+      "preflight_status": "prompt_only",
+      "profile_name": "query-experiment-conclusions",
+      "status": "passed",
+      "task_id": "T23",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 3341,
+        "output_tokens": 1051,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 4392
+      }
+    },
+    {
+      "case_id": "CLV1-T24-V1",
+      "contract_passed": true,
+      "diagnostics": [],
+      "latency_ms": 14810,
+      "output_hash": "0533a844a719f0ad267991e61464b1668915e94c91627014cc9950cf860544f9",
+      "preflight_status": "prompt_only",
+      "profile_name": "query-experiment-conclusions",
+      "status": "passed",
+      "task_id": "T24",
+      "usage": {
+        "cached_tokens": 0,
+        "input_tokens": 3346,
+        "output_tokens": 514,
+        "reasoning_tokens": 0,
+        "requests": 1,
+        "total_tokens": 3860
+      }
+    }
+  ],
+  "completed_cases": 24,
+  "contract_passed": 24,
+  "dataset_hash": "32e380502771845bed7408e4456590257547fa5d93fa9f6522ab40fb32d50aa9",
+  "disposition_counts": {
+    "clarification_required": 24
+  },
+  "failure_reserved_tokens": 0,
+  "initial_reserved_tokens": 0,
+  "latency_ms_stats": {
+    "average": 24438.208,
+    "max": 47355,
+    "min": 14810,
+    "p50": 22216.0,
+    "p95": 44785
+  },
+  "max_total_tokens": 250000,
+  "measured_usage": {
+    "cached_tokens": 4736,
+    "input_tokens": 142067,
+    "output_tokens": 25591,
+    "reasoning_tokens": 0,
+    "requests": 24,
+    "total_tokens": 167658
+  },
+  "notes": [
+    "No output content is included.",
+    "Automated contract checks are not independent human review.",
+    "V1 currently uses authoritative omission directives over unchanged material summaries; future fixtures should structurally remove the omitted field."
+  ],
+  "preflight_status_counts": {
+    "complete": 3,
+    "prompt_only": 21
+  },
+  "requested_model": "default",
+  "schema_version": "closed-loop-r2-verification-v1",
+  "stopped_reason": null,
+  "token_stats": {
+    "average": 6985.75,
+    "max": 11200,
+    "min": 3860,
+    "p50": 6412.0,
+    "p95": 10031
+  }
+}

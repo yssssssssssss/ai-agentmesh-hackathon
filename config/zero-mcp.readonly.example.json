@@ -1,0 +1,29 @@
+{
+  "servers": [
+    {
+      "name": "zero-design-read",
+      "tool_id": "tool_zero_design_read",
+      "allowed_tool_names": [
+        "resources_list",
+        "resources_read",
+        "get_design_metadata",
+        "get_design_context",
+        "get_screenshot",
+        "get_variables"
+      ],
+      "requirement_aliases": {
+        "mcp__zero-design__resources_list": "resources_list",
+        "mcp__zero-design__resources_read": "resources_read",
+        "mcp__zero-design__get_design_metadata": "get_design_metadata",
+        "mcp__zero-design__get_design_context": "get_design_context",
+        "mcp__zero-design__get_screenshot": "get_screenshot",
+        "mcp__zero-design__get_variables": "get_variables"
+      },
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:27618/mcp",
+      "require_approval": true,
+      "require_read_only_tool_annotations": true,
+      "cache_tools_list": true
+    }
+  ]
+}

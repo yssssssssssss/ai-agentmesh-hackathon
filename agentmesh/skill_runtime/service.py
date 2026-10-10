@@ -216,7 +216,7 @@ class SkillCatalogService:
     def supported_tool_names(self) -> set[str]:
         """Return tool names backed by a configured AgentMesh runtime adapter."""
         from agentmesh.tool_runtime.gateway import BUILTIN_TOOL_NAMES
-        from agentmesh.tool_runtime.mcp import load_mcp_config
+        from agentmesh.tool_runtime.mcp import load_mcp_config, supported_mcp_requirement_names
 
         definitions = {tool.id: tool for tool in self.repository.tool_definitions if tool.enabled}
         names = {tool.name for tool in definitions.values() if tool.name in BUILTIN_TOOL_NAMES}
@@ -224,11 +224,7 @@ class SkillCatalogService:
             mcp_config = load_mcp_config()
         except (OSError, ValueError):
             return names
-        names.update(
-            definition.name
-            for server in mcp_config.servers
-            if (definition := definitions.get(server.tool_id)) is not None
-        )
+        names.update(supported_mcp_requirement_names(self.repository, mcp_config))
         return names
 
     def to_chat_skill(

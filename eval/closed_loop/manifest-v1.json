@@ -1,0 +1,172 @@
+{
+  "catalogs": [
+    {
+      "catalog_hash": "480d88f8f9d11c0f24bcff7ecb6f2a333d5852391bb80ee2de9217b81b6b9629",
+      "catalog_version": "user-research-v1"
+    },
+    {
+      "catalog_hash": "0817f656eaf2781ce6b5d8510e33b95fd0aa2a1d3e8d1bc00dfb9711a88ebdd7",
+      "catalog_version": "user-research-v2"
+    }
+  ],
+  "content_hash": "32e380502771845bed7408e4456590257547fa5d93fa9f6522ab40fb32d50aa9",
+  "core_pr_case_ids": [
+    "CLV1-T01-V0",
+    "CLV1-T04-V0",
+    "CLV1-T06-V0",
+    "CLV1-T08-V0",
+    "CLV1-T11-V0",
+    "CLV1-T13-V0",
+    "CLV1-T15-V0",
+    "CLV1-T18-V0",
+    "CLV1-T20-V0",
+    "CLV1-T23-V0",
+    "CLV1-T02-V0",
+    "CLV1-T05-V0",
+    "CLV1-T14-V1",
+    "CLV1-T17-V2",
+    "CLV1-T20-V3",
+    "CLV1-T24-V3",
+    "CLV1-T03-V1",
+    "CLV1-T07-V1",
+    "CLV1-T10-V2",
+    "CLV1-T16-V2",
+    "CLV1-T19-V3",
+    "CLV1-T22-V3",
+    "CLV1-T09-V0",
+    "CLV1-T12-V0"
+  ],
+  "dataset_version": "1",
+  "expected_case_count": 96,
+  "expected_task_count": 24,
+  "fault_cases": [
+    {
+      "case_id": "CLV1-T02-V0",
+      "injection_point": "run_claimed"
+    },
+    {
+      "case_id": "CLV1-T05-V0",
+      "injection_point": "artifact_sealed"
+    },
+    {
+      "case_id": "CLV1-T08-V0",
+      "injection_point": "memory_capture_response"
+    },
+    {
+      "case_id": "CLV1-T11-V0",
+      "injection_point": "receipt_reserved"
+    },
+    {
+      "case_id": "CLV1-T14-V1",
+      "injection_point": "sqlite_reopen"
+    },
+    {
+      "case_id": "CLV1-T17-V2",
+      "injection_point": "projection_rebuild"
+    },
+    {
+      "case_id": "CLV1-T20-V3",
+      "injection_point": "expected_version_conflict"
+    },
+    {
+      "case_id": "CLV1-T24-V3",
+      "injection_point": "command_replay"
+    }
+  ],
+  "memory_reuse_chains": [
+    {
+      "follow_up_task_id": "T06",
+      "source_task_id": "T08"
+    },
+    {
+      "follow_up_task_id": "T11",
+      "source_task_id": "T01"
+    },
+    {
+      "follow_up_task_id": "T22",
+      "source_task_id": "T04"
+    },
+    {
+      "follow_up_task_id": "T20",
+      "source_task_id": "T18"
+    },
+    {
+      "follow_up_task_id": "T16",
+      "source_task_id": "T13"
+    },
+    {
+      "follow_up_task_id": "T03",
+      "source_task_id": "T23"
+    }
+  ],
+  "pilot_profiles": [
+    {
+      "name": "build-experience-metrics",
+      "profile_sha256": "920e5c0817a47e2c75002b746a2170ba8c0e93968ab0d16f65c9e53bde166906",
+      "skill_content_hash": "380581bbdc9660f567ff4822ebb062d94bbc81447e9a62f68ff703b0be87e36f"
+    },
+    {
+      "name": "competitive-analysis",
+      "profile_sha256": "1e157e0974176771e490414ae70bb12578e5a4f9e6e22a871022282881be3ea3",
+      "skill_content_hash": "4fc52941c57f92f8f869ca846c469b18b1dc91c43ee91071933e0a6c26778e1a"
+    },
+    {
+      "name": "generate-interview-guide",
+      "profile_sha256": "8ba2af2ebbc695f8adfd3c01ed9262cec37931e30a5006fbffa729233997662e",
+      "skill_content_hash": "6191fe05eeec6d9e9d1899898c7467d4bf7b463e169651350a3bbfb5261922d8"
+    },
+    {
+      "name": "generate-research-plan",
+      "profile_sha256": "b10f2b5b7768ee7f8e5074ad320873577b9e63210b22c79d5477b1f9680746da",
+      "skill_content_hash": "7a87dba190d59914fcd528dea5eaf3197c15e30101b3f251e08a630026f89adc"
+    },
+    {
+      "name": "generate-survey",
+      "profile_sha256": "58d1eb11d653408e6652428d19539e3d55f02bbcbda916338d5171e8798a7003",
+      "skill_content_hash": "47dcf31674043af0e577efe65b3e0e19a7222694bd2942168b0fead8c66c2ae7"
+    },
+    {
+      "name": "generate-usability-test",
+      "profile_sha256": "04568dd6af39698567247a76bf93def0007833167bc304ee757649110301445a",
+      "skill_content_hash": "c5bbfb771871aba1a142e6506ef2e0aeae152ce812a5c6ce612757e9aa71b7a7"
+    },
+    {
+      "name": "issue-prioritization",
+      "profile_sha256": "e5e8dd88d0dd68b949a5f0075757b3c5717e35b22b3f967bd64ef5ddfebc96f4",
+      "skill_content_hash": "2930e969b003ed7b3856b9101453a5a84e42b55de93a4a4fe720c6ea4421a103"
+    },
+    {
+      "name": "jobs-to-be-done",
+      "profile_sha256": "e76da8f958a43837baa058d87e2e04c58b23f6abc0e3019692cd00fcca49c527",
+      "skill_content_hash": "0604513aa1a962cbc1e55761c3f382eb78eb84421ec5585554aaf046a826e59e"
+    },
+    {
+      "name": "prd-feasibility",
+      "profile_sha256": "b5f6adb84f6c7b8cf06ff8bacf5a07a8ee195ffa3a1c27e90aa34c9d5d6d93d8",
+      "skill_content_hash": "31fa2f32997de271b29c2f272770eb779682c87953da8337a983136056ba3195"
+    },
+    {
+      "name": "query-experiment-conclusions",
+      "profile_sha256": "b43fa2c09cca73a04a4af75925b4838578c09827c3d67e1068599c2c38dd3d27",
+      "skill_content_hash": "e37fb77128ce9ce7dce17e5c37166a803bf9b01097e9b3bb15718971e9327556"
+    }
+  ],
+  "review_scope": {
+    "accepted_task_ids": [
+      "T01",
+      "T04",
+      "T08",
+      "T13",
+      "T18",
+      "T23"
+    ],
+    "changes_requested_case_ids": [
+      "CLV1-T10-V2",
+      "CLV1-T16-V2"
+    ],
+    "personal_memory_task_id": "T07"
+  },
+  "schema_version": "closed-loop-evaluation-manifest-v1",
+  "tasks_file": "tasks-v1.json",
+  "tasks_sha256": "6e7bd0fae360f6c53707d3e6aab12515c9df1aed7d3b00690553406243e9f9b8"
+}

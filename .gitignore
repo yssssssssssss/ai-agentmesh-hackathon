@@ -15,6 +15,7 @@ data/*.writer.lock
 data/*.inputs/
 # Runtime data and evaluation outputs stay local.
 /data/
+config/*.local.json
 .DS_Store
 
 # React/Vite/Playwright generated artifacts

@@ -120,6 +120,9 @@ WEB_RESEARCH_OUTPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
+ZERO_DESIGN_READ_TOOL_ID = "tool_zero_design_read"
+
+
 SYSTEM_TOOLS = [
     ToolDefinition(
         id="tool_project_state",
@@ -132,6 +135,19 @@ SYSTEM_TOOLS = [
         implementation_id="agentmesh.tool_runtime.gateway.ToolGateway.project_state",
         implementation_version="1",
         input_schema=ProjectStateQueryV1.model_json_schema(),
+    ),
+    ToolDefinition(
+        id=ZERO_DESIGN_READ_TOOL_ID,
+        name="zero_design_read",
+        description="通过用户本地 Zero MCP 读取 Relay 设计元数据、上下文、截图、变量和资源。",
+        category="design",
+        risk_level="medium",
+        side_effect="read",
+        implementation_id="mcp.zero-design.read",
+        implementation_version="1",
+        idempotency_support="none",
+        approval_required=True,
+        input_schema={"type": "object", "additionalProperties": True},
     ),
     ToolDefinition(
         id="tool_memory_search",
