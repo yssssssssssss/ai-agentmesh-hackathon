@@ -1,0 +1,31 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "confirmed-project-terminology",
+  "date": "2026-10-05",
+  "full_regression_including_direct_session_checkpoints_and_initial_procedure_selection": {
+    "3.12": {"passed": 2266, "warnings": 5, "seconds": 639.54},
+    "3.13": {"passed": 2266, "warnings": 5, "seconds": 641.18}
+  },
+  "terminology_and_temporal_fact_regression": {"passed": 67, "seconds": 18.44},
+  "frontend_final": {"passed": 224, "files": 42},
+  "browser_final": {"passed": 4, "seconds": 44.0,
+    "scope": ["real local project operations APIs", "real local terminology edits/conflicts/reload/readonly access", "real local source-backed fact APIs and conflict display"]},
+  "checks": {"openapi_types": "passed", "production_build": "passed", "bundle_budget": "passed",
+    "largest_chunk_bytes": 322372, "ruff": "passed", "diff_check": "passed", "locked_dependency_check": "passed"},
+  "initial_full_run": {"passed_per_interpreter": 2243, "failed_per_interpreter": 3,
+    "failure": "Existing approval tests expected a later MemoryContextError; the Session checkpoint now rejects those changes first.",
+    "corrected_approval_cases": 8, "corrected_full_rerun": "2266 passed on each interpreter"},
+  "evidence_boundary": {
+    "project_owned_human_confirmation_and_current_permissions": true,
+    "durable_command_replay_and_version_compare": true,
+    "original_fact_identity_and_evidence_preserved": true,
+    "merged_conflicts_remain_withheld": true,
+    "frozen_vocabulary_rechecked_in_receipt_transaction": true,
+    "archived_sdk_term_output_rechecks_vocabulary_version": true,
+    "historical_vocabulary_timeline": false,
+    "cross_person_or_project_inferred_merges": false,
+    "full_context_assembler_complete": false,
+    "phase3_complete": false, "phase4_complete": false,
+    "enterprise_provider_smoke": false, "real_model_quality": false
+  }
+}

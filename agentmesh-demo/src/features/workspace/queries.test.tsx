@@ -8,6 +8,7 @@ import {
   isRetiredResearchRun,
   shouldSubscribeToAgentRunEvents,
   useRetryAgentRunMutation,
+  useSaveAgentRunMemoryMutation,
   useSkillPlanMutations,
   workspaceErrorMessage,
 } from './queries'
@@ -38,6 +39,23 @@ function retryMutation(queryClient: QueryClient) {
     </QueryClientProvider>,
   )
   if (!captured.current) throw new Error('Retry mutation was not created')
+  return captured.current
+}
+
+function saveMemoryMutation(queryClient: QueryClient) {
+  const captured: { current?: ReturnType<typeof useSaveAgentRunMemoryMutation> } = {}
+
+  function Harness() {
+    captured.current = useSaveAgentRunMemoryMutation(scope)
+    return null
+  }
+
+  renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <Harness />
+    </QueryClientProvider>,
+  )
+  if (!captured.current) throw new Error('Save Memory mutation was not created')
   return captured.current
 }
 
@@ -104,6 +122,53 @@ describe('Agent Run retry mutation', () => {
     expect(queryClient.getQueryState(workspaceKeys.thread(scope, 'thread-1'))?.isInvalidated).toBe(true)
     expect(queryClient.getQueryState(workspaceKeys.threads(scope))?.isInvalidated).toBe(true)
     expect(queryClient.getQueryData(workspaceKeys.run(scope, 'run-retried'))).toEqual(response)
+  })
+})
+
+describe('Agent Run Memory mutation', () => {
+  it('saves one result and updates the canonical Run cache', async () => {
+    const response = {
+      item: {
+        id: 'memory-run-1',
+        user_id: scope.userId,
+        layer: 'short_term',
+        title: '结算经验',
+        summary: '保留地址编辑入口',
+        source_kind: 'agent_run_manual',
+        memory_type: 'run_output',
+        memory_date: '2026-09-10',
+        sensitivity: 'normal',
+        scope: 'private',
+        workspace_id: scope.workspaceId,
+        project_id: scope.projectId,
+        status: 'active',
+        version: 1,
+        created_at: '2026-09-10T00:00:00Z',
+        updated_at: '2026-09-10T00:00:00Z',
+      },
+    }
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(response))
+    vi.stubGlobal('fetch', fetchMock)
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    queryClient.setQueryData(workspaceKeys.run(scope, 'run-1'), {
+      item: { id: 'run-1', status: 'completed' },
+      memory_uses: [],
+      memory_item_id: null,
+      memory_disposition: 'policy_skipped',
+    })
+
+    await saveMemoryMutation(queryClient).mutateAsync({ runId: 'run-1', title: '结算经验' })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/agent/runs/run-1/memory', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ title: '结算经验' }),
+    }))
+    expect(queryClient.getQueryData(workspaceKeys.run(scope, 'run-1'))).toEqual(expect.objectContaining({
+      memory_item_id: 'memory-run-1',
+      memory_disposition: 'projected',
+    }))
   })
 })
 

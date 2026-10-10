@@ -9,11 +9,14 @@ from pydantic import BaseModel, Field
 
 from agentmesh.models import Source
 from agentmesh.provider_status import (
+    ProviderQueryError,
     ProviderStatus,
     ProviderTelemetry,
     build_provider_status,
     provider_error_code,
     provider_metadata,
+    require_demo_provider,
+    validate_query_result,
 )
 
 READ_ONLY_DATA_OPERATIONS = frozenset({"query", "search", "list", "find-tables", "schema", "describe", "get", "read", "lookup"})
@@ -61,6 +64,7 @@ class LocalMetricsConnector:
     connector_name = "local_metrics"
 
     def query(self, query: DataSourceQuery) -> DataSourceResult:
+        require_demo_provider(query.connector_name, self.connector_name)
         started = monotonic()
         metric = str(query.parameters.get("metric") or "conversion_rate")
         return DataSourceResult(
@@ -76,6 +80,7 @@ class LocalMetricsConnector:
                 requested_provider=query.connector_name,
                 actual_provider=self.connector_name,
                 mode="fallback",
+                data_mode="demo",
                 fallback_reason="explicit_local_metrics",
                 latency_ms=(monotonic() - started) * 1000,
             ),
@@ -177,7 +182,13 @@ class DataSourceRegistry:
         connector = self._connectors.get(query.connector_name)
         if connector is None:
             raise KeyError(f"Unknown data source connector: {query.connector_name}")
-        return connector.query(query)
+        result = connector.query(query)
+        result.metadata = validate_query_result(
+            result.metadata,
+            requested_provider=query.connector_name,
+            has_evidence=bool(result.records),
+        )
+        return result
 
     def query_first_available(
         self,
@@ -189,6 +200,7 @@ class DataSourceRegistry:
         requested_by: str,
     ) -> DataSourceResult:
         errors: list[str] = []
+        failures: list[Exception] = []
         requested_provider = connector_names[0] if connector_names else "data_api"
         for connector_name in connector_names:
             if connector_name not in self._connectors:
@@ -205,20 +217,38 @@ class DataSourceRegistry:
                     )
                 )
             except Exception as error:
+                failures.append(error)
                 error_code = "auth_required" if str(error).strip() == "auth_required" else provider_error_code(error)
                 errors.append(f"{connector_name}:{error_code}")
                 continue
-            if result.records:
-                result.metadata["requested_provider"] = requested_provider
-                if errors:
-                    if not result.metadata.get("fallback_reason"):
-                        result.metadata["fallback_reason"] = " | ".join(errors)[:500]
-                    result.metadata["fallback_diagnostics"] = " | ".join(
-                        entry.replace(":", ": ", 1) for entry in errors
-                    )[:500]
-                return result
-            errors.append(f"{connector_name}:empty_result")
-        raise RuntimeError("No data source connector returned records: " + " | ".join(errors))
+            result.metadata["requested_provider"] = requested_provider
+            if errors:
+                if not result.metadata.get("fallback_reason"):
+                    result.metadata["fallback_reason"] = " | ".join(errors)[:500]
+                result.metadata["fallback_diagnostics"] = " | ".join(
+                    entry.replace(":", ": ", 1) for entry in errors
+                )[:500]
+            return result
+        # Preserve evidence failures ahead of a disabled demo fallback, without exposing payloads.
+        evidence_failure = next(
+            (error for error in failures if isinstance(error, ProviderQueryError) and error.outcome != "blocked"),
+            None,
+        )
+        if evidence_failure is not None:
+            raise evidence_failure
+        if failures and all(isinstance(error, ProviderQueryError) for error in failures):
+            error = failures[0]
+            raise ProviderQueryError(
+                error.reason,
+                requested_provider=requested_provider,
+                actual_provider=error.actual_provider,
+                outcome=error.outcome,
+            )
+        raise ProviderQueryError(
+            "no_data_source_result",
+            requested_provider=requested_provider,
+            outcome="failed" if failures else "blocked",
+        )
 
     def list_connectors(self) -> list[str]:
         return sorted(self._connectors)

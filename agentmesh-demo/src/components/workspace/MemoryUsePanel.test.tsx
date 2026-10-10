@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { MemoryUseView } from '../../features/workspace/types'
+import type { components } from '../../api/generated/schema'
 import { MemoryUsePanel } from './MemoryUsePanel'
 
 const use: MemoryUseView = {
@@ -53,5 +54,31 @@ describe('MemoryUsePanel', () => {
 
   it('does not add an empty decorative section', () => {
     expect(renderToStaticMarkup(<MemoryUsePanel items={[]} />)).toBe('')
+  })
+
+  it('shows prepared and withheld candidates without inventing a delivery receipt', () => {
+    const states = ['prepared', 'withheld', 'quarantined', 'budget_dropped', 'delivered'] as const
+    const candidates: components['schemas']['MemoryContextCandidateViewV1'][] = states.map((state) => ({
+      candidate: {memory_id: `opaque-${state}`, memory_record_type: 'user_memory_item', memory_version: 1,
+        memory_hash: 'c'.repeat(64), decision: state === 'delivered' ? 'prepared' : state, reason: 'selected'},
+      state, title: null, citation_label: null, current_available: false,
+    }))
+    const html = renderToStaticMarkup(<MemoryUsePanel items={[]} candidates={candidates} />)
+    for (const label of ['待使用', '暂不可用', '安全隔离', '超出预算', '已使用']) expect(html).toContain(label)
+    expect(html).toContain('尚未记录模型交付')
+    expect(html).toContain('此版本曾交付')
+    expect(html).not.toContain('本次使用的记忆')
+    expect(html).not.toContain('已进入上下文')
+  })
+
+  it('explains a rejected complete request without claiming memory delivery', () => {
+    const html = renderToStaticMarkup(<MemoryUsePanel items={[]} requests={[{
+      model_id: 'enterprise', estimation_method: 'utf8_conservative', total_chars: 50000,
+      estimated_input_tokens: 100000, output_token_cap: 8192, decision: 'withheld',
+    }]} />)
+    expect(html).toContain('请求预算超限，未交付')
+    expect(html).toContain('并非 Provider 实测用量')
+    expect(html).not.toContain('本次使用的记忆')
+    expect(html).not.toContain('已进入上下文')
   })
 })

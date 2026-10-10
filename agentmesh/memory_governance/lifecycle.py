@@ -49,6 +49,12 @@ def memory_content_hash(item: MemoryItem | UserMemoryItem) -> str:
             "provenance": item.provenance.model_dump(mode="json") if item.provenance is not None else None,
             "created_at": item.created_at,
         }
+    if item.facts is not None or item.procedure is not None:
+        payload["schema_version"] = (
+            "user-memory-content-v2" if isinstance(item, UserMemoryItem) else "memory-content-v3"
+        )
+        payload["facts"] = [fact.model_dump(mode="json") for fact in item.facts] if item.facts is not None else None
+        payload["procedure"] = item.procedure.model_dump(mode="json") if item.procedure is not None else None
     return canonical_json_sha256(payload)
 
 
@@ -59,6 +65,9 @@ def transition_memory_item(
     actor_id: str,
     changed_at: datetime,
 ) -> MemoryItem:
+    if (item.evidence_withdrawn_at is not None and action is MemoryLifecycleAction.RESTORE
+            and item.archived_from_status is MemoryStatus.ACCEPTED):
+        raise MemoryLifecycleConflict("memory_evidence_withdrawn")
     if item.provenance is None:
         raise MemoryLifecycleConflict("memory_governance_required")
     if item.scope not in {Scope.TEAM_CANDIDATE, Scope.TEAM_ACCEPTED}:

@@ -1,0 +1,184 @@
+{
+  "schema_version": "memory-qa-pilot-verification-v1",
+  "date": "2026-10-06",
+  "status": "incomplete",
+  "scored_model_answers": 0,
+  "measured_model_tokens": 0,
+  "reserved_unreported_tokens": 9449,
+  "aggregate_token_cap": 500000,
+  "real_answer_correctness": null,
+  "fact_extraction_quality": null,
+  "procedure_trace_quality": null,
+  "evidence_boundary": "The configured shared gateway did not return a usable HTTP response. Plain and structured SDK requests fail at the transport boundary. No inferred quality score and no automatic retries.",
+  "gateway_root_cause_confirmed": false,
+  "gateway_or_network_dependency_unresolved": true,
+  "reports": {
+    "pilot": {
+      "schema_version": "synthetic-memory-qa-pilot-v1",
+      "mode": "real",
+      "status": "incomplete",
+      "fixture_type": "synthetic-frozen-records",
+      "dataset_sha256": "2a491cd7ec4cd3ccb78718813dad70caeb7a033cfd60386d5cfae7b648ee15ba",
+      "case_ids": [
+        "fact_extraction_01",
+        "fact_extraction_02",
+        "fact_extraction_03",
+        "fact_extraction_04",
+        "cross_session_01",
+        "cross_session_02",
+        "cross_session_03",
+        "cross_session_04",
+        "multi_version_01",
+        "multi_version_02",
+        "multi_version_03",
+        "multi_version_04",
+        "historical_time_01",
+        "historical_time_02",
+        "historical_time_03",
+        "historical_time_04",
+        "conflict_unknown_01",
+        "conflict_unknown_02",
+        "conflict_unknown_03",
+        "conflict_unknown_04",
+        "withdrawal_permission_01",
+        "withdrawal_permission_02",
+        "withdrawal_permission_03",
+        "withdrawal_permission_04"
+      ],
+      "model_id": "default",
+      "token_cap": 500000,
+      "baselines": [
+        "no_long_term",
+        "recent_history_summary",
+        "governed_fts",
+        "enhanced_memory"
+      ],
+      "cases": [],
+      "real_model_quality": false,
+      "fact_extraction_quality": null,
+      "procedure_trace_quality": null,
+      "enterprise_provider_smoke": false,
+      "release_quality_gate": null,
+      "baseline_definition": "Same fixed question/model/512-output-token cap, no tools. Recent history uses a frozen extractive summary; FTS uses legacy text adapters over the same current authorized observations.",
+      "background_extraction_tokens": 0,
+      "task_completion_quality": null,
+      "evidence_boundary": "Synthetic QA of explicitly confirmed fixtures; no claim about extraction, real project outcomes, process reuse, or the 120-case release threshold.",
+      "model_tokens": 0,
+      "reserved_unknown_or_inflight_tokens": 3284,
+      "configured_model": "GPT-5.2-joybuilder",
+      "error_code": "provider_or_output_failed",
+      "failed_case": {
+        "case_id": "fact_extraction_01",
+        "baseline": "no_long_term"
+      }
+    },
+    "same_request_diagnostic": {
+      "diagnostic": "same-first-request-safe-metadata",
+      "prior_reserved": 3284,
+      "reserved": 3284,
+      "measured": 0,
+      "cap": 500000,
+      "success": false,
+      "exception_class": "APIConnectionError",
+      "http_status": null,
+      "known_parameter": null,
+      "local_stack": [
+        {
+          "file": "openai_chatcompletions.py",
+          "line": 249,
+          "function": "get_response"
+        },
+        {
+          "file": "openai_chatcompletions.py",
+          "line": 734,
+          "function": "_fetch_response"
+        },
+        {
+          "file": "completions.py",
+          "line": 2907,
+          "function": "create"
+        },
+        {
+          "file": "_base_client.py",
+          "line": 1995,
+          "function": "post"
+        },
+        {
+          "file": "_base_client.py",
+          "line": 1747,
+          "function": "request"
+        }
+      ]
+    },
+    "plain_request_diagnostic": {
+      "probe": "same_first_request_without_structured_schema",
+      "prior_reserved": 6568,
+      "reserved": 2881,
+      "measured": 0,
+      "cap": 500000,
+      "success": false,
+      "exception_class": "APIConnectionError",
+      "http_status": null,
+      "cause_classes": [
+        "APIConnectionError",
+        "ReadError",
+        "ReadError",
+        "BrokenResourceError",
+        "ConnectionResetError"
+      ]
+    },
+    "http_transport": {
+      "probe": "gateway_transport_get_no_model_request",
+      "proxy_environment_present": false,
+      "custom_ca_environment_present": false,
+      "connected": false,
+      "cause_chain": [
+        {
+          "class": "RemoteProtocolError",
+          "errno": null,
+          "verify_code": null
+        },
+        {
+          "class": "RemoteProtocolError",
+          "errno": null,
+          "verify_code": null
+        }
+      ]
+    },
+    "https_transport": {
+      "probe": "same_gateway_https_transport_get_no_model_request",
+      "connected": false,
+      "cause_chain": [
+        {
+          "class": "ConnectError",
+          "errno": null,
+          "verify_code": null
+        },
+        {
+          "class": "ConnectError",
+          "errno": null,
+          "verify_code": null
+        },
+        {
+          "class": "EndOfStream",
+          "errno": null,
+          "verify_code": null
+        },
+        {
+          "class": "SSLEOFError",
+          "errno": 8,
+          "verify_code": null
+        }
+      ]
+    }
+  },
+  "focused_final": {
+    "3.12": {
+      "passed": 9
+    },
+    "3.13": {
+      "passed": 9
+    }
+  },
+  "phase3_complete": false
+}

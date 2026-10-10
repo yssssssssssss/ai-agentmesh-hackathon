@@ -5,19 +5,24 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, Literal
+from urllib.parse import quote
 
 from agentmesh.acquisition import AcquisitionQuery, AcquisitionRequest
 from agentmesh.agent_runtime.models import AgentMeshRunContext
+from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.data_authorization import authorize_data_query
 from agentmesh.datasources import default_data_source_registry
 from agentmesh.deepsearch.budget import DeepSearchBudgetMeter, DeepSearchBudgetMutationResult
 from agentmesh.deepsearch.tool_policy import DEEPSEARCH_V1_TOOL_NAMES
-from agentmesh.memory_context.contracts import MemoryContextBudgetV1, MemoryContextBundleV1
-from agentmesh.memory_context.service import MemoryContextService
+from agentmesh.memory_context.contracts import MemoryContextBudgetV1, MemoryContextBundleV1, RunFactQueryV1
+from agentmesh.memory_context.procedure_context import ProcedureQueryV1
+from agentmesh.memory_context.service import MemoryContextError, MemoryContextService
+from agentmesh.memory_payloads import FactQueryV1
 from agentmesh.models import (
     AgentRun,
     DeepSearchBudgetUsageV1,
@@ -30,16 +35,21 @@ from agentmesh.models import (
     new_id,
 )
 from agentmesh.o2 import build_acquisition_agent, maybe_register_o2_data_connector
+from agentmesh.provider_status import validate_query_result
 from agentmesh.retrieval import RetrievalProfile, RetrievalService
 from agentmesh.risk import assess_risk_review_with_rules
+from agentmesh.source_authority import source_snapshot_available
+from agentmesh.source_contracts import SourceOriginV1
 from agentmesh.store import DeepSearchBudgetConflict, DeepSearchEvidenceConflict, SQLiteStore
+from agentmesh.task_operations.contracts import ProjectStateQueryV1
+from agentmesh.task_operations.state import project_state_hash
 from agentmesh.tool_runtime.deepsearch import (
     DeepSearchToolRuntimeError,
     build_deepsearch_tool_invocation,
     normalize_deepsearch_tool_evidence,
 )
 
-BUILTIN_TOOL_NAMES = frozenset({"memory_search", "document_search", "data_query", "web_research", "risk_review"})
+BUILTIN_TOOL_NAMES = frozenset({"memory_search", "project_state", "document_search", "data_query", "web_research", "risk_review"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +104,20 @@ class ToolGateway:
     ) -> list[Source]:
         scoped: list[Source] = []
         for source in sources:
+            origin = source.origin
+            if source.snapshot is not None or origin is not None:
+                with closing(self.repository._read_connect()) as connection, connection:
+                    connection.execute('BEGIN')
+                    if not source_snapshot_available(connection, source, owner_id=context.user_id,
+                        workspace_id=context.workspace_id, project_id=context.project_id):
+                        raise ValueError('tool_source_unavailable')
+                if source.snapshot is not None:
+                    origin = SourceOriginV1(source_id=source.id, revision=source.snapshot.revision,
+                        source_hash=canonical_json_sha256(source.model_dump(mode='json')),
+                        body_sha256=source.snapshot.body_sha256)
             source_id = "src_runtime_" + hashlib.sha256(
-                f"{context.run_id}:{context.skill_id or ''}:{source.id}:{source.reference}".encode()
+                (f"{context.run_id}:{context.skill_id or ''}:{source.id}:{source.reference}"
+                 f"{':' + origin.source_hash if origin else ''}").encode()
             ).hexdigest()[:24]
             scoped_source = source.model_copy(
                 update={
@@ -105,6 +127,8 @@ class ToolGateway:
                     "user_id": context.user_id,
                     "run_id": context.run_id,
                     "skill_id": context.skill_id,
+                    "snapshot": None,
+                    "origin": origin,
                 }
             )
             scoped.append(self.repository.add_source(scoped_source))
@@ -369,6 +393,31 @@ class ToolGateway:
             empty_is_fatal=metadata.get("agentmesh-empty-is-fatal", "false").lower() == "true",
         )
 
+    def project_state(self, context: AgentMeshRunContext, arguments: dict[str, Any]) -> PreparedMemoryToolOutput:
+        user = self._user(context)
+        run = self.repository.get_agent_run(context.run_id)
+        if run is None:
+            raise MemoryContextError('memory_context_run_not_found')
+        request = ProjectStateQueryV1.model_validate(arguments)
+        query = request.model_dump_json()
+        bundle = self.memory_context.prepare_project_state_for_run(request, query_text=query, run=run, user=user)
+        selection = bundle.project_state_context
+        result = selection.result
+        reference = '/api/task-operations/' + quote(run.project_id, safe='') + '/state'
+        if selection.query.task_id:
+            reference += '?task_id=' + quote(selection.query.task_id, safe='')
+        sources = self._run_scoped_sources(context, [Source(
+            id='project_state_' + project_state_hash(result)[:24], title='Current local Task/Review state',
+            source_type='local_task_state', reference=reference,
+        )]) if selection.decision == 'prepared' else []
+        return PreparedMemoryToolOutput(
+            value={'project_id': run.project_id, 'context': bundle.rendered_context,
+                   'outcome': result.outcome, 'decision': selection.decision,
+                   'sources': [source.model_dump(mode='json') for source in sources]},
+            bundle=bundle, query=query, run=run, user=user, agent_id=user.personal_agent_id,
+            reason='tool_project_state',
+        )
+
     def prepare_memory_search(
         self,
         context: AgentMeshRunContext,
@@ -382,14 +431,28 @@ class ToolGateway:
         if run is None:
             raise ValueError("memory_context_run_not_found")
         profile = self._retrieval_profile(context, ["memory_item", "user_memory_item"])
-        bundle = self.memory_context.prepare_for_run(
-            query,
-            run=run,
-            user=user,
-            agent_id=user.personal_agent_id,
-            allowed_scopes=set(profile.allowed_scopes),
-            budget=MemoryContextBudgetV1(top_k=min(8, profile.top_k)),
-        )
+        options = dict(run=run, user=user, agent_id=user.personal_agent_id,
+                       allowed_scopes=set(profile.allowed_scopes),
+                       budget=MemoryContextBudgetV1(top_k=min(8, profile.top_k)))
+        if arguments.get('fact_query') is not None and arguments.get('procedure_query') is not None:
+            raise MemoryContextError('memory_context_query_ambiguous')
+        if arguments.get('procedure_query') is not None:
+            bundle = self.memory_context.prepare_procedure_for_run(
+                ProcedureQueryV1.model_validate(arguments['procedure_query']), query_text=query, **options,
+            )
+        elif arguments.get('fact_query') is not None:
+            scoped_query = RunFactQueryV1.model_validate(arguments['fact_query'])
+            subject_id = scoped_query.subject_id or (run.project_id if scoped_query.subject_type == 'project' else run.task_id)
+            if subject_id is None:
+                raise MemoryContextError('memory_context_subject_missing')
+            request = FactQueryV1.model_validate({**scoped_query.model_dump(mode='json'),
+                                                 'project_id': scoped_query.project_id or run.project_id,
+                                                 'subject_id': subject_id})
+            bundle = self.memory_context.prepare_fact_for_run(
+                request, query_text=query, **options,
+            )
+        else:
+            bundle = self.memory_context.prepare_for_run(query, **options)
         value = {
             "query": query,
             "results": [
@@ -408,6 +471,17 @@ class ToolGateway:
                 for hit in bundle.hits
             ],
         }
+        if bundle.fact_context is not None:
+            # Deliver the same bounded, proof-checked projection used by automatic
+            # context. Unselected Memory summaries and conflicting values stay out.
+            sources = {source['id']: source for result in value['results'] for source in result['sources']}
+            value = {'query': query, 'context': bundle.rendered_context, 'sources': list(sources.values()),
+                     'outcome': bundle.fact_context.result.outcome, 'decision': bundle.fact_context.decision}
+        if bundle.procedure_context is not None:
+            sources = {source['id']: source for result in value['results'] for source in result['sources']}
+            value = {'query': query, 'context': bundle.rendered_context, 'sources': list(sources.values()),
+                     'decision': bundle.procedure_context.decision,
+                     'missing_checks': bundle.procedure_context.missing_checks}
         return PreparedMemoryToolOutput(
             value=value,
             bundle=bundle,
@@ -489,16 +563,7 @@ class ToolGateway:
             project_id=context.project_id,
             requested_by=context.user_id,
         )
-        source = result.source.model_copy(
-            update={
-                "workspace_id": context.workspace_id,
-                "project_id": context.project_id,
-                "user_id": context.user_id,
-                "run_id": context.run_id,
-                "skill_id": context.skill_id,
-            }
-        )
-        self.repository.add_source(source)
+        source = self._run_scoped_sources(context, [result.source])[0]
         return {
             "title": result.title,
             "connector": result.connector_name,
@@ -540,6 +605,9 @@ class ToolGateway:
                     else new_id("runtime_request")
                 ),
             )
+        )
+        result.metadata = validate_query_result(
+            result.metadata, requested_provider="research", has_evidence=bool(result.sources),
         )
         sources = [
             source.model_copy(

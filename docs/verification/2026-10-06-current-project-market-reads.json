@@ -1,0 +1,52 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "current-project-market-reads",
+  "date": "2026-10-06",
+  "focused_final": {
+    "3.12": {
+      "passed": 106,
+      "seconds": 31.29
+    },
+    "3.13": {
+      "passed": 106,
+      "seconds": 31.36
+    }
+  },
+  "logs": [
+    "/tmp/agentmesh-market-scope-final312.log",
+    "/tmp/agentmesh-market-scope-final313.log"
+  ],
+  "frontend": {
+    "passed": 234,
+    "files": 46,
+    "seconds": 3.27
+  },
+  "checks": {
+    "production_build": "passed",
+    "bundle_budget": "passed",
+    "largest_chunk_bytes": 322377
+  },
+  "red_before_green": {
+    "cross_workspace_project_and_removed_member": "/tmp/agentmesh-market-scope-red2.log",
+    "current_default_and_timestamp_order": "/tmp/agentmesh-market-scope-followup-red3.log",
+    "distinct_activity_identity": "/tmp/agentmesh-market-scope-activity-id-red.log"
+  },
+  "corrected_during_development": [
+    "Positive legacy signal/match fixtures had no explicit frozen scope; added the actual required workspace/project proof.",
+    "Two status tests depended on a prior seeded project; added isolated reset after the removed-member regression exposed the dependence.",
+    "Two new fixtures used nonexistent internal store helper names; corrected them before the genuine RED rerun."
+  ],
+  "evidence_boundary": {
+    "one_current_authorized_project_read_transaction": true,
+    "bounded_record_decoding": true,
+    "exact_authorized_sql_counts": true,
+    "owned_worker_queue_metadata": true,
+    "private_answer_body_loaded_from_legacy_match": false,
+    "graph_covers_entire_history": false,
+    "automatic_publish_current_source_authority": false,
+    "late_publish_opt_in_recheck": false,
+    "enterprise_connector_smoke": false,
+    "real_model_quality": false,
+    "prior_full_suite_includes_this_slice": false
+  }
+}

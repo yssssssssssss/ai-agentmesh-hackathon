@@ -11,6 +11,14 @@ from datetime import datetime, time, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agentmesh.llm import LLMClient
+from agentmesh.memory_governance.lifecycle import memory_content_hash
+from agentmesh.memory_relations import (
+    MemoryRelationCreateV1,
+    MemoryRelationError,
+    MemoryRelationGraphV1,
+    MemoryRelationQueryV1,
+    MemoryRelationService,
+)
 from agentmesh.model_registry import resolve_agent_model_id
 from agentmesh.models import (
     MEMORY_TIME_ZONE,
@@ -24,6 +32,7 @@ from agentmesh.models import (
     MemoryItemView,
     MemoryLayer,
     MemoryOverviewResponse,
+    MemoryProvenanceV1,
     MemoryRelation,
     MemoryReviewStatus,
     MemoryStatus,
@@ -43,10 +52,26 @@ from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, ensure_admin, ensur
 from agentmesh.routes.deps import current_user, require_default_project
 from agentmesh.skill_runtime.materialize import materialize_learned_skill
 from agentmesh.skill_runtime.service import catalog_service
-from agentmesh.store import store
+from agentmesh.store import MemoryGovernanceConflict, store
 from agentmesh.task_management.settings import TaskManagementMode, task_management_mode
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
+
+
+@router.post("/relations/query", response_model=MemoryRelationGraphV1)
+def query_memory_relations(request: MemoryRelationQueryV1, user: User = Depends(current_user)) -> MemoryRelationGraphV1:
+    try:
+        return MemoryRelationService(store).query(request, user)
+    except MemoryRelationError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
+
+
+@router.post("/relations", response_model=MemoryRelation, status_code=201)
+def create_memory_relation(request: MemoryRelationCreateV1, user: User = Depends(current_user)) -> MemoryRelation:
+    try:
+        return MemoryRelationService(store).create(request, user)
+    except MemoryRelationError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
 
 
 DAILY_SUMMARY_WORKER_ENABLED = os.getenv("AGENTMESH_DAILY_MEMORY_WORKER_ENABLED", "").lower() in {
@@ -229,8 +254,9 @@ def create_project_memory_summary(
     source_items = [
         item
         for item in store.list_user_memory_items(user.id, MemoryLayer.SHORT_TERM, project_id)
-        if item.source_kind != "short_term_rollup"
-    ]
+        if item.source_kind != "short_term_rollup" and item.facts is None and item.procedure is None
+        and item.status == "active" and item.archived_at is None
+    ][:20]
     _ensure_source_items(source_items, "No short-term project memory found")
 
     item = UserMemoryItem(
@@ -239,11 +265,12 @@ def create_project_memory_summary(
         title=f"{_project_name(project_id)} 项目中期记忆摘要",
         summary=_summarize_project_memory(user, project_id, source_items),
         source_kind="short_term_rollup",
+        provenance=_summary_provenance(user, source_items),
         memory_type="project_summary",
         workspace_id=user.workspace_id,
         project_id=project_id,
     )
-    return ItemResponse(item=store.add_user_memory_item(item))
+    return _save_summary(item)
 
 
 @router.post("/user/archive-project", response_model=ItemResponse)
@@ -255,8 +282,9 @@ def archive_project_memory(
     source_items = [
         item
         for item in store.list_user_memory_items(user.id, MemoryLayer.MID_TERM, project_id)
-        if item.source_kind != "project_archive"
-    ]
+        if item.source_kind != "project_archive" and item.facts is None and item.procedure is None
+        and item.status == "active" and item.archived_at is None
+    ][:20]
     _ensure_source_items(source_items, "No mid-term project memory found")
 
     item = UserMemoryItem(
@@ -265,11 +293,12 @@ def archive_project_memory(
         title=f"{_project_name(project_id)} 项目长期归档",
         summary=_summarize_archive_memory(user, project_id, source_items),
         source_kind="project_archive",
+        provenance=_summary_provenance(user, source_items),
         memory_type="project_archive",
         workspace_id=user.workspace_id,
         project_id=project_id,
     )
-    return ItemResponse(item=store.add_user_memory_item(item))
+    return _save_summary(item)
 
 
 @router.post("/user/{item_id}/share-to-project", response_model=ItemResponse)
@@ -278,6 +307,11 @@ def share_user_memory_to_project(item_id: str, user: User = Depends(current_user
     source_item = store.get_user_memory_item(item_id)
     if source_item is None or source_item.user_id != user.id:
         raise HTTPException(status_code=404, detail="Memory not found")
+    if source_item.scope is not Scope.PRIVATE or source_item.status != "active" or source_item.archived_at is not None:
+        raise HTTPException(status_code=409, detail="memory_source_no_longer_available")
+
+    if source_item.facts is not None or source_item.procedure is not None:
+        raise HTTPException(status_code=409, detail="structured_memory_review_required")
 
     if source_item.project_id is None:
         raise HTTPException(status_code=400, detail="Memory has no associated project")
@@ -300,8 +334,13 @@ def share_user_memory_to_project(item_id: str, user: User = Depends(current_user
         workspace_id=user.workspace_id,
         project_id=source_item.project_id,
         sources=source_item.sources,
+        metadata={"source_memory_id": source_item.id, "source_memory_version": str(source_item.version),
+                  "source_memory_hash": memory_content_hash(source_item)},
     )
-    store.add_memory_item(shared)
+    try:
+        store.add_memory_item(shared)
+    except MemoryGovernanceConflict as error:
+        raise HTTPException(status_code=409, detail=error.code) from error
 
     store.add_memory_relation(
         MemoryRelation(
@@ -368,6 +407,7 @@ def create_daily_summary_for_user(
         title=f"{target_date.isoformat()} 每日短期记忆摘要",
         summary=_summarize_memory_items("当天关键记忆", source_items),
         source_kind="daily_summary",
+        provenance=_summary_provenance(user, source_items),
         memory_type="daily_summary",
         memory_date=target_date,
         workspace_id=user.workspace_id,
@@ -461,8 +501,23 @@ def _daily_summary_source_items(user_id: str, project_id: str, target_date: dt_d
     return [
         item
         for item in store.list_user_memory_items(user_id, MemoryLayer.SHORT_TERM, project_id, target_date)
-        if item.source_kind != "daily_summary"
-    ]
+        if item.source_kind != "daily_summary" and item.facts is None and item.procedure is None
+        and item.status == "active" and item.archived_at is None
+    ][:20]
+
+
+def _summary_provenance(user: User, items: list[UserMemoryItem]) -> MemoryProvenanceV1:
+    return MemoryProvenanceV1(source_kind="manual", created_by=user.id,
+                              source_memory_ids=[item.id for item in items],
+                              source_memory_versions=[item.version for item in items],
+                              source_memory_hashes=[memory_content_hash(item) for item in items])
+
+
+def _save_summary(item: UserMemoryItem) -> ItemResponse:
+    try:
+        return ItemResponse(item=store.add_user_memory_item(item))
+    except MemoryGovernanceConflict as error:
+        raise HTTPException(status_code=409, detail=error.code) from error
 
 
 def _project_name(project_id: str) -> str:

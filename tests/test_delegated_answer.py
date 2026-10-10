@@ -19,10 +19,20 @@ TARGET = USER
 ASKER = TEAM_LEAD
 
 
-def _reset() -> PersonalAgent:
+def _reset(*, model_enabled: bool = True) -> PersonalAgent:
     store.reset()
     ensure_seed_data(store)
-    return PersonalAgent(store, llm_client=None)
+    return PersonalAgent(store, llm_client=_StubLLM('建议明确业务分级并审核触发阈值。') if model_enabled else None)
+
+
+def _grant(agent: PersonalAgent) -> None:
+    from agentmesh.delegated_queries import DelegatedQueryService, QueryConsentRequest
+
+    store.set_market_participation(TARGET.id, True)
+    store.set_market_participation(ASKER.id, True)
+    DelegatedQueryService(store).set_consent(TARGET, QueryConsentRequest(
+        project_id=PROJECT.id, grantee_id=ASKER.id, enabled=True, expected_version=0, command_id='consent',
+    ))
 
 
 def _add_target_memory(
@@ -70,7 +80,7 @@ QUESTION = "降级预案怎么做的"
 def test_standing_grant_and_rich_memory_returns_answer_with_citation_titles() -> None:
     agent = _reset()
     _rich_target_memory()
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
 
     result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
@@ -94,7 +104,7 @@ def test_returned_answer_never_contains_target_raw_memory_body() -> None:
     ]
     _add_target_memory("大促降级预案 v3", bodies[0], sources=[Source(title="降级预案文档", source_type="doc", reference="doc://p")])
     _add_target_memory("去年双十一降级复盘", bodies[1], sources=[Source(title="双十一复盘", source_type="review", reference="review://1")])
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
 
     result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
@@ -128,7 +138,7 @@ def test_high_sensitivity_match_forces_confirm_even_with_standing_grant() -> Non
         sensitivity="high",
         sources=[Source(title="开关清单", source_type="doc", reference="doc://switches")],
     )
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
 
     result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
@@ -165,7 +175,7 @@ def test_deny_confirmation_returns_nothing_to_asker() -> None:
 def test_sparse_memory_is_low_confidence() -> None:
     agent = _reset()
     _add_target_memory("会议里提到过降级", "只说了记得留降级口子，无细节。")
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
 
     result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
@@ -175,11 +185,11 @@ def test_sparse_memory_is_low_confidence() -> None:
 
 def test_empty_memory_is_insufficient_with_no_citations() -> None:
     agent = _reset()
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
 
     result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
-    assert result.status == "answered"
+    assert result.status == "insufficient_evidence"
     assert result.confidence == "none"
     assert result.citations == []
     assert "信息不足" in result.answer
@@ -192,7 +202,7 @@ def test_answer_never_surfaces_askers_own_memory() -> None:
     _rich_target_memory()
     asker_secret = "ASKER-ONLY 降级预案私货不应出现"
     _add_target_memory("B 自己的降级预案笔记", asker_secret, user_id=ASKER.id)
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
 
     result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
@@ -204,10 +214,14 @@ def test_answer_never_surfaces_askers_own_memory() -> None:
 def test_revoke_is_prospective_and_reverts_to_confirmation_gate() -> None:
     agent = _reset()
     _rich_target_memory()
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
     assert agent.answer_for_peer(ASKER, TARGET, QUESTION).status == "answered"
 
-    agent.revoke_consent(TARGET, ASKER)
+    from agentmesh.delegated_queries import DelegatedQueryService, QueryConsentRequest
+
+    DelegatedQueryService(store).set_consent(TARGET, QueryConsentRequest(
+        project_id=PROJECT.id, grantee_id=ASKER.id, enabled=False, expected_version=1, command_id='revoke',
+    ))
 
     assert agent.answer_for_peer(ASKER, TARGET, QUESTION).status == "awaiting_confirm"
 
@@ -217,7 +231,7 @@ def test_revoke_is_prospective_and_reverts_to_confirmation_gate() -> None:
 def test_adoption_records_shadow_point_and_derived_from_edge() -> None:
     agent = _reset()
     _rich_target_memory()
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
     answer = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
     point, relation = agent.adopt_delegated_answer(ASKER, TARGET, answer)
@@ -235,7 +249,7 @@ def test_adoption_records_shadow_point_and_derived_from_edge() -> None:
 
 def test_cannot_adopt_answer_without_citations() -> None:
     agent = _reset()
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
     insufficient = agent.answer_for_peer(ASKER, TARGET, QUESTION)
     assert insufficient.confidence == "none"
 
@@ -243,7 +257,7 @@ def test_cannot_adopt_answer_without_citations() -> None:
         agent.adopt_delegated_answer(ASKER, TARGET, insufficient)
 
 
-# --- LLM-backed synthesis (real answer, with offline fallback) ------------
+# --- LLM-backed synthesis and truthful unavailable outcomes ---------------
 
 class _StubLLM:
     def __init__(self, reply: str) -> None:
@@ -263,7 +277,7 @@ def test_llm_answer_is_used_when_llm_available() -> None:
     ensure_seed_data(store)
     agent = PersonalAgent(store, llm_client=_StubLLM("A 的综合建议：分级降级 + 灰度发布。"))
     _rich_target_memory()
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
 
     result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
@@ -278,26 +292,38 @@ def test_llm_insufficient_judgment_downgrades_confidence_to_none() -> None:
     ensure_seed_data(store)
     agent = PersonalAgent(store, llm_client=_StubLLM("信息不足。"))
     _add_target_memory("会议里提到过降级", "只说了记得留降级口子，无细节。")  # count would say "low"
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
 
     result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
+    assert result.status == 'insufficient_evidence'
     assert result.confidence == "none"
     assert result.citations == []
 
 
-def test_falls_back_to_template_when_llm_fails() -> None:
+def test_llm_failure_blocks_without_template_or_citations() -> None:
     store.reset()
     ensure_seed_data(store)
     agent = PersonalAgent(store, llm_client=_FailingLLM())
     _rich_target_memory()
-    agent.grant_consent(TARGET, ASKER)
+    _grant(agent)
 
     result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
 
-    assert result.status == "answered"
-    assert result.confidence == "high"
-    assert result.answer  # template fallback, not an exception
+    assert result.status == "blocked"
+    assert result.confidence == "none"
+    assert result.citations == []
+    assert '已归纳' not in result.answer
+
+
+def test_unconfigured_model_cannot_answer_or_adopt_matched_memories() -> None:
+    agent = _reset(model_enabled=False)
+    _rich_target_memory()
+    _grant(agent)
+    result = agent.answer_for_peer(ASKER, TARGET, QUESTION)
+    assert result.status == 'blocked' and result.confidence == 'none' and result.citations == []
+    with pytest.raises(ValueError):
+        agent.adopt_delegated_answer(ASKER, TARGET, result)
 
 
 # --- Direct-read refusal --------------------------------------------------

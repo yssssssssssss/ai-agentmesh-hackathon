@@ -28,6 +28,7 @@ import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Drawer } from '../ui/Drawer'
 import { SourceList } from '../ui/SourceList'
+import { MemoryRelationsPanel } from '../knowledge/MemoryRelationsPanel'
 
 export interface TaskDetailDrawerProps {
   open: boolean
@@ -99,6 +100,8 @@ export function TaskDetailDrawer({
             executionRetrying={managed.isFetching}
             onRetryExecution={() => void managed.refetch()}
           />
+          {managed.data?.item.management ? <MemoryRelationsPanel context={context}
+            root={{ record_type: 'task', record_id: taskId }} /> : null}
         </>
       ) : null}
     </Drawer>

@@ -24,6 +24,7 @@ from agentmesh.store import store
 
 def _reset_context() -> None:
     store.reset()
+    store.save_user(USER)
     store.save_project(PROJECT)
     store.save_team(TEAM)
     store.save_team_membership(

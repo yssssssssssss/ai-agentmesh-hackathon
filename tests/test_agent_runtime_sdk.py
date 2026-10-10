@@ -44,6 +44,8 @@ def _skill() -> SkillDefinition:
 
 def test_sdk_runtime_executes_general_chat_with_scripted_model(tmp_path) -> None:
     repository = SQLiteStore(tmp_path / "runtime.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
     model = ScriptedModel([[assistant_message("SDK general answer")]])
     runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
 
@@ -64,6 +66,8 @@ def test_sdk_runtime_executes_general_chat_with_scripted_model(tmp_path) -> None
 
 def test_sdk_runtime_injects_activated_skill_instructions(tmp_path) -> None:
     repository = SQLiteStore(tmp_path / "runtime.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
     model = ScriptedModel([[assistant_message("SDK skill answer")]])
     runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
     skill = _skill()
@@ -184,6 +188,8 @@ def test_orchestration_projection_preserves_real_model_provenance(tmp_path) -> N
 def test_personal_agent_routes_general_and_catalog_skill_through_sdk(tmp_path, configure_pilot_wiki) -> None:
     configure_pilot_wiki(tmp_path)
     repository = SQLiteStore(tmp_path / "agent.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
     catalog = SkillCatalogService(repository)
     catalog.reload()
     model = ScriptedModel(
@@ -264,6 +270,8 @@ def test_standard_atomic_stream_model_enables_request_level_network_retries(tmp_
 
 def test_standard_stream_retry_exhaustion_records_the_provider_root_cause(tmp_path) -> None:
     repository = SQLiteStore(tmp_path / "model-stream-retry-exhausted.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
 
     async def interrupted(_call):  # noqa: ANN001, ANN202
         yield ResponseTextDeltaEvent(
@@ -316,6 +324,8 @@ def test_standard_stream_retry_exhaustion_records_the_provider_root_cause(tmp_pa
 
 def test_standard_stream_retry_retries_provider_transient_errors_before_exhaustion(tmp_path) -> None:
     repository = SQLiteStore(tmp_path / "model-provider-retry-exhausted.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
 
     class RateLimitError(Exception):
         pass
@@ -360,6 +370,8 @@ def test_standard_stream_retry_retries_provider_transient_errors_before_exhausti
 
 def test_standard_stream_retry_respects_an_explicit_provider_veto(tmp_path) -> None:
     repository = SQLiteStore(tmp_path / "model-provider-retry-veto.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
 
     class RateLimitError(Exception):
         pass

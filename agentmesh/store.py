@@ -8,10 +8,10 @@ import re
 import sqlite3
 import threading
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from contextlib import suppress
+from contextlib import closing, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from datetime import date as dt_date
@@ -19,12 +19,23 @@ from math import isfinite
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, TypeVar
+from urllib.parse import quote
 
 from pydantic import BaseModel
 
 from agentmesh.agent_run_identity import (
     agent_run_create_request_hash_for_run,
     agent_run_create_request_matches,
+)
+from agentmesh.agent_runtime.budget import (
+    RunModelBudgetLimitsV1,
+    RunModelBudgetV1,
+    RunModelReservationV1,
+    RunModelUsageV1,
+    get_budget,
+    release_unsent_request,
+    reserve_request,
+    settle_request,
 )
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256, strict_json_loads
 from agentmesh.deepsearch.budget import (
@@ -37,9 +48,13 @@ from agentmesh.input_adapters import (
     MAX_RUN_NORMALIZED_INPUT_CHARS,
 )
 from agentmesh.memory_context.contracts import (
+    FactContextSelectionV1,
     MemoryCitationRequestV1,
     MemoryUseAuthorizationV1,
+    ProjectStateContextV1,
 )
+from agentmesh.memory_context.procedure_context import ProcedureContextSelectionV1
+from agentmesh.memory_context.search_filter import MemorySearchFilter
 from agentmesh.memory_governance.contracts import (
     MemoryEntryKind,
     MemoryGovernanceAuthorizationV1,
@@ -118,6 +133,9 @@ from agentmesh.models import (
     RuntimeToolCallOutcomeV1,
     ScheduledAgentTaskDefinition,
     Scope,
+    SDKSessionCheckpointV1,
+    SDKSessionCommitV1,
+    SDKSessionMemoryDependencyV1,
     SDKSessionRecord,
     SearchResult,
     SkillBinding,
@@ -126,6 +144,7 @@ from agentmesh.models import (
     SkillInputFieldStatus,
     SkillInputRequestStatus,
     SkillInputRequestV1,
+    SkillMemoryWritePolicy,
     SkillNodeResult,
     SkillOrchestrationRequestMode,
     SkillPackage,
@@ -153,6 +172,7 @@ from agentmesh.models import (
     UserRole,
     Workspace,
     now_utc,
+    run_output_memory_id,
 )
 from agentmesh.research_orchestration.contracts import (
     ExecutionAttempt,
@@ -167,10 +187,40 @@ from agentmesh.research_orchestration.contracts import (
     ToolReceipt,
     canonical_sha256,
 )
+from agentmesh.runner_contracts import (
+    RunnerArtifactUploadRequest,
+    RunnerCancellationRequest,
+    RunnerCompletionReceiptV1,
+    RunnerCompletionRequest,
+    RunnerCompletionRequestV2,
+    RunnerCredentialV1,
+    RunnerDeliveryAuthorizationV1,
+    RunnerDeviceStatus,
+    RunnerDeviceV1,
+    RunnerDispatchLeaseStatus,
+    RunnerDispatchLeaseV1,
+    RunnerEnrollmentStatus,
+    RunnerEnrollmentV1,
+    RunnerEventReceiptV1,
+    RunnerExecutionEventV1,
+    RunnerFailureRequest,
+    RunnerNodeCompletionRequest,
+    RunnerNodeCompletionRequestV2,
+    RunnerNodeDispatchStatus,
+    RunnerNodeDispatchV1,
+    RunnerSessionCommitV1,
+    RunnerSessionSnapshotV1,
+    runner_envelope_hash,
+)
 from agentmesh.skill_runtime.universal_policy import universal_retrieval_policy
 from agentmesh.task_management.contracts import (
     TaskCommandAuthorizationV1,
     TaskCommandReceiptV1,
+)
+from agentmesh.task_operations.contracts import (
+    CurrentTaskStateV1,
+    ProjectStateResultV1,
+    ProjectStateWatermarkV1,
 )
 from agentmesh.task_review.contracts import (
     TaskReviewAuthorizationV1,
@@ -179,9 +229,11 @@ from agentmesh.task_review.contracts import (
 from agentmesh.vector_index import VectorIndex, VectorState, VectorStatus, VectorWork
 
 if TYPE_CHECKING:
+    from agentmesh.agent_runtime.models import AgentMeshRunContext
     from agentmesh.deepsearch.contracts import ProblemGraphV1, RequirementVersionV1
     from agentmesh.research_orchestration.api import ResearchOwnerScope
     from agentmesh.research_orchestration.v2_history import WorkflowContext
+    from agentmesh.skill_runtime.sources import SynthesisFinalizationSnapshot
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -189,6 +241,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = ROOT_DIR / "data" / "agentmesh.sqlite3"
 _SQLITE_BUSY_TIMEOUT_SECONDS = 5.0
 _SQLITE_BUSY_TIMEOUT_MS = int(_SQLITE_BUSY_TIMEOUT_SECONDS * 1000)
+# SQLite's default SQLITE_MAX_LIKE_PATTERN_LENGTH; longer patterns raise OperationalError.
+_SQLITE_MAX_LIKE_PATTERN_BYTES = 50_000
 
 
 class BriefConfirmationError(RuntimeError):
@@ -205,6 +259,12 @@ class ResearchStoreConflict(RuntimeError):
 class RuntimeToolCallConflict(RuntimeError):
     """A durable Runtime Tool-call identity or state invariant failed."""
 
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+class RunnerDispatchConflict(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
@@ -277,6 +337,14 @@ class MemoryContextConflict(RuntimeError):
         self.code = code
 
 
+class SDKSessionConflict(PermissionError):
+    """A static Session authority, writer or commit conflict code."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 class MemoryGovernanceConflict(RuntimeError):
     """A governed Memory command failed authorization, identity, or CAS checks."""
 
@@ -308,6 +376,32 @@ class TaskOperationsProjectionRow:
     archived_at: datetime | None
     version: int
     updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TaskInspectionEvent:
+    receipt_id: str
+    source_kind: str
+    task_id: str
+    title: str
+    version: int
+    delivery_stage: TaskDeliveryStage
+    blocked_reason: str | None
+    archived_at: datetime | None
+    observed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectInspectionRecords:
+    actor: User
+    project: Project
+    tasks: tuple[TaskOperationsProjectionRow, ...]
+    tasks_truncated: bool = False
+    task_history: tuple[TaskInspectionEvent, ...] = ()
+    history_truncated: bool = False
+    task_reviews: tuple[TaskReviewV1, ...] = ()
+    memory_reviews: tuple[tuple[MemoryReviewV1, MemoryItem], ...] = ()
+    reviews_truncated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,6 +488,8 @@ _RESULT_TYPE_COLLECTIONS = {
     "chat_message": "chat_messages",
     "activity_log": "activity_logs",
     "blackboard_evidence": "blackboard_posts",
+    "blackboard_decision": "blackboard_posts",
+    "blackboard_archive": "blackboard_posts",
     "memory_item": "memory_items",
     "user_memory_item": "user_memory_items",
     "document": "documents",
@@ -448,11 +544,16 @@ def _extract_fts_doc(collection: str, item: BaseModel) -> _FTSDoc | None:
         user_id = getattr(item, "user_id", "") or ""
         created_at = _dt_str(getattr(item, "created_at", None))
     elif collection == "blackboard_posts":
+        if (getattr(item, "post_type", "") == "marketplace_signal"
+                and getattr(item, "status", "") != "published"):
+            return None
         title = getattr(item, "title", "")
         body = getattr(item, "content", "")
         scope = getattr(item, "scope", "")
         created_at = _dt_str(getattr(item, "created_at", None))
     elif collection == "memory_items":
+        if getattr(item, "evidence_withdrawn_at", None) is not None:
+            return None
         title = getattr(item, "title", "")
         body = getattr(item, "summary", "")
         scope = getattr(item, "scope", "")
@@ -461,6 +562,8 @@ def _extract_fts_doc(collection: str, item: BaseModel) -> _FTSDoc | None:
         user_id = getattr(item, "owner_user_id", "") or ""
         created_at = _dt_str(getattr(item, "created_at", None))
     elif collection == "user_memory_items":
+        if getattr(item, "status", "active") == "forgotten":
+            return None
         if (
             getattr(item, "source_kind", "") in {"document_import", "document_upload"}
             and getattr(item, "status", "active") != "active"
@@ -476,6 +579,8 @@ def _extract_fts_doc(collection: str, item: BaseModel) -> _FTSDoc | None:
         user_id = getattr(item, "user_id", "") or ""
         created_at = _dt_str(getattr(item, "created_at", None))
     elif collection == "documents":
+        if getattr(item, "withdrawn_at", None) is not None:
+            return None
         title = getattr(item, "title", "")
         file_name = getattr(item, "file_name", "")
         text = getattr(item, "text", "")
@@ -574,6 +679,9 @@ class SQLiteStore:
         if enforce_writer_lock:
             self._acquire_writer_lock()
         self.vector_index = VectorIndex(self.db_path)
+        # FTS ranking is CPU-heavy; concurrent copies contend on this process's
+        # SQLite/Python boundary. Queue only local recall, never provider calls.
+        self._fts_lock = threading.Lock()
         self._skill_vector_lock = threading.Lock()
         self._skill_vector_thread: threading.Thread | None = None
         self._skill_vector_rescan_requested = False
@@ -737,6 +845,61 @@ class SQLiteStore:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_records_collection ON records(collection, created_order)"
         )
+        for party in ('requester_id', 'target_id'):
+            connection.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_delegated_queries_{party}
+                ON records(json_extract(payload, '$.workspace_id'), json_extract(payload, '$.project_id'),
+                           json_extract(payload, '$.{party}'), created_order DESC)
+                WHERE collection = 'delegated_queries'
+            """)
+        connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_document_job_scope
+            ON records(json_extract(payload, '$.workspace_id'), json_extract(payload, '$.project_id'),
+                       json_extract(payload, '$.uploaded_by'), created_order DESC)
+            WHERE collection = 'document_parse_jobs'
+        """)
+        connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_document_job_input_reference
+            ON records(json_extract(payload, '$.input_staging_ref'))
+            WHERE collection = 'document_parse_jobs'
+        """)
+        connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_project_query_consent
+            ON records(json_extract(payload, '$.grantor_id'), json_extract(payload, '$.grantee_id'),
+                       json_extract(payload, '$.workspace_id'), json_extract(payload, '$.project_id'), created_order DESC)
+            WHERE collection = 'consent_grants'
+        """)
+        connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_blackboard_kind_related
+            ON records(json_extract(payload, '$.post_type'), json_extract(payload, '$.related_post_id'), created_order)
+            WHERE collection = 'blackboard_posts'
+        """)
+        connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_inspection_schedule_due
+            ON records(julianday(json_extract(payload, '$.next_run_at')), id)
+            WHERE collection = 'scheduled_agent_task_definitions'
+                AND json_extract(payload, '$.schema_version') = 'project-inspection-schedule-v1'
+                AND json_extract(payload, '$.enabled') = 1
+        """)
+        connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_inspection_schedule_change_cursor
+            ON records(json_extract(payload, '$.change_cursor'), id)
+            WHERE collection = 'scheduled_agent_task_definitions'
+                AND json_extract(payload, '$.schema_version') = 'project-inspection-schedule-v1'
+                AND json_extract(payload, '$.enabled') = 1
+                AND json_extract(payload, '$.on_project_changes') = 1
+        """)
+        connection.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_inspection_occurrence_trigger
+            ON records(json_extract(payload, '$.schedule_id'), json_extract(payload, '$.trigger'),
+                       json_extract(payload, '$.trigger_key'))
+            WHERE collection = 'scheduled_occurrences'
+        """)
+        connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_inspection_occurrence_schedule
+            ON records(json_extract(payload, '$.schedule_id'), created_order DESC)
+            WHERE collection = 'scheduled_occurrences'
+        """)
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_tasks_thread_updated
@@ -1074,6 +1237,8 @@ class SQLiteStore:
             "orchestration_version",
             "TEXT NOT NULL DEFAULT 'v1'",
         )
+        connection.execute('CREATE TABLE IF NOT EXISTS run_model_budgets '
+                           '(run_id TEXT PRIMARY KEY REFERENCES agent_runs(id) ON DELETE CASCADE, payload TEXT NOT NULL)')
         SQLiteStore._ensure_column(
             connection,
             "agent_runs",
@@ -1583,9 +1748,20 @@ class SQLiteStore:
             """
         )
         VectorIndex.ensure_schema(connection)
+        from agentmesh.memory_lifecycle import ensure_forgetting_schema
+
+        ensure_forgetting_schema(connection)
+        from agentmesh.memory_learning.repository import ensure_learning_schema
+
+        ensure_learning_schema(connection)
+        from agentmesh.market_publication_inputs import ensure_publication_input_schema
+
+        ensure_publication_input_schema(connection)
 
     def reset(self) -> None:
         with self._connect() as connection:
+            connection.execute("DELETE FROM market_publication_inputs")
+            connection.execute("DELETE FROM memory_tombstones")
             connection.execute("DELETE FROM records")
             connection.execute("DELETE FROM records_fts")
             connection.execute("DELETE FROM records_vec")
@@ -1604,6 +1780,7 @@ class SQLiteStore:
             connection.execute("DELETE FROM research_workflows")
             connection.execute("DELETE FROM memory_reviews")
             connection.execute("DELETE FROM task_reviews")
+            connection.execute("DELETE FROM run_model_budgets")
             connection.execute("DELETE FROM agent_runs")
             connection.execute("DELETE FROM artifacts")
             connection.execute("DELETE FROM skill_node_results")
@@ -1620,6 +1797,17 @@ class SQLiteStore:
     ) -> None:
         work: VectorWork | None = None
         with self._connect() as connection:
+            if (collection == "memory_items" and isinstance(item, MemoryItem)
+                    and item.metadata.get("source_memory_id") and item.status in {
+                        MemoryStatus.PROPOSED, MemoryStatus.ACCEPTED,
+                    }):
+                connection.execute("BEGIN IMMEDIATE")
+                self._validate_shared_personal_source(connection, item)
+            if collection == "user_memory_items" and isinstance(item, UserMemoryItem) and item.source_kind in {
+                "daily_summary", "short_term_rollup", "project_archive",
+            } and item.provenance is not None:
+                connection.execute("BEGIN IMMEDIATE")
+                self._validate_summary_lineage(connection, item)
             connection.execute(
                 """
                 INSERT INTO records(collection, id, payload)
@@ -1657,6 +1845,22 @@ class SQLiteStore:
 
             if EMBEDDING_ENABLED:
                 self.vector_index.process(work)
+
+    @staticmethod
+    def _upsert_plain_record(
+        connection: sqlite3.Connection,
+        collection: str,
+        item: BaseModel,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO records(collection, id, payload)
+            VALUES (?, ?, ?)
+            ON CONFLICT(collection, id)
+            DO UPDATE SET payload = excluded.payload
+            """,
+            (collection, item.id, item.model_dump_json()),
+        )
 
     def _sync_fts(self, connection: sqlite3.Connection, collection: str, item: BaseModel) -> None:
         connection.execute(
@@ -1884,17 +2088,23 @@ class SQLiteStore:
             )
 
     def _get(self, collection: str, item_id: str, model: type[ModelT]) -> ModelT | None:
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT payload FROM records WHERE collection = ? AND id = ?",
-                (collection, item_id),
-            ).fetchone()
+        with closing(self._read_connect()) as connection:
+            return self._get_in_transaction(connection, collection, item_id, model)
+
+    @staticmethod
+    def _get_in_transaction(
+        connection: sqlite3.Connection, collection: str, item_id: str, model: type[ModelT],
+    ) -> ModelT | None:
+        row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            (collection, item_id),
+        ).fetchone()
         if row is None:
             return None
         return model.model_validate_json(row["payload"])
 
     def _list(self, collection: str, model: type[ModelT]) -> list[ModelT]:
-        with self._connect() as connection:
+        with closing(self._read_connect()) as connection:
             rows = connection.execute(
                 "SELECT payload FROM records WHERE collection = ? ORDER BY created_order",
                 (collection,),
@@ -1999,6 +2209,245 @@ class SQLiteStore:
                 (workspace_id, project_id),
             ).fetchall()
         return [self._task_operations_projection_from_row(row) for row in rows]
+
+    def read_project_state(
+        self, *, user_id: str, workspace_id: str, project_id: str, task_id: str | None = None,
+    ) -> ProjectStateResultV1 | None:
+        """Authorize and count shared managed Tasks/Reviews in one read transaction.
+
+        Aggregate counts remain exact beyond the bounded hydration used by the
+        inspection UI. Dependency bodies are filtered before reading any title.
+        """
+        with closing(self._read_connect()) as connection, connection:
+            connection.execute('BEGIN')
+            actor_row = connection.execute("SELECT payload FROM records WHERE collection = 'users' AND id = ?",
+                                           (user_id,)).fetchone()
+            project_row = connection.execute("SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+                                             (project_id,)).fetchone()
+            if actor_row is None or project_row is None:
+                return None
+            actor = User.model_validate_json(actor_row['payload'])
+            project = Project.model_validate_json(project_row['payload'])
+            if (actor.status != 'active' or actor.workspace_id != workspace_id
+                    or project.status != 'active' or project.workspace_id != workspace_id
+                    or (project.member_ids and actor.id not in project.member_ids)):
+                return None
+            task_counts = connection.execute(
+                """SELECT delivery_stage, archived_at IS NOT NULL AS archived, COUNT(*) AS count,
+                          SUM(blocked_reason IS NOT NULL) AS blocked, MAX(updated_at) AS latest_updated_at
+                   FROM task_operations_projection
+                   WHERE workspace_id = ? AND project_id = ? AND thread_kind = 'task'
+                   GROUP BY delivery_stage, archived_at IS NOT NULL""", (workspace_id, project_id),
+            ).fetchall()
+            review_counts = connection.execute(
+                """SELECT review.status, COUNT(*) AS count, MAX(review.updated_at) AS latest_updated_at
+                   FROM task_reviews AS review
+                   JOIN task_operations_projection AS task ON task.task_id = review.task_id
+                   WHERE task.workspace_id = ? AND task.project_id = ? AND task.thread_kind = 'task'
+                     AND task.archived_at IS NULL GROUP BY review.status""", (workspace_id, project_id),
+            ).fetchall()
+            stages = dict.fromkeys(TaskDeliveryStage, 0)
+            reviews = dict.fromkeys(TaskReviewStatus, 0)
+            for row in task_counts:
+                if not row['archived']:
+                    stages[TaskDeliveryStage(row['delivery_stage'])] = row['count']
+            for row in review_counts:
+                reviews[TaskReviewStatus(row['status'])] = row['count']
+            current_task = None
+            dependencies: list[CurrentTaskStateV1] = []
+            dependency_count = unavailable = 0
+            missing_data: tuple[str, ...] = ()
+            outcome = 'known'
+            ready = None
+            active_run_count = None
+            if task_id is not None:
+                root = connection.execute(
+                    """SELECT * FROM task_operations_projection
+                       WHERE task_id = ? AND workspace_id = ? AND project_id = ?
+                         AND thread_kind = 'task' AND archived_at IS NULL""",
+                    (task_id, workspace_id, project_id),
+                ).fetchone()
+                if root is None:
+                    outcome, missing_data = 'unknown', ('task_unavailable',)
+                else:
+                    current_task = self._current_task_state(root)
+                    active_statuses = (
+                        AgentRunStatus.CREATED, AgentRunStatus.PLANNING, AgentRunStatus.WAITING_CLARIFICATION,
+                        AgentRunStatus.WAITING_INPUT, AgentRunStatus.RUNNING,
+                        AgentRunStatus.WAITING_PLAN_APPROVAL, AgentRunStatus.WAITING_APPROVAL,
+                    )
+                    active_run_count = connection.execute(
+                        """SELECT COUNT(*) FROM agent_runs WHERE task_id = ?
+                           AND json_extract(payload, '$.workspace_id') = ?
+                           AND json_extract(payload, '$.project_id') = ?
+                           AND json_extract(payload, '$.status') IN (SELECT value FROM json_each(?))""",
+                        (task_id, workspace_id, project_id, json.dumps(active_statuses)),
+                    ).fetchone()[0]
+                    dependency_ids = json.loads(root['dependency_task_ids_json'])
+                    dependency_count = len(dependency_ids)
+                    # One scoped join, including missing targets. Do not hydrate
+                    # private, archived or foreign-project dependency records.
+                    rows = connection.execute(
+                        """SELECT target.* FROM json_each(?) AS dependency
+                           LEFT JOIN task_operations_projection AS target
+                             ON target.task_id = dependency.value AND target.workspace_id = ?
+                            AND target.project_id = ? AND target.thread_kind = 'task'
+                            AND target.archived_at IS NULL ORDER BY dependency.key""",
+                        (root['dependency_task_ids_json'], workspace_id, project_id),
+                    ).fetchall()
+                    dependencies = [self._current_task_state(row) for row in rows if row['task_id'] is not None]
+                    unavailable = dependency_count - len(dependencies)
+                    if unavailable:
+                        outcome, missing_data = 'insufficient_evidence', ('dependency_unavailable',)
+                    ready = (not active_run_count and not unavailable and not current_task.blocked_reason
+                             and current_task.delivery_stage is TaskDeliveryStage.IN_PROGRESS
+                             and all(item.delivery_stage is TaskDeliveryStage.DONE for item in dependencies))
+            return ProjectStateResultV1(
+                project_id=project_id, snapshot_at=now_utc(), outcome=outcome,
+                task_count=sum(stages.values()), tasks_by_stage=stages, reviews_by_status=reviews,
+                archived_task_count=sum(row['count'] for row in task_counts if row['archived']),
+                blocked_task_count=sum(row['blocked'] for row in task_counts if not row['archived']),
+                task_watermark=ProjectStateWatermarkV1(
+                    record_count=sum(row['count'] for row in task_counts),
+                    latest_updated_at=max((row['latest_updated_at'] for row in task_counts), default=None),
+                ),
+                review_watermark=ProjectStateWatermarkV1(
+                    record_count=sum(reviews.values()),
+                    latest_updated_at=max((row['latest_updated_at'] for row in review_counts), default=None),
+                ),
+                task=current_task, dependencies=tuple(dependencies), dependency_count=dependency_count,
+                completed_dependency_count=sum(item.delivery_stage is TaskDeliveryStage.DONE for item in dependencies),
+                blocking_task_ids=tuple(item.id for item in dependencies if item.delivery_stage is not TaskDeliveryStage.DONE),
+                unavailable_dependency_count=unavailable, active_run_count=active_run_count,
+                execution_ready=ready, missing_data=missing_data,
+            )
+
+    @staticmethod
+    def _current_task_state(row: sqlite3.Row) -> CurrentTaskStateV1:
+        return CurrentTaskStateV1(
+            id=row['task_id'], title=row['title'], version=row['version'], delivery_stage=row['delivery_stage'],
+            blocked_reason=row['blocked_reason'], updated_at=row['updated_at'],
+            navigation_href='/tasks?task=' + quote(row['task_id'], safe=''),
+        )
+
+    def read_project_inspection(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        project_id: str,
+        include_history: bool = False,
+    ) -> ProjectInspectionRecords | None:
+        """Read authorized shared project facts from one SQLite snapshot.
+
+        Conversation Tasks are excluded even for managers: this aggregate also
+        feeds shared inspection reports and must not inherit personal chat access.
+        """
+        from agentmesh.permissions import ACTION_ACCEPT_TEAM_MEMORY, has_permission
+
+        with closing(self._read_connect()) as connection, connection:
+            connection.execute("BEGIN")
+            actor_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'users' AND id = ?", (user_id,),
+            ).fetchone()
+            project_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'projects' AND id = ?", (project_id,),
+            ).fetchone()
+            if actor_row is None or project_row is None:
+                return None
+            actor = User.model_validate_json(actor_row["payload"])
+            project = Project.model_validate_json(project_row["payload"])
+            if (
+                actor.status != "active"
+                or actor.workspace_id != workspace_id
+                or project.workspace_id != workspace_id
+                or (project.member_ids and actor.id not in project.member_ids)
+            ):
+                return None
+            task_rows = connection.execute(
+                """
+                SELECT * FROM task_operations_projection
+                WHERE workspace_id = ? AND project_id = ? AND thread_kind = 'task'
+                ORDER BY updated_at DESC, task_id DESC LIMIT 10001
+                """,
+                (workspace_id, project_id),
+            ).fetchall()
+            history_rows = connection.execute(
+                """
+                SELECT receipt.id, receipt.collection,
+                       json_extract(receipt.payload, '$.result_task.id') AS task_id,
+                       json_extract(receipt.payload, '$.result_task.title') AS title,
+                       json_extract(receipt.payload, '$.result_task.management.version') AS version,
+                       json_extract(receipt.payload, '$.result_task.management.delivery_stage') AS delivery_stage,
+                       json_extract(receipt.payload, '$.result_task.management.blocked_reason') AS blocked_reason,
+                       json_extract(receipt.payload, '$.result_task.management.archived_at') AS archived_at,
+                       json_extract(receipt.payload, '$.created_at') AS observed_at
+                FROM records AS receipt
+                JOIN task_operations_projection AS task
+                  ON task.task_id = json_extract(receipt.payload, '$.result_task.id')
+                WHERE receipt.collection IN ('task_command_receipts', 'task_review_command_receipts')
+                  AND ? = 1
+                  AND task.workspace_id = ? AND task.project_id = ? AND task.thread_kind = 'task'
+                ORDER BY task_id, version, receipt.id LIMIT 50001
+                """,
+                (int(include_history), workspace_id, project_id),
+            ).fetchall()
+            task_review_rows = connection.execute(
+                """
+                SELECT review.* FROM task_reviews AS review
+                JOIN task_operations_projection AS task ON task.task_id = review.task_id
+                WHERE task.workspace_id = ? AND task.project_id = ? AND task.thread_kind = 'task'
+                ORDER BY review.updated_at DESC, review.id DESC LIMIT 10001
+                """,
+                (workspace_id, project_id),
+            ).fetchall()
+            rule_rows = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'permission_policy_rules' ORDER BY created_order"
+            ).fetchall()
+            rules = [PermissionPolicyRule.model_validate_json(row["payload"]) for row in rule_rows]
+            memory_review_rows = []
+            if has_permission(actor, ACTION_ACCEPT_TEAM_MEMORY, rules):
+                memory_review_rows = connection.execute(
+                    """
+                    SELECT review.*, memory.payload AS memory_payload FROM memory_reviews AS review
+                    JOIN records AS memory ON memory.collection = 'memory_items' AND memory.id = review.memory_id
+                    JOIN task_reviews AS source ON source.id = review.source_task_review_id
+                    JOIN task_operations_projection AS task ON task.task_id = source.task_id
+                    WHERE review.reviewer_id = ?
+                      AND task.workspace_id = ? AND task.project_id = ? AND task.thread_kind = 'task'
+                      AND json_extract(memory.payload, '$.workspace_id') = ?
+                      AND json_extract(memory.payload, '$.project_id') = ?
+                      AND json_extract(memory.payload, '$.scope') = 'team_candidate'
+                      AND json_extract(memory.payload, '$.status') = 'proposed'
+                      AND json_extract(memory.payload, '$.archived_at') IS NULL
+                      AND (json_extract(memory.payload, '$.team_id') IS NULL OR ? IN ('team_lead', 'admin')
+                           OR EXISTS (SELECT 1 FROM records AS membership
+                               WHERE membership.collection = 'team_memberships'
+                                 AND json_extract(membership.payload, '$.user_id') = ?
+                                 AND json_extract(membership.payload, '$.team_id') = json_extract(memory.payload, '$.team_id')))
+                    ORDER BY review.updated_at DESC, review.id DESC LIMIT 10001
+                    """,
+                    (actor.id, workspace_id, project_id, workspace_id, project_id, actor.role, actor.id),
+                ).fetchall()
+            return ProjectInspectionRecords(
+                actor=actor,
+                project=project,
+                tasks=tuple(self._task_operations_projection_from_row(row) for row in task_rows[:10000]),
+                tasks_truncated=len(task_rows) > 10000,
+                task_history=tuple(TaskInspectionEvent(
+                    receipt_id=row["id"],
+                    source_kind="task_command" if row["collection"] == "task_command_receipts" else "task_review_command",
+                    task_id=row["task_id"], title=row["title"], version=int(row["version"]),
+                    delivery_stage=TaskDeliveryStage(row["delivery_stage"]), blocked_reason=row["blocked_reason"],
+                    archived_at=datetime.fromisoformat(row["archived_at"]) if row["archived_at"] else None,
+                    observed_at=datetime.fromisoformat(row["observed_at"]),
+                ) for row in history_rows[:50000]),
+                history_truncated=len(history_rows) > 50000,
+                task_reviews=tuple(self._task_review_from_row(row) for row in task_review_rows[:10000]),
+                memory_reviews=tuple((self._memory_review_from_row(row), MemoryItem.model_validate_json(row["memory_payload"]))
+                                     for row in memory_review_rows[:10000]),
+                reviews_truncated=len(task_review_rows) > 10000 or len(memory_review_rows) > 10000,
+            )
 
     def get_task_operations_projection(self, task_id: str) -> TaskOperationsProjectionRow | None:
         with self._read_connect() as connection:
@@ -2290,6 +2739,26 @@ class SQLiteStore:
         return self._list("auth_sessions", AuthSession)
 
     @property
+    def runner_enrollments(self) -> list[RunnerEnrollmentV1]:
+        return self._list("runner_enrollments", RunnerEnrollmentV1)
+
+    @property
+    def runner_devices(self) -> list[RunnerDeviceV1]:
+        return self._list("runner_devices", RunnerDeviceV1)
+
+    @property
+    def runner_credentials(self) -> list[RunnerCredentialV1]:
+        return self._list("runner_credentials", RunnerCredentialV1)
+
+    @property
+    def runner_dispatch_leases(self) -> list[RunnerDispatchLeaseV1]:
+        return self._list("runner_dispatch_leases", RunnerDispatchLeaseV1)
+
+    @property
+    def runner_node_dispatches(self) -> list[RunnerNodeDispatchV1]:
+        return self._list("runner_node_dispatches", RunnerNodeDispatchV1)
+
+    @property
     def teams(self) -> list[Team]:
         return self._list("teams", Team)
 
@@ -2436,10 +2905,9 @@ class SQLiteStore:
         return self._get("agent_memory_bindings", binding_id, AgentMemoryBinding)
 
     def get_binding_for_agent(self, agent_id: str) -> AgentMemoryBinding | None:
-        for binding in self.agent_memory_bindings:
-            if binding.agent_id == agent_id:
-                return binding
-        return None
+        with closing(self._read_connect()) as connection, connection:
+            connection.execute("BEGIN")
+            return self._memory_binding_in_transaction(connection, agent_id)
 
     def search_for_agent(
         self,
@@ -2463,22 +2931,28 @@ class SQLiteStore:
             return self.filter_agent_memory_results(results)
         allowed_scopes = set(binding.allowed_scopes) if binding.allowed_scopes else {Scope.PRIVATE}
         allowed_scopes.discard(Scope.TEAM_CANDIDATE)
-        effective_project = binding.allowed_project_ids[0] if binding.allowed_project_ids else project_id
+        if binding.allowed_project_ids and project_id not in binding.allowed_project_ids:
+            return []
         results = self.search(
             query,
             allowed_scopes,
             workspace_id=workspace_id,
-            project_id=effective_project,
+            project_id=project_id,
             user_id=user_id,
             max_results=binding.max_results_per_query,
+            memory_types=binding.effective_memory_types,
             agent_context=True,
         )
-        if binding.allowed_memory_types:
-            results = [r for r in results if r.result_type in set(binding.allowed_memory_types)]
         return self.filter_agent_memory_results(results)
 
     @staticmethod
-    def memory_item_eligible_for_agent(item: MemoryItem) -> bool:
+    def memory_item_eligible_for_agent(item: MemoryItem, *, allow_structured: bool = False) -> bool:
+        if item.evidence_withdrawn_at is not None:
+            return False
+        # Structured facts/procedures require the temporal and applicability
+        # assembler; legacy summary search cannot make that decision.
+        if not allow_structured and (item.facts is not None or item.procedure is not None):
+            return False
         if item.scope is Scope.TEAM_CANDIDATE:
             return False
         if item.status is MemoryStatus.ACCEPTED and item.scope in {Scope.PROJECT, Scope.TEAM_ACCEPTED}:
@@ -2500,7 +2974,7 @@ class SQLiteStore:
         for result in results:
             if result.result_type == "user_memory_item":
                 item = self.get_user_memory_item(result.id)
-                if item is not None and item.status == "active":
+                if item is not None and item.status == "active" and item.facts is None and item.procedure is None:
                     output.append(result)
                 continue
             if result.result_type != "memory_item":
@@ -2522,9 +2996,41 @@ class SQLiteStore:
         record = self.get_market_participation(user_id)
         return bool(record and record.enabled)
 
+    @staticmethod
+    def _withdraw_market_signal_in_transaction(connection: sqlite3.Connection, user_id: str) -> None:
+        """Erase the one generated public summary, without guessing private lineage."""
+        post_id = f'bb_signal_{user_id}'
+        changed = connection.execute("""UPDATE records SET payload = json_set(payload,
+            '$.status', 'withdrawn', '$.title', '协作信号已撤回', '$.content', '')
+            WHERE collection = 'blackboard_posts' AND id = ?
+              AND json_extract(payload, '$.task_id') = ?
+              AND json_extract(payload, '$.post_type') = 'marketplace_signal'""", (post_id, f'signal_{user_id}'))
+        if changed.rowcount:
+            connection.execute("DELETE FROM records_fts WHERE collection = 'blackboard_posts' AND record_id = ?",
+                               (post_id,))
+            connection.execute("DELETE FROM records_vec WHERE collection = 'blackboard_posts' AND record_id = ?",
+                               (post_id,))
+            connection.execute("DELETE FROM vector_states WHERE collection = 'blackboard_posts' AND record_id = ?",
+                               (post_id,))
+            connection.execute("DELETE FROM market_publication_inputs WHERE post_id = ?", (post_id,))
+
     def set_market_participation(self, user_id: str, enabled: bool) -> MarketParticipation:
-        record = MarketParticipation(id=user_id, user_id=user_id, enabled=enabled)
-        self._upsert("market_participation", record)
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = 'market_participation' AND id = ?", (user_id,),
+            ).fetchone()
+            current = MarketParticipation.model_validate_json(row["payload"]) if row else None
+            if not enabled:
+                self._withdraw_market_signal_in_transaction(connection, user_id)
+            if current is not None and current.enabled == enabled:
+                return current
+            record = MarketParticipation(id=user_id, user_id=user_id, enabled=enabled)
+            connection.execute(
+                """INSERT INTO records(collection, id, payload) VALUES ('market_participation', ?, ?)
+                    ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload""",
+                (record.id, record.model_dump_json()),
+            )
         return record
 
     @staticmethod
@@ -2595,7 +3101,16 @@ class SQLiteStore:
         return workspace
 
     def save_project(self, project: Project) -> Project:
-        self._upsert("projects", project)
+        with self._connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            row = connection.execute("SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+                                     (project.id,)).fetchone()
+            if row:
+                current = Project.model_validate_json(row['payload'])
+                # Alias changes use the dedicated authorization/CAS command.
+                # Stale membership/config saves must not erase that sub-payload.
+                project = project.model_copy(update={'term_aliases': current.term_aliases})
+            self._upsert_plain_record(connection, 'projects', project)
         return project
 
     def add_chat_thread(self, thread: ChatThread) -> ChatThread:
@@ -4045,6 +4560,19 @@ class SQLiteStore:
                 rules=rules,
             )
 
+    @staticmethod
+    def _validate_structured_memory_payloads(
+        connection: sqlite3.Connection, item: MemoryItem | UserMemoryItem, project: Project,
+    ) -> None:
+        if item.facts is None and item.procedure is None:
+            return
+        from agentmesh.memory_facts import MemoryFactsError, validate_memory_payload_evidence
+
+        try:
+            validate_memory_payload_evidence(connection, item, project)
+        except MemoryFactsError as error:
+            raise MemoryGovernanceConflict(error.code) from error
+
     def capture_memory_from_task_review(
         self,
         *,
@@ -4144,6 +4672,7 @@ class SQLiteStore:
                 raise MemoryGovernanceConflict(error.code) from error
             if validated_run.user_id != actor.id:
                 raise MemoryGovernanceConflict("memory_source_review_not_found")
+            self._validate_structured_memory_payloads(connection, item, project)
             if (
                 item.workspace_id != project.workspace_id
                 or item.project_id != project.id
@@ -4355,6 +4884,8 @@ class SQLiteStore:
                 item.title == source.title
                 and item.summary == source.summary
                 and item.memory_type == source.memory_type
+                and item.facts == source.facts
+                and item.procedure == source.procedure
             ):
                 raise MemoryGovernanceConflict("memory_revision_no_changes")
             source_review_row = connection.execute(
@@ -4389,6 +4920,7 @@ class SQLiteStore:
             )
             provenance = item.provenance
             source_hash = memory_content_hash(source)
+            self._validate_structured_memory_payloads(connection, item, project)
             if selected_reviewer is None:
                 raise MemoryGovernanceConflict("memory_reviewer_unavailable")
             if not (
@@ -4889,6 +5421,7 @@ class SQLiteStore:
             updated_item.version += 1
             updated_item.updated_at = review.decided_at or now_utc()
             if review.status is MemoryReviewStatus.ACCEPTED:
+                self._validate_structured_memory_payloads(connection, item, project)
                 updated_item.status = MemoryStatus.ACCEPTED
                 updated_item.scope = Scope.TEAM_ACCEPTED
             else:
@@ -5622,22 +6155,274 @@ class SQLiteStore:
         self._upsert("sdk_sessions", session)
         return session
 
-    def get_sdk_session(self, session_id: str) -> SDKSessionRecord | None:
-        return self._get("sdk_sessions", session_id, SDKSessionRecord)
+    @staticmethod
+    def _write_sdk_session(connection: sqlite3.Connection, record: SDKSessionRecord) -> None:
+        connection.execute(
+            """INSERT INTO records(collection, id, payload) VALUES ('sdk_sessions', ?, ?)
+               ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload""",
+            (record.id, record.model_dump_json()),
+        )
+
+    def _authorized_sdk_session(
+        self, connection: sqlite3.Connection, session_id: str, run: AgentRun | None,
+        *, check_sources: bool = True, for_approval: bool = False,
+    ) -> SDKSessionRecord:
+        row = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'sdk_sessions' AND id = ?", (session_id,),
+        ).fetchone()
+        record = SDKSessionRecord.model_validate_json(row['payload']) if row else SDKSessionRecord(id=session_id)
+        if run is None:
+            if record.user_id is not None:
+                raise SDKSessionConflict('sdk_session_not_authorized')
+            return record
+        run_row = connection.execute('SELECT payload FROM agent_runs WHERE id = ?', (run.id,)).fetchone()
+        if run_row is None or session_id != run.thread_id:
+            raise SDKSessionConflict('sdk_session_not_authorized')
+        current = AgentRun.model_validate_json(run_row['payload'])
+        fields = ('user_id', 'workspace_id', 'project_id', 'thread_id', 'task_id', 'writer_generation_epoch',
+                  'orchestration_version', 'planning_contract_version', 'execution_contract_version',
+                  'agent_definition_version')
+        if any(getattr(current, field) != getattr(run, field) for field in fields):
+            raise SDKSessionConflict('sdk_session_writer_changed')
+        allowed_statuses = {AgentRunStatus.RUNNING, AgentRunStatus.WAITING_APPROVAL} if for_approval else {
+            AgentRunStatus.RUNNING,
+        }
+        if current.status not in allowed_statuses:
+            raise SDKSessionConflict('sdk_session_run_inactive')
+        if current.deadline_at is not None and current.deadline_at <= now_utc():
+            raise SDKSessionConflict('sdk_session_deadline_exceeded')
+        user_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'users' AND id = ?", (run.user_id,),
+        ).fetchone()
+        project_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'projects' AND id = ?", (run.project_id,),
+        ).fetchone()
+        user = User.model_validate_json(user_row['payload']) if user_row else None
+        project = Project.model_validate_json(project_row['payload']) if project_row else None
+        if (user is None or user.status != 'active' or project is None or project.status != 'active'
+                or not user.workspace_id == project.workspace_id == run.workspace_id
+                or (project.member_ids and user.id not in project.member_ids)):
+            raise SDKSessionConflict('sdk_session_not_authorized')
+        thread_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = 'chat_threads' AND id = ?", (session_id,),
+        ).fetchone()
+        if thread_row:
+            thread = ChatThread.model_validate_json(thread_row['payload'])
+            if (thread.user_id != run.user_id or thread.workspace_id != run.workspace_id
+                    or thread.project_id != run.project_id or thread.status != 'active'):
+                raise SDKSessionConflict('sdk_session_not_authorized')
+        else:
+            # Trusted direct Runtime callers can admit a new private thread. An
+            # orphaned legacy SDK body has no provable owner and cannot be adopted.
+            if record.items or record.user_id is not None:
+                raise SDKSessionConflict('sdk_session_legacy_unverified')
+            thread = ChatThread(id=session_id, user_id=run.user_id, workspace_id=run.workspace_id,
+                                project_id=run.project_id, title='Agent conversation')
+            connection.execute("INSERT INTO records(collection, id, payload) VALUES ('chat_threads', ?, ?)",
+                               (thread.id, thread.model_dump_json()))
+        owner = (run.user_id, run.workspace_id, run.project_id)
+        if record.user_id is not None and (record.user_id, record.workspace_id, record.project_id) != owner:
+            raise SDKSessionConflict('sdk_session_not_authorized')
+        if record.user_id is None and record.items:
+            raise SDKSessionConflict('sdk_session_legacy_unverified')
+        if record.writer_run_id is not None and record.writer_run_id != run.id:
+            writer_row = connection.execute('SELECT payload FROM agent_runs WHERE id = ?',
+                                            (record.writer_run_id,)).fetchone()
+            writer = AgentRun.model_validate_json(writer_row['payload']) if writer_row else None
+            if writer is None or writer.status not in {
+                AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL, AgentRunStatus.REJECTED,
+                AgentRunStatus.FAILED, AgentRunStatus.CANCELLED,
+            }:
+                raise SDKSessionConflict('sdk_session_writer_busy')
+        generation_changed = record.writer_run_id == run.id and record.writer_generation_epoch != run.writer_generation_epoch
+        if generation_changed and (run.writer_generation_epoch is None
+                                   or run.writer_generation_epoch <= (record.writer_generation_epoch or 0)):
+            raise SDKSessionConflict('sdk_session_writer_changed')
+        if check_sources:
+            self._validate_sdk_session_memory(connection, record, current, user)
+        if record.user_id is None or record.writer_run_id != run.id or generation_changed:
+            record.user_id, record.workspace_id, record.project_id = owner
+            record.writer_run_id = run.id
+            record.writer_generation_epoch = run.writer_generation_epoch
+            record.version += 1
+            record.updated_at = now_utc()
+            self._write_sdk_session(connection, record)
+        return record
+
+    def _validate_sdk_session_memory(
+        self, connection: sqlite3.Connection, record: SDKSessionRecord, run: AgentRun, actor: User,
+    ) -> None:
+        from agentmesh.memory_context.origin import memory_origin_available
+        from agentmesh.memory_governance.lifecycle import memory_content_hash
+
+        if record.source_status == 'withdrawn':
+            raise SDKSessionConflict('sdk_session_source_withdrawn')
+        if record.term_alias_version is not None:
+            project_row = connection.execute("SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+                                              (run.project_id,)).fetchone()
+            project = Project.model_validate_json(project_row['payload']) if project_row else None
+            if project is None or project.term_aliases is None or project.term_aliases.version != record.term_alias_version:
+                raise SDKSessionConflict('sdk_session_source_changed')
+        try:
+            binding = self._memory_binding_in_transaction(connection, actor.personal_agent_id)
+            for reference in record.memory_dependencies:
+                source_run_row = connection.execute('SELECT payload FROM agent_runs WHERE id = ?',
+                                                    (reference.source_run_id,)).fetchone()
+                source_run = AgentRun.model_validate_json(source_run_row['payload']) if source_run_row else None
+                if source_run is None or (source_run.user_id, source_run.workspace_id, source_run.project_id,
+                                           source_run.thread_id) != (
+                    run.user_id, run.workspace_id, run.project_id, run.thread_id,
+                ):
+                    raise SDKSessionConflict('sdk_session_source_changed')
+                item = self._memory_item_for_use_in_transaction(
+                    connection, memory_id=reference.memory_id, memory_kind=reference.memory_kind,
+                    memory_record_type=reference.memory_record_type, memory_version=reference.memory_version,
+                    actor=actor, run=run, binding=binding,
+                )
+                if memory_content_hash(item) != reference.memory_hash or not memory_origin_available(connection, item):
+                    raise SDKSessionConflict('sdk_session_source_changed')
+                if reference.projection_kind == 'procedure':
+                    from agentmesh.memory_context.procedure_context import (
+                        ProcedureQueryV1,
+                        select_procedure_in_transaction,
+                    )
+                    from agentmesh.memory_facts import MemoryFactsError
+
+                    try:
+                        selection = select_procedure_in_transaction(self, connection, ProcedureQueryV1(
+                            memory_id=item.id, memory_record_type=reference.memory_record_type,
+                        ), run=run, user=actor, allowed_scopes=tuple(Scope), allowed_layers=tuple(MemoryLayer))
+                    except MemoryFactsError as error:
+                        raise SDKSessionConflict('sdk_session_source_changed') from error
+                    if selection.decision != 'prepared':
+                        raise SDKSessionConflict('sdk_session_source_changed')
+        except MemoryContextConflict as error:
+            raise SDKSessionConflict('sdk_session_source_changed') from error
+
+    def _archive_sdk_session_memory(
+        self, connection: sqlite3.Connection, record: SDKSessionRecord, run: AgentRun, items: list[dict[str, object]],
+    ) -> None:
+        from agentmesh.memory_context.contracts import MemoryToolDeliveryV1
+
+        references = {reference.model_dump_json(exclude={'source_run_id'}): reference
+                      for reference in record.memory_dependencies}
+        procedure_ids = {row['memory_id'] for row in connection.execute(
+            "SELECT json_extract(payload, '$.bundle.procedure_context.memory_id') AS memory_id FROM records "
+            "WHERE collection = 'run_context_snapshots' AND json_extract(payload, '$.run_id') = ? "
+            "AND json_extract(payload, '$.bundle.procedure_context.decision') = 'prepared'", (run.id,),
+        ).fetchall()}
+        rows = connection.execute("SELECT payload FROM records WHERE collection = 'memory_use_receipts' "
+                                  "AND json_extract(payload, '$.run_id') = ?", (run.id,)).fetchall()
+        for row in rows:
+            receipt = MemoryUseReceiptV1.model_validate_json(row['payload'])
+            reference = SDKSessionMemoryDependencyV1(
+                memory_id=receipt.memory_id, memory_kind=receipt.memory_kind,
+                memory_record_type=receipt.memory_record_type, memory_version=receipt.memory_version,
+                memory_hash=receipt.memory_hash, source_run_id=run.id,
+                projection_kind='procedure' if receipt.memory_id in procedure_ids else None,
+            )
+            references.setdefault(reference.model_dump_json(exclude={'source_run_id'}), reference)
+        outputs = {hashlib.sha256(item['output'].encode('utf-8')).hexdigest() for item in items
+                   if item.get('type') == 'function_call_output' and isinstance(item.get('output'), str)}
+        if outputs:
+            rows = connection.execute("SELECT payload FROM records WHERE collection = 'memory_tool_deliveries' "
+                                      "AND json_extract(payload, '$.run_id') = ? LIMIT 25", (run.id,)).fetchall()
+            if len(rows) > 24:
+                raise SDKSessionConflict('sdk_session_source_limit_exceeded')
+            for row in rows:
+                delivery = MemoryToolDeliveryV1.model_validate_json(row['payload'])
+                if delivery.output_hash not in outputs:
+                    continue
+                if delivery.status == 'withdrawn' or delivery.bundle is None:
+                    raise SDKSessionConflict('sdk_session_source_withdrawn')
+                if (delivery.owner_user_id, delivery.workspace_id, delivery.project_id) != (
+                    run.user_id, run.workspace_id, run.project_id,
+                ):
+                    raise SDKSessionConflict('sdk_session_source_changed')
+                if delivery.bundle.fact_context is not None and delivery.bundle.fact_context.result.term_resolution is not None:
+                    record.term_alias_version = delivery.bundle.fact_context.result.term_resolution.alias_version
+                for hit in delivery.bundle.hits:
+                    reference = SDKSessionMemoryDependencyV1(
+                        memory_id=hit.memory_id, memory_kind=hit.memory_kind,
+                        memory_record_type=hit.result.result_type, memory_version=hit.memory_version,
+                        memory_hash=hit.memory_hash, source_run_id=run.id,
+                        projection_kind='procedure' if delivery.bundle.procedure_context is not None else (
+                            'facts' if delivery.bundle.fact_context is not None else None
+                        ),
+                    )
+                    references.setdefault(reference.model_dump_json(exclude={'source_run_id'}), reference)
+        if len(references) > 1000:
+            raise SDKSessionConflict('sdk_session_source_limit_exceeded')
+        record.memory_dependencies = list(references.values())
+        actor_row = connection.execute("SELECT payload FROM records WHERE collection = 'users' AND id = ?",
+                                       (run.user_id,)).fetchone()
+        self._validate_sdk_session_memory(connection, record, run, User.model_validate_json(actor_row['payload']))
+
+    def get_sdk_session(self, session_id: str, *, run: AgentRun | None = None) -> SDKSessionRecord | None:
+        if run is None:
+            return self._get('sdk_sessions', session_id, SDKSessionRecord)
+        with self._connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            return self._authorized_sdk_session(connection, session_id, run)
+
+    def sdk_session_checkpoint(
+        self, run: AgentRun, *, expected: SDKSessionCheckpointV1 | None = None,
+    ) -> SDKSessionCheckpointV1:
+        with self._connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            return self._sdk_session_checkpoint_in_transaction(connection, run, expected=expected)
+
+    def _sdk_session_checkpoint_in_transaction(
+        self, connection: sqlite3.Connection, run: AgentRun, *, expected: SDKSessionCheckpointV1 | None = None,
+    ) -> SDKSessionCheckpointV1:
+        record = self._authorized_sdk_session(connection, run.thread_id, run, for_approval=True)
+        checkpoint = SDKSessionCheckpointV1(
+            session_id=record.id, user_id=record.user_id, workspace_id=record.workspace_id,
+            project_id=record.project_id, writer_run_id=record.writer_run_id,
+            writer_generation_epoch=record.writer_generation_epoch, version=record.version,
+            content_hash=canonical_json_sha256(record.model_dump(mode='json', exclude={
+                'synced_chat_message_ids', 'created_at', 'updated_at', 'version',
+            })),
+        )
+        if expected is not None and checkpoint != expected:
+            raise SDKSessionConflict('sdk_session_checkpoint_changed')
+        return checkpoint
 
     def append_sdk_session_items(
         self,
         session_id: str,
         items: list[dict[str, object]],
         message_ids: list[str] | None = None,
+        *,
+        run: AgentRun | None = None,
+        expected_version: int | None = None,
+        command_id: str | None = None,
     ) -> SDKSessionRecord:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT payload FROM records WHERE collection = ? AND id = ?",
-                ("sdk_sessions", session_id),
-            ).fetchone()
-            record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            record = self._authorized_sdk_session(connection, session_id, run)
+            request_hash = canonical_json_sha256({'items': items, 'message_ids': message_ids or []})
+            receipt_id = None
+            if command_id is not None:
+                if run is None or expected_version is None or not command_id or len(command_id) > 120:
+                    raise ValueError('sdk_session_commit_identity_required')
+                receipt_id = 'sdk_session_commit_' + canonical_json_sha256({
+                    'session_id': session_id, 'command_id': command_id,
+                })[:32]
+                replay_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'sdk_session_commits' AND id = ?", (receipt_id,),
+                ).fetchone()
+                if replay_row:
+                    replay = SDKSessionCommitV1.model_validate_json(replay_row['payload'])
+                    if (replay.session_id != session_id or replay.run_id != run.id
+                            or replay.writer_generation_epoch != run.writer_generation_epoch
+                            or replay.expected_version != expected_version or replay.content_hash != request_hash):
+                        raise SDKSessionConflict('sdk_session_commit_conflict')
+                    return record
+            if expected_version is not None and record.version != expected_version:
+                raise SDKSessionConflict('sdk_session_version_changed')
+            if run is not None:
+                self._archive_sdk_session_memory(connection, record, run, items)
             record.items.extend(items)
             if message_ids:
                 record.synced_chat_message_ids = list(
@@ -5653,6 +6438,13 @@ class SQLiteStore:
                 """,
                 ("sdk_sessions", session_id, record.model_dump_json()),
             )
+            if receipt_id is not None:
+                receipt = SDKSessionCommitV1(id=receipt_id, session_id=session_id, run_id=run.id,
+                                            writer_generation_epoch=run.writer_generation_epoch,
+                                            expected_version=expected_version, resulting_version=record.version,
+                                            content_hash=request_hash)
+                connection.execute("INSERT INTO records(collection, id, payload) VALUES ('sdk_session_commits', ?, ?)",
+                                   (receipt.id, receipt.model_dump_json()))
         return record
 
     def project_terminal_run_status(
@@ -5726,13 +6518,76 @@ class SQLiteStore:
             )
         return receipt
 
+    def _require_run_output_authority(self, connection: sqlite3.Connection, run: AgentRun) -> ChatThread:
+        actor = self._get_in_transaction(connection, 'users', run.user_id, User)
+        project = self._get_in_transaction(connection, 'projects', run.project_id, Project)
+        thread = self._get_in_transaction(connection, 'chat_threads', run.thread_id, ChatThread)
+        task = self._get_in_transaction(connection, 'tasks', run.task_id, Task) if run.task_id else None
+        if (actor is None or actor.id != run.user_id or actor.status != 'active'
+            or project is None or project.id != run.project_id or project.status != 'active'
+            or not actor.workspace_id == project.workspace_id == run.workspace_id
+            or (project.member_ids and actor.id not in project.member_ids)
+            or thread is None or thread.id != run.thread_id or thread.status != 'active'
+            or thread.workspace_id != run.workspace_id or thread.project_id != run.project_id
+            or (thread.user_id != actor.id and (thread.kind is not ChatThreadKind.TASK
+                or task is None or task.id != run.task_id or task.thread_id != thread.id))):
+            raise ResearchStoreConflict('run_output_not_authorized')
+        return thread
+
+    @staticmethod
+    def _require_run_output_identity(run: AgentRun, expected_run: AgentRun) -> None:
+        from agentmesh.skill_runtime.sources import run_finalization_identity
+
+        if (run_finalization_identity(run) != run_finalization_identity(expected_run)
+            or any(getattr(run, field) != getattr(expected_run, field)
+                   for field in ('skill_id', 'planning_mode', 'project_chat', 'status', 'input_text', 'output_text'))):
+            raise ResearchStoreConflict('run_output_writer_changed')
+
+    @staticmethod
+    def _require_run_output_memory_identity(run: AgentRun, memory: UserMemoryItem) -> None:
+        if (memory.id != run_output_memory_id(run.id) or memory.user_id != run.user_id
+            or memory.workspace_id != run.workspace_id or memory.project_id != run.project_id
+            or memory.source_thread_id != run.thread_id or memory.source_task_id != run.task_id
+            or memory.scope is not Scope.PRIVATE):
+            raise ResearchStoreConflict('run_output_memory_identity_conflict')
+
+    def _run_output_session(
+        self, connection: sqlite3.Connection, run: AgentRun, thread: ChatThread,
+    ) -> SDKSessionRecord | None:
+        # Shared Task delivery does not acquire the requester's private Session.
+        if thread.user_id != run.user_id:
+            return None
+        session = self._get_in_transaction(connection, 'sdk_sessions', run.thread_id, SDKSessionRecord)
+        if session is None:
+            return SDKSessionRecord(id=run.thread_id, user_id=run.user_id, workspace_id=run.workspace_id,
+                project_id=run.project_id, writer_run_id=run.id, writer_generation_epoch=run.writer_generation_epoch)
+        if (session.id != run.thread_id or (session.user_id is not None
+            and (session.user_id, session.workspace_id, session.project_id) != (
+                run.user_id, run.workspace_id, run.project_id))):
+            raise ResearchStoreConflict('run_output_session_not_authorized')
+        if session.user_id is None:
+            if session.items or session.memory_dependencies or len(session.synced_chat_message_ids) > 1000:
+                raise ResearchStoreConflict('run_output_session_unverified')
+            for message_id in session.synced_chat_message_ids:
+                message = self._get_in_transaction(connection, 'chat_messages', message_id, ChatMessage)
+                if (message is None or message.id != message_id or message.thread_id != thread.id
+                    or message.scope is not Scope.PRIVATE):
+                    raise ResearchStoreConflict('run_output_session_unverified')
+            session.user_id, session.workspace_id, session.project_id = run.user_id, run.workspace_id, run.project_id
+        if session.writer_run_id == run.id and session.writer_generation_epoch != run.writer_generation_epoch:
+            raise ResearchStoreConflict('run_output_session_writer_changed')
+        if session.source_status == 'withdrawn' or session.writer_run_id not in {None, run.id}:
+            return None
+        session.writer_run_id, session.writer_generation_epoch = run.id, run.writer_generation_epoch
+        return session
+
     def project_terminal_run_output(
         self,
         *,
         run_id: str,
+        expected_run: AgentRun,
         content: str,
         workflow_trace: ChatWorkflowTrace,
-        memory_item: UserMemoryItem | None = None,
     ) -> tuple[RunOutputProjectionReceiptV1, ChatMessage, UserMemoryItem | None]:
         output_hash = hashlib.sha256(content.encode()).hexdigest()
         receipt_id = "run_output_projection_" + hashlib.sha256(run_id.encode()).hexdigest()[:24]
@@ -5746,6 +6601,7 @@ class SQLiteStore:
             if run_row is None:
                 raise ResearchStoreConflict("run_output_projection_run_missing")
             run = self._decode_agent_run_row(run_row)
+            self._require_run_output_identity(run, expected_run)
             if run.status not in {
                 AgentRunStatus.COMPLETED,
                 AgentRunStatus.PARTIAL,
@@ -5754,6 +6610,8 @@ class SQLiteStore:
                 raise ResearchStoreConflict("run_output_projection_run_not_terminal")
             if run.output_text != content:
                 raise ResearchStoreConflict("run_output_projection_content_mismatch")
+            thread = self._require_run_output_authority(connection, run)
+            session = self._run_output_session(connection, run, thread)
             existing_row = connection.execute(
                 "SELECT payload FROM records WHERE collection = ? AND id = ?",
                 ("run_output_projection_receipts", receipt_id),
@@ -5762,7 +6620,8 @@ class SQLiteStore:
                 existing = RunOutputProjectionReceiptV1.model_validate_json(
                     existing_row["payload"]
                 )
-                if existing.run_id != run.id or existing.output_hash != output_hash:
+                if (existing.run_id != run.id or existing.output_hash != output_hash
+                    or existing.terminal_status is not run.status):
                     raise ResearchStoreConflict("run_output_projection_conflict")
                 message_row = connection.execute(
                     "SELECT payload FROM records WHERE collection = ? AND id = ?",
@@ -5770,6 +6629,10 @@ class SQLiteStore:
                 ).fetchone()
                 if message_row is None:
                     raise ResearchStoreConflict("run_output_projection_message_missing")
+                message = ChatMessage.model_validate_json(message_row['payload'])
+                if (message.id != message_id or message.thread_id != run.thread_id or message.role is not ChatRole.ASSISTANT
+                    or message.scope is not Scope.PRIVATE or message.content != content):
+                    raise ResearchStoreConflict('run_output_projection_message_conflict')
                 if existing.memory_item_id is not None:
                     memory_row = connection.execute(
                         "SELECT payload FROM records WHERE collection = ? AND id = ?",
@@ -5782,13 +6645,29 @@ class SQLiteStore:
                     projected_memory = UserMemoryItem.model_validate_json(
                         memory_row["payload"]
                     )
+                    self._require_run_output_memory_identity(run, projected_memory)
+                    if projected_memory.status != 'active':
+                        projected_memory = None
                 else:
                     projected_memory = None
                 return (
                     existing,
-                    ChatMessage.model_validate_json(message_row["payload"]),
+                    message,
                     projected_memory,
                 )
+            memory_id = run_output_memory_id(run.id)
+            memory_item = self._get_in_transaction(connection, 'user_memory_items', memory_id, UserMemoryItem)
+            memory_created = memory_item is None
+            if memory_item is not None:
+                self._require_run_output_memory_identity(run, memory_item)
+            forgotten = connection.execute(
+                "SELECT 1 FROM memory_tombstones WHERE collection = 'user_memory_items' AND record_id = ?",
+                (memory_id,),
+            ).fetchone()
+            if forgotten or (memory_item is not None and memory_item.status != 'active'):
+                memory_item = None
+            elif memory_created:
+                memory_item = self._run_output_memory_in_transaction(connection, run)
             message = ChatMessage(
                 id=message_id,
                 thread_id=run.thread_id,
@@ -5802,39 +6681,17 @@ class SQLiteStore:
                 ("chat_messages", message.id, message.model_dump_json()),
             )
             self._sync_fts(connection, "chat_messages", message)
-            thread_row = connection.execute(
-                "SELECT payload FROM records WHERE collection = ? AND id = ?",
-                ("chat_threads", run.thread_id),
-            ).fetchone()
-            if thread_row is not None:
-                thread = ChatThread.model_validate_json(thread_row["payload"])
-                thread.updated_at = now_utc()
-                connection.execute(
-                    "UPDATE records SET payload = ? WHERE collection = ? AND id = ?",
-                    (thread.model_dump_json(), "chat_threads", thread.id),
-                )
-            session_row = connection.execute(
-                "SELECT payload FROM records WHERE collection = ? AND id = ?",
-                ("sdk_sessions", run.thread_id),
-            ).fetchone()
-            session = (
-                SDKSessionRecord.model_validate_json(session_row["payload"])
-                if session_row is not None
-                else SDKSessionRecord(id=run.thread_id)
-            )
-            session.synced_chat_message_ids = list(
-                dict.fromkeys([*session.synced_chat_message_ids, message.id])
-            )
-            session.version += 1
-            session.updated_at = now_utc()
+            thread.updated_at = now_utc()
             connection.execute(
-                """
-                INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)
-                ON CONFLICT(collection, id) DO UPDATE SET payload = excluded.payload
-                """,
-                ("sdk_sessions", session.id, session.model_dump_json()),
+                "UPDATE records SET payload = ? WHERE collection = ? AND id = ?",
+                (thread.model_dump_json(), "chat_threads", thread.id),
             )
-            if memory_item is not None:
+            if session is not None:
+                session.synced_chat_message_ids = list(dict.fromkeys([*session.synced_chat_message_ids, message.id]))
+                session.version += 1
+                session.updated_at = now_utc()
+                self._write_sdk_session(connection, session)
+            if memory_item is not None and memory_created:
                 connection.execute(
                     "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
                     (
@@ -5881,6 +6738,134 @@ class SQLiteStore:
             )
         return receipt, message, memory_item
 
+    def _run_output_memory_in_transaction(
+        self, connection: sqlite3.Connection, run: AgentRun,
+    ) -> UserMemoryItem | None:
+        if run.status not in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}:
+            return None
+        summary = run.output_text or ''
+        sources: list[Source] = []
+        if run.skill_id:
+            skill = self._get_in_transaction(connection, 'skill_definitions', run.skill_id, SkillDefinition)
+            if (skill is None or not skill.enabled
+                or skill.memory_write_policy is not SkillMemoryWritePolicy.PRIVATE_SHORT_TERM):
+                return None
+            title, source_kind, memory_type = skill.title, f'sdk_skill:{skill.name}', 'skill_output'
+        else:
+            if run.plan_id is None or run.planning_mode is not AgentPlanningMode.STANDARD:
+                return None
+            row = connection.execute('SELECT payload FROM skill_plans WHERE id = ?', (run.plan_id,)).fetchone()
+            plan = SkillPlan.model_validate_json(row['payload']) if row else None
+            if (plan is None or plan.run_id != run.id
+                or plan.status not in {SkillPlanStatus.COMPLETED, SkillPlanStatus.PARTIAL}):
+                return None
+            definitions = [self._get_in_transaction(connection, 'skill_definitions', skill_id, SkillDefinition)
+                           for skill_id in dict.fromkeys(node.skill_id for node in plan.nodes)]
+            if not any(skill is not None and skill.enabled
+                       and skill.memory_write_policy is SkillMemoryWritePolicy.PRIVATE_SHORT_TERM
+                       for skill in definitions):
+                return None
+            if plan.synthesis is not None:
+                with suppress(ValueError):
+                    summary = SkillSynthesisResult.model_validate(plan.synthesis).summary
+            rows = connection.execute('SELECT payload FROM skill_node_results WHERE plan_id = ?', (plan.id,)).fetchall()
+            seen: set[str] = set()
+            for row in rows:
+                result = SkillNodeResult.model_validate_json(row['payload'])
+                for citation in result.sources:
+                    if citation.id in seen:
+                        continue
+                    seen.add(citation.id)
+                    source = self._get_in_transaction(connection, 'sources', citation.id, Source)
+                    if source is not None:
+                        sources.append(source)
+                    if len(sources) >= 20:
+                        break
+                if len(sources) >= 20:
+                    break
+            title, source_kind, memory_type = (plan.intent.goal or 'Skill 计划结果')[:160], 'sdk_skill_plan', 'skill_plan_output'
+        return UserMemoryItem(id=run_output_memory_id(run.id), user_id=run.user_id, layer=MemoryLayer.SHORT_TERM,
+            title=title, summary=summary[:4000], source_kind=source_kind, memory_type=memory_type, scope=Scope.PRIVATE,
+            workspace_id=run.workspace_id, project_id=run.project_id, source_thread_id=run.thread_id,
+            source_task_id=run.task_id, sources=sources)
+
+    def save_terminal_run_memory(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        expected_run: AgentRun,
+        title: str | None = None,
+    ) -> UserMemoryItem | None:
+        memory_id = run_output_memory_id(run_id)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            if run_row is None:
+                return None
+            run = self._decode_agent_run_row(run_row)
+            if (
+                run.user_id != user_id
+                or run.status not in {AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL}
+                or not run.output_text
+            ):
+                return None
+            try:
+                self._require_run_output_identity(run, expected_run)
+                self._require_run_output_authority(connection, run)
+            except ResearchStoreConflict:
+                return None
+            if connection.execute(
+                "SELECT 1 FROM memory_tombstones WHERE collection = 'user_memory_items' AND record_id = ?",
+                (memory_id,),
+            ).fetchone():
+                return None
+            existing_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("user_memory_items", memory_id),
+            ).fetchone()
+            if existing_row is not None:
+                existing = UserMemoryItem.model_validate_json(existing_row["payload"])
+                self._require_run_output_memory_identity(run, existing)
+                return existing if existing.status == 'active' else None
+            normalized_title = " ".join((title or run.input_text or "Agent Run 结果").split())
+            item = UserMemoryItem(
+                id=memory_id,
+                user_id=run.user_id,
+                layer=MemoryLayer.SHORT_TERM,
+                title=normalized_title[:160] or "Agent Run 结果",
+                summary=run.output_text[:4000],
+                source_kind="agent_run_manual",
+                memory_type="run_output",
+                scope=Scope.PRIVATE,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                source_thread_id=run.thread_id,
+                source_task_id=run.task_id,
+            )
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                ("user_memory_items", item.id, item.model_dump_json()),
+            )
+            self._sync_fts(connection, "user_memory_items", item)
+            audit = AuditEvent(
+                actor=user_id,
+                action="save_agent_run_to_personal_memory",
+                target_type="user_memory_item",
+                target_id=item.id,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                metadata={"run_id": run.id, "memory_layer": item.layer.value},
+            )
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES (?, ?, ?)",
+                ("audit_events", audit.id, audit.model_dump_json()),
+            )
+        return item
+
     def get_run_output_projection(
         self,
         run_id: str,
@@ -5892,7 +6877,9 @@ class SQLiteStore:
             RunOutputProjectionReceiptV1,
         )
 
-    def mark_sdk_session_chat_messages(self, session_id: str, message_ids: list[str]) -> SDKSessionRecord:
+    def mark_sdk_session_chat_messages(
+        self, session_id: str, message_ids: list[str], *, run: AgentRun | None = None,
+    ) -> SDKSessionRecord:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -5900,8 +6887,16 @@ class SQLiteStore:
                 ("sdk_sessions", session_id),
             ).fetchone()
             record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            if run is not None:
+                record = self._authorized_sdk_session(connection, session_id, run)
+            for message_id in message_ids:
+                message_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'chat_messages' AND id = ?", (message_id,),
+                ).fetchone()
+                if message_row is None or ChatMessage.model_validate_json(message_row['payload']).thread_id != session_id:
+                    raise SDKSessionConflict('sdk_session_history_not_authorized')
             record.synced_chat_message_ids = list(dict.fromkeys([*record.synced_chat_message_ids, *message_ids]))
-            record.version += 1
+            # Projection bookkeeping does not change the SDK history or writer.
             record.updated_at = now_utc()
             connection.execute(
                 """
@@ -5917,14 +6912,26 @@ class SQLiteStore:
         self,
         session_id: str,
         messages: list[tuple[str, dict[str, object]]],
+        *,
+        run: AgentRun | None = None,
     ) -> SDKSessionRecord:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT payload FROM records WHERE collection = ? AND id = ?",
-                ("sdk_sessions", session_id),
-            ).fetchone()
-            record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            record = self._authorized_sdk_session(connection, session_id, run)
+            if run is not None:
+                canonical_messages: dict[str, ChatMessage] = {}
+                for message_id, _item in messages:
+                    message_row = connection.execute(
+                        "SELECT payload FROM records WHERE collection = 'chat_messages' AND id = ?", (message_id,),
+                    ).fetchone()
+                    message = ChatMessage.model_validate_json(message_row['payload']) if message_row else None
+                    if message is None or message.thread_id != session_id or message.role not in {
+                        ChatRole.USER, ChatRole.ASSISTANT,
+                    }:
+                        raise SDKSessionConflict('sdk_session_history_not_authorized')
+                    canonical_messages[message.id] = message
+                messages = [(message.id, {'role': message.role.value, 'content': message.content})
+                            for message in sorted(canonical_messages.values(), key=lambda item: (item.created_at, item.id))]
             synced = set(record.synced_chat_message_ids)
             missing = [(message_id, item) for message_id, item in messages if message_id not in synced]
             if missing:
@@ -5949,14 +6956,11 @@ class SQLiteStore:
         items: list[dict[str, object]],
         *,
         expected_version: int,
+        run: AgentRun | None = None,
     ) -> bool:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT payload FROM records WHERE collection = ? AND id = ?",
-                ("sdk_sessions", session_id),
-            ).fetchone()
-            record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            record = self._authorized_sdk_session(connection, session_id, run)
             if record.version != expected_version:
                 return False
             record.items = items
@@ -5972,16 +6976,14 @@ class SQLiteStore:
             )
         return True
 
-    def pop_sdk_session_item(self, session_id: str) -> dict[str, object] | None:
+    def pop_sdk_session_item(
+        self, session_id: str, *, run: AgentRun | None = None, expected_version: int | None = None,
+    ) -> dict[str, object] | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT payload FROM records WHERE collection = ? AND id = ?",
-                ("sdk_sessions", session_id),
-            ).fetchone()
-            if row is None:
-                return None
-            record = SDKSessionRecord.model_validate_json(row["payload"])
+            record = self._authorized_sdk_session(connection, session_id, run)
+            if expected_version is not None and record.version != expected_version:
+                raise SDKSessionConflict('sdk_session_version_changed')
             if not record.items:
                 return None
             item = record.items.pop()
@@ -5993,14 +6995,14 @@ class SQLiteStore:
             )
         return item
 
-    def clear_sdk_session(self, session_id: str) -> SDKSessionRecord:
+    def clear_sdk_session(
+        self, session_id: str, *, run: AgentRun | None = None, expected_version: int | None = None,
+    ) -> SDKSessionRecord:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT payload FROM records WHERE collection = ? AND id = ?",
-                ("sdk_sessions", session_id),
-            ).fetchone()
-            record = SDKSessionRecord.model_validate_json(row["payload"]) if row is not None else SDKSessionRecord(id=session_id)
+            record = self._authorized_sdk_session(connection, session_id, run)
+            if expected_version is not None and record.version != expected_version:
+                raise SDKSessionConflict('sdk_session_version_changed')
             record.items = []
             record.version += 1
             record.updated_at = now_utc()
@@ -6039,6 +7041,7 @@ class SQLiteStore:
             "orchestration_version",
             "orchestration_mode",
             "requested_orchestration_mode",
+            "execution_location",
         )
         return all(getattr(current, field) == getattr(updated, field) for field in fields)
 
@@ -9517,7 +10520,42 @@ class SQLiteStore:
             raise ResearchStoreConflict("DeepSearch execution authorization is invalid")
         return user
 
-    def claim_skill_plan_for_execution(self, plan_id: str, run_id: str) -> SkillPlan | None:
+    @staticmethod
+    def _skill_plan_execution_matches(
+        run: AgentRun,
+        plan: SkillPlan,
+        *,
+        expected_run: AgentRun | None,
+        expected_plan: SkillPlan | None,
+    ) -> bool:
+        from agentmesh.skill_runtime.sources import (
+            node_execution_identity,
+            plan_execution_identity,
+            plan_run_execution_identity,
+        )
+
+        if (expected_run is not None
+            and plan_run_execution_identity(run) != plan_run_execution_identity(expected_run)):
+            return False
+        if expected_plan is None:
+            return True
+        if (plan_execution_identity(plan) != plan_execution_identity(expected_plan)
+            or plan.run_id != run.id or run.plan_id != plan.id):
+            return False
+        paused = expected_run.paused_state if expected_run is not None else None
+        if paused is not None and paused.get("kind") == "skill_plan_node":
+            node_id = paused.get("node_id")
+            node = next((item for item in plan.nodes if item.id == node_id), None)
+            expected_node = next((item for item in expected_plan.nodes if item.id == node_id), None)
+            if (node is None or expected_node is None or node.attempt != expected_node.attempt
+                or node_execution_identity(node) != node_execution_identity(expected_node)):
+                return False
+        return True
+
+    def claim_skill_plan_for_execution(
+        self, plan_id: str, run_id: str, *, expected_run: AgentRun | None = None,
+        expected_plan: SkillPlan | None = None,
+    ) -> SkillPlan | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             plan_row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
@@ -9534,6 +10572,9 @@ class SQLiteStore:
                 or plan.run_id != run.id
                 or plan.status != SkillPlanStatus.APPROVED
                 or run.status != AgentRunStatus.RUNNING
+                or not self._skill_plan_execution_matches(
+                    run, plan, expected_run=expected_run, expected_plan=expected_plan,
+                )
             ):
                 return None
             if run.planning_mode is AgentPlanningMode.DEEPSEARCH:
@@ -9582,7 +10623,10 @@ class SQLiteStore:
             self._write_skill_plan(connection, plan)
         return plan
 
-    def claim_skill_plan_node(self, plan_id: str, node_id: str) -> SkillPlanNode | None:
+    def claim_skill_plan_node(
+        self, plan_id: str, node_id: str, *, expected_run: AgentRun | None = None,
+        expected_plan: SkillPlan | None = None,
+    ) -> SkillPlanNode | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             plan_row = connection.execute("SELECT payload FROM skill_plans WHERE id = ?", (plan_id,)).fetchone()
@@ -9601,10 +10645,20 @@ class SQLiteStore:
                 return None
             run = AgentRun.model_validate_json(run_row["payload"])
             node = SkillPlanNode.model_validate_json(node_row["payload"])
+            if expected_plan is not None:
+                from agentmesh.skill_runtime.sources import node_execution_identity
+
+                expected_node = next((item for item in expected_plan.nodes if item.id == node_id), None)
+                if (expected_node is None or node.attempt != expected_node.attempt
+                    or node_execution_identity(node) != node_execution_identity(expected_node)):
+                    return None
             if (
                 self._is_retired_research_run(run, run_row["orchestration_version"])
                 or plan.status != SkillPlanStatus.RUNNING
                 or run.status != AgentRunStatus.RUNNING
+                or not self._skill_plan_execution_matches(
+                    run, plan, expected_run=expected_run, expected_plan=expected_plan,
+                )
                 or node.status != SkillPlanNodeStatus.READY
                 or node.attempt >= 2
                 or (
@@ -9652,6 +10706,8 @@ class SQLiteStore:
         result: SkillNodeResult | None = None,
         clear_run_paused_state: bool = False,
         expected_attempt: int | None = None,
+        expected_run: AgentRun | None = None,
+        expected_plan: SkillPlan | None = None,
     ) -> SkillPlanNode | None:
         """CAS one node transition, optional immutable result, and event in one transaction."""
         with self._connect() as connection:
@@ -9670,6 +10726,8 @@ class SQLiteStore:
             plan = SkillPlan.model_validate_json(plan_row["payload"])
             run = AgentRun.model_validate_json(run_row["payload"])
             current = SkillPlanNode.model_validate_json(node_row["payload"])
+            from agentmesh.skill_runtime.sources import node_execution_identity
+
             required_attempt = node.attempt if expected_attempt is None else expected_attempt
             if (
                 self._is_retired_research_run(run, run_row["orchestration_version"])
@@ -9679,6 +10737,10 @@ class SQLiteStore:
                 or run.status != AgentRunStatus.RUNNING
                 or current.status not in expected_statuses
                 or current.attempt != required_attempt
+                or node_execution_identity(current) != node_execution_identity(node)
+                or not self._skill_plan_execution_matches(
+                    run, plan, expected_run=expected_run, expected_plan=expected_plan,
+                )
             ):
                 return None
             if result is not None:
@@ -9739,6 +10801,8 @@ class SQLiteStore:
         paused_state: dict[str, object],
         inbox_item: InboxItem,
         call_ids: list[str],
+        expected_run: AgentRun | None = None,
+        expected_plan: SkillPlan | None = None,
     ) -> tuple[SkillPlan, AgentRun, SkillPlanNode] | None:
         """Atomically pause one running node, its parent Run, events, and approval inbox."""
         with self._connect() as connection:
@@ -9757,6 +10821,12 @@ class SQLiteStore:
             plan = SkillPlan.model_validate_json(plan_row["payload"])
             run = AgentRun.model_validate_json(run_row["payload"])
             node = SkillPlanNode.model_validate_json(node_row["payload"])
+            if expected_plan is not None:
+                from agentmesh.skill_runtime.sources import node_execution_identity
+
+                expected_node = next((item for item in expected_plan.nodes if item.id == node_id), None)
+                if expected_node is None or node_execution_identity(node) != node_execution_identity(expected_node):
+                    return None
             if (
                 self._is_retired_research_run(run, run_row["orchestration_version"])
                 or plan.run_id != run.id
@@ -9765,6 +10835,9 @@ class SQLiteStore:
                 or run.status != AgentRunStatus.RUNNING
                 or node.status != SkillPlanNodeStatus.RUNNING
                 or node.attempt != attempt
+                or not self._skill_plan_execution_matches(
+                    run, plan, expected_run=expected_run, expected_plan=expected_plan,
+                )
             ):
                 return None
             now = now_utc()
@@ -11302,6 +12375,7 @@ class SQLiteStore:
                 if current.planning_mode is AgentPlanningMode.DEEPSEARCH:
                     raise ResearchStoreConflict("DeepSearch Runs require dedicated persistence methods")
                 self._require_agent_run_creation_identity(current, run)
+                run.tool_call_count = max(run.tool_call_count, current.tool_call_count)
             if existing is None:
                 self._require_new_deepsearch_run_invariants(run)
             if existing is not None and existing["orchestration_version"] != run.orchestration_version:
@@ -11329,11 +12403,14 @@ class SQLiteStore:
         self,
         *,
         run_id: str,
+        expected_run: AgentRun,
         paused_state: dict[str, object],
         inbox_item: InboxItem,
         interruptions: list[dict[str, str]],
     ) -> AgentRun | None:
         """Atomically persist an ordinary Run pause, event, and approval Inbox."""
+        from agentmesh.skill_runtime.sources import run_finalization_identity
+
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -11349,6 +12426,14 @@ class SQLiteStore:
                 raise ResearchStoreConflict("DeepSearch Runs require dedicated persistence methods")
             if run.status != AgentRunStatus.RUNNING:
                 return None
+            if (run_finalization_identity(run) != run_finalization_identity(expected_run)
+                or run.runner_id != expected_run.runner_id):
+                return None
+            try:
+                checkpoint = SDKSessionCheckpointV1.model_validate(paused_state.get('agentmesh_session_checkpoint'))
+            except ValueError as error:
+                raise SDKSessionConflict('sdk_session_checkpoint_missing') from error
+            self._sdk_session_checkpoint_in_transaction(connection, expected_run, expected=checkpoint)
             now = now_utc()
             run.status = AgentRunStatus.WAITING_APPROVAL
             run.paused_state = paused_state
@@ -11504,7 +12589,12 @@ class SQLiteStore:
                 )
             return run
 
-    def cancel_agent_run_tree(self, run_id: str, *, user_id: str) -> AgentRun | None:
+    def cancel_agent_run_tree(
+        self, run_id: str, *, user_id: str, expected_run: AgentRun | None = None,
+        expected_plan: SkillPlan | None = None,
+    ) -> AgentRun | None:
+        from agentmesh.skill_runtime.sources import plan_run_execution_identity, run_finalization_identity
+
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -11516,6 +12606,20 @@ class SQLiteStore:
             run = AgentRun.model_validate_json(row["payload"])
             if run.user_id != user_id:
                 return None
+            identity = plan_run_execution_identity if expected_plan is not None else run_finalization_identity
+            if expected_run is not None and identity(run) != identity(expected_run):
+                return None
+            if expected_plan is not None:
+                plan_row = connection.execute(
+                    "SELECT payload FROM skill_plans WHERE id = ?", (expected_plan.id,),
+                ).fetchone()
+                if plan_row is None:
+                    return None
+                plan = SkillPlan.model_validate_json(plan_row["payload"])
+                if not self._skill_plan_execution_matches(
+                    run, plan, expected_run=expected_run, expected_plan=expected_plan,
+                ):
+                    return None
             if run.status not in {
                 AgentRunStatus.CREATED,
                 AgentRunStatus.PLANNING,
@@ -12082,8 +13186,11 @@ class SQLiteStore:
         payload: dict[str, object] | None = None,
         *,
         expected_statuses: set[AgentRunStatus] | None = None,
+        expected_run: AgentRun | None = None,
     ) -> AgentRunEvent | None:
         """Commit a Run state transition and its observable event atomically."""
+        from agentmesh.skill_runtime.sources import run_finalization_identity
+
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -12100,8 +13207,16 @@ class SQLiteStore:
             if run.orchestration_version != current.orchestration_version:
                 raise ResearchStoreConflict("Agent run orchestration_version is immutable")
             self._require_agent_run_creation_identity(current, run)
+            expected = expected_run or run
+            if (any(getattr(current, field) != getattr(run, field) for field in (
+                    'writer_generation_epoch', 'agent_definition_version', 'execution_contract_version', 'runner_id',
+                )) or run_finalization_identity(current) != run_finalization_identity(expected)
+                or current.runner_id != expected.runner_id):
+                return None
             if expected_statuses is not None and current.status not in expected_statuses:
                 return None
+            if run.status is AgentRunStatus.COMPLETED:
+                self._authorized_sdk_session(connection, run.thread_id, run)
             run.tool_call_count = max(run.tool_call_count, current.tool_call_count)
             run.deadline_at = current.deadline_at
             run.updated_at = now_utc()
@@ -12109,6 +13224,13 @@ class SQLiteStore:
                 "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
                 (run.model_dump_json(), run.updated_at.isoformat(), run.id),
             )
+            if run.status in {
+                AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL, AgentRunStatus.FAILED,
+                AgentRunStatus.REJECTED, AgentRunStatus.CANCELLED,
+            }:
+                self._resolve_open_run_inboxes(
+                    connection, run.id, reason=run.error_code or run.status.value, resolved_at=run.updated_at,
+                )
             sequence = connection.execute(
                 "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_run_events WHERE run_id = ?",
                 (run.id,),
@@ -12128,6 +13250,8 @@ class SQLiteStore:
         expected_plan_statuses: set[SkillPlanStatus],
         expected_run_statuses: set[AgentRunStatus],
         events: list[tuple[str, dict[str, object]]],
+        finalization_snapshot: SynthesisFinalizationSnapshot | None = None,
+        synthesis_artifact: Artifact | None = None,
     ) -> tuple[SkillPlan, AgentRun] | None:
         """Atomically persist a terminal Plan/Run pair and its ordered events."""
         with self._connect() as connection:
@@ -12156,9 +13280,6 @@ class SQLiteStore:
             if run.orchestration_version != current_run.orchestration_version:
                 raise ResearchStoreConflict("Agent run orchestration_version is immutable")
             self._require_agent_run_creation_identity(current_run, run)
-            now = now_utc()
-            plan.version = current_plan.version
-            plan.created_at = current_plan.created_at
             current_nodes = {node.id: node for node in current_plan.nodes}
             terminal_nodes = {
                 SkillPlanNodeStatus.COMPLETED,
@@ -12166,6 +13287,31 @@ class SQLiteStore:
                 SkillPlanNodeStatus.SKIPPED,
                 SkillPlanNodeStatus.CANCELLED,
             }
+            if finalization_snapshot is not None:
+                self._require_synthesis_finalization(connection, current_run, current_plan, finalization_snapshot)
+            else:
+                from agentmesh.skill_runtime.sources import (
+                    plan_execution_identity,
+                    plan_run_execution_identity,
+                )
+
+                if (plan_run_execution_identity(current_run) != plan_run_execution_identity(run)
+                    or plan_execution_identity(current_plan) != plan_execution_identity(plan)
+                    or any(current_nodes[node.id].attempt != node.attempt
+                           and current_nodes[node.id].status not in terminal_nodes for node in plan.nodes)):
+                    return None
+            if synthesis_artifact is not None:
+                from agentmesh.artifacts import V1VerifiedArtifactStore
+                from agentmesh.memory_context.request_budget import ModelAdmissionError
+
+                if (finalization_snapshot is None or synthesis_artifact.artifact_type != 'universal_synthesis'
+                    or synthesis_artifact.plan_version_id != f'{plan.id}:v{current_plan.version}'
+                    or plan.synthesis is None or synthesis_artifact.id not in plan.synthesis.get('artifact_ids', [])):
+                    raise ModelAdmissionError('synthesis_finalization_artifact_invalid')
+                V1VerifiedArtifactStore(self).insert_sealed(synthesis_artifact, connection=connection)
+            now = now_utc()
+            plan.version = current_plan.version
+            plan.created_at = current_plan.created_at
             plan.nodes = [
                 current_nodes[node.id]
                 if node.id in current_nodes
@@ -12178,6 +13324,7 @@ class SQLiteStore:
             ]
             plan.updated_at = now
             run.tool_call_count = max(run.tool_call_count, current_run.tool_call_count)
+            run.runner_id = current_run.runner_id
             run.deadline_at = current_run.deadline_at
             run.created_at = current_run.created_at
             run.updated_at = now
@@ -12212,27 +13359,88 @@ class SQLiteStore:
                 )
         return plan, run
 
-    def consume_agent_run_tool_call(self, run_id: str, *, limit: int = 24) -> int | None:
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
-                (run_id,),
-            ).fetchone()
-            if row is None:
-                return None
-            run = AgentRun.model_validate_json(row["payload"])
-            if self._is_retired_research_run(run, row["orchestration_version"]):
-                return None
-            if run.status != AgentRunStatus.RUNNING or run.tool_call_count >= limit:
-                return None
-            run.tool_call_count += 1
-            run.updated_at = now_utc()
-            connection.execute(
-                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
-                (run.model_dump_json(), run.updated_at.isoformat(), run.id),
-            )
-        return run.tool_call_count
+    def capture_synthesis_finalization(self, run: AgentRun, plan: SkillPlan,
+                                      results: list[SkillNodeResult]) -> SynthesisFinalizationSnapshot:
+        from agentmesh.skill_runtime.sources import (
+            SynthesisFinalizationSnapshot,
+            plan_finalization_identity,
+            results_finalization_identity,
+            run_finalization_identity,
+            synthesis_source_snapshot,
+        )
+
+        with closing(self._read_connect()) as connection, connection:
+            connection.execute('BEGIN')
+            return SynthesisFinalizationSnapshot(run_id=run.id, plan_id=plan.id,
+                run_identity_hash=run_finalization_identity(run), plan_hash=plan_finalization_identity(plan),
+                results_hash=results_finalization_identity(results),
+                sources=synthesis_source_snapshot(connection, run, results))
+
+    def _require_synthesis_finalization(self, connection: sqlite3.Connection, run: AgentRun, plan: SkillPlan,
+                                       snapshot: SynthesisFinalizationSnapshot) -> None:
+        from agentmesh.memory_context.request_budget import ModelAdmissionError
+        from agentmesh.skill_runtime.sources import (
+            plan_finalization_identity,
+            require_source_snapshot,
+            results_finalization_identity,
+            run_finalization_identity,
+        )
+
+        if (run.id != snapshot.run_id or plan.id != snapshot.plan_id
+            or run_finalization_identity(run) != snapshot.run_identity_hash
+            or plan_finalization_identity(plan) != snapshot.plan_hash):
+            raise ModelAdmissionError('synthesis_finalization_identity_changed')
+        actor = self._get_in_transaction(connection, 'users', run.user_id, User)
+        project = self._get_in_transaction(connection, 'projects', run.project_id, Project)
+        thread = self._get_in_transaction(connection, 'chat_threads', run.thread_id, ChatThread)
+        task = self._get_in_transaction(connection, 'tasks', run.task_id, Task) if run.task_id else None
+        if (actor is None or actor.id != run.user_id or actor.status != 'active'
+            or project is None or project.id != run.project_id or project.status != 'active'
+            or actor.workspace_id != project.workspace_id or project.workspace_id != run.workspace_id
+            or (project.member_ids and actor.id not in project.member_ids)
+            or (thread is not None and (thread.id != run.thread_id or thread.status != 'active'
+                or thread.workspace_id != run.workspace_id or thread.project_id != run.project_id
+                or (thread.user_id != actor.id and (task is None or task.thread_id != thread.id))))):
+            raise ModelAdmissionError('synthesis_finalization_not_authorized')
+        if any(deadline is not None and deadline <= now_utc()
+               for deadline in (run.deadline_at, run.absolute_expires_at)):
+            raise ModelAdmissionError('synthesis_finalization_deadline_exceeded')
+        rows = connection.execute('SELECT payload FROM skill_node_results WHERE plan_id = ?', (plan.id,)).fetchall()
+        results = [SkillNodeResult.model_validate_json(row['payload']) for row in rows]
+        if results_finalization_identity(results) != snapshot.results_hash:
+            raise ModelAdmissionError('synthesis_finalization_inputs_changed')
+        require_source_snapshot(connection, snapshot.sources)
+
+    def synthesis_source_snapshot(self, run: AgentRun, results: list[SkillNodeResult]) -> dict[str, str]:
+        from agentmesh.skill_runtime.sources import synthesis_source_snapshot
+
+        with closing(self._read_connect()) as connection, connection:
+            connection.execute('BEGIN')
+            return synthesis_source_snapshot(connection, run, results)
+
+    def get_run_model_budget(self, run_id: str) -> RunModelBudgetV1 | None:
+        return get_budget(self, run_id)
+
+    def reserve_run_model_request(self, *, expected_run: AgentRun, limits: RunModelBudgetLimitsV1,
+                                  reservation: RunModelReservationV1,
+                                  allowed_statuses: frozenset[AgentRunStatus]) -> RunModelReservationV1:
+        return reserve_request(self, expected_run=expected_run, limits=limits,
+                               reservation=reservation, allowed_statuses=allowed_statuses)
+
+    def settle_run_model_request(self, *, run_id: str, invocation_id: str,
+                                usage: RunModelUsageV1 | None) -> RunModelReservationV1:
+        return settle_request(self, run_id=run_id, invocation_id=invocation_id, usage=usage)
+
+    def release_unsent_run_model_request(self, *, run_id: str, reservation: RunModelReservationV1) -> None:
+        release_unsent_request(self, run_id=run_id, reservation=reservation)
+
+    def consume_agent_run_tool_call(self, run_id: str, *, limit: int = 24,
+                                    expected_execution_hash: str | None = None,
+                                    expected_context: AgentMeshRunContext | None = None) -> int | None:
+        from agentmesh.agent_runtime.budget import consume_tool_call
+
+        return consume_tool_call(self, run_id, limit=limit, expected_execution_hash=expected_execution_hash,
+                                 expected_context=expected_context)
 
     @staticmethod
     def _replay_agent_run_claim(connection: sqlite3.Connection, run: AgentRun) -> AgentRun | None:
@@ -12973,6 +14181,9 @@ class SQLiteStore:
         *,
         inbox_id: str | None = None,
         call_ids: set[str] | None = None,
+        expected_session_checkpoint: SDKSessionCheckpointV1 | None = None,
+        expected_run: AgentRun | None = None,
+        expected_plan: SkillPlan | None = None,
     ) -> AgentRun | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -12987,6 +14198,29 @@ class SQLiteStore:
                 return None
             if run.user_id != user_id or run.status != AgentRunStatus.WAITING_APPROVAL or run.paused_state is None:
                 return None
+            if expected_run is not None:
+                from agentmesh.skill_runtime.sources import run_finalization_identity
+
+                if (run_finalization_identity(run) != run_finalization_identity(expected_run)
+                    or run.paused_state != expected_run.paused_state):
+                    return None
+            if expected_plan is not None:
+                plan_row = connection.execute(
+                    "SELECT payload FROM skill_plans WHERE id = ?", (expected_plan.id,),
+                ).fetchone()
+                if plan_row is None or not self._skill_plan_execution_matches(
+                    run, SkillPlan.model_validate_json(plan_row["payload"]),
+                    expected_run=expected_run, expected_plan=expected_plan,
+                ):
+                    return None
+            if expected_session_checkpoint is not None:
+                try:
+                    frozen = SDKSessionCheckpointV1.model_validate(run.paused_state.get('agentmesh_session_checkpoint'))
+                except ValueError as error:
+                    raise SDKSessionConflict('sdk_session_checkpoint_changed') from error
+                if frozen != expected_session_checkpoint:
+                    raise SDKSessionConflict('sdk_session_checkpoint_changed')
+                self._sdk_session_checkpoint_in_transaction(connection, run, expected=frozen)
             if inbox_id is not None:
                 inbox_row = connection.execute(
                     "SELECT payload FROM records WHERE collection = 'inbox_items' AND id = ?",
@@ -13090,17 +14324,33 @@ class SQLiteStore:
         return any(claim.side_effect != "read" for claim in claims)
 
     def reconcile_run_dispatches_for_startup(self) -> int:
-        """Reset checkpoint-safe DeepSearch or terminal projection work."""
+        """Reset checkpoint-safe reads, DeepSearch, or terminal projection work."""
 
         reset = 0
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            checked_at = now_utc()
+            self._expire_runner_dispatch_leases_in_transaction(
+                connection,
+                checked_at=checked_at,
+            )
             rows = connection.execute(
                 "SELECT * FROM run_dispatch_receipts WHERE state = ? ORDER BY created_at, operation_key",
                 (RunDispatchState.STARTED.value,),
             ).fetchall()
             for row in rows:
                 receipt = self._decode_run_dispatch_row(row)
+                if receipt.process_epoch is not None:
+                    lease = self._runner_dispatch_lease_in_transaction(
+                        connection,
+                        receipt.process_epoch,
+                    )
+                    if (
+                        lease is not None
+                        and lease.status is RunnerDispatchLeaseStatus.ACTIVE
+                        and lease.expires_at > checked_at
+                    ):
+                        continue
                 run_row = connection.execute(
                     "SELECT payload, orchestration_version FROM agent_runs WHERE id = ?",
                     (receipt.run_id,),
@@ -13121,6 +14371,7 @@ class SQLiteStore:
                 }
                 if (
                     run.planning_mode is not AgentPlanningMode.DEEPSEARCH
+                    and receipt.operation_kind != "project_inspection"
                     and not terminal_or_waiting
                 ):
                     continue
@@ -13152,10 +14403,14 @@ class SQLiteStore:
         reconciled = 0
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            checked_at = now_utc()
+            self._expire_runner_dispatch_leases_in_transaction(
+                connection,
+                checked_at=checked_at,
+            )
             rows = connection.execute(
                 "SELECT id, payload, orchestration_version FROM agent_runs"
             ).fetchall()
-            checked_at = now_utc()
             for row in rows:
                 run = AgentRun.model_validate_json(row["payload"])
                 if self._is_retired_research_run(run, row["orchestration_version"]):
@@ -13182,6 +14437,21 @@ class SQLiteStore:
                     and active_dispatch.state is RunDispatchState.PENDING
                 ):
                     continue
+                if (
+                    active_dispatch is not None
+                    and active_dispatch.state is RunDispatchState.STARTED
+                    and active_dispatch.process_epoch is not None
+                ):
+                    lease = self._runner_dispatch_lease_in_transaction(
+                        connection,
+                        active_dispatch.process_epoch,
+                    )
+                    if (
+                        lease is not None
+                        and lease.status is RunnerDispatchLeaseStatus.ACTIVE
+                        and lease.expires_at > checked_at
+                    ):
+                        continue
                 has_non_read_tool_claim = self._reconcile_runtime_tool_calls_in_transaction(
                     connection,
                     run,
@@ -14397,7 +15667,9 @@ class SQLiteStore:
             )
         return event
 
-    def claim_runtime_tool_call(self, claim: RuntimeToolCallClaimV1) -> bool:
+    def claim_runtime_tool_call(self, claim: RuntimeToolCallClaimV1, *,
+                                expected_execution_hash: str | None = None,
+                                expected_context: AgentMeshRunContext | None = None) -> bool:
         """Persist a Tool-call claim once; False means an identical claim already exists."""
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -14408,6 +15680,15 @@ class SQLiteStore:
             if row is None:
                 raise RuntimeToolCallConflict("tool_call_run_missing")
             run = self._decode_agent_run_row(row)
+            if expected_execution_hash is not None or expected_context is not None:
+                from agentmesh.agent_runtime.budget import require_tool_execution
+                from agentmesh.memory_context.request_budget import ModelAdmissionError
+
+                require_tool_execution(connection, run, expected_execution_hash=expected_execution_hash,
+                                       expected_context=expected_context)
+                if any(deadline is not None and deadline <= now_utc()
+                       for deadline in (run.deadline_at, run.absolute_expires_at)):
+                    raise ModelAdmissionError('run_tool_budget_deadline_exceeded')
             if run.status not in {AgentRunStatus.PLANNING, AgentRunStatus.RUNNING}:
                 raise RuntimeToolCallConflict("tool_call_run_not_running")
             events = connection.execute(
@@ -15408,6 +16689,18 @@ class SQLiteStore:
         self._upsert("auth_sessions", session)
         return session
 
+    def save_runner_enrollment(self, enrollment: RunnerEnrollmentV1) -> RunnerEnrollmentV1:
+        self._upsert("runner_enrollments", enrollment)
+        return enrollment
+
+    def save_runner_device(self, device: RunnerDeviceV1) -> RunnerDeviceV1:
+        self._upsert("runner_devices", device)
+        return device
+
+    def save_runner_credential(self, credential: RunnerCredentialV1) -> RunnerCredentialV1:
+        self._upsert("runner_credentials", credential)
+        return credential
+
     def save_team(self, team: Team) -> Team:
         self._upsert("teams", team)
         return team
@@ -15449,6 +16742,8 @@ class SQLiteStore:
         work: VectorWork | None = None
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if item.provenance is not None:
+                self._validate_summary_lineage(connection, item)
             row = connection.execute(
                 """
                 SELECT payload
@@ -15491,23 +16786,80 @@ class SQLiteStore:
         self._upsert("user_memory_items", item)
         return item
 
+    @staticmethod
+    def _validate_summary_lineage(connection: sqlite3.Connection, item: UserMemoryItem) -> None:
+        provenance = item.provenance
+        if provenance is None or not provenance.source_memory_ids or not (
+            len(provenance.source_memory_ids) == len(provenance.source_memory_versions)
+            == len(provenance.source_memory_hashes)
+        ):
+            raise MemoryGovernanceConflict("memory_summary_lineage_required")
+        for source_id, version, content_hash in zip(provenance.source_memory_ids, provenance.source_memory_versions,
+                                                     provenance.source_memory_hashes, strict=True):
+            row = connection.execute("SELECT payload FROM records WHERE collection = 'user_memory_items' AND id = ?",
+                                     (source_id,)).fetchone()
+            source = UserMemoryItem.model_validate_json(row["payload"]) if row else None
+            if (source is None or source.user_id != item.user_id or source.workspace_id != item.workspace_id
+                    or source.project_id != item.project_id or source.scope is not Scope.PRIVATE
+                    or source.status != "active" or source.archived_at is not None or source.version != version
+                    or memory_content_hash(source) != content_hash):
+                raise MemoryGovernanceConflict("memory_summary_source_changed")
+
+    @staticmethod
+    def _validate_shared_personal_source(connection: sqlite3.Connection, item: MemoryItem) -> None:
+        row = connection.execute("SELECT payload FROM records WHERE collection = 'user_memory_items' AND id = ?",
+                                 (item.metadata["source_memory_id"],)).fetchone()
+        source = UserMemoryItem.model_validate_json(row["payload"]) if row else None
+        if (source is None or source.user_id != item.owner_user_id or source.workspace_id != item.workspace_id
+                or source.project_id != item.project_id or source.scope is not Scope.PRIVATE
+                or source.status != "active" or source.archived_at is not None
+                or str(source.version) != item.metadata.get("source_memory_version")
+                or memory_content_hash(source) != item.metadata.get("source_memory_hash")
+                or source.facts is not None or source.procedure is not None):
+            raise MemoryGovernanceConflict("memory_shared_source_changed")
+        actor = connection.execute("SELECT payload FROM records WHERE collection = 'users' AND id = ?",
+                                   (item.owner_user_id,)).fetchone()
+        project = connection.execute("SELECT payload FROM records WHERE collection = 'projects' AND id = ?",
+                                     (item.project_id,)).fetchone()
+        persisted_actor = User.model_validate_json(actor["payload"]) if actor else None
+        persisted_project = Project.model_validate_json(project["payload"]) if project else None
+        if (persisted_actor is None or persisted_actor.status != "active" or persisted_actor.workspace_id != item.workspace_id
+                or persisted_project is None or persisted_project.status != "active"
+                or persisted_project.workspace_id != item.workspace_id
+                or (persisted_project.member_ids and persisted_actor.id not in persisted_project.member_ids)):
+            raise MemoryGovernanceConflict("memory_shared_source_unavailable")
+
+    def observe_source(self, source: Source, *, body: str | None, user: User, expected_revision: int) -> Source:
+        from agentmesh.source_authority import observe_source
+
+        return observe_source(self, source, body=body, user=user, expected_revision=expected_revision)
+
     def add_source(self, source: Source) -> Source:
-        existing = self.get_source(source.id)
-        if existing is not None:
-            identity = (
-                "title",
-                "source_type",
-                "reference",
-                "workspace_id",
-                "project_id",
-                "user_id",
-                "run_id",
-                "skill_id",
-            )
-            if any(getattr(existing, field) != getattr(source, field) for field in identity):
-                raise ValueError("source_identity_conflict")
-            return existing
-        self._upsert("sources", source)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            existing = self._get_in_transaction(connection, 'sources', source.id, Source)
+            if existing is not None:
+                identity = (
+                    "id",
+                    "title",
+                    "source_type",
+                    "reference",
+                    "workspace_id",
+                    "project_id",
+                    "user_id",
+                    "run_id",
+                    "skill_id",
+                )
+                if any(getattr(existing, field) != getattr(source, field) for field in identity):
+                    raise ValueError("source_identity_conflict")
+                old_snapshot = existing.snapshot.model_dump(exclude={'observed_at'}) if existing.snapshot else None
+                new_snapshot = source.snapshot.model_dump(exclude={'observed_at'}) if source.snapshot else None
+                if old_snapshot != new_snapshot:
+                    raise ValueError('source_snapshot_conflict')
+                if existing.origin != source.origin:
+                    raise ValueError('source_origin_conflict')
+                return existing
+            self._upsert_plain_record(connection, 'sources', source)
         return source
 
     def add_document(self, document: DocumentRecord) -> DocumentRecord:
@@ -15718,10 +17070,14 @@ class SQLiteStore:
         return grant
 
     def get_active_consent_grant(self, grantor_id: str, grantee_id: str) -> ConsentGrant | None:
-        for grant in self.consent_grants:
-            if grant.grantor_id == grantor_id and grant.grantee_id == grantee_id and grant.active:
-                return grant
-        return None
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT payload FROM records WHERE collection = 'consent_grants'
+                    AND json_extract(payload, '$.grantor_id') = ? AND json_extract(payload, '$.grantee_id') = ?
+                    ORDER BY created_order DESC LIMIT 1""", (grantor_id, grantee_id),
+            ).fetchone()
+        grant = ConsentGrant.model_validate_json(row["payload"]) if row else None
+        return grant if grant and grant.active else None
 
     def add_contribution_point(self, point: ContributionPoint) -> ContributionPoint:
         self._upsert("contribution_points", point)
@@ -15740,15 +17096,24 @@ class SQLiteStore:
     ) -> AgentMemoryBinding | None:
         rows = connection.execute(
             """
-            SELECT payload FROM records
+            SELECT id, payload FROM records
             WHERE collection = 'agent_memory_bindings'
               AND json_extract(payload, '$.agent_id') = ?
+            LIMIT 2
             """,
             (agent_id,),
         ).fetchall()
         if len(rows) > 1:
             raise MemoryContextConflict("memory_binding_integrity_failed")
-        return AgentMemoryBinding.model_validate_json(rows[0]["payload"]) if rows else None
+        if not rows:
+            return None
+        try:
+            binding = AgentMemoryBinding.model_validate_json(rows[0]["payload"])
+        except ValueError:
+            raise MemoryContextConflict("memory_binding_integrity_failed") from None
+        if binding.id != rows[0]["id"]:
+            raise MemoryContextConflict("memory_binding_integrity_failed")
+        return binding
 
     @staticmethod
     def _memory_layer_for_use(item: MemoryItem | UserMemoryItem) -> MemoryLayer:
@@ -15789,6 +17154,8 @@ class SQLiteStore:
                 and item.workspace_id == run.workspace_id
                 and item.project_id in {None, run.project_id}
                 and item.status == "active"
+                and item.scope is Scope.PRIVATE
+                and item.archived_at is None
             )
         else:
             row = connection.execute(
@@ -15811,7 +17178,7 @@ class SQLiteStore:
                     else item.project_id in {None, run.project_id}
                 )
                 and item.scope is expected_scope
-                and self.memory_item_eligible_for_agent(item)
+                and self.memory_item_eligible_for_agent(item, allow_structured=True)
                 and (
                     memory_kind is not MemoryKind.PERSONAL
                     or item.owner_user_id == actor.id
@@ -15835,10 +17202,7 @@ class SQLiteStore:
             allowed_scopes = set(binding.allowed_scopes or [Scope.PRIVATE])
             if (
                 item.scope not in allowed_scopes
-                or (
-                    binding.allowed_memory_types
-                    and item.memory_type not in binding.allowed_memory_types
-                )
+                or not binding.allows_memory_type(item.memory_type)
                 or (
                     binding.allowed_project_ids
                     and run.project_id not in binding.allowed_project_ids
@@ -16045,6 +17409,10 @@ class SQLiteStore:
         receipts: list[MemoryUseReceiptV1],
         audit: AuditEvent,
         authorization: MemoryUseAuthorizationV1,
+        fact_context: FactContextSelectionV1 | None = None,
+        procedure_context: ProcedureContextSelectionV1 | None = None,
+        project_state_context: ProjectStateContextV1 | None = None,
+        runner_delivery: RunnerDeliveryAuthorizationV1 | None = None,
     ) -> list[MemoryUseReceiptV1]:
         if not receipts:
             return []
@@ -16103,9 +17471,70 @@ class SQLiteStore:
                 ):
                     raise MemoryContextConflict("memory_context_task_not_found")
 
+            if project_state_context is not None:
+                from agentmesh.task_operations.state import project_state_hash
+
+                if (procedure_context is None or fact_context is not None
+                        or project_state_context.query.project_id != run.project_id
+                        or project_state_context.result.project_id != run.project_id):
+                    raise MemoryContextConflict('memory_context_bundle_invalid')
+                # No Task writes precede this read. BEGIN IMMEDIATE excludes
+                # concurrent writers while the existing read API checks state.
+                current_state = self.read_project_state(user_id=actor.id, workspace_id=run.workspace_id,
+                    project_id=run.project_id, task_id=project_state_context.query.task_id)
+                if current_state is None or project_state_hash(current_state) != project_state_hash(project_state_context.result):
+                    raise MemoryContextConflict('project_state_context_changed')
             binding = self._memory_binding_in_transaction(connection, authorization.agent_id)
             if binding is not None and len(receipts) > max(1, binding.max_results_per_query):
                 raise MemoryContextConflict("memory_use_binding_changed")
+            if procedure_context is not None:
+                from agentmesh.memory_context.procedure_context import (
+                    procedure_selection_hash,
+                    select_procedure_in_transaction,
+                )
+                from agentmesh.memory_facts import MemoryFactsError
+
+                selection = ProcedureContextSelectionV1.model_validate(procedure_context)
+                try:
+                    current = select_procedure_in_transaction(self, connection, selection.query, run=run, user=actor,
+                                                              allowed_scopes=selection.allowed_scopes,
+                                                              allowed_layers=selection.allowed_layers)
+                except MemoryFactsError as error:
+                    raise MemoryContextConflict(error.code) from error
+                expected = {(selection.memory_record_type, selection.memory_id, selection.memory_version, selection.memory_hash)}
+                if (fact_context is not None or current.decision != 'prepared' or selection.decision != 'prepared'
+                    or procedure_selection_hash(current) != procedure_selection_hash(selection)
+                    or {(receipt.memory_record_type, receipt.memory_id, receipt.memory_version, receipt.memory_hash)
+                        for receipt in receipts} != expected):
+                    raise MemoryContextConflict('memory_procedure_context_changed')
+            if fact_context is not None:
+                from agentmesh.memory_context.fact_context import fact_result_hash
+                from agentmesh.memory_facts import MemoryFactsError, MemoryFactsService
+
+                if (fact_context.query.project_id != run.project_id or fact_context.decision != 'prepared'
+                        or not fact_context.result.automatic_context_eligible):
+                    raise MemoryContextConflict('memory_fact_context_changed')
+                scopes = set(fact_context.allowed_scopes)
+                types = set(fact_context.allowed_memory_types) if fact_context.allowed_memory_types is not None else None
+                if binding:
+                    scopes &= set(binding.allowed_scopes or [Scope.PRIVATE])
+                    binding_types = binding.effective_memory_types
+                    if binding_types is not None:
+                        types = binding_types if types is None else types & binding_types
+                try:
+                    current = MemoryFactsService.query_in_transaction(
+                        connection, fact_context.query, actor, snapshot_at=now_utc(), allowed_scopes=scopes,
+                        allowed_memory_types=types, allowed_layers=set(fact_context.allowed_layers),
+                    )
+                except MemoryFactsError as error:
+                    raise MemoryContextConflict(error.code) from error
+                if fact_result_hash(current) != fact_result_hash(fact_context.result):
+                    raise MemoryContextConflict('memory_fact_context_changed')
+                expected = {(item.memory_record_type, item.memory_id, item.memory_version, item.memory_hash)
+                            for item in current.facts}
+                if {(item.memory_record_type, item.memory_id, item.memory_version, item.memory_hash)
+                    for item in receipts} != expected:
+                    raise MemoryContextConflict('memory_fact_context_changed')
             committed: list[MemoryUseReceiptV1] = []
             reasons = {receipt.retrieval_reason for receipt in receipts}
             query_hashes = {receipt.retrieval_query_hash for receipt in receipts}
@@ -16128,6 +17557,14 @@ class SQLiteStore:
                     run=run,
                     binding=binding,
                 )
+                from agentmesh.memory_context.origin import memory_origin_available
+
+                if not memory_origin_available(connection, item):
+                    raise MemoryContextConflict('memory_use_source_changed')
+                if item.facts is not None and fact_context is None and procedure_context is None:
+                    raise MemoryContextConflict('memory_fact_context_required')
+                if item.procedure is not None and fact_context is None and procedure_context is None:
+                    raise MemoryContextConflict('memory_procedure_context_required')
                 if (
                     memory_content_hash(item) != receipt.memory_hash
                     or receipt.source_ids
@@ -16233,6 +17670,10 @@ class SQLiteStore:
                 existing_audit = AuditEvent.model_validate_json(audit_row["payload"])
                 if existing_audit != audit.model_copy(update={"created_at": existing_audit.created_at}):
                     raise MemoryContextConflict("memory_use_audit_conflict")
+            if runner_delivery is not None:
+                from agentmesh.runner_context_service import finish_runner_delivery
+
+                finish_runner_delivery(connection, self, runner_delivery, [receipt.id for receipt in committed])
         return committed
 
     def add_memory_relation(self, relation: MemoryRelation) -> MemoryRelation:
@@ -16330,6 +17771,1601 @@ class SQLiteStore:
             if session.token_hash == token_hash:
                 return session
         return None
+
+    def get_runner_enrollment(self, enrollment_id: str) -> RunnerEnrollmentV1 | None:
+        return self._get("runner_enrollments", enrollment_id, RunnerEnrollmentV1)
+
+    def get_runner_enrollment_by_user_code(self, user_code: str) -> RunnerEnrollmentV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'runner_enrollments'
+                  AND json_extract(payload, '$.user_code') = ?
+                ORDER BY created_order DESC
+                LIMIT 1
+                """,
+                (user_code,),
+            ).fetchone()
+        return RunnerEnrollmentV1.model_validate_json(row["payload"]) if row is not None else None
+
+    def get_runner_enrollment_by_device_code_hash(
+        self,
+        device_code_hash: str,
+    ) -> RunnerEnrollmentV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'runner_enrollments'
+                  AND json_extract(payload, '$.device_code_hash') = ?
+                ORDER BY created_order DESC
+                LIMIT 1
+                """,
+                (device_code_hash,),
+            ).fetchone()
+        return RunnerEnrollmentV1.model_validate_json(row["payload"]) if row is not None else None
+
+    def approve_runner_enrollment(
+        self,
+        user_code: str,
+        *,
+        user_id: str,
+        workspace_id: str,
+    ) -> RunnerEnrollmentV1 | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'runner_enrollments'
+                  AND json_extract(payload, '$.user_code') = ?
+                ORDER BY created_order DESC
+                LIMIT 1
+                """,
+                (user_code,),
+            ).fetchone()
+            if row is None:
+                return None
+            current = RunnerEnrollmentV1.model_validate_json(row["payload"])
+            now = now_utc()
+            if current.expires_at <= now and current.status in {
+                RunnerEnrollmentStatus.PENDING,
+                RunnerEnrollmentStatus.APPROVED,
+            }:
+                current = current.model_copy(
+                    update={
+                        "status": RunnerEnrollmentStatus.EXPIRED,
+                        "updated_at": now,
+                    }
+                )
+                self._upsert_plain_record(connection, "runner_enrollments", current)
+                return current
+            if current.status is RunnerEnrollmentStatus.PENDING:
+                current = current.model_copy(
+                    update={
+                        "status": RunnerEnrollmentStatus.APPROVED,
+                        "owner_user_id": user_id,
+                        "workspace_id": workspace_id,
+                        "approved_at": now,
+                        "updated_at": now,
+                    }
+                )
+                self._upsert_plain_record(connection, "runner_enrollments", current)
+            return current
+
+    def activate_runner_enrollment(
+        self,
+        device_code_hash: str,
+    ) -> tuple[RunnerEnrollmentV1 | None, RunnerDeviceV1 | None]:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'runner_enrollments'
+                  AND json_extract(payload, '$.device_code_hash') = ?
+                ORDER BY created_order DESC
+                LIMIT 1
+                """,
+                (device_code_hash,),
+            ).fetchone()
+            if row is None:
+                return None, None
+            current = RunnerEnrollmentV1.model_validate_json(row["payload"])
+            now = now_utc()
+            if current.expires_at <= now and current.status in {
+                RunnerEnrollmentStatus.PENDING,
+                RunnerEnrollmentStatus.APPROVED,
+            }:
+                expired = current.model_copy(
+                    update={
+                        "status": RunnerEnrollmentStatus.EXPIRED,
+                        "updated_at": now,
+                    }
+                )
+                self._upsert_plain_record(connection, "runner_enrollments", expired)
+                return expired, None
+            if current.status in {
+                RunnerEnrollmentStatus.PENDING,
+                RunnerEnrollmentStatus.EXPIRED,
+            }:
+                return current, None
+            if current.status is RunnerEnrollmentStatus.CONSUMED:
+                device_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("runner_devices", current.runner_id),
+                ).fetchone()
+                device = (
+                    RunnerDeviceV1.model_validate_json(device_row["payload"])
+                    if device_row is not None
+                    else None
+                )
+                return current, device
+            if current.owner_user_id is None or current.workspace_id is None:
+                raise RuntimeError("approved runner enrollment has no owner")
+
+            device = RunnerDeviceV1(
+                id=current.runner_id,
+                owner_user_id=current.owner_user_id,
+                workspace_id=current.workspace_id,
+                name=current.device_name,
+                capabilities=current.capabilities,
+                last_seen_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+            credential = RunnerCredentialV1(
+                id=f"runner_cred_{device.id}",
+                runner_id=device.id,
+                token_hash=device_code_hash,
+                created_at=now,
+            )
+            consumed = current.model_copy(
+                update={
+                    "status": RunnerEnrollmentStatus.CONSUMED,
+                    "consumed_at": now,
+                    "updated_at": now,
+                }
+            )
+            self._upsert_plain_record(connection, "runner_devices", device)
+            self._upsert_plain_record(connection, "runner_credentials", credential)
+            self._upsert_plain_record(connection, "runner_enrollments", consumed)
+            return consumed, device
+
+    def get_runner_device(self, runner_id: str) -> RunnerDeviceV1 | None:
+        return self._get("runner_devices", runner_id, RunnerDeviceV1)
+
+    def list_runner_devices_for_user(self, user_id: str) -> list[RunnerDeviceV1]:
+        return sorted(
+            (device for device in self.runner_devices if device.owner_user_id == user_id),
+            key=lambda device: (device.updated_at, device.id),
+            reverse=True,
+        )
+
+    def get_runner_credential_by_token_hash(self, token_hash: str) -> RunnerCredentialV1 | None:
+        with self._read_connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'runner_credentials'
+                  AND json_extract(payload, '$.token_hash') = ?
+                ORDER BY created_order DESC
+                LIMIT 1
+                """,
+                (token_hash,),
+            ).fetchone()
+        return RunnerCredentialV1.model_validate_json(row["payload"]) if row is not None else None
+
+    def revoke_runner_device(self, runner_id: str, *, owner_user_id: str) -> RunnerDeviceV1 | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("runner_devices", runner_id),
+            ).fetchone()
+            if row is None:
+                return None
+            current = RunnerDeviceV1.model_validate_json(row["payload"])
+            if current.owner_user_id != owner_user_id:
+                return None
+            if current.status is RunnerDeviceStatus.REVOKED:
+                return current
+            now = now_utc()
+            revoked = current.model_copy(
+                update={
+                    "status": RunnerDeviceStatus.REVOKED,
+                    "revoked_at": now,
+                    "updated_at": now,
+                }
+            )
+            self._upsert_plain_record(connection, "runner_devices", revoked)
+            credential_rows = connection.execute(
+                """
+                SELECT payload FROM records
+                WHERE collection = 'runner_credentials'
+                  AND json_extract(payload, '$.runner_id') = ?
+                """,
+                (runner_id,),
+            ).fetchall()
+            for credential_row in credential_rows:
+                credential = RunnerCredentialV1.model_validate_json(credential_row["payload"])
+                if credential.revoked_at is None:
+                    self._upsert_plain_record(
+                        connection,
+                        "runner_credentials",
+                        credential.model_copy(update={"revoked_at": now}),
+                    )
+            return revoked
+
+    @staticmethod
+    def _runner_dispatch_lease_in_transaction(
+        connection: sqlite3.Connection,
+        lease_id: str,
+    ) -> RunnerDispatchLeaseV1 | None:
+        row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("runner_dispatch_leases", lease_id),
+        ).fetchone()
+        return RunnerDispatchLeaseV1.model_validate_json(row["payload"]) if row is not None else None
+
+    @classmethod
+    def _expire_runner_dispatch_leases_in_transaction(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        checked_at: datetime,
+    ) -> int:
+        rows = connection.execute(
+            """
+            SELECT payload FROM records
+            WHERE collection = 'runner_dispatch_leases'
+              AND json_extract(payload, '$.status') = ?
+              AND json_extract(payload, '$.expires_at') <= ?
+            ORDER BY created_order
+            """,
+            (RunnerDispatchLeaseStatus.ACTIVE.value, checked_at.isoformat()),
+        ).fetchall()
+        expired_count = 0
+        for row in rows:
+            lease = RunnerDispatchLeaseV1.model_validate_json(row["payload"])
+            if lease.operation_kind == "standard_skill_node":
+                node_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("runner_node_dispatches", lease.operation_key),
+                ).fetchone()
+                run_row = connection.execute(
+                    "SELECT payload FROM agent_runs WHERE id = ?",
+                    (lease.run_id,),
+                ).fetchone()
+                expired = lease.model_copy(
+                    update={
+                        "status": RunnerDispatchLeaseStatus.EXPIRED,
+                        "updated_at": checked_at,
+                        "settled_at": checked_at,
+                    }
+                )
+                cls._upsert_plain_record(connection, "runner_dispatch_leases", expired)
+                if node_row is not None and run_row is not None:
+                    node_dispatch = RunnerNodeDispatchV1.model_validate_json(node_row["payload"])
+                    run = AgentRun.model_validate_json(run_row["payload"])
+                    if (
+                        node_dispatch.status is RunnerNodeDispatchStatus.LEASED
+                        and node_dispatch.lease_id == lease.id
+                    ):
+                        retryable = run.status is AgentRunStatus.RUNNING and node_dispatch.deadline_at > checked_at
+                        node_dispatch = node_dispatch.model_copy(
+                            update={
+                                "status": (
+                                    RunnerNodeDispatchStatus.PENDING
+                                    if retryable
+                                    else RunnerNodeDispatchStatus.FAILED
+                                ),
+                                "runner_id": None,
+                                "lease_id": None,
+                                "error_code": None if retryable else "node_timeout",
+                                "updated_at": checked_at,
+                            }
+                        )
+                        cls._upsert_plain_record(
+                            connection,
+                            "runner_node_dispatches",
+                            node_dispatch,
+                        )
+                        cls._append_agent_run_events(
+                            connection,
+                            run.id,
+                            [
+                                (
+                                    "runner_node_lease_expired",
+                                    {
+                                        "node_dispatch_id": node_dispatch.id,
+                                        "lease_id": lease.id,
+                                        "retryable": retryable,
+                                    },
+                                )
+                            ],
+                        )
+                expired_count += 1
+                continue
+            dispatch_row = connection.execute(
+                "SELECT * FROM run_dispatch_receipts WHERE operation_key = ?",
+                (lease.operation_key,),
+            ).fetchone()
+            run_row = connection.execute(
+                "SELECT payload FROM agent_runs WHERE id = ?",
+                (lease.run_id,),
+            ).fetchone()
+            if dispatch_row is None or run_row is None:
+                continue
+            dispatch = cls._decode_run_dispatch_row(dispatch_row)
+            run = AgentRun.model_validate_json(run_row["payload"])
+            expired = lease.model_copy(
+                update={
+                    "status": RunnerDispatchLeaseStatus.EXPIRED,
+                    "updated_at": checked_at,
+                    "settled_at": checked_at,
+                }
+            )
+            cls._upsert_plain_record(connection, "runner_dispatch_leases", expired)
+            if (
+                dispatch.state is RunDispatchState.STARTED
+                and dispatch.process_epoch == lease.id
+                and run.status is AgentRunStatus.RUNNING
+            ):
+                pending = dispatch.model_copy(
+                    update={
+                        "state": RunDispatchState.PENDING,
+                        "process_epoch": None,
+                        "updated_at": checked_at,
+                    }
+                )
+                connection.execute(
+                    """
+                    UPDATE run_dispatch_receipts
+                    SET state = ?, process_epoch = NULL, payload = ?, updated_at = ?
+                    WHERE operation_key = ? AND state = ? AND process_epoch = ?
+                    """,
+                    (
+                        RunDispatchState.PENDING.value,
+                        pending.model_dump_json(),
+                        checked_at.isoformat(),
+                        dispatch.operation_key,
+                        RunDispatchState.STARTED.value,
+                        lease.id,
+                    ),
+                )
+                run.runner_id = None
+                run.deadline_at = None
+                run.updated_at = checked_at
+                connection.execute(
+                    "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                    (run.model_dump_json(), checked_at.isoformat(), run.id),
+                )
+                cls._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [
+                        (
+                            "runner_lease_expired",
+                            {"lease_id": lease.id, "runner_id": lease.runner_id},
+                        )
+                    ],
+                )
+            elif (
+                dispatch.state is RunDispatchState.STARTED
+                and dispatch.process_epoch == lease.id
+                and run.status
+                in {
+                    AgentRunStatus.COMPLETED,
+                    AgentRunStatus.PARTIAL,
+                    AgentRunStatus.FAILED,
+                    AgentRunStatus.REJECTED,
+                    AgentRunStatus.CANCELLED,
+                }
+            ):
+                settled = dispatch.model_copy(
+                    update={"state": RunDispatchState.SETTLED, "updated_at": checked_at}
+                )
+                connection.execute(
+                    """
+                    UPDATE run_dispatch_receipts
+                    SET state = ?, payload = ?, updated_at = ?
+                    WHERE operation_key = ? AND state = ? AND process_epoch = ?
+                    """,
+                    (
+                        RunDispatchState.SETTLED.value,
+                        settled.model_dump_json(),
+                        checked_at.isoformat(),
+                        dispatch.operation_key,
+                        RunDispatchState.STARTED.value,
+                        lease.id,
+                    ),
+                )
+                cls._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [
+                        (
+                            "run_dispatch_settled",
+                            {
+                                "operation_key": dispatch.operation_key,
+                                "operation_kind": dispatch.operation_kind,
+                                "generation": dispatch.generation,
+                                "attempt_count": dispatch.attempt_count,
+                                "disposition": "runner_lease_expired_terminal",
+                            },
+                        )
+                    ],
+                )
+            expired_count += 1
+        return expired_count
+
+    def create_runner_node_dispatch(
+        self,
+        dispatch: RunnerNodeDispatchV1,
+    ) -> RunnerNodeDispatchV1:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("runner_node_dispatches", dispatch.id),
+            ).fetchone()
+            if row is not None:
+                existing = RunnerNodeDispatchV1.model_validate_json(row["payload"])
+                if (
+                    existing.run_id != dispatch.run_id
+                    or existing.plan_id != dispatch.plan_id
+                    or existing.node_id != dispatch.node_id
+                    or existing.attempt != dispatch.attempt
+                ):
+                    raise RunnerDispatchConflict("runner_node_dispatch_identity_conflict")
+                return existing
+            self._upsert_plain_record(connection, "runner_node_dispatches", dispatch)
+            self._append_agent_run_events(
+                connection,
+                dispatch.run_id,
+                [
+                    (
+                        "runner_node_dispatch_pending",
+                        {
+                            "node_dispatch_id": dispatch.id,
+                            "plan_id": dispatch.plan_id,
+                            "node_id": dispatch.node_id,
+                            "attempt": dispatch.attempt,
+                        },
+                    )
+                ],
+            )
+            return dispatch
+
+    def get_runner_node_dispatch(self, dispatch_id: str) -> RunnerNodeDispatchV1 | None:
+        return self._get("runner_node_dispatches", dispatch_id, RunnerNodeDispatchV1)
+
+    def claim_runner_node_dispatch(
+        self,
+        *,
+        runner_id: str,
+        owner_user_id: str,
+        workspace_id: str,
+        available_tool_names: set[str],
+        lease_seconds: int = 300,
+    ) -> tuple[RunnerDispatchLeaseV1, AgentRun, RunnerNodeDispatchV1] | None:
+        now = now_utc()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._expire_runner_dispatch_leases_in_transaction(connection, checked_at=now)
+            rows = connection.execute(
+                """
+                SELECT node.payload AS node_payload, run.payload AS run_payload
+                FROM records AS node
+                JOIN agent_runs AS run
+                  ON run.id = json_extract(node.payload, '$.run_id')
+                WHERE node.collection = 'runner_node_dispatches'
+                  AND json_extract(node.payload, '$.status') = ?
+                  AND json_extract(node.payload, '$.owner_user_id') = ?
+                  AND json_extract(node.payload, '$.workspace_id') = ?
+                  AND json_extract(node.payload, '$.deadline_at') > ?
+                  AND json_extract(run.payload, '$.status') = ?
+                ORDER BY node.created_order
+                LIMIT 50
+                """,
+                (
+                    RunnerNodeDispatchStatus.PENDING.value,
+                    owner_user_id,
+                    workspace_id,
+                    now.isoformat(),
+                    AgentRunStatus.RUNNING.value,
+                ),
+            ).fetchall()
+            selected = next(
+                (
+                    row
+                    for row in rows
+                    if {
+                        tool.name
+                        for tool in RunnerNodeDispatchV1.model_validate_json(row["node_payload"]).tools
+                    }.issubset(available_tool_names)
+                ),
+                None,
+            )
+            if selected is None:
+                return None
+            node_dispatch = RunnerNodeDispatchV1.model_validate_json(selected["node_payload"])
+            run = AgentRun.model_validate_json(selected["run_payload"])
+            lease = RunnerDispatchLeaseV1(
+                runner_id=runner_id,
+                run_id=run.id,
+                operation_key=node_dispatch.id,
+                operation_kind="standard_skill_node",
+                dispatch_generation=node_dispatch.attempt,
+                attempt_count=1,
+                expires_at=min(
+                    node_dispatch.deadline_at,
+                    now + timedelta(seconds=lease_seconds),
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            leased = node_dispatch.model_copy(
+                update={
+                    "status": RunnerNodeDispatchStatus.LEASED,
+                    "runner_id": runner_id,
+                    "lease_id": lease.id,
+                    "updated_at": now,
+                }
+            )
+            self._upsert_plain_record(connection, "runner_node_dispatches", leased)
+            self._upsert_plain_record(connection, "runner_dispatch_leases", lease)
+            run.runner_id = runner_id
+            run.deadline_at = lease.expires_at
+            run.updated_at = now
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "runner_node_dispatch_leased",
+                        {
+                            "node_dispatch_id": leased.id,
+                            "lease_id": lease.id,
+                            "runner_id": runner_id,
+                            "plan_id": leased.plan_id,
+                            "node_id": leased.node_id,
+                            "attempt": leased.attempt,
+                        },
+                    )
+                ],
+            )
+            return lease, run, leased
+
+    def claim_runner_dispatch(
+        self,
+        *,
+        runner_id: str,
+        owner_user_id: str,
+        workspace_id: str,
+        lease_seconds: int = 300,
+    ) -> tuple[RunnerDispatchLeaseV1, AgentRun, RunDispatchReceiptV1] | None:
+        now = now_utc()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._expire_runner_dispatch_leases_in_transaction(connection, checked_at=now)
+            row = connection.execute(
+                """
+                SELECT dispatch.*, run.payload AS run_payload
+                FROM run_dispatch_receipts AS dispatch
+                JOIN agent_runs AS run ON run.id = dispatch.run_id
+                WHERE dispatch.state = ?
+                  AND dispatch.operation_kind = 'standard_direct'
+                  AND json_extract(run.payload, '$.execution_location') = 'runner'
+                  AND json_extract(run.payload, '$.status') = ?
+                  AND json_extract(run.payload, '$.user_id') = ?
+                  AND json_extract(run.payload, '$.workspace_id') = ?
+                ORDER BY dispatch.created_at, dispatch.operation_key
+                LIMIT 1
+                """,
+                (
+                    RunDispatchState.PENDING.value,
+                    AgentRunStatus.RUNNING.value,
+                    owner_user_id,
+                    workspace_id,
+                ),
+            ).fetchone()
+            if row is None:
+                return None
+            dispatch = self._decode_run_dispatch_row(row)
+            run = AgentRun.model_validate_json(row["run_payload"])
+            lease = RunnerDispatchLeaseV1(
+                runner_id=runner_id,
+                run_id=run.id,
+                operation_key=dispatch.operation_key,
+                operation_kind="standard_direct",
+                dispatch_generation=dispatch.generation,
+                attempt_count=dispatch.attempt_count + 1,
+                expires_at=now + timedelta(seconds=lease_seconds),
+                created_at=now,
+                updated_at=now,
+            )
+            started = dispatch.model_copy(
+                update={
+                    "state": RunDispatchState.STARTED,
+                    "process_epoch": lease.id,
+                    "attempt_count": dispatch.attempt_count + 1,
+                    "updated_at": now,
+                }
+            )
+            cursor = connection.execute(
+                """
+                UPDATE run_dispatch_receipts
+                SET state = ?, process_epoch = ?, attempt_count = ?, payload = ?, updated_at = ?
+                WHERE operation_key = ? AND state = ?
+                """,
+                (
+                    RunDispatchState.STARTED.value,
+                    lease.id,
+                    started.attempt_count,
+                    started.model_dump_json(),
+                    now.isoformat(),
+                    dispatch.operation_key,
+                    RunDispatchState.PENDING.value,
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            run.runner_id = runner_id
+            run.deadline_at = lease.expires_at
+            run.updated_at = now
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            self._upsert_plain_record(connection, "runner_dispatch_leases", lease)
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "runner_dispatch_leased",
+                        {
+                            "lease_id": lease.id,
+                            "runner_id": runner_id,
+                            "attempt_count": lease.attempt_count,
+                        },
+                    )
+                ],
+            )
+            return lease, run, started
+
+    def get_runner_dispatch_lease(self, lease_id: str) -> RunnerDispatchLeaseV1 | None:
+        return self._get("runner_dispatch_leases", lease_id, RunnerDispatchLeaseV1)
+
+    def prepare_runner_session(self, *, lease_id: str, runner_id: str) -> RunnerSessionSnapshotV1:
+        with self._connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            _lease, run, _dispatch = self._require_active_runner_lease(
+                connection, lease_id=lease_id, runner_id=runner_id, checked_at=now_utc(),
+            )
+            try:
+                record = self._authorized_sdk_session(connection, run.thread_id, run)
+            except SDKSessionConflict as error:
+                raise RunnerDispatchConflict(error.code) from error
+            input_message_id = 'message_' + canonical_json_sha256({'run_id': run.id, 'role': 'user'})[:24]
+            rows = connection.execute(
+                """SELECT payload FROM records WHERE collection = 'chat_messages'
+                   AND json_extract(payload, '$.thread_id') = ?
+                   AND id != ? AND id NOT IN (SELECT value FROM json_each(?))
+                   ORDER BY json_extract(payload, '$.created_at'), id""",
+                (run.thread_id, input_message_id, json.dumps(record.synced_chat_message_ids)),
+            ).fetchall()
+            messages = [ChatMessage.model_validate_json(row['payload']) for row in rows]
+            if connection.execute(
+                """SELECT 1 FROM records WHERE collection = 'chat_messages' AND id = ?
+                   AND json_extract(payload, '$.thread_id') = ?""", (input_message_id, run.thread_id),
+            ).fetchone() is None:
+                input_message_id = None
+            synced = set(record.synced_chat_message_ids)
+            missing = [message for message in messages if message.id not in synced
+                       and message.role in {ChatRole.USER, ChatRole.ASSISTANT}]
+            if missing:
+                record.items.extend({'role': message.role.value, 'content': message.content} for message in missing)
+                record.synced_chat_message_ids.extend(message.id for message in missing)
+                record.version += 1
+                record.updated_at = now_utc()
+                self._write_sdk_session(connection, record)
+            try:
+                snapshot = RunnerSessionSnapshotV1(thread_id=run.thread_id, version=record.version, items=record.items)
+            except ValueError as error:
+                raise RunnerDispatchConflict('runner_session_size_exceeded') from error
+            claim = {'version': snapshot.version, 'snapshot_hash': snapshot.content_hash,
+                     'input_message_id': input_message_id}
+            connection.execute(
+                "INSERT INTO records(collection, id, payload) VALUES ('runner_session_claims', ?, ?)",
+                (lease_id, json.dumps(claim)),
+            )
+            return snapshot
+
+    def renew_runner_dispatch(
+        self,
+        *,
+        lease_id: str,
+        runner_id: str,
+        lease_seconds: int = 300,
+    ) -> tuple[RunnerDispatchLeaseV1, bool]:
+        now = now_utc()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            lease = self._runner_dispatch_lease_in_transaction(connection, lease_id)
+            if lease is None or lease.runner_id != runner_id:
+                raise RunnerDispatchConflict("runner_lease_not_found")
+            if lease.status is not RunnerDispatchLeaseStatus.ACTIVE:
+                raise RunnerDispatchConflict("runner_lease_inactive")
+            if lease.expires_at <= now:
+                raise RunnerDispatchConflict("runner_lease_expired")
+            run_row = connection.execute(
+                "SELECT payload FROM agent_runs WHERE id = ?",
+                (lease.run_id,),
+            ).fetchone()
+            if run_row is None:
+                raise RunnerDispatchConflict("runner_dispatch_not_found")
+            run = AgentRun.model_validate_json(run_row["payload"])
+            if run.status is AgentRunStatus.CANCELLED:
+                return lease, True
+            if run.status is not AgentRunStatus.RUNNING or run.runner_id != runner_id:
+                raise RunnerDispatchConflict("runner_dispatch_state_conflict")
+            renewed = lease.model_copy(
+                update={
+                    "expires_at": now + timedelta(seconds=lease_seconds),
+                    "updated_at": now,
+                }
+            )
+            self._upsert_plain_record(connection, "runner_dispatch_leases", renewed)
+            run.deadline_at = renewed.expires_at
+            run.updated_at = now
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            return renewed, False
+
+    @staticmethod
+    def _require_active_runner_lease(
+        connection: sqlite3.Connection,
+        *,
+        lease_id: str,
+        runner_id: str,
+        checked_at: datetime,
+    ) -> tuple[RunnerDispatchLeaseV1, AgentRun, RunDispatchReceiptV1]:
+        lease = SQLiteStore._runner_dispatch_lease_in_transaction(connection, lease_id)
+        if lease is None or lease.runner_id != runner_id:
+            raise RunnerDispatchConflict("runner_lease_not_found")
+        if lease.status is not RunnerDispatchLeaseStatus.ACTIVE:
+            raise RunnerDispatchConflict("runner_lease_inactive")
+        if lease.expires_at <= checked_at:
+            raise RunnerDispatchConflict("runner_lease_expired")
+        dispatch_row = connection.execute(
+            "SELECT * FROM run_dispatch_receipts WHERE operation_key = ?",
+            (lease.operation_key,),
+        ).fetchone()
+        run_row = connection.execute(
+            "SELECT payload FROM agent_runs WHERE id = ?",
+            (lease.run_id,),
+        ).fetchone()
+        if dispatch_row is None or run_row is None:
+            raise RunnerDispatchConflict("runner_dispatch_not_found")
+        dispatch = SQLiteStore._decode_run_dispatch_row(dispatch_row)
+        run = AgentRun.model_validate_json(run_row["payload"])
+        if (
+            dispatch.state is not RunDispatchState.STARTED
+            or dispatch.process_epoch != lease.id
+            or run.status is not AgentRunStatus.RUNNING
+            or run.execution_location != "runner"
+            or run.runner_id != runner_id
+        ):
+            raise RunnerDispatchConflict("runner_dispatch_state_conflict")
+        return lease, run, dispatch
+
+    @staticmethod
+    def _require_active_runner_node_lease(
+        connection: sqlite3.Connection,
+        *,
+        lease_id: str,
+        runner_id: str,
+        checked_at: datetime,
+    ) -> tuple[RunnerDispatchLeaseV1, AgentRun, RunnerNodeDispatchV1]:
+        lease = SQLiteStore._runner_dispatch_lease_in_transaction(connection, lease_id)
+        if lease is None or lease.runner_id != runner_id:
+            raise RunnerDispatchConflict("runner_lease_not_found")
+        if (
+            lease.operation_kind != "standard_skill_node"
+            or lease.status is not RunnerDispatchLeaseStatus.ACTIVE
+        ):
+            raise RunnerDispatchConflict("runner_lease_inactive")
+        if lease.expires_at <= checked_at:
+            raise RunnerDispatchConflict("runner_lease_expired")
+        node_row = connection.execute(
+            "SELECT payload FROM records WHERE collection = ? AND id = ?",
+            ("runner_node_dispatches", lease.operation_key),
+        ).fetchone()
+        run_row = connection.execute(
+            "SELECT payload FROM agent_runs WHERE id = ?",
+            (lease.run_id,),
+        ).fetchone()
+        if node_row is None or run_row is None:
+            raise RunnerDispatchConflict("runner_dispatch_not_found")
+        node_dispatch = RunnerNodeDispatchV1.model_validate_json(node_row["payload"])
+        run = AgentRun.model_validate_json(run_row["payload"])
+        if (
+            node_dispatch.status is not RunnerNodeDispatchStatus.LEASED
+            or node_dispatch.lease_id != lease.id
+            or node_dispatch.runner_id != runner_id
+            or run.status is not AgentRunStatus.RUNNING
+            or run.execution_location != "runner"
+        ):
+            raise RunnerDispatchConflict("runner_dispatch_state_conflict")
+        return lease, run, node_dispatch
+
+    def append_runner_event_batch(
+        self,
+        *,
+        lease_id: str,
+        runner_id: str,
+        events: list[RunnerExecutionEventV1],
+    ) -> list[str]:
+        now = now_utc()
+        accepted: list[str] = []
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            lease = self._runner_dispatch_lease_in_transaction(connection, lease_id)
+            if lease is None:
+                raise RunnerDispatchConflict("runner_lease_not_found")
+            if lease.operation_kind == "standard_skill_node":
+                lease, run, _node_dispatch = self._require_active_runner_node_lease(
+                    connection,
+                    lease_id=lease_id,
+                    runner_id=runner_id,
+                    checked_at=now,
+                )
+            else:
+                lease, run, _dispatch = self._require_active_runner_lease(
+                    connection,
+                    lease_id=lease_id,
+                    runner_id=runner_id,
+                    checked_at=now,
+                )
+            new_events: list[tuple[str, dict[str, object]]] = []
+            for event in events:
+                receipt_id = "runner_event_" + canonical_json_sha256(
+                    {"lease_id": lease.id, "client_event_id": event.client_event_id}
+                )[:32]
+                event_hash = canonical_json_sha256(event.model_dump(mode="json"))
+                row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("runner_event_receipts", receipt_id),
+                ).fetchone()
+                if row is not None:
+                    receipt = RunnerEventReceiptV1.model_validate_json(row["payload"])
+                    if receipt.event_hash != event_hash:
+                        raise RunnerDispatchConflict("runner_event_idempotency_conflict")
+                    accepted.append(event.client_event_id)
+                    continue
+                receipt = RunnerEventReceiptV1(
+                    id=receipt_id,
+                    lease_id=lease.id,
+                    run_id=run.id,
+                    client_event_id=event.client_event_id,
+                    event_hash=event_hash,
+                    created_at=now,
+                )
+                self._upsert_plain_record(connection, "runner_event_receipts", receipt)
+                accepted.append(event.client_event_id)
+                new_events.append(
+                    (
+                        f"runner_{event.event_type}",
+                        {
+                            **event.payload,
+                            "client_event_id": event.client_event_id,
+                            "runner_id": runner_id,
+                            "occurred_at": event.occurred_at.isoformat(),
+                        },
+                    )
+                )
+            self._append_agent_run_events(connection, run.id, new_events)
+        return accepted
+
+    def complete_runner_node_dispatch(
+        self,
+        *,
+        lease_id: str,
+        runner_id: str,
+        request: RunnerNodeCompletionRequest | RunnerNodeCompletionRequestV2,
+    ) -> RunnerNodeDispatchV1:
+        now = now_utc()
+        request_hash = (runner_envelope_hash(request.model_dump(mode='json'))
+                        if isinstance(request, RunnerNodeCompletionRequestV2)
+                        else canonical_json_sha256(request.model_dump(mode='json')))
+        receipt_id = "runner_node_completion_" + canonical_json_sha256(
+            {"lease_id": lease_id, "command_id": request.command_id}
+        )[:32]
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            replay_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("runner_completion_receipts", receipt_id),
+            ).fetchone()
+            if replay_row is not None:
+                replay = RunnerCompletionReceiptV1.model_validate_json(replay_row["payload"])
+                if replay.request_hash != request_hash:
+                    raise RunnerDispatchConflict("runner_completion_idempotency_conflict")
+                lease = self._runner_dispatch_lease_in_transaction(connection, lease_id)
+                if lease is None or lease.run_id != replay.run_id:
+                    raise RunnerDispatchConflict("runner_dispatch_not_found")
+                node_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("runner_node_dispatches", lease.operation_key),
+                ).fetchone()
+                if node_row is None:
+                    raise RunnerDispatchConflict("runner_dispatch_not_found")
+                return RunnerNodeDispatchV1.model_validate_json(node_row["payload"])
+            lease, run, node_dispatch = self._require_active_runner_node_lease(
+                connection,
+                lease_id=lease_id,
+                runner_id=runner_id,
+                checked_at=now,
+            )
+            from agentmesh.runner_context_service import validate_runner_completion
+
+            validate_runner_completion(connection, self, lease_id, runner_id)
+            completed = node_dispatch.model_copy(
+                update={
+                    "status": RunnerNodeDispatchStatus.COMPLETED,
+                    "result_payload": request.result_payload,
+                    "requested_model": request.requested_model,
+                    "actual_model": request.actual_model,
+                    "total_tokens": request.total_tokens,
+                    "updated_at": now,
+                }
+            )
+            settled_lease = lease.model_copy(
+                update={
+                    "status": RunnerDispatchLeaseStatus.SETTLED,
+                    "updated_at": now,
+                    "settled_at": now,
+                }
+            )
+            self._upsert_plain_record(connection, "runner_node_dispatches", completed)
+            self._upsert_plain_record(connection, "runner_dispatch_leases", settled_lease)
+            receipt = RunnerCompletionReceiptV1(
+                id=receipt_id,
+                lease_id=lease.id,
+                run_id=run.id,
+                command_id=request.command_id,
+                request_hash=request_hash,
+                terminal_status="completed",
+                created_at=now,
+            )
+            self._upsert_plain_record(connection, "runner_completion_receipts", receipt)
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "runner_node_execution_completed",
+                        {
+                            "node_dispatch_id": completed.id,
+                            "plan_id": completed.plan_id,
+                            "node_id": completed.node_id,
+                            "attempt": completed.attempt,
+                            "total_tokens": completed.total_tokens,
+                        },
+                    )
+                ],
+            )
+            return completed
+
+    def fail_runner_node_dispatch(
+        self,
+        *,
+        lease_id: str,
+        runner_id: str,
+        request: RunnerFailureRequest,
+    ) -> RunnerNodeDispatchV1:
+        now = now_utc()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            lease, run, node_dispatch = self._require_active_runner_node_lease(
+                connection,
+                lease_id=lease_id,
+                runner_id=runner_id,
+                checked_at=now,
+            )
+            failed = node_dispatch.model_copy(
+                update={
+                    "status": RunnerNodeDispatchStatus.FAILED,
+                    "error_code": request.error_code,
+                    "updated_at": now,
+                }
+            )
+            failed_lease = lease.model_copy(
+                update={
+                    "status": RunnerDispatchLeaseStatus.FAILED,
+                    "updated_at": now,
+                    "settled_at": now,
+                }
+            )
+            self._upsert_plain_record(connection, "runner_node_dispatches", failed)
+            self._upsert_plain_record(connection, "runner_dispatch_leases", failed_lease)
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "runner_node_execution_failed",
+                        {
+                            "node_dispatch_id": failed.id,
+                            "plan_id": failed.plan_id,
+                            "node_id": failed.node_id,
+                            "attempt": failed.attempt,
+                            "error_code": failed.error_code,
+                        },
+                    )
+                ],
+            )
+            return failed
+
+    def abort_runner_node_dispatch(
+        self,
+        dispatch_id: str,
+        *,
+        error_code: str,
+    ) -> RunnerNodeDispatchV1 | None:
+        now = now_utc()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("runner_node_dispatches", dispatch_id),
+            ).fetchone()
+            if row is None:
+                return None
+            current = RunnerNodeDispatchV1.model_validate_json(row["payload"])
+            if current.status in {
+                RunnerNodeDispatchStatus.COMPLETED,
+                RunnerNodeDispatchStatus.FAILED,
+            }:
+                return current
+            failed = current.model_copy(
+                update={
+                    "status": RunnerNodeDispatchStatus.FAILED,
+                    "error_code": error_code,
+                    "updated_at": now,
+                }
+            )
+            self._upsert_plain_record(connection, "runner_node_dispatches", failed)
+            if current.lease_id is not None:
+                lease = self._runner_dispatch_lease_in_transaction(connection, current.lease_id)
+                if lease is not None and lease.status is RunnerDispatchLeaseStatus.ACTIVE:
+                    self._upsert_plain_record(
+                        connection,
+                        "runner_dispatch_leases",
+                        lease.model_copy(
+                            update={
+                                "status": RunnerDispatchLeaseStatus.FAILED,
+                                "updated_at": now,
+                                "settled_at": now,
+                            }
+                        ),
+                    )
+            self._append_agent_run_events(
+                connection,
+                current.run_id,
+                [
+                    (
+                        "runner_node_dispatch_aborted",
+                        {
+                            "node_dispatch_id": current.id,
+                            "node_id": current.node_id,
+                            "error_code": error_code,
+                        },
+                    )
+                ],
+            )
+            return failed
+
+    def save_runner_artifact(
+        self,
+        *,
+        lease_id: str,
+        runner_id: str,
+        request: RunnerArtifactUploadRequest,
+    ) -> Artifact:
+        content_bytes = request.content.encode("utf-8")
+        if hashlib.sha256(content_bytes).hexdigest() != request.content_hash:
+            raise RunnerDispatchConflict("runner_artifact_hash_mismatch")
+        now = now_utc()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            _lease, run, _dispatch = self._require_active_runner_lease(
+                connection,
+                lease_id=lease_id,
+                runner_id=runner_id,
+                checked_at=now,
+            )
+            existing_row = connection.execute(
+                "SELECT payload FROM artifacts WHERE id = ?",
+                (request.artifact_id,),
+            ).fetchone()
+            if existing_row is not None:
+                existing = Artifact.model_validate_json(existing_row["payload"])
+                if (
+                    existing.run_id != run.id
+                    or existing.content_hash != request.content_hash
+                    or existing.content != request.content
+                ):
+                    raise RunnerDispatchConflict("runner_artifact_idempotency_conflict")
+                return existing
+            artifact = Artifact(
+                id=request.artifact_id,
+                run_id=run.id,
+                workspace_id=run.workspace_id,
+                project_id=run.project_id,
+                user_id=run.user_id,
+                artifact_type=request.artifact_type,
+                content_type=request.content_type,
+                content=request.content,
+                verification_state=ArtifactVerificationState.SEALED,
+                schema_version="runner-artifact-v1",
+                content_hash=request.content_hash,
+                size_bytes=len(content_bytes),
+                requirement_version_id=f"runner:{run.id}",
+                created_at=now,
+                updated_at=now,
+            )
+            connection.execute(
+                """
+                INSERT INTO artifacts(
+                    id, run_id, payload, created_at, workspace_id, project_id, user_id,
+                    artifact_type, content_type, truncated, verification_state, schema_version,
+                    content_hash, size_bytes, requirement_version_id, plan_version_id,
+                    attempt_id, step_number, purged_at, purged_by, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    artifact.id,
+                    artifact.run_id,
+                    artifact.model_dump_json(),
+                    artifact.created_at.isoformat(),
+                    artifact.workspace_id,
+                    artifact.project_id,
+                    artifact.user_id,
+                    artifact.artifact_type,
+                    artifact.content_type,
+                    int(artifact.truncated),
+                    artifact.verification_state.value,
+                    artifact.schema_version,
+                    artifact.content_hash,
+                    artifact.size_bytes,
+                    artifact.requirement_version_id,
+                    artifact.plan_version_id,
+                    artifact.attempt_id,
+                    artifact.step_number,
+                    artifact.purged_at,
+                    artifact.purged_by,
+                    artifact.updated_at.isoformat() if artifact.updated_at else None,
+                ),
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "runner_artifact_uploaded",
+                        {
+                            "artifact_id": artifact.id,
+                            "artifact_type": artifact.artifact_type,
+                            "content_hash": artifact.content_hash,
+                            "size_bytes": artifact.size_bytes,
+                        },
+                    )
+                ],
+            )
+            return artifact
+
+    def _finish_runner_dispatch(
+        self,
+        *,
+        lease_id: str,
+        runner_id: str,
+        command_id: str,
+        request_hash: str,
+        terminal_status: AgentRunStatus,
+        output_text: str | None,
+        error_code: str | None,
+        artifact_ids: list[str],
+        completion_payload: dict[str, object],
+        session_commit: RunnerSessionCommitV1 | None = None,
+    ) -> AgentRun:
+        now = now_utc()
+        receipt_id = "runner_completion_" + canonical_json_sha256(
+            {"lease_id": lease_id, "command_id": command_id}
+        )[:32]
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            replay_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("runner_completion_receipts", receipt_id),
+            ).fetchone()
+            if replay_row is not None:
+                replay = RunnerCompletionReceiptV1.model_validate_json(replay_row["payload"])
+                if replay.request_hash != request_hash:
+                    raise RunnerDispatchConflict("runner_completion_idempotency_conflict")
+                run_row = connection.execute(
+                    "SELECT payload FROM agent_runs WHERE id = ?",
+                    (replay.run_id,),
+                ).fetchone()
+                if run_row is None:
+                    raise RunnerDispatchConflict("runner_dispatch_not_found")
+                return AgentRun.model_validate_json(run_row["payload"])
+            lease, run, dispatch = self._require_active_runner_lease(
+                connection,
+                lease_id=lease_id,
+                runner_id=runner_id,
+                checked_at=now,
+            )
+            if terminal_status is AgentRunStatus.COMPLETED:
+                from agentmesh.runner_context_service import validate_runner_completion
+
+                validate_runner_completion(connection, self, lease_id, runner_id)
+                claim_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = 'runner_session_claims' AND id = ?",
+                    (lease_id,),
+                ).fetchone()
+                if claim_row is not None:
+                    claim = json.loads(claim_row['payload'])
+                    if session_commit is None:
+                        raise RunnerDispatchConflict('runner_session_commit_required')
+                    if (session_commit.thread_id != run.thread_id or session_commit.version != claim['version']
+                            or session_commit.snapshot_hash != claim['snapshot_hash']):
+                        raise RunnerDispatchConflict('runner_session_snapshot_changed')
+                    try:
+                        record = self._authorized_sdk_session(connection, run.thread_id, run)
+                    except SDKSessionConflict as error:
+                        raise RunnerDispatchConflict(error.code) from error
+                    if record.version != session_commit.version:
+                        raise RunnerDispatchConflict('runner_session_version_changed')
+                    if RunnerSessionSnapshotV1(thread_id=run.thread_id, version=record.version,
+                                               items=record.items).content_hash != claim['snapshot_hash']:
+                        raise RunnerDispatchConflict('runner_session_snapshot_changed')
+                    from agentmesh.runner_session import validate_runner_session_items
+
+                    try:
+                        validate_runner_session_items(session_commit.items)
+                    except ValueError as error:
+                        raise RunnerDispatchConflict('runner_session_items_invalid') from error
+                    record.items = session_commit.items
+                    self._archive_sdk_session_memory(connection, record, run, session_commit.items)
+                    if claim.get('input_message_id') is not None:
+                        record.synced_chat_message_ids = list(dict.fromkeys([
+                            *record.synced_chat_message_ids, claim['input_message_id'],
+                        ]))
+                    record.version += 1
+                    record.updated_at = now
+                    self._write_sdk_session(connection, record)
+                    completion_payload = {**completion_payload, 'session_version': record.version,
+                        'session_snapshot_hash': claim['snapshot_hash'], 'session_item_count': len(record.items)}
+                elif session_commit is not None:
+                    raise RunnerDispatchConflict('runner_session_claim_missing')
+            for artifact_id in artifact_ids:
+                artifact_row = connection.execute(
+                    "SELECT payload FROM artifacts WHERE id = ?",
+                    (artifact_id,),
+                ).fetchone()
+                if artifact_row is None:
+                    raise RunnerDispatchConflict("runner_artifact_not_found")
+                artifact = Artifact.model_validate_json(artifact_row["payload"])
+                if (
+                    artifact.run_id != run.id
+                    or artifact.user_id != run.user_id
+                    or artifact.verification_state is not ArtifactVerificationState.SEALED
+                ):
+                    raise RunnerDispatchConflict("runner_artifact_identity_invalid")
+            run.status = terminal_status
+            run.output_text = output_text
+            run.error_code = error_code
+            run.updated_at = now
+            connection.execute(
+                "UPDATE agent_runs SET payload = ?, updated_at = ? WHERE id = ?",
+                (run.model_dump_json(), now.isoformat(), run.id),
+            )
+            settled_dispatch = dispatch.model_copy(
+                update={"state": RunDispatchState.SETTLED, "updated_at": now}
+            )
+            connection.execute(
+                """
+                UPDATE run_dispatch_receipts
+                SET state = ?, payload = ?, updated_at = ?
+                WHERE operation_key = ? AND state = ? AND process_epoch = ?
+                """,
+                (
+                    RunDispatchState.SETTLED.value,
+                    settled_dispatch.model_dump_json(),
+                    now.isoformat(),
+                    dispatch.operation_key,
+                    RunDispatchState.STARTED.value,
+                    lease.id,
+                ),
+            )
+            settled_lease = lease.model_copy(
+                update={
+                    "status": (
+                        RunnerDispatchLeaseStatus.SETTLED
+                        if terminal_status is AgentRunStatus.COMPLETED
+                        else RunnerDispatchLeaseStatus.FAILED
+                    ),
+                    "updated_at": now,
+                    "settled_at": now,
+                }
+            )
+            self._upsert_plain_record(connection, "runner_dispatch_leases", settled_lease)
+            completion_receipt = RunnerCompletionReceiptV1(
+                id=receipt_id,
+                lease_id=lease.id,
+                run_id=run.id,
+                command_id=command_id,
+                request_hash=request_hash,
+                terminal_status=(
+                    "completed" if terminal_status is AgentRunStatus.COMPLETED else "failed"
+                ),
+                created_at=now,
+            )
+            self._upsert_plain_record(
+                connection,
+                "runner_completion_receipts",
+                completion_receipt,
+            )
+            terminal_event = (
+                "run_completed" if terminal_status is AgentRunStatus.COMPLETED else "run_failed"
+            )
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "runner_execution_completed"
+                        if terminal_status is AgentRunStatus.COMPLETED
+                        else "runner_execution_failed",
+                        {**completion_payload, "runner_id": runner_id, "lease_id": lease.id},
+                    ),
+                    (terminal_event, completion_payload),
+                    (
+                        "run_dispatch_settled",
+                        {
+                            "operation_key": dispatch.operation_key,
+                            "operation_kind": dispatch.operation_kind,
+                            "generation": dispatch.generation,
+                            "attempt_count": dispatch.attempt_count,
+                        },
+                    ),
+                ],
+            )
+            return run
+
+    def complete_runner_dispatch(
+        self,
+        *,
+        lease_id: str,
+        runner_id: str,
+        request: RunnerCompletionRequest | RunnerCompletionRequestV2,
+    ) -> AgentRun:
+        request_hash = canonical_json_sha256(request.model_dump(mode="json"))
+        return self._finish_runner_dispatch(
+            lease_id=lease_id,
+            runner_id=runner_id,
+            command_id=request.command_id,
+            request_hash=request_hash,
+            terminal_status=AgentRunStatus.COMPLETED,
+            output_text=request.output_text,
+            error_code=None,
+            artifact_ids=request.artifact_ids,
+            session_commit=getattr(request, 'session_commit', None),
+            completion_payload={
+                "requested_model": request.requested_model,
+                "actual_model": request.actual_model,
+                "total_tokens": request.total_tokens,
+                "artifact_ids": request.artifact_ids,
+            },
+        )
+
+    def fail_runner_dispatch(
+        self,
+        *,
+        lease_id: str,
+        runner_id: str,
+        request: RunnerFailureRequest,
+    ) -> AgentRun:
+        request_hash = canonical_json_sha256(request.model_dump(mode="json"))
+        return self._finish_runner_dispatch(
+            lease_id=lease_id,
+            runner_id=runner_id,
+            command_id=request.command_id,
+            request_hash=request_hash,
+            terminal_status=AgentRunStatus.FAILED,
+            output_text=None,
+            error_code=request.error_code,
+            artifact_ids=[],
+            completion_payload={"error_code": request.error_code},
+        )
+
+    def acknowledge_runner_cancellation(
+        self,
+        *,
+        lease_id: str,
+        runner_id: str,
+        request: RunnerCancellationRequest,
+    ) -> AgentRun:
+        now = now_utc()
+        request_hash = canonical_json_sha256(request.model_dump(mode="json"))
+        receipt_id = "runner_completion_" + canonical_json_sha256(
+            {"lease_id": lease_id, "command_id": request.command_id}
+        )[:32]
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            replay_row = connection.execute(
+                "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                ("runner_completion_receipts", receipt_id),
+            ).fetchone()
+            if replay_row is not None:
+                replay = RunnerCompletionReceiptV1.model_validate_json(replay_row["payload"])
+                if replay.request_hash != request_hash or replay.terminal_status != "cancelled":
+                    raise RunnerDispatchConflict("runner_completion_idempotency_conflict")
+                run_row = connection.execute(
+                    "SELECT payload FROM agent_runs WHERE id = ?",
+                    (replay.run_id,),
+                ).fetchone()
+                if run_row is None:
+                    raise RunnerDispatchConflict("runner_dispatch_not_found")
+                return AgentRun.model_validate_json(run_row["payload"])
+            lease = self._runner_dispatch_lease_in_transaction(connection, lease_id)
+            if lease is None or lease.runner_id != runner_id:
+                raise RunnerDispatchConflict("runner_lease_not_found")
+            if lease.operation_kind == "standard_skill_node":
+                node_row = connection.execute(
+                    "SELECT payload FROM records WHERE collection = ? AND id = ?",
+                    ("runner_node_dispatches", lease.operation_key),
+                ).fetchone()
+                run_row = connection.execute(
+                    "SELECT payload FROM agent_runs WHERE id = ?",
+                    (lease.run_id,),
+                ).fetchone()
+                if node_row is None or run_row is None:
+                    raise RunnerDispatchConflict("runner_dispatch_not_found")
+                node_dispatch = RunnerNodeDispatchV1.model_validate_json(node_row["payload"])
+                run = AgentRun.model_validate_json(run_row["payload"])
+                if (
+                    run.status is not AgentRunStatus.CANCELLED
+                    or node_dispatch.status is not RunnerNodeDispatchStatus.LEASED
+                    or node_dispatch.lease_id != lease.id
+                ):
+                    raise RunnerDispatchConflict("runner_dispatch_state_conflict")
+                cancelled_node = node_dispatch.model_copy(
+                    update={
+                        "status": RunnerNodeDispatchStatus.FAILED,
+                        "error_code": "run_cancelled",
+                        "updated_at": now,
+                    }
+                )
+                settled_lease = lease.model_copy(
+                    update={
+                        "status": RunnerDispatchLeaseStatus.SETTLED,
+                        "updated_at": now,
+                        "settled_at": now,
+                    }
+                )
+                self._upsert_plain_record(connection, "runner_node_dispatches", cancelled_node)
+                self._upsert_plain_record(connection, "runner_dispatch_leases", settled_lease)
+                receipt = RunnerCompletionReceiptV1(
+                    id=receipt_id,
+                    lease_id=lease.id,
+                    run_id=run.id,
+                    command_id=request.command_id,
+                    request_hash=request_hash,
+                    terminal_status="cancelled",
+                    created_at=now,
+                )
+                self._upsert_plain_record(connection, "runner_completion_receipts", receipt)
+                self._append_agent_run_events(
+                    connection,
+                    run.id,
+                    [
+                        (
+                            "runner_node_cancellation_acknowledged",
+                            {
+                                "runner_id": runner_id,
+                                "lease_id": lease.id,
+                                "node_id": cancelled_node.node_id,
+                            },
+                        )
+                    ],
+                )
+                return run
+            dispatch_row = connection.execute(
+                "SELECT * FROM run_dispatch_receipts WHERE operation_key = ?",
+                (lease.operation_key,),
+            ).fetchone()
+            run_row = connection.execute(
+                "SELECT payload FROM agent_runs WHERE id = ?",
+                (lease.run_id,),
+            ).fetchone()
+            if dispatch_row is None or run_row is None:
+                raise RunnerDispatchConflict("runner_dispatch_not_found")
+            dispatch = self._decode_run_dispatch_row(dispatch_row)
+            run = AgentRun.model_validate_json(run_row["payload"])
+            if (
+                run.status is not AgentRunStatus.CANCELLED
+                or dispatch.state is not RunDispatchState.STARTED
+                or dispatch.process_epoch != lease.id
+            ):
+                raise RunnerDispatchConflict("runner_dispatch_state_conflict")
+            settled_dispatch = dispatch.model_copy(
+                update={"state": RunDispatchState.SETTLED, "updated_at": now}
+            )
+            connection.execute(
+                """
+                UPDATE run_dispatch_receipts
+                SET state = ?, payload = ?, updated_at = ?
+                WHERE operation_key = ? AND state = ? AND process_epoch = ?
+                """,
+                (
+                    RunDispatchState.SETTLED.value,
+                    settled_dispatch.model_dump_json(),
+                    now.isoformat(),
+                    dispatch.operation_key,
+                    RunDispatchState.STARTED.value,
+                    lease.id,
+                ),
+            )
+            settled_lease = lease.model_copy(
+                update={
+                    "status": RunnerDispatchLeaseStatus.SETTLED,
+                    "updated_at": now,
+                    "settled_at": now,
+                }
+            )
+            self._upsert_plain_record(connection, "runner_dispatch_leases", settled_lease)
+            receipt = RunnerCompletionReceiptV1(
+                id=receipt_id,
+                lease_id=lease.id,
+                run_id=run.id,
+                command_id=request.command_id,
+                request_hash=request_hash,
+                terminal_status="cancelled",
+                created_at=now,
+            )
+            self._upsert_plain_record(connection, "runner_completion_receipts", receipt)
+            self._append_agent_run_events(
+                connection,
+                run.id,
+                [
+                    (
+                        "runner_cancellation_acknowledged",
+                        {"runner_id": runner_id, "lease_id": lease.id},
+                    ),
+                    (
+                        "run_dispatch_settled",
+                        {
+                            "operation_key": dispatch.operation_key,
+                            "operation_kind": dispatch.operation_kind,
+                            "generation": dispatch.generation,
+                            "attempt_count": dispatch.attempt_count,
+                        },
+                    ),
+                ],
+            )
+            return run
 
     def get_team(self, team_id: str) -> Team | None:
         return self._get("teams", team_id, Team)
@@ -16434,7 +19470,7 @@ class SQLiteStore:
 
     def search(
         self,
-        query: str,
+        query: str | None,
         allowed_scopes: set[Scope],
         workspace_id: str | None = None,
         project_id: str | None = None,
@@ -16444,9 +19480,12 @@ class SQLiteStore:
         result_types: set[str] | None = None,
         allowed_record_ids: set[str] | None = None,
         agent_context: bool = False,
+        memory_filter: MemorySearchFilter | None = None,
+        result_filter: Callable[[SearchResult, MemoryItem | UserMemoryItem | None, sqlite3.Connection], bool] | None = None,
+        memory_types: set[str] | None = None,
     ) -> list[SearchResult]:
-        needle = query.strip()
-        if not needle or not allowed_scopes:
+        needle = query.strip() if query is not None else ""
+        if (not needle and not (query is None and memory_filter is not None)) or not allowed_scopes or max_results <= 0:
             return []
 
         scope_values = [s.value for s in allowed_scopes]
@@ -16462,34 +19501,22 @@ class SQLiteStore:
                 return []
         if allowed_record_ids is not None and not allowed_record_ids:
             return []
+        if memory_types is not None and not memory_types:
+            return []
 
 
-        with self._connect() as connection:
-            fts_rows = self._fts_match(
-                connection,
-                needle,
-                scope_values,
-                placeholders,
-                allowed_collections,
-                allowed_record_ids,
-                workspace_id,
-                project_id,
-                user_id,
-                agent_context,
-            )
-            if not fts_rows:
-                fts_rows = self._fts_like_fallback(
-                    connection,
-                    needle,
-                    scope_values,
-                    placeholders,
-                    allowed_collections,
-                    allowed_record_ids,
-                    workspace_id,
-                    project_id,
-                    user_id,
-                    agent_context,
+        with closing(self._read_connect()) as connection, connection:
+            connection.execute("BEGIN")
+            with self._fts_lock:
+                fts_rows = self._fts_match(
+                    connection, needle, scope_values, placeholders, allowed_collections, allowed_record_ids,
+                    workspace_id, project_id, user_id, agent_context, memory_filter, memory_types,
                 )
+                if not fts_rows:
+                    fts_rows = self._fts_like_fallback(
+                        connection, needle, scope_values, placeholders, allowed_collections, allowed_record_ids,
+                        workspace_id, project_id, user_id, agent_context, memory_filter, memory_types,
+                    )
             vec_rows = self._vec_search(
                 connection,
                 needle,
@@ -16501,195 +19528,207 @@ class SQLiteStore:
                 project_id,
                 user_id,
                 agent_context,
-            )
+                memory_filter,
+                memory_types,
+            ) if needle else []
 
-        if allowed_collections is not None:
-            fts_rows = [row for row in fts_rows if row["collection"] in allowed_collections]
-            vec_rows = [row for row in vec_rows if row["collection"] in allowed_collections]
-        if allowed_record_ids is not None:
-            fts_rows = [row for row in fts_rows if row["record_id"] in allowed_record_ids]
-            vec_rows = [row for row in vec_rows if row["record_id"] in allowed_record_ids]
+            if allowed_collections is not None:
+                fts_rows = [row for row in fts_rows if row["collection"] in allowed_collections]
+                vec_rows = [row for row in vec_rows if row["collection"] in allowed_collections]
+            if allowed_record_ids is not None:
+                fts_rows = [row for row in fts_rows if row["record_id"] in allowed_record_ids]
+                vec_rows = [row for row in vec_rows if row["record_id"] in allowed_record_ids]
 
-        rows = self._rrf_merge(fts_rows, vec_rows)
+            rows = self._rrf_merge(fts_rows, vec_rows)
 
-        if not rows:
-            return []
+            if not rows:
+                return []
 
-        results: list[SearchResult] = []
-        threads_by_id: dict[str, ChatThread] | None = None
-        tasks_by_id: dict[str, Task] | None = None
+            results: list[SearchResult] = []
+            for row in rows:
+                previous_count = len(results)
+                collection = row["collection"]
+                record_id = row["record_id"]
+                row_workspace_id = row["workspace_id"] or None
+                row_project_id = row["project_id"] or None
+                row_user_id = row["user_id"] or None
 
-        for row in rows:
-            collection = row["collection"]
-            record_id = row["record_id"]
-            row_workspace_id = row["workspace_id"] or None
-            row_project_id = row["project_id"] or None
-            row_user_id = row["user_id"] or None
-
-            if collection == "chat_messages":
-                if threads_by_id is None:
-                    threads_by_id = {thread.id: thread for thread in self.chat_threads}
-                msg = self._get("chat_messages", record_id, ChatMessage)
-                if msg is None:
-                    continue
-                thread = threads_by_id.get(msg.thread_id)
-                if (
-                    thread is None
-                    or thread.status != "active"
-                    or not self._thread_matches(thread, workspace_id, project_id)
-                ):
-                    continue
-                if msg.scope == Scope.PRIVATE and (
-                    user_id is None or thread is None or thread.user_id != user_id
-                ):
-                    continue
-                results.append(
-                    SearchResult(
-                        id=msg.id,
-                        result_type="chat_message",
-                        title="对话记录",
-                        summary=msg.content,
-                        scope=msg.scope,
-                        sources=msg.sources,
-                        created_at=msg.created_at,
+                if collection == "chat_messages":
+                    msg = self._get_in_transaction(connection, "chat_messages", record_id, ChatMessage)
+                    if msg is None:
+                        continue
+                    thread = self._get_in_transaction(connection, "chat_threads", msg.thread_id, ChatThread)
+                    if (
+                        thread is None
+                        or thread.status != "active"
+                        or not self._thread_matches(thread, workspace_id, project_id)
+                    ):
+                        continue
+                    if msg.scope == Scope.PRIVATE and (
+                        user_id is None or thread is None or thread.user_id != user_id
+                    ):
+                        continue
+                    results.append(
+                        SearchResult(
+                            id=msg.id,
+                            result_type="chat_message",
+                            title="对话记录",
+                            summary=msg.content,
+                            scope=msg.scope,
+                            sources=msg.sources,
+                            created_at=msg.created_at,
+                        )
                     )
-                )
 
-            elif collection == "activity_logs":
-                if not self._project_fields_match(row_workspace_id, row_project_id, workspace_id, project_id):
-                    continue
-                log = self._get("activity_logs", record_id, ActivityLog)
-                if log is None:
-                    continue
-                if not self.activity_log_visible_to_user(log, user_id):
-                    continue
-                results.append(
-                    SearchResult(
-                        id=log.id,
-                        result_type="activity_log",
-                        title=log.title,
-                        summary=log.summary,
-                        scope=log.scope,
-                        created_at=log.created_at,
+                elif collection == "activity_logs":
+                    if not self._project_fields_match(row_workspace_id, row_project_id, workspace_id, project_id):
+                        continue
+                    log = self._get_in_transaction(connection, "activity_logs", record_id, ActivityLog)
+                    if log is None:
+                        continue
+                    if not self.activity_log_visible_to_user(log, user_id):
+                        continue
+                    results.append(
+                        SearchResult(
+                            id=log.id,
+                            result_type="activity_log",
+                            title=log.title,
+                            summary=log.summary,
+                            scope=log.scope,
+                            created_at=log.created_at,
+                        )
                     )
-                )
 
-            elif collection == "blackboard_posts":
-                post = self._get("blackboard_posts", record_id, BlackboardPost)
-                if post is None or post.post_type != BlackboardPostType.EVIDENCE:
-                    continue
-                if threads_by_id is None:
-                    threads_by_id = {thread.id: thread for thread in self.chat_threads}
-                if tasks_by_id is None:
-                    tasks_by_id = {task.id: task for task in self.tasks}
-                task = tasks_by_id.get(post.task_id)
-                thread = threads_by_id.get(task.thread_id) if task else None
-                if not self._thread_matches(thread, workspace_id, project_id):
-                    continue
-                results.append(
-                    SearchResult(
-                        id=post.id,
-                        result_type="blackboard_evidence",
-                        title=post.title,
-                        summary=post.content,
-                        scope=post.scope,
-                        sources=post.sources,
-                        project_id=thread.project_id if thread else None,
-                        created_at=post.created_at,
+                elif collection == "blackboard_posts":
+                    post = self._get_in_transaction(connection, "blackboard_posts", record_id, BlackboardPost)
+                    if post is None:
+                        continue
+                    result_type = f"blackboard_{post.post_type.value}"
+                    if result_types is None and post.post_type != BlackboardPostType.EVIDENCE:
+                        continue
+                    if result_types is not None and result_type not in result_types:
+                        continue
+                    task = self._get_in_transaction(connection, "tasks", post.task_id, Task)
+                    thread = self._get_in_transaction(connection, "chat_threads", task.thread_id, ChatThread) if task else None
+                    if (not self._thread_matches(thread, workspace_id, project_id)
+                            or thread is None or thread.status != 'active'
+                            or (post.scope is Scope.PRIVATE and thread.user_id != user_id)):
+                        continue
+                    results.append(
+                        SearchResult(
+                            id=post.id,
+                            result_type=result_type,
+                            title=post.title,
+                            summary=post.content,
+                            scope=post.scope,
+                            sources=post.sources,
+                            project_id=thread.project_id if thread else None,
+                            created_at=post.created_at,
+                        )
                     )
-                )
 
-            elif collection == "memory_items":
-                if not self._project_fields_match(row_workspace_id, row_project_id, workspace_id, project_id):
-                    continue
-                item = self._get("memory_items", record_id, MemoryItem)
-                if item is None:
-                    continue
-                if not self.memory_item_visible_to_user(item, user_id):
-                    continue
-                if agent_context and not self.memory_item_eligible_for_agent(item):
-                    continue
-                if (
-                    item.scope == Scope.PROJECT
-                    and user_id
-                    and item.project_id
-                    and not self.user_can_access_project(user_id, item.project_id)
-                ):
-                    continue
-                if (
-                    item.team_id
-                    and user_id
-                    and item.scope in (Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE)
-                    and not self._user_in_team(user_id, item.team_id)
-                ):
-                    continue
-                results.append(
-                    SearchResult(
-                        id=item.id,
-                        result_type="memory_item",
-                        title=item.title,
-                        summary=item.summary,
-                        scope=item.scope,
-                        sources=item.sources,
-                        project_id=item.project_id,
-                        team_id=item.team_id,
-                        created_at=item.created_at,
+                elif collection == "memory_items":
+                    if not self._project_fields_match(row_workspace_id, row_project_id, workspace_id, project_id):
+                        continue
+                    item = self._get_in_transaction(connection, "memory_items", record_id, MemoryItem)
+                    if item is None:
+                        continue
+                    if memory_types is not None and item.memory_type not in memory_types:
+                        continue
+                    if not self.memory_item_visible_to_user(item, user_id, connection=connection):
+                        continue
+                    if agent_context and not self.memory_item_eligible_for_agent(item):
+                        continue
+                    if (
+                        item.scope == Scope.PROJECT
+                        and user_id
+                        and item.project_id
+                        and not self.user_can_access_project(user_id, item.project_id, connection=connection)
+                    ):
+                        continue
+                    if (
+                        item.team_id
+                        and user_id
+                        and item.scope in (Scope.TEAM_ACCEPTED, Scope.TEAM_CANDIDATE)
+                        and not self._user_in_team(user_id, item.team_id, connection=connection)
+                    ):
+                        continue
+                    results.append(
+                        SearchResult(
+                            id=item.id,
+                            result_type="memory_item",
+                            title=item.title,
+                            summary=item.summary,
+                            scope=item.scope,
+                            sources=item.sources,
+                            project_id=item.project_id,
+                            team_id=item.team_id,
+                            created_at=item.created_at,
+                        )
                     )
-                )
 
-            elif collection == "user_memory_items":
-                if Scope.PRIVATE not in allowed_scopes or user_id is None:
-                    continue
-                if row_user_id != user_id:
-                    continue
-                if not self._project_fields_match(row_workspace_id, row_project_id, workspace_id, project_id):
-                    continue
-                item = self._get("user_memory_items", record_id, UserMemoryItem)
-                if item is None or item.status != "active":
-                    continue
-                results.append(
-                    SearchResult(
-                        id=item.id,
-                        result_type="user_memory_item",
-                        title=item.title,
-                        summary=item.summary,
-                        scope=item.scope,
-                        sources=item.sources,
-                        project_id=item.project_id,
-                        created_at=item.created_at,
+                elif collection == "user_memory_items":
+                    if Scope.PRIVATE not in allowed_scopes or user_id is None:
+                        continue
+                    if row_user_id != user_id:
+                        continue
+                    if not self._project_fields_match(row_workspace_id, row_project_id, workspace_id, project_id):
+                        continue
+                    item = self._get_in_transaction(connection, "user_memory_items", record_id, UserMemoryItem)
+                    if item is None or item.status != "active":
+                        continue
+                    if memory_types is not None and item.memory_type not in memory_types:
+                        continue
+                    results.append(
+                        SearchResult(
+                            id=item.id,
+                            result_type="user_memory_item",
+                            title=item.title,
+                            summary=item.summary,
+                            scope=item.scope,
+                            sources=item.sources,
+                            project_id=item.project_id,
+                            created_at=item.created_at,
+                        )
                     )
-                )
 
-            elif collection == "documents":
-                if Scope.PRIVATE not in allowed_scopes or user_id is None:
-                    continue
-                if row_user_id != user_id:
-                    continue
-                if not self._project_fields_match(row_workspace_id, row_project_id, workspace_id, project_id):
-                    continue
-                document = self._get("documents", record_id, DocumentRecord)
-                if document is None:
-                    continue
-                results.append(
-                    SearchResult(
-                        id=document.id,
-                        result_type="document",
-                        title=document.title,
-                        summary=document.text[:500],
-                        scope=Scope.PRIVATE,
-                        sources=[document.source],
-                        project_id=document.project_id,
-                        created_at=document.created_at,
+                elif collection == "documents":
+                    if Scope.PRIVATE not in allowed_scopes or user_id is None:
+                        continue
+                    if row_user_id != user_id:
+                        continue
+                    if not self._project_fields_match(row_workspace_id, row_project_id, workspace_id, project_id):
+                        continue
+                    document = self._get_in_transaction(connection, "documents", record_id, DocumentRecord)
+                    if document is None:
+                        continue
+                    results.append(
+                        SearchResult(
+                            id=document.id,
+                            result_type="document",
+                            title=document.title,
+                            summary=document.text[:500],
+                            scope=Scope.PRIVATE,
+                            sources=[document.source],
+                            project_id=document.project_id,
+                            created_at=document.created_at,
+                        )
                     )
-                )
 
-        # Filter record kinds before applying the result/character budget so
-        # unrelated same-scope records cannot crowd out strict memory results.
-        if result_types is not None:
-            results = [result for result in results if result.result_type in result_types]
-        if allowed_record_ids is not None:
-            results = [result for result in results if result.id in allowed_record_ids]
-        return self._apply_budget(results, max_results, max_chars)
+                if len(results) > previous_count:
+                    memory = item if collection in {'memory_items', 'user_memory_items'} else None
+                    if result_filter is not None and not result_filter(results[-1], memory, connection):
+                        results.pop()
+                    elif len(results) >= max_results:
+                        break
+
+            # Filter record kinds before applying the result/character budget so
+            # unrelated same-scope records cannot crowd out strict memory results.
+            if result_types is not None:
+                results = [result for result in results if result.result_type in result_types]
+            if allowed_record_ids is not None:
+                results = [result for result in results if result.id in allowed_record_ids]
+            return self._apply_budget(results, max_results, max_chars)
 
     @staticmethod
     def _apply_budget(results: list[SearchResult], max_results: int, max_chars: int) -> list[SearchResult]:
@@ -16745,6 +19784,21 @@ class SQLiteStore:
         """
 
     @staticmethod
+    def _memory_type_candidate_clause(alias: str, memory_types: set[str] | None) -> tuple[str, list[str]]:
+        if alias not in {'records_fts', 'rf'}:
+            raise ValueError('unsupported_search_alias')
+        if memory_types is None:
+            return '', []
+        types = sorted(memory_types)
+        return f"""AND EXISTS (
+            SELECT 1 FROM records typed_memory
+            WHERE typed_memory.collection = {alias}.collection AND typed_memory.id = {alias}.record_id
+              AND typed_memory.collection IN ('memory_items', 'user_memory_items')
+              AND COALESCE(json_extract(typed_memory.payload, '$.memory_type'), 'note')
+                  IN ({','.join('?' for _ in types) or 'NULL'})
+        )""", types
+
+    @staticmethod
     def _fts_match(
         connection: sqlite3.Connection,
         needle: str,
@@ -16756,6 +19810,8 @@ class SQLiteStore:
         project_id: str | None = None,
         user_id: str | None = None,
         agent_context: bool = False,
+        memory_filter: MemorySearchFilter | None = None,
+        memory_types: set[str] | None = None,
     ) -> list[sqlite3.Row]:
         if not _can_use_fts_match(needle):
             return []
@@ -16782,7 +19838,9 @@ class SQLiteStore:
             tenant_clauses.append("AND (scope != ? OR user_id = ?)")
             tenant_values.extend([Scope.PRIVATE.value, user_id])
         tenant_clause = " ".join(tenant_clauses)
-        agent_context_clause = SQLiteStore._agent_context_candidate_clause("records_fts", agent_context)
+        agent_context_clause = SQLiteStore._agent_context_candidate_clause("records_fts", agent_context and memory_filter is None)
+        filter_clause, filter_values = memory_filter.sql("records_fts") if memory_filter else ("", [])
+        type_clause, type_values = SQLiteStore._memory_type_candidate_clause('records_fts', memory_types)
         try:
             return connection.execute(
                 f"""
@@ -16795,10 +19853,12 @@ class SQLiteStore:
                   {record_id_clause}
                   {tenant_clause}
                   {agent_context_clause}
-                ORDER BY score
+                  {filter_clause}
+                  {type_clause}
+                ORDER BY rank
                 LIMIT 200
                 """,
-                [fts_query, *scope_values, *collection_values, *record_id_values, *tenant_values],
+                [fts_query, *scope_values, *collection_values, *record_id_values, *tenant_values, *filter_values, *type_values],
             ).fetchall()
         except sqlite3.OperationalError:
             return []
@@ -16815,8 +19875,12 @@ class SQLiteStore:
         project_id: str | None = None,
         user_id: str | None = None,
         agent_context: bool = False,
+        memory_filter: MemorySearchFilter | None = None,
+        memory_types: set[str] | None = None,
     ) -> list[sqlite3.Row]:
         like_pattern = f"%{needle}%"
+        if len(like_pattern.encode()) > _SQLITE_MAX_LIKE_PATTERN_BYTES:
+            return []
         collection_values = sorted(allowed_collections) if allowed_collections is not None else []
         collection_clause = ""
         if collection_values:
@@ -16839,7 +19903,9 @@ class SQLiteStore:
             tenant_clauses.append("AND (scope != ? OR user_id = ?)")
             tenant_values.extend([Scope.PRIVATE.value, user_id])
         tenant_clause = " ".join(tenant_clauses)
-        agent_context_clause = SQLiteStore._agent_context_candidate_clause("records_fts", agent_context)
+        agent_context_clause = SQLiteStore._agent_context_candidate_clause("records_fts", agent_context and memory_filter is None)
+        filter_clause, filter_values = memory_filter.sql("records_fts") if memory_filter else ("", [])
+        type_clause, type_values = SQLiteStore._memory_type_candidate_clause('records_fts', memory_types)
         return connection.execute(
             f"""
             SELECT collection, record_id, scope, workspace_id, project_id,
@@ -16851,9 +19917,12 @@ class SQLiteStore:
               {record_id_clause}
               {tenant_clause}
               {agent_context_clause}
+              {filter_clause}
+              {type_clause}
             LIMIT 200
             """,
-            [like_pattern, like_pattern, *scope_values, *collection_values, *record_id_values, *tenant_values],
+            [like_pattern, like_pattern, *scope_values, *collection_values, *record_id_values, *tenant_values,
+             *filter_values, *type_values],
         ).fetchall()
 
     @staticmethod
@@ -16868,6 +19937,8 @@ class SQLiteStore:
         project_id: str | None = None,
         user_id: str | None = None,
         agent_context: bool = False,
+        memory_filter: MemorySearchFilter | None = None,
+        memory_types: set[str] | None = None,
     ) -> list[dict]:
         from agentmesh.embedding import EMBEDDING_ENABLED, cosine_similarity, deserialize_embedding, embed_text
 
@@ -16898,7 +19969,9 @@ class SQLiteStore:
             tenant_clauses.append("AND (rf.scope != ? OR rf.user_id = ?)")
             tenant_values.extend([Scope.PRIVATE.value, user_id])
         tenant_clause = " ".join(tenant_clauses)
-        agent_context_clause = SQLiteStore._agent_context_candidate_clause("rf", agent_context)
+        agent_context_clause = SQLiteStore._agent_context_candidate_clause("rf", agent_context and memory_filter is None)
+        filter_clause, filter_values = memory_filter.sql("rf") if memory_filter else ("", [])
+        type_clause, type_values = SQLiteStore._memory_type_candidate_clause('rf', memory_types)
         rows = connection.execute(
             f"""
             SELECT rv.collection, rv.record_id, rv.embedding,
@@ -16914,6 +19987,8 @@ class SQLiteStore:
               {collection_clause}
               {record_id_clause}
               {agent_context_clause}
+              {filter_clause}
+              {type_clause}
             """,
             [
                 *scope_values,
@@ -16921,6 +19996,8 @@ class SQLiteStore:
                 *tenant_values,
                 *collection_values,
                 *record_id_values,
+                *filter_values,
+                *type_values,
             ],
         ).fetchall()
         scored: list[tuple[float, dict]] = []
@@ -16977,8 +20054,10 @@ class SQLiteStore:
             return False
         return not (project_id is not None and item_project_id != project_id)
 
-    def user_can_access_project(self, user_id: str, project_id: str) -> bool:
-        project = self.get_project(project_id)
+    def user_can_access_project(self, user_id: str, project_id: str,
+                                *, connection: sqlite3.Connection | None = None) -> bool:
+        project = (self._get_in_transaction(connection, "projects", project_id, Project) if connection is not None
+                   else self.get_project(project_id))
         if project is None:
             return False
         if not project.member_ids:
@@ -17014,10 +20093,12 @@ class SQLiteStore:
             return skill.user_id == user.id or skill.status == SkillStatus.ACTIVE
         return skill.user_id == user.id
 
-    def memory_item_visible_to_user(self, item: MemoryItem, user_id: str | None) -> bool:
+    def memory_item_visible_to_user(self, item: MemoryItem, user_id: str | None,
+                                    *, connection: sqlite3.Connection | None = None) -> bool:
         if user_id is None:
             return item.scope != Scope.PRIVATE
-        user = self.get_user(user_id)
+        user = (self._get_in_transaction(connection, "users", user_id, User) if connection is not None
+                else self.get_user(user_id))
         if user is None:
             return False
         if item.workspace_id is not None and item.workspace_id != user.workspace_id:
@@ -17025,7 +20106,7 @@ class SQLiteStore:
         if item.scope == Scope.PRIVATE:
             return item.owner_user_id == user.id
         if item.scope == Scope.PROJECT:
-            return item.project_id is not None and self.user_can_access_project(user.id, item.project_id)
+            return item.project_id is not None and self.user_can_access_project(user.id, item.project_id, connection=connection)
         if item.scope == Scope.TEAM_CANDIDATE:
             if item.owner_user_id == user.id:
                 return True
@@ -17044,7 +20125,7 @@ class SQLiteStore:
                     for action in (ACTION_ACCEPT_TEAM_MEMORY, ACTION_MANAGE_TEAM_MEMORY)
                 ):
                     return False
-        return item.team_id is None or self._user_in_team(user.id, item.team_id)
+        return item.team_id is None or self._user_in_team(user.id, item.team_id, connection=connection)
 
     def activity_log_visible_to_user(self, log: ActivityLog, user_id: str | None) -> bool:
         if user_id is None:
@@ -17060,10 +20141,17 @@ class SQLiteStore:
             return self.user_can_access_project(user.id, log.project_id)
         return True
 
-    def _user_in_team(self, user_id: str, team_id: str) -> bool:
-        user = self.get_user(user_id)
+    def _user_in_team(self, user_id: str, team_id: str,
+                      *, connection: sqlite3.Connection | None = None) -> bool:
+        user = (self._get_in_transaction(connection, "users", user_id, User) if connection is not None
+                else self.get_user(user_id))
         if user and user.role in (UserRole.ADMIN, UserRole.TEAM_LEAD):
             return True
+        if connection is not None:
+            return connection.execute("""
+                SELECT 1 FROM records WHERE collection = 'team_memberships'
+                  AND json_extract(payload, '$.user_id') = ? AND json_extract(payload, '$.team_id') = ? LIMIT 1
+            """, (user_id, team_id)).fetchone() is not None
         memberships = self.list_team_memberships(team_id=team_id, user_id=user_id)
         return len(memberships) > 0
 

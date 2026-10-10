@@ -34,6 +34,9 @@ from agentmesh.deepsearch.contracts import (
 )
 from agentmesh.deepsearch.finalization import DeepSearchFinalizer
 from agentmesh.deepsearch.planning import build_deepsearch_plan_snapshot, plan_content_hash
+from agentmesh.deepsearch.reporting import build_deterministic_evidence_digest
+from agentmesh.memory_context.request_budget import ContextRequestError, RequestBudgetModel
+from agentmesh.memory_context.service import MemoryContextError
 from agentmesh.models import (
     AgentPlanningMode,
     AgentRun,
@@ -437,10 +440,10 @@ def test_runtime_injects_deepsearch_finalizer_without_standard_synthesis(
 ) -> None:
     repository = SQLiteStore(tmp_path / "deepsearch-runtime-finalizer.sqlite3")
     runtime = AgentRuntimeService(repository, model=ScriptedModel([]), enabled=True)
-    plan, run = _active_pair()
+    run, plan = _seed_persisted_finalizer(repository, suffix='runtime_finalizer')
     plan.status = SkillPlanStatus.APPROVED
     captured: dict[str, Any] = {}
-    model_calls: list[tuple[str, _BudgetedDeepSearchModel]] = []
+    model_calls: list[tuple[str, RequestBudgetModel]] = []
 
     class RecordingSynthesisService:
         async def synthesize(self, **kwargs: Any) -> str:
@@ -515,9 +518,44 @@ def test_runtime_injects_deepsearch_finalizer_without_standard_synthesis(
     assert synthesis_result == "synthesis-result"
     assert review_result == "review-result"
     assert [stage for stage, _model in model_calls] == ["synthesis", "review"]
-    assert all(isinstance(model, _BudgetedDeepSearchModel) for _stage, model in model_calls)
-    assert all(model._scope == "standard" for _stage, model in model_calls)
-    assert all(not model._request_scoped for _stage, model in model_calls)
+    assert all(isinstance(model, RequestBudgetModel) for _stage, model in model_calls)
+    assert all(isinstance(model._model, _BudgetedDeepSearchModel) for _stage, model in model_calls)
+    assert all(model._model._scope == "standard" for _stage, model in model_calls)
+    assert all(not model._model._request_scoped for _stage, model in model_calls)
+
+
+@pytest.mark.parametrize('stage', ['synthesis', 'review'])
+@pytest.mark.parametrize('error_type,code', [(ContextRequestError, 'context_request_budget_exceeded'),
+                                           (MemoryContextError, 'model_handoff_not_authorized')])
+def test_model_admission_refusal_terminates_finalization_without_digest_or_report(tmp_path, stage, error_type, code):
+    repository = SQLiteStore(tmp_path / 'admission-finalization.sqlite3')
+    run, plan = _seed_persisted_finalizer(repository, suffix='admission')
+    calls = []
+
+    async def synthesize(run, plan, _requirement, _graph, _results, manifest, artifacts, revision, _prior):
+        calls.append('synthesis')
+        if stage == 'synthesis':
+            raise error_type(code)
+        return build_deterministic_evidence_digest(run=run, plan=plan, manifest=manifest,
+            evidence_artifacts=artifacts, revision_count=revision).model_copy(update={'synthesis_mode': 'model'})
+
+    async def review(*_args):
+        calls.append('review')
+        raise error_type(code)
+
+    try:
+        outcome = asyncio.run(DeepSearchFinalizer(repository, synthesis_runner=synthesize, review_runner=review,
+            clock=lambda: NOW + timedelta(minutes=6)).finalize(run_id=run.id, plan_id=plan.id,
+            expected_plan_version=plan.version))
+        assert outcome.run.status is AgentRunStatus.FAILED
+        assert outcome.run.error_code == code
+        assert not outcome.run.output_text and outcome.plan.report_artifact_id is None
+        assert outcome.plan.review_outcomes == []
+        assert not any(':digest-v' in item.logical_operation_key
+                       for item in outcome.run.deepsearch_budget.reservations)
+        assert calls == (['synthesis'] if stage == 'synthesis' else ['synthesis', 'review'])
+    finally:
+        repository.close()
 
 
 def test_real_store_deterministic_digest_is_published_as_sealed_partial(tmp_path) -> None:

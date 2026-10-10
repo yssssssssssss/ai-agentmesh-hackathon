@@ -99,8 +99,8 @@ export const collaborationApi = {
   },
   taskDetail: (taskId: string) =>
     apiRequest<TaskDetail>(`/api/blackboard/tasks/${encodeURIComponent(taskId)}`),
-  marketStatus: () => apiRequest<MarketStatus>('/api/market/status'),
-  marketBoard: () => apiRequest<MarketBoard>('/api/market/board'),
+  marketStatus: (projectId: string) => apiRequest<MarketStatus>(`/api/market/status?project_id=${encodeURIComponent(projectId)}`),
+  marketBoard: (projectId: string) => apiRequest<MarketBoard>(`/api/market/board?project_id=${encodeURIComponent(projectId)}`),
   participation: () => apiRequest<components['schemas']['MarketParticipation']>('/api/market/participation'),
   setParticipation: (enabled: boolean) =>
     apiRequest<components['schemas']['MarketParticipation']>('/api/market/participation', {

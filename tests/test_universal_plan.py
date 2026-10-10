@@ -19,6 +19,7 @@ from agentmesh.models import (
     CandidateSnapshotV1,
     DeliverableAtomV1,
     EvidenceAtomV1,
+    Project,
     RuntimeToolCallClaimV1,
     ScenarioOutputAtomV1,
     SkillCandidate,
@@ -38,6 +39,7 @@ from agentmesh.models import (
     SkillSynthesisResult,
     Source,
     ToolDefinition,
+    User,
 )
 from agentmesh.skill_runtime.finalization import StandardPlanFinalizer
 from agentmesh.skill_runtime.plan_validation import PlanValidationError
@@ -54,6 +56,13 @@ from agentmesh.store import SQLiteStore
 from agentmesh.task_routing.catalog import load_universal_task_catalog
 from agentmesh.task_routing.contracts import ScenarioRoute, TaskRoute, TaskRoutingResult
 from agentmesh.tool_runtime.factory import AgentMeshToolFactory
+
+
+def _finalization_owner(repository: SQLiteStore) -> None:
+    repository.save_user(User(id='usr_test', workspace_id='ws_test', default_project_id='prj_test',
+                              name='Test owner', role='user', personal_agent_id='agent_test'))
+    repository.save_project(Project(id='prj_test', workspace_id='ws_test', name='Test project',
+                                    goal='Test finalization', member_ids=['usr_test']))
 
 
 def _candidate(tmp_path: Path, index: int) -> tuple[SkillDefinition, SkillCandidate, CandidateIdentityV1]:
@@ -373,6 +382,7 @@ def test_universal_result_coverage_uses_delivered_kinds_and_scenario_output_ids(
 
 def test_universal_finalizer_uses_delivered_output_kinds_for_completion(tmp_path: Path) -> None:
     repository = SQLiteStore(tmp_path / "universal-finalization.sqlite3")
+    _finalization_owner(repository)
     skill, candidate, identity = _candidate(tmp_path, 1)
     del skill
     atom = DeliverableAtomV1(
@@ -640,6 +650,7 @@ def test_universal_web_tool_output_is_sealed_as_evidence(tmp_path: Path) -> None
 
 def test_universal_finalizer_publishes_valid_subset_as_partial(tmp_path: Path) -> None:
     repository = SQLiteStore(tmp_path / "universal-partial-finalization.sqlite3")
+    _finalization_owner(repository)
     _skill_one, candidate_one, identity_one = _candidate(tmp_path, 1)
     _skill_two, candidate_two, identity_two = _candidate(tmp_path, 2)
     research_atom = DeliverableAtomV1(

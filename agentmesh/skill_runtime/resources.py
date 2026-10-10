@@ -515,6 +515,11 @@ def build_skill_resource_tool(
         ):
             raise PermissionError("Agent run project access was revoked")
         run = repository.get_agent_run(ctx.context.run_id)
+        expected_execution_hash = None
+        if run is not None and run.planning_mode is not AgentPlanningMode.DEEPSEARCH:
+            from agentmesh.skill_runtime.sources import plan_run_execution_identity
+
+            expected_execution_hash = ctx.context.run_execution_hash or plan_run_execution_identity(run)
         raw_call_id = getattr(ctx, "tool_call_id", None)
         call_ordinal = ctx.context.tool_call_count
         ctx.context.tool_call_count += 1
@@ -572,7 +577,8 @@ def build_skill_resource_tool(
                         skill=skill,
                         tool_call_id=raw_call_id,
                     )
-                claimed = repository.claim_runtime_tool_call(claim)
+                claimed = repository.claim_runtime_tool_call(claim, expected_execution_hash=expected_execution_hash,
+                    expected_context=ctx.context if ctx.context.run_execution_hash is not None else None)
                 if not claimed:
                     raise RuntimeToolCallConflict("tool_call_already_claimed")
         except BaseException:

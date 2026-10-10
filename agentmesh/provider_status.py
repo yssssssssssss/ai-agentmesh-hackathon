@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -10,6 +11,95 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ProviderMode = Literal["real", "fallback"]
+ProviderDataMode = Literal["real", "demo", "derived"]
+ProviderOutcome = Literal["success", "no_change", "insufficient_evidence", "blocked", "failed", "indeterminate"]
+
+
+def demo_mode_enabled() -> bool:
+    return os.getenv("AGENTMESH_DEMO_MODE", "").strip() == "1"
+
+
+class ProviderQueryError(RuntimeError):
+    """An unavailable query, with a stable public reason and no provider payload."""
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        requested_provider: str,
+        actual_provider: str | None = None,
+        outcome: ProviderOutcome = "blocked",
+    ) -> None:
+        messages = {
+            "demo_provider_disabled": "该数据源只提供演示样本，当前未启用演示模式。请配置真实数据源。",
+            "no_real_provider_configured": "尚未配置可用的真实数据源，未返回演示样本。",
+            "unverified_provider_result": "数据源未提供可验证的结果来源，本次查询未完成。",
+            "insufficient_evidence": "数据源没有返回足够的资料，暂时无法完成本次查询。",
+            "no_data_source_result": "数据源查询未返回可用结果，请检查数据源状态后重试。",
+        }
+        super().__init__(messages.get(reason, "数据源查询失败，请检查数据源状态后重试。"))
+        self.reason = reason
+        self.requested_provider = requested_provider
+        self.actual_provider = actual_provider
+        self.outcome = outcome
+
+    @property
+    def status_code(self) -> int:
+        return 503 if self.outcome == "blocked" else 502
+
+    def public_detail(self) -> dict[str, str | None]:
+        return {
+            "code": self.reason,
+            "message": str(self),
+            "outcome": self.outcome,
+            "requested_provider": self.requested_provider,
+            "actual_provider": self.actual_provider,
+        }
+
+
+def require_demo_provider(requested_provider: str, actual_provider: str) -> None:
+    if not demo_mode_enabled():
+        raise ProviderQueryError(
+            "demo_provider_disabled",
+            requested_provider=requested_provider,
+            actual_provider=actual_provider,
+        )
+
+
+def validate_query_result(
+    metadata: dict[str, str],
+    *,
+    requested_provider: str,
+    has_evidence: bool,
+) -> dict[str, str]:
+    """Accept evidence before it is persisted or used to complete a query."""
+    actual_provider = metadata.get("actual_provider")
+    data_mode = metadata.get("data_mode")
+    if actual_provider in {"mock", "local_metrics"}:
+        data_mode = "demo"
+    elif data_mode is None:
+        # Compatibility for existing real adapters; unlabelled demo fixtures stay demo.
+        if metadata.get("mode") == "real" and actual_provider:
+            data_mode = "real"
+        elif demo_mode_enabled():
+            data_mode = "demo"
+    if data_mode not in {"real", "demo", "derived"} or (not actual_provider and data_mode != "demo"):
+        raise ProviderQueryError(
+            "unverified_provider_result",
+            requested_provider=requested_provider,
+            actual_provider=actual_provider,
+        )
+    if data_mode == "demo":
+        require_demo_provider(requested_provider, actual_provider or requested_provider)
+    if not has_evidence or metadata.get("outcome", "success") != "success":
+        raise ProviderQueryError(
+            "insufficient_evidence",
+            requested_provider=requested_provider,
+            actual_provider=actual_provider,
+            outcome="insufficient_evidence",
+        )
+    return {**metadata, "data_mode": data_mode, "outcome": "success"}
+
 
 _SENSITIVE_ASSIGNMENT = re.compile(
     r"(?i)\b(api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|token|password|secret|credential|cookie)\b"
@@ -97,11 +187,15 @@ def provider_metadata(
     mode: ProviderMode,
     latency_ms: float,
     fallback_reason: str | None = None,
+    data_mode: ProviderDataMode = "real",
+    outcome: ProviderOutcome = "success",
 ) -> dict[str, str]:
     return {
         "requested_provider": requested_provider,
         "actual_provider": actual_provider,
         "mode": mode,
+        "data_mode": data_mode,
+        "outcome": outcome,
         "fallback_reason": redact_sensitive_text(fallback_reason or ""),
         "latency_ms": f"{max(0.0, latency_ms):.3f}",
     }

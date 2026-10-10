@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from agentmesh.agent_memory_binding import AgentMemoryBindingService
 from agentmesh.agent_registry import list_public_agents
+from agentmesh.automation.contracts import (
+    AutomationStatusV1,
+    ProjectInspectionReportV1,
+    ScheduledAgentTaskPageV1,
+    ScheduledOccurrenceV1,
+    ScheduledRunNowRequestV1,
+    ScheduledRunPageV1,
+)
+from agentmesh.automation.occurrences import OccurrenceRepository
+from agentmesh.automation.queries import InspectionRunQuery
+from agentmesh.automation.schedule_repository import ScheduleDefinitionError, ScheduleRepository
+from agentmesh.automation.schedules import ScheduleDefinitionService
+from agentmesh.automation.settings import automation_mode
 from agentmesh.model_registry import list_enabled_models, set_agent_model
 from agentmesh.models import (
     Agent,
@@ -31,12 +45,15 @@ from agentmesh.models import (
 )
 from agentmesh.o2 import O2RegistryAdapter
 from agentmesh.permissions import (
+    ACTION_MANAGE_PROJECT_TASKS,
     ACTION_MANAGE_PUBLIC_AGENT,
     ACTION_SYNC_O2,
     ensure_can_manage_agent,
     ensure_can_manage_agent_tools,
+    ensure_permission,
 )
 from agentmesh.routes.deps import create_audit_event, current_user, require_permission
+from agentmesh.runtime_admission import current_orchestration_admission
 from agentmesh.seed import AGENTS, bootstrap_state, list_agents
 from agentmesh.store import store
 from agentmesh.tools import list_agent_tools, list_enabled_tools, set_agent_tools, sync_o2_tools
@@ -218,18 +235,37 @@ def update_agent_tools(
     return ToolsResponse(items=result)
 
 
-@router.get("/agents/scheduled-tasks", response_model=ItemsResponse)
+@router.get("/agents/scheduled-tasks", response_model=ScheduledAgentTaskPageV1)
 def scheduled_agent_tasks(
-    _: User = Depends(require_permission(ACTION_MANAGE_PUBLIC_AGENT)),
-) -> ItemsResponse:
-    return ItemsResponse(items=list(reversed(store.scheduled_agent_task_definitions)))
+    project_id: str | None = Query(default=None, min_length=1, max_length=120),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    include_unvalidated: bool = Query(default=False),
+    user: User = Depends(current_user),
+) -> ScheduledAgentTaskPageV1:
+    try:
+        return ScheduleRepository(store).list_definitions(
+            user,
+            project_id=project_id,
+            page=page,
+            page_size=page_size,
+            include_unvalidated=include_unvalidated,
+        )
+    except ScheduleDefinitionError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
 
 
 @router.post("/agents/scheduled-tasks", response_model=ScheduledAgentTaskDefinition)
 def create_scheduled_agent_task(
     request: ScheduledAgentTaskCreateRequest,
-    user: User = Depends(require_permission(ACTION_MANAGE_PUBLIC_AGENT)),
+    user: User = Depends(current_user),
 ) -> ScheduledAgentTaskDefinition:
+    if request.project_id is not None:
+        try:
+            return ScheduleDefinitionService(store).create(request, user)
+        except ScheduleDefinitionError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.code) from error
+    ensure_permission(user, ACTION_MANAGE_PUBLIC_AGENT, store.permission_policy_rules)
     found = store.get_agent(request.agent_id) or next((item for item in AGENTS if item.id == request.agent_id), None)
     if found is None:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -248,14 +284,95 @@ def create_scheduled_agent_task(
     return definition
 
 
+def _inspection_runtime():
+    from agentmesh.routes.chat import agent
+
+    return agent.agent_runtime
+
+
+@router.get("/agents/scheduled-tasks/status", response_model=AutomationStatusV1)
+def schedule_status(request: Request, user: User = Depends(current_user)) -> AutomationStatusV1:
+    ensure_permission(user, ACTION_MANAGE_PROJECT_TASKS, store.permission_policy_rules)
+    runtime = _inspection_runtime()
+    coordinator = getattr(request.app.state, "automation_coordinator", None)
+    return AutomationStatusV1(
+        mode=automation_mode(),
+        runtime_available=bool(runtime and runtime.enabled),
+        running=bool(coordinator and coordinator.running),
+        last_tick_at=coordinator.last_tick_at if coordinator else None,
+        last_error_code=coordinator.last_error_code if coordinator else None,
+    )
+
+
+@router.post("/agents/scheduled-tasks/{definition_id}/run-now", response_model=ScheduledOccurrenceV1)
+def run_scheduled_inspection_now(
+    definition_id: str,
+    request: ScheduledRunNowRequestV1,
+    user: User = Depends(current_user),
+) -> ScheduledOccurrenceV1:
+    runtime = _inspection_runtime()
+    try:
+        with current_orchestration_admission().permit():
+            occurrence = OccurrenceRepository(store).admit(
+                definition_id,
+                now_utc(),
+                runtime_available=bool(runtime and runtime.enabled),
+                actor=user,
+                manual=request,
+            )
+    except ScheduleDefinitionError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
+    if runtime is not None and occurrence.run_id is not None:
+        runtime.wake_dispatch_pump()
+    return occurrence
+
+
+@router.get("/agents/scheduled-tasks/{definition_id}/runs", response_model=ScheduledRunPageV1)
+def scheduled_inspection_runs(
+    definition_id: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(current_user),
+) -> ScheduledRunPageV1:
+    try:
+        return InspectionRunQuery(store).list_runs(definition_id, user, page=page, page_size=page_size)
+    except ScheduleDefinitionError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
+
+
+@router.get("/agents/inspection-runs/{run_id}/report", response_model=ProjectInspectionReportV1)
+def scheduled_inspection_report(run_id: str, user: User = Depends(current_user)) -> ProjectInspectionReportV1:
+    try:
+        return InspectionRunQuery(store).report(run_id, user)
+    except ScheduleDefinitionError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
+
+
 @router.patch("/agents/scheduled-tasks/{definition_id}", response_model=ScheduledAgentTaskDefinition)
 def update_scheduled_agent_task(
     definition_id: str,
     request: ScheduledAgentTaskUpdateRequest,
-    user: User = Depends(require_permission(ACTION_MANAGE_PUBLIC_AGENT)),
+    user: User = Depends(current_user),
 ) -> ScheduledAgentTaskDefinition:
     definition = store.get_scheduled_agent_task_definition(definition_id)
     if definition is None:
+        raise HTTPException(status_code=404, detail="Scheduled agent task not found")
+    if definition.schema_version is not None or any(
+        (
+            request.command_id,
+            request.expected_version,
+            request.project_id,
+            request.template_id,
+            request.timezone,
+        )
+    ):
+        try:
+            return ScheduleDefinitionService(store).update(definition_id, request, user)
+        except ScheduleDefinitionError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.code) from error
+    ensure_permission(user, ACTION_MANAGE_PUBLIC_AGENT, store.permission_policy_rules)
+    creator = store.get_user(definition.created_by)
+    if creator is None or creator.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Scheduled agent task not found")
     if request.title is not None:
         definition.title = request.title
@@ -293,9 +410,9 @@ def sync_o2_tool_registry(
 
 
 @router.get("/agents/{agent_id}/memory-binding")
-def get_agent_memory_binding(agent_id: str, _: User = Depends(current_user)) -> dict[str, object]:
+def get_agent_memory_binding(agent_id: str, user: User = Depends(current_user)) -> dict[str, object]:
     """Get the memory binding for an agent."""
-    binding = store.get_binding_for_agent(agent_id)
+    binding = AgentMemoryBindingService(store).get(agent_id, user)
     if binding is None:
         return {"binding": None}
     return {"binding": binding.model_dump()}
@@ -308,21 +425,7 @@ def set_agent_memory_binding(
     user: User = Depends(current_user),
 ) -> dict[str, object]:
     """Create or update memory binding for an agent."""
-    agent = store.get_agent(agent_id)
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    ensure_can_manage_agent(user, agent, store.permission_policy_rules)
-    existing = store.get_binding_for_agent(agent_id)
-    if existing:
-        existing.allowed_scopes = request.allowed_scopes
-        existing.allowed_memory_types = request.allowed_memory_types
-        existing.allowed_project_ids = request.allowed_project_ids
-        existing.max_results_per_query = request.max_results_per_query
-        existing.updated_at = now_utc()
-        store.save_agent_memory_binding(existing)
-        return {"binding": existing.model_dump()}
-    request.agent_id = agent_id
-    binding = store.add_agent_memory_binding(request)
+    binding = AgentMemoryBindingService(store).set(agent_id, request, user)
     return {"binding": binding.model_dump()}
 
 
@@ -331,17 +434,6 @@ def delete_agent_memory_binding(
     agent_id: str,
     user: User = Depends(current_user),
 ) -> dict[str, str]:
-    """Remove memory binding (agent reverts to full access)."""
-    agent = store.get_agent(agent_id)
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    ensure_can_manage_agent(user, agent, store.permission_policy_rules)
-    existing = store.get_binding_for_agent(agent_id)
-    if existing is None:
-        return {"status": "no_binding"}
-    with store._connect() as connection:
-        connection.execute(
-            "DELETE FROM records WHERE collection = ? AND id = ?",
-            ("agent_memory_bindings", existing.id),
-        )
-    return {"status": "deleted"}
+    """Remove the binding; ordinary memory authorization still applies."""
+    deleted = AgentMemoryBindingService(store).delete(agent_id, user)
+    return {"status": "deleted" if deleted else "no_binding"}

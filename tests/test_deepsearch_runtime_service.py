@@ -711,6 +711,11 @@ def test_cancelled_resume_after_claim_cancels_the_run_tree(
             return None
 
     async def from_json(*_args: object, **_kwargs: object) -> FakeState:
+        _kwargs['context_deserializer']({
+            'user_id': waiting.user_id, 'workspace_id': waiting.workspace_id,
+            'project_id': waiting.project_id, 'thread_id': waiting.thread_id, 'run_id': waiting.id,
+            'plan_id': plan.id, 'node_id': node.id, 'skill_id': skill.id,
+        })
         return FakeState()
 
     async def cancelled_stream(*_args: object, **_kwargs: object):

@@ -1,0 +1,40 @@
+{
+  "schema_version": "project-operations-benchmark-v1",
+  "database": "temporary",
+  "counts": {
+    "tasks": 10000,
+    "task_audit_events": 50000,
+    "memory_records": 10000,
+    "accepted_team_knowledge": 1000
+  },
+  "iterations": 7,
+  "threshold_p95_ms": 500.0,
+  "measurements": {
+    "task_list": {
+      "p50_ms": 303.614,
+      "p95_ms": 378.78,
+      "mean_ms": 312.798
+    },
+    "task_detail": {
+      "p50_ms": 345.883,
+      "p95_ms": 426.913,
+      "mean_ms": 366.759
+    },
+    "operations_snapshot": {
+      "p50_ms": 189.673,
+      "p95_ms": 264.548,
+      "mean_ms": 201.789
+    },
+    "task_options": {
+      "p50_ms": 108.677,
+      "p95_ms": 200.394,
+      "mean_ms": 124.061
+    },
+    "memory_fts": {
+      "p50_ms": 25.151,
+      "p95_ms": 37.867,
+      "mean_ms": 27.85
+    }
+  },
+  "passed": true
+}

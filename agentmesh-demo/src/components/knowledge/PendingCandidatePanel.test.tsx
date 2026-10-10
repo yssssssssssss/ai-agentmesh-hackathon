@@ -56,6 +56,17 @@ function render(item: PendingKnowledgeView) {
   )
 }
 
+it('links an owner inspection Inbox item to its structured report', () => {
+  const item = {
+    ...toolApprovalItem([]), itemType: real('project_inspection'),
+    inspectionRunId: real('run/inspection'), allowedActions: real(['open_inspection_report', 'resolve']),
+  }
+  const markup = render(item)
+  expect(markup).toContain('查看巡检报告')
+  expect(markup).toContain('/tasks?inspection=run%2Finspection')
+  expect(markup).not.toContain('批准工具')
+})
+
 describe('PendingCandidatePanel tool approvals', () => {
   it('renders approve and reject actions for every call_id and distinguishes Plan Approval', () => {
     const html = render(toolApprovalItem([

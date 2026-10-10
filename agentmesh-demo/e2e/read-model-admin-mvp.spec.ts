@@ -63,7 +63,7 @@ test('Digital Self and Insights use real scoped read-model handlers', async ({ p
   await expect(page.getByRole('button', { name: /^(今日|本周|本月)$/ })).toHaveCount(0)
 })
 
-test('regular user is denied Admin UI and direct Admin APIs', async ({ page }) => {
+test('regular user can manage only personal Runners and is denied privileged Admin APIs', async ({ page }) => {
   await loginAs(page)
 
   const deniedReads = await Promise.all([
@@ -83,8 +83,10 @@ test('regular user is denied Admin UI and direct Admin APIs', async ({ page }) =
   expect(deniedMutation.status()).toBe(403)
 
   await page.goto('/admin')
-  await expect(page.getByRole('heading', { name: '无权访问' })).toBeVisible()
-  await expect(page.getByText('当前账号没有可用的管理能力。')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '本地 Runner', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab')).toHaveCount(1)
+  await expect(page.getByRole('tab', { name: '本地 Runner', exact: true })).toBeVisible()
+  await expect(page.getByText('查看当前账号已注册的执行设备，并撤销不再使用的设备。')).toBeVisible()
 })
 
 test('Team Lead can use granted Agent module but is denied unrelated Admin APIs', async ({ page }) => {

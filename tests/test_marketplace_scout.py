@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from agentmesh.agents import PersonalAgent
 from agentmesh.models import BlackboardPost, BlackboardPostType, MemoryLayer, Scope, UserMemoryItem
 from agentmesh.seed import ADMIN, PROJECT, TEAM_LEAD, USER, WORKSPACE, ensure_seed_data
@@ -43,7 +45,9 @@ def _add_memory(title: str, summary: str, *, user_id: str, sensitivity: str = "n
 def _signal_for(owner_id: str, need: str, capabilities: str = "大促降级预案") -> None:
     store.add_blackboard_post(
         BlackboardPost(
-            id=f"bb_signal_{owner_id}",
+            # Matching fixtures are authored signals, not generated aggregates
+            # with durable private source dependencies.
+            id=f"manual_signal_{owner_id}",
             task_id=f"signal_{owner_id}",
             post_type=BlackboardPostType.MARKETPLACE_SIGNAL,
             actor=PersonalAgent.actor,
@@ -51,6 +55,7 @@ def _signal_for(owner_id: str, need: str, capabilities: str = "大促降级预�
             content=f"能力：{capabilities}\n可提供：答疑\n需要：{need}",
             scope=Scope.PROJECT,
             permission="project_visible",
+            metadata={"workspace_id": WORKSPACE.id, "project_id": PROJECT.id},
         )
     )
 
@@ -80,7 +85,7 @@ def test_match_signal_offline_falls_back_to_keyword() -> None:
 
 # --- scout_and_match ------------------------------------------------------
 
-def test_scout_matches_need_grants_consent_and_answers() -> None:
+def test_scout_matches_need_and_requests_consent() -> None:
     agent = _reset()  # offline
     _add_memory("大促降级预案 v3", "核心链路保底、按 QPS 阶梯降级。", user_id=HELPER.id)
     _signal_for(NEEDER.id, "大促降级预案怎么做")
@@ -90,8 +95,8 @@ def test_scout_matches_need_grants_consent_and_answers() -> None:
     assert len(results) == 1
     needer_id, answer = results[0]
     assert needer_id == NEEDER.id
-    assert answer.status == "answered"  # consent granted → non-sensitive auto-answer
-    assert store.get_active_consent_grant(HELPER.id, NEEDER.id) is not None
+    assert answer.status == "awaiting_confirm"
+    assert store.get_active_consent_grant(HELPER.id, NEEDER.id) is None
 
 
 def test_scout_publishes_a_match_event_to_the_board() -> None:
@@ -169,3 +174,104 @@ def test_scout_cap_limits_matches_per_run() -> None:
     results = agent.scout_and_match(HELPER, max_matches=1)
     assert len(results) == 1
 
+
+def test_scout_does_not_regrant_explicitly_revoked_consent() -> None:
+    agent = _reset()
+    _add_memory("大促降级预案 v3", "核心链路保底。", user_id=HELPER.id)
+    _signal_for(NEEDER.id, "大促降级预案怎么做")
+    agent.grant_consent(HELPER, NEEDER)
+    agent.revoke_consent(HELPER, NEEDER)
+
+    results = agent.scout_and_match(HELPER)
+
+    assert results[0][1].status == "awaiting_confirm"
+    assert store.get_active_consent_grant(HELPER.id, NEEDER.id) is None
+
+
+def test_scout_dedup_survives_restart_and_rechecks_changed_helper_knowledge() -> None:
+    from agentmesh.store import SQLiteStore
+
+    agent = _reset()
+    _add_memory("大促降级预案 v3", "核心链路保底。", user_id=HELPER.id)
+    _signal_for(NEEDER.id, "大促降级预案怎么做")
+    assert len(agent.scout_and_match(HELPER)) == 1
+
+    reopened = SQLiteStore(store.db_path)
+    restarted = PersonalAgent(reopened)
+    assert restarted.scout_and_match(HELPER) == []
+    memory = reopened.list_user_memory_items(HELPER.id)[0]
+    reopened.save_user_memory_item(memory.model_copy(update={"summary": "新增按 QPS 分级的阈值。", "version": 2}))
+    assert len(restarted.scout_and_match(HELPER)) == 1
+    assert restarted.scout_and_match(HELPER) == []
+
+
+def test_invalid_matching_response_is_retried_and_not_cached_as_a_negative(monkeypatch) -> None:
+    from datetime import timedelta
+
+    import agentmesh.market_scout as matching
+    from agentmesh.models import now_utc
+
+    client = _StubLLM("MAYBE")
+    agent = _reset(client)
+    _add_memory("大促降级预案 v3", "核心链路保底。", user_id=HELPER.id)
+    _signal_for(NEEDER.id, "大促降级预案怎么做")
+    clock = [now_utc()]
+    monkeypatch.setattr(matching, "now_utc", lambda: clock[0])
+    assert agent.scout_and_match(HELPER) == []
+    client.reply = "YES 可以"
+    assert agent.scout_and_match(HELPER) == []
+    clock[0] += timedelta(seconds=5)
+    assert len(agent.scout_and_match(HELPER)) == 1
+
+
+def test_repeating_participation_put_does_not_duplicate_a_pending_confirmation() -> None:
+    agent = _reset()
+    _add_memory("大促降级预案 v3", "核心链路保底。", user_id=HELPER.id)
+    _signal_for(NEEDER.id, "大促降级预案怎么做")
+    store.set_market_participation(HELPER.id, True)
+    assert len(agent.scout_and_match(HELPER)) == 1
+    store.set_market_participation(HELPER.id, True)
+    assert agent.scout_and_match(HELPER) == []
+
+
+def test_matching_auth_failure_stays_visible_and_retries_only_after_model_changes() -> None:
+    from agentmesh.market_scout import MarketScoutRepository
+
+    class Client:
+        model = "model-v1"
+        calls = 0
+
+        def complete(self, _system, _input):
+            self.calls += 1
+            if self.model == "model-v1":
+                raise PermissionError("private endpoint and credentials")
+            return "YES 可以"
+
+    client = Client()
+    agent = _reset(client)
+    _add_memory("大促降级预案 v3", "核心链路保底。", user_id=HELPER.id)
+    _signal_for(NEEDER.id, "大促降级预案怎么做")
+    assert agent.scout_and_match(HELPER) == []
+    health = MarketScoutRepository(store).queue_health(workspace_id=HELPER.workspace_id)
+    assert health["counts"]["blocked"] == 1
+    assert health["last_error_code"] == "market_model_unauthorized"
+    assert "credentials" not in str(health)
+    assert agent.scout_and_match(HELPER) == []
+    assert client.calls == 1
+    client.model = "model-v2"
+    assert len(agent.scout_and_match(HELPER)) == 1
+    assert client.calls == 2
+
+
+@pytest.mark.parametrize('update', [
+    {'metadata': {}}, {'metadata': {'workspace_id': 'foreign', 'project_id': PROJECT.id}},
+    {'permission': 'private'}, {'scope': Scope.PRIVATE}, {'status': 'withdrawn'},
+])
+def test_scout_rejects_signals_without_current_explicit_published_scope(update):
+    agent = _reset()
+    _add_memory('大促降级预案', '核心链路保底。', user_id=HELPER.id)
+    _signal_for(NEEDER.id, '大促降级预案怎么做')
+    signal = store.get_blackboard_post(f'manual_signal_{NEEDER.id}')
+    store.add_blackboard_post(signal.model_copy(update=update))
+    assert agent.scout_and_match(HELPER) == []
+    assert not [event for event in store.audit_events if event.action == 'marketplace_match']

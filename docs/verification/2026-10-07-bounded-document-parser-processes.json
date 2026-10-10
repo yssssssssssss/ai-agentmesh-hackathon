@@ -1,0 +1,123 @@
+{
+  "date": "2026-10-07",
+  "status": "passed_local_related_regression",
+  "adr": "docs/adr/0046-bounded-document-parser-processes.md",
+  "scope": [
+    "Production upload parser in an owned POSIX process/session, minimal environment and private fixed-name temporary input",
+    "Wall-clock, CPU, file, descriptor and sampled process-tree RSS limits; shutdown and lost claim cancellation",
+    "Parser/OCR group cleanup and main worker reaping; original durable input retains existing owned retry policy",
+    "Bounded validated JSON response with current owner/scope and independent atomic import checks",
+    "PDF page/text and OOXML archive limits; encoding-independent XML DTD rejection"
+  ],
+  "backend_related": {
+    "status": "passed",
+    "3.12": {
+      "passed": 261,
+      "seconds": 50.73,
+      "warnings": 5,
+      "log": "/tmp/agentmesh-parser-process-final-xml-312.log"
+    },
+    "3.13": {
+      "passed": 261,
+      "seconds": 50.97,
+      "warnings": 5,
+      "log": "/tmp/agentmesh-parser-process-final-xml-313.log"
+    },
+    "files": [
+      "tests/test_document_parser_process.py",
+      "tests/test_documents.py",
+      "tests/test_document_staging.py",
+      "tests/test_document_input_recovery.py",
+      "tests/test_document_job_api.py",
+      "tests/test_mvp_ingestion_stability.py",
+      "tests/test_document_manual_import.py",
+      "tests/test_cold_start_import.py",
+      "tests/test_memory_learning.py",
+      "tests/test_memory_forgetting.py",
+      "tests/test_market_publication_authority.py",
+      "tests/test_market_scout_authority.py",
+      "tests/test_agent_binding_types.py",
+      "tests/test_provider_bootstrap_isolation.py"
+    ],
+    "new_behavior_cases": 26,
+    "full_backend_run": false
+  },
+  "observed_red": [
+    {
+      "log": "/tmp/agentmesh-parser-process-expanded.log",
+      "result": "1 failed / 15 passed: a valid bounded OOXML temporary copy hit the initial 2 MiB file ceiling before the specific archive limit. Raised the file ceiling to 32 MiB while preserving the independent 2 MiB JSON bound."
+    },
+    {
+      "log": "/tmp/agentmesh-parser-process-utf16-red.log",
+      "result": "1 failed / 24 deselected: UTF-16 DTD/entity definitions bypassed byte matching in the real worker. XML TreeBuilder.doctype now refuses decoded DTD declarations."
+    }
+  ],
+  "setup_observation": {
+    "log": "/tmp/agentmesh-parser-process-red.log",
+    "result": "Initial collection failed because psutil was not installed. This was dependency setup, not a functional pre-change RED."
+  },
+  "positive_controls": [
+    "Real independent text, PDF, Word and slide worker results preserve authorized owner/scope and delete private temporary files",
+    "Controlled OCR executable confirms image adapter, explicit TESSDATA_PREFIX and absence of provider/PYTHONPATH environment",
+    "Actual long-running processes stop on timeout/cancellation/RSS checks; real allocation and OCR-like descendants are killed",
+    "Service shutdown retains retryable durable input and commits no Source/document/private Memory",
+    "Revoked owner stops parsing after claim renewal detects it; old claim cannot replace a newly completed import",
+    "Malformed/large/unknown/symlink/foreign-owner/crashed output yields safe codes without document or exception body",
+    "HTTP production upload atomically imports private evidence; invalid UTF-8 returns 400 and leaves all content counts unchanged",
+    "UTF-8 and UTF-16 DTD/entity inputs fail explicitly"
+  ],
+  "checks": {
+    "ruff": "passed",
+    "diff": "passed",
+    "uv_lock": "passed; 70 packages",
+    "psutil": "7.2.2 installed in local and both locked check environments"
+  },
+  "api_frontend": {
+    "public_schema_changed": false,
+    "frontend_changed": false,
+    "frontend_tests_build_browser": "not rerun; backend/parser-only change"
+  },
+  "platform": {
+    "validated": "local macOS POSIX, Python 3.12 and 3.13",
+    "linux": "not executed; Docker CLI present but daemon unavailable",
+    "memory": "512 MiB sampled process-tree RSS cancellation, possible overshoot; Linux-only 1 GiB RLIMIT_AS not locally executed",
+    "filesystem_network_sandbox": false,
+    "ocr": "controlled adapter only; not real Tesseract recognition quality"
+  },
+  "not_verified": [
+    "Full backend regression or remote CI",
+    "Linux/container runtime",
+    "Filesystem/network sandbox",
+    "True OCR quality or external Provider",
+    "Old unproven input/partial import repair",
+    "Complete stages 3-5, enterprise pilot or model memory-quality acceptance"
+  ],
+  "source_sha256": {
+    "agentmesh/document_parser_process.py": "ec75a51fd250c6ab6d7bffe0b1d3e5acd404b7efefd77536f69bb7cfc3cb6066",
+    "agentmesh/document_parser_worker.py": "773702c11bca1dc0c7a85a28f09a0dd33ac10854358e534df75bb09fbcb0e8b1",
+    "agentmesh/documents.py": "32e60baee11659679d8fc49097ebc43986f37a0f159b4495e894e38e1b00e01b",
+    "agentmesh/ingestion.py": "4395a55647e0afce1b8d3bd6584e2a54d48d34f750cc219dc789dae5b85be67a",
+    "agentmesh/routes/documents.py": "daee1fa78875e32be54038c4f00484edd1ba79ec0d5c1caa0b539ac8d577057e",
+    "pyproject.toml": "b21538e8cdc42253ea0b6819446af29cc1bdc6a2673cdfb9c9f77f76f674d0a1",
+    "uv.lock": "0054bd122131e1da3c925e28e28e678738a3b65570f65deac9ff03051b95e8b5",
+    "tests/test_document_parser_process.py": "d5ac1bbe8b71af7a9239787d1064863f9607df1d8cb45edc6ffee30f8ad82ea3",
+    "tests/test_documents.py": "aeb283cbb5eae0dad9c49b9a22659bf35647f22895519861b23172c93285093a",
+    "tests/test_document_staging.py": "34b7faafa1be93f61ea7d4a44ba89924e6c7135b974db6cf9fc9ffe2b46fc936",
+    "tests/test_document_input_recovery.py": "f89a760ee230abaa01000afbbf9f3ecf3ffa3032d25a25775f5e58f7646d47a4",
+    "tests/test_document_job_api.py": "e75ded3778d6d2e299b7a3ce35e0ee1b3694b8475ff1ed51da96a24d1730aeff",
+    "tests/test_mvp_ingestion_stability.py": "ae67ceb07b3feda1eef409ee5b1c7031f394a8c1e98a44afddd4f417aba0b6e2",
+    "tests/test_document_manual_import.py": "c87df687c916e03aa88a648458de385d0b39d37ebd1485b8aefc5286a93eb97d",
+    "tests/test_cold_start_import.py": "105f3c392c98c15f6b025c9a33fea0804bc70cbf78f425eac4497ed20d7982ff",
+    "tests/test_memory_learning.py": "a01c36d883b544ff84de2ec33cb7997c9c7c0a4fbf60832af0f6418ddbc3f000",
+    "tests/test_memory_forgetting.py": "620c801ca595dfec65c5f3b8a0752b377004c172c58950c87723969f686a60d0",
+    "tests/test_market_publication_authority.py": "4811c3ed7a05e2540899ea63981ec4f86f0b4dc077fe8b53dcf1f8b1d81d6ffb",
+    "tests/test_market_scout_authority.py": "ff5c3d29bc397c00a3e6a4f2c16a382ec4127a11c1c1d863d2db838f345c1e0e",
+    "tests/test_agent_binding_types.py": "10a4b7400d179d778df86739a2a99086c5989ab17641f6a3e86c60f0dce1e41e",
+    "tests/test_provider_bootstrap_isolation.py": "0b44489049b3b721715b5d2bd7f15345dc681d4d19614d66005f3c19137b5f4c",
+    "README.md": "fc8f776a94134da05a6fd00e216f07c3eb9b73cc77d46f5e1f654bc27458d1b1",
+    "CONTEXT.md": "ec74ebc50bab298719ca843f59aac18e9665106eb7c205f7020f5cfc2d3c1344",
+    "docs/plans/2026-10-04-agentmesh-complete-optimization-plan.md": "4108f7b15fad029a27143b9c1f0e091a53a5ed8cf9d87514bf1354aea43473f5",
+    "docs/adr/0046-bounded-document-parser-processes.md": "4b335b110c1caa9594b350538b5d5545e87f309fa558d2903491b05beebec07e"
+  },
+  "source_hash_boundary": "Current full workspace files at this verification snapshot, including preserved preexisting work; not a claim that every line changed in this slice. Historical verification records remain unchanged."
+}

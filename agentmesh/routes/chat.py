@@ -24,6 +24,7 @@ from agentmesh.models import (
     new_id,
 )
 from agentmesh.o2 import build_acquisition_agent
+from agentmesh.provider_status import ProviderQueryError
 from agentmesh.routes.deps import current_user
 from agentmesh.skill_runtime.service import catalog_service
 from agentmesh.store import store
@@ -167,6 +168,13 @@ def create_chat_message(request: ChatRequest, user: User = Depends(current_user)
             error_code=type(error).__name__,
         )
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+    except ProviderQueryError as error:
+        store.finish_chat_turn_receipt(
+            receipt,
+            status=ChatTurnReceiptStatus.FAILED,
+            error_code=error.reason,
+        )
+        raise HTTPException(status_code=error.status_code, detail=error.public_detail()) from error
     except Exception as error:
         store.finish_chat_turn_receipt(
             receipt,

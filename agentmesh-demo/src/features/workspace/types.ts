@@ -79,6 +79,7 @@ export type AgentRunResponse = Omit<GeneratedAgentRunResponse, 'item' | 'memory_
   memory_uses: MemoryUseView[]
 }
 export type AgentRunMutationResponse = { item: AgentRun }
+export type AgentRunMemorySaveResponse = components['schemas']['AgentRunMemorySaveResponse']
 export type AgentRunEventsResponse = components['schemas']['AgentRunEventsResponse']
 export type SkillInputRequest = components['schemas']['SkillInputRequestPublicV1']
 type GeneratedRunInputArtifact = components['schemas']['RunInputArtifactPublicV1']

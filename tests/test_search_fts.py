@@ -191,3 +191,29 @@ class TestFTSDocumentSearch:
         doc_results = [r for r in results if r.result_type == "document"]
         assert len(doc_results) == 1
         assert doc_results[0].title == "API设计规范"
+
+
+class TestOversizedQuery:
+    def test_oversized_query_returns_no_like_matches_instead_of_failing(self, monkeypatch) -> None:
+        """A pasted query beyond SQLite's LIKE pattern limit must not break search when FTS finds nothing.
+
+        Some SQLite builds (CI Linux) evaluate core like() here and raise; macOS FTS5 consumes the constraint.
+        """
+        s = _fresh_store()
+        s.add_memory_item(
+            MemoryItem(title="首屏效率优先", summary="首屏加载速度", memory_type="note", scope=Scope.TEAM_ACCEPTED)
+        )
+        monkeypatch.setattr(SQLiteStore, "_fts_match", staticmethod(lambda *args, **kwargs: []))
+
+        assert s.search("正文" * 25000, {Scope.TEAM_ACCEPTED}) == []
+
+    def test_like_fallback_still_matches_queries_within_the_limit(self, monkeypatch) -> None:
+        s = _fresh_store()
+        s.add_memory_item(
+            MemoryItem(title="首屏效率优先", summary="首屏加载速度", memory_type="note", scope=Scope.TEAM_ACCEPTED)
+        )
+        monkeypatch.setattr(SQLiteStore, "_fts_match", staticmethod(lambda *args, **kwargs: []))
+
+        results = s.search("首屏效率", {Scope.TEAM_ACCEPTED})
+
+        assert [result.title for result in results] == ["首屏效率优先"]

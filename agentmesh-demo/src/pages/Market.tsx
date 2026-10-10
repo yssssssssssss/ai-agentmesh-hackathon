@@ -14,7 +14,9 @@ import { ActivityFeed } from '../features/market/components/ActivityFeed'
 
 export function Market() {
   const { user } = useAuth()
-  const context = { userId: user?.id ?? '', workspaceId: user?.workspace_id ?? '' }
+  const context = {
+    userId: user?.id ?? '', workspaceId: user?.workspace_id ?? '', projectId: user?.default_project_id ?? '',
+  }
   const query = useMarketMe(context)
   const data = query.data
   const activityQuery = useMarketActivity(context)
@@ -32,6 +34,7 @@ export function Market() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: participationKey })
       void queryClient.invalidateQueries({ queryKey: marketKeys.me(context) })
+      void queryClient.invalidateQueries({ queryKey: marketKeys.activity(context) })
     },
   })
   const joined = participation.data?.enabled ?? false
@@ -49,7 +52,7 @@ export function Market() {
     <div className="space-y-6">
       <PageHeader
         title="协作市场"
-        subtitle="我的分身在市场里发出的求助、收到的回答，以及给别人的回应，一次呈现。"
+        subtitle="加入后会用本人普通文本记忆和当前项目任务标题发布协作摘要；高敏材料不参与。"
         actions={
           <div className="flex items-center gap-2">
             <Button
@@ -91,6 +94,7 @@ export function Market() {
       ) : data ? (
         <>
           <PresenceTiles presence={data.presence} enabled={data.enabled} workers={data.workers} />
+          <p className="text-xs text-slate-400">当前项目的最近协作记录。关系图最多显示 200 位成员，关系与往来取最近 200 条匹配记录；顶部数量为当前可见范围的总计。</p>
           <div className="grid gap-6 lg:grid-cols-[1.7fr_1fr]">
             <GraphCanvas graph={data.graph} meId={data.user.id} />
             <ActivityFeed items={activityQuery.data?.items ?? []} live={data.enabled} />

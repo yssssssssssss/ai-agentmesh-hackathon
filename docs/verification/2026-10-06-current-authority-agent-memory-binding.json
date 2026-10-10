@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-06",
+  "status": "passed_local_related_regression",
+  "adr": "docs/adr/0040-current-authority-agent-memory-binding.md",
+  "scope": [
+    "Current active user and same-workspace Agent ownership/management authority in the actual transaction",
+    "Server-owned binding identity, Agent identity and timestamps; serialized simultaneous creation",
+    "Current active project and actor/personal-owner membership checks",
+    "Bounded configuration and shared duplicate/payload-identity failure checks",
+    "Ordinary search preserves the requested project and applies result types before budgeting",
+    "Publication invalidation and binding modification roll back together on index cleanup failure"
+  ],
+  "backend_related": {
+    "status": "passed",
+    "3.12": {
+      "passed": 302,
+      "seconds": 256.43,
+      "log": "/tmp/agentmesh-binding-authority-regression-final312.log"
+    },
+    "3.13": {
+      "passed": 302,
+      "seconds": 256.44,
+      "log": "/tmp/agentmesh-binding-authority-regression-final313.log"
+    },
+    "new_authority_cases": 40,
+    "boundary": "Current binding API, actual-writer races, ordinary retrieval, Memory context/facts/SDK lineage, delegated answers, publication, scout, permission and capacity suites. No full backend rerun is claimed for this slice."
+  },
+  "frontend": {
+    "passed": 241,
+    "files": 50,
+    "seconds": 3.2,
+    "test_log": "/tmp/agentmesh-binding-authority-ui-test.log",
+    "build": "passed",
+    "build_seconds": 2.66,
+    "largest_chunk_bytes": 322377,
+    "bundle_limit_bytes": 500000,
+    "build_log": "/tmp/agentmesh-binding-authority-ui-build.log",
+    "openapi": "Regenerated from the isolated current application; bounded request settings and updated deletion description",
+    "openapi_log": "/tmp/agentmesh-binding-authority-openapi.log"
+  },
+  "observed_red_logs": [
+    "/tmp/agentmesh-binding-authority-red.log",
+    "/tmp/agentmesh-binding-authority-read-red.log",
+    "/tmp/agentmesh-binding-authority-write-red.log",
+    "/tmp/agentmesh-binding-authority-project-red.log",
+    "/tmp/agentmesh-binding-authority-bounds-red.log",
+    "/tmp/agentmesh-binding-authority-duplicate-red.log",
+    "/tmp/agentmesh-binding-authority-project-search-red.log",
+    "/tmp/agentmesh-binding-authority-types-qualified-red.log"
+  ],
+  "first_related_result": {
+    "3.12": {
+      "passed": 301,
+      "failed": 1,
+      "seconds": 239.88
+    },
+    "3.13": {
+      "passed": 301,
+      "failed": 1,
+      "seconds": 239.91
+    },
+    "logs": [
+      "/tmp/agentmesh-binding-authority-regression312.log",
+      "/tmp/agentmesh-binding-authority-regression313.log"
+    ],
+    "failure": "The new result-type fixture lacked the requested project ID, so existing tenant filtering correctly excluded it. The fixture was corrected, then the old post-budget filter was restored temporarily to observe a qualified RED before restoring the SQL filter. No tenant check or test assertion was relaxed."
+  },
+  "other_fixture_corrections": [
+    "Persist the public Agent in the policy race fixture; the seed list alone is not a current database authority.",
+    "Initialize authentication dependencies before publication/fault injection; first optional model-definition creation legitimately invalidates an earlier publication.",
+    "Expect the established neutral withdrawal title, not an empty title; public source-derived content remains cleared."
+  ],
+  "prior_full_baseline": {
+    "verification": "docs/verification/2026-10-06-generated-publication-input-invalidation.json",
+    "passed_per_version": 2455,
+    "boundary": "This is the prior slice's full snapshot. It is not reported as a full run of the current binding changes."
+  },
+  "checks": {
+    "ruff": "passed",
+    "diff": "passed"
+  },
+  "real_llm_calls": false,
+  "real_enterprise_connector": false,
+  "real_embedding_provider": false,
+  "browser": "No UI control was changed; authority is verified through the existing HTTP API and actual SQLite transactions.",
+  "remaining": [
+    "Scout qualification by current project, binding, lifecycle and source authority",
+    "Unified context and binding type semantics across all consumers; full SDK/Runner budget and delivery governance",
+    "External connector/version/hash/tombstone propagation and source archives",
+    "Real Provider/model quality and an authorized enterprise pilot"
+  ],
+  "source_sha256": {
+    "agentmesh/agent_memory_binding.py": "ceeae11503078856226ce73e1606cb536658c705459894b68f5169267c9a1f66",
+    "agentmesh/models.py": "c6ea156ace217340871e2a84ae1ac52e8178ae6e532a7d7dd3f3e825e490f794",
+    "agentmesh/routes/agents.py": "7fe3ae8dfda48ad6cd082522f6adddedc8a05af00ee743267b6da92db397a428",
+    "agentmesh/store.py": "7884f16e018e56740a0fc47337c1391d751e4011cf4ad114a6129d5b61c7f534",
+    "tests/test_agent_binding_authority.py": "b549a3d8798f19baaf145d03aefcb59546ee7ced867ea64f3cab788d821f727e",
+    "tests/test_agent_binding.py": "0e866a01d8a5b623c5c34beb8c19cd22fddc49e5f2998db1eb2590163ea69db0",
+    "agentmesh-demo/src/api/generated/schema.ts": "37713eb7e078b94b0f8f37b80227428b692e4a03797e78152a13dfc31bf55fd6"
+  }
+}

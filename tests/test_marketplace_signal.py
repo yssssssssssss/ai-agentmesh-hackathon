@@ -18,6 +18,7 @@ from agentmesh.store import store
 def _reset() -> PersonalAgent:
     store.reset()
     ensure_seed_data(store)
+    store.set_market_participation(USER.id, True)
     return PersonalAgent(store, llm_client=None)
 
 
@@ -72,6 +73,14 @@ def test_no_source_material_is_skipped() -> None:
     assert _signal_posts() == []
 
 
+def test_archived_private_memory_is_not_used_to_publish_a_signal() -> None:
+    agent = _reset()
+    _add_memory("已撤回的大促经验", "不应进入模型或公共信号。")
+    memory = store.list_user_memory_items(USER.id)[0]
+    store.save_user_memory_item(memory.model_copy(update={"status": "archived"}))
+    assert agent.publish_marketplace_signal(USER) is None
+
+
 def test_republish_refreshes_instead_of_duplicating() -> None:
     agent = _reset()
     _add_memory("大促降级预案", "核心链路保底。")
@@ -95,6 +104,7 @@ def test_publish_is_audited() -> None:
 def test_llm_generated_signal_content_is_used() -> None:
     store.reset()
     ensure_seed_data(store)
+    store.set_market_participation(USER.id, True)
     agent = PersonalAgent(store, llm_client=_StubLLM("能力：稳定性\n可提供：降级预案答疑\n需要：前端埋点支持"))
     _add_memory("大促降级预案", "核心链路保底。")
 
@@ -173,5 +183,3 @@ def test_publish_resolves_llm_with_the_market_timeout(monkeypatch) -> None:
     agent.publish_marketplace_signal(USER)
 
     assert captured["timeout"] == market_llm_timeout_seconds()
-
-

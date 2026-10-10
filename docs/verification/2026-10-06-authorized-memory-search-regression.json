@@ -1,0 +1,54 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "authorized-bounded-memory-search",
+  "date": "2026-10-06",
+  "full_snapshot_before_document_learning_operations": {
+    "3.12": {
+      "passed": 2278,
+      "warnings": 5,
+      "seconds": 733.36
+    },
+    "3.13": {
+      "passed": 2278,
+      "warnings": 5,
+      "seconds": 731.46
+    }
+  },
+  "initial_related_snapshot": {
+    "passed": 249,
+    "failed": 6,
+    "warnings": 5,
+    "seconds": 141.46,
+    "reason": "Strict-scope fixtures cleared persisted actor records; add the real actor rather than trust a passed User object."
+  },
+  "corrected_scope_and_capacity_tests": {
+    "passed": 20,
+    "seconds": 4.45
+  },
+  "market_and_scope_followup": {
+    "passed": 59,
+    "seconds": 13.35
+  },
+  "initial_full_trial": {
+    "completed": false,
+    "failures_identified_per_interpreter": 13,
+    "reason": "A write transaction in set_market_participation was mistakenly switched to a readonly connection. Restored before the complete green rerun. Trial terminated after the errors were reproduced."
+  },
+  "checks": {
+    "ruff": "passed",
+    "diff_check": "passed",
+    "locked_dependency_check": "passed"
+  },
+  "capacity_report": "2026-10-06-authorized-memory-retrieval-benchmark.json",
+  "evidence_boundary": {
+    "no_whole_memory_document_blackboard_hydration": true,
+    "current_actor_project_team_and_binding_before_candidates": true,
+    "current_hits_and_visibility_share_read_transaction": true,
+    "unsafe_memory_before_result_budget": true,
+    "vector_permissions_deterministic_tests": true,
+    "embedding_capacity": false,
+    "real_model_quality": false,
+    "enterprise_provider_smoke": false,
+    "phase3_complete": false
+  }
+}

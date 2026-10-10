@@ -1,0 +1,177 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "atomic-current-document-edit-and-reimport",
+  "date": "2026-10-06",
+  "new_manual_suite": {
+    "passed": 25,
+    "seconds": 2.87,
+    "log": "/tmp/agentmesh-document-manual-final-green.log"
+  },
+  "related_before_last_four_cases": {
+    "3.12": {
+      "passed": 153,
+      "seconds": 18.7
+    },
+    "3.13": {
+      "passed": 153,
+      "seconds": 18.65
+    },
+    "logs": [
+      "/tmp/agentmesh-document-manual-integration312.log",
+      "/tmp/agentmesh-document-manual-integration313.log"
+    ],
+    "boundary": "Before the last four input/body-change cases and final payload bounds; current production implementation is covered by the final full snapshot."
+  },
+  "first_full_snapshot": {
+    "3.12": {
+      "passed": 2423,
+      "failed": 2,
+      "warnings": 5,
+      "seconds": 775.0
+    },
+    "3.13": {
+      "passed": 2423,
+      "failed": 2,
+      "warnings": 5,
+      "seconds": 773.63
+    },
+    "logs": [
+      "/tmp/agentmesh-document-manual-full312.log",
+      "/tmp/agentmesh-document-manual-full313.log"
+    ],
+    "failures": [
+      "test_term_alias_change_invalidates_archived_sdk_fact_output",
+      "test_background_approval_run_creates_inbox_item"
+    ],
+    "boundary": "These snapshots failed. They must not be reported as a fully passing regression."
+  },
+  "sdk_deadline_diagnosis": {
+    "original_isolated": {
+      "3.12": {
+        "passed": 2,
+        "seconds": 7.92
+      },
+      "3.13": {
+        "passed": 2,
+        "seconds": 7.92
+      }
+    },
+    "persisted_failed_term_run": {
+      "created_at": "2026-10-06T08:14:53.815454Z",
+      "deadline_at": "2026-10-06T08:29:53.815454Z",
+      "failed_at": "2026-10-06T08:30:47.276545Z"
+    },
+    "inference": "The single persisted Run wall-clock span exceeds the complete suite monotonic duration. This supports host UTC stepping; isolated original cases passed. No production deadline was extended or removed.",
+    "test_only_change": "Two non-timeout cases use stable_sdk_clock, advancing captured UTC with monotonic elapsed time for Runtime/store/Memory model admission. Other deadline tests and production behavior are unchanged.",
+    "related_sdk": {
+      "3.12": {
+        "passed": 83,
+        "seconds": 33.38
+      },
+      "3.13": {
+        "passed": 83,
+        "seconds": 33.42
+      }
+    },
+    "logs": [
+      "/tmp/agentmesh-document-manual-sdk-repro312.log",
+      "/tmp/agentmesh-document-manual-sdk-repro313.log",
+      "/tmp/agentmesh-document-manual-sdk-stable312.log",
+      "/tmp/agentmesh-document-manual-sdk-stable313.log"
+    ]
+  },
+  "full_snapshot": {
+    "status": "passed",
+    "3.12": {
+      "passed": 2425,
+      "warnings": 5,
+      "seconds": 717.06
+    },
+    "3.13": {
+      "passed": 2425,
+      "warnings": 5,
+      "seconds": 717.07
+    },
+    "logs": [
+      "/tmp/agentmesh-document-manual-full-final312.log",
+      "/tmp/agentmesh-document-manual-full-final313.log"
+    ],
+    "boundary": "Final current backend and test-only stable SDK clocks. Later frontend layout simplification was validated separately.",
+    "warnings": "Five existing PyMuPDF Swig deprecation warnings."
+  },
+  "frontend_final": {
+    "passed": 240,
+    "files": 49,
+    "seconds": 4.06,
+    "log": "/tmp/agentmesh-document-manual-ui-complete-test.log"
+  },
+  "checks": {
+    "openapi_types": "passed",
+    "production_build": "passed",
+    "build_seconds": 2.63,
+    "bundle_budget": "passed",
+    "largest_chunk_bytes": 322377,
+    "ruff": "passed",
+    "diff_check": "passed"
+  },
+  "red_before_green": {
+    "partial_chunk_import": "/tmp/agentmesh-document-manual-red.log",
+    "edit_before_invalidation_failure": "/tmp/agentmesh-document-manual-edit-red.log",
+    "missing_stable_source": "/tmp/agentmesh-document-manual-source-red.log",
+    "unknown_extra_chunk": "/tmp/agentmesh-document-manual-extra-red.log",
+    "missing_search_projection": "/tmp/agentmesh-document-manual-index-red.log",
+    "selected_version_switch": "/tmp/agentmesh-document-manual-version-red.log",
+    "frontend_command_contract": "/tmp/agentmesh-document-manual-ui-api-red.log"
+  },
+  "corrected_during_development": [
+    "Three old direct-import fixtures had no persisted owner/project. Added explicit seeded owner/project; authorization was not bypassed.",
+    "Frontend fetch fixture reused a consumed Response. Changed it to return a fresh response before validating the API command behavior."
+  ],
+  "browser": {
+    "tool": "Ego Lite",
+    "space_id": 1,
+    "page": "p1",
+    "url": "http://127.0.0.1:5181/knowledge",
+    "backend_port": 8021,
+    "database": "/tmp/agentmesh-query-ui-20261006.sqlite3",
+    "all_external_providers": "disabled",
+    "document_id": "doc_input_1e36e92525304701b252551379bb7523",
+    "outcomes": [
+      "real file upload at v1",
+      "unsaved edits disable import",
+      "save advances to v2 with 0/0 chunks",
+      "current v2 explicit import produces 1/1 chunks",
+      "duplicate import reports already imported",
+      "reload and source selection preserve v2 text and 1/1 counts",
+      "After simplifying the visible panel, real save advances v2 to v3/0 chunks and explicit reimport advances v3 to 1/1; final screenshot viewed."
+    ],
+    "screenshot": "/tmp/agentmesh-document-manual-ui-final.png",
+    "visual_open_editor_check": "passed; screenshot viewed",
+    "recoveries": [
+      "First page request preceded restarted QA backend readiness; reused the page retry after confirming the listener.",
+      "Vite HMR reset the editor during an outstanding wait; observed persisted v2 before continuing, without repeating the save.",
+      "Native details did not reliably paint its opened content during visual checks. Simplified the new panel to a visible section and source picker, then verified the selected editor and actions in a screenshot. No second browser or task space."
+    ],
+    "final_visible_version": 3,
+    "final_visible_chunks": {
+      "completed": 1,
+      "expected": 1
+    }
+  },
+  "limits": [
+    "1 MiB manual document text",
+    "512 characters each title/file name",
+    "2200 chunks",
+    "120-character native Document ID without slash/hash",
+    "8192-character bounded chunk JSON"
+  ],
+  "not_claimed": [
+    "general Source invalidation or external connector sync watermarks",
+    "legacy unproven ParseJob repair",
+    "parser process isolation or hard cancellation",
+    "enabled vector Provider authority/capacity or guaranteed delivery",
+    "team sharing or fact confirmation by import",
+    "full SDK/Runner budget/cost/delivery governance",
+    "real model/OCR quality"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "authorized-temporal-fact-context",
+  "date": "2026-10-04",
+  "scope": "qualified temporal fact selection, current SQL scope filters, exact local SDK delivery, transactional conflict revalidation and withheld-candidate forgetting",
+  "full_regression_before_final_boundary_followup": {
+    "3.12": {"passed": 2132, "warnings": 5, "seconds": 571.11},
+    "3.13": {"passed": 2132, "warnings": 5, "seconds": 574.54}
+  },
+  "final_boundary_followup": {
+    "scope": "fact context, Memory context/facts/forgetting, SDK tools, Standard DAG and SDK Session",
+    "3.12": {"passed": 180, "seconds": 94.49},
+    "3.13": {"passed": 180, "seconds": 93.53},
+    "new_boundary_cases": 2,
+    "boundaries": ["mixed fact/procedure payload renders selected facts only", "cancelled Run cannot deliver a zero-hit diagnostic snapshot"]
+  },
+  "frontend": {"passed": 218, "files": 40},
+  "browser": {
+    "passed": 4,
+    "seconds": 28.4,
+    "scope": "structured-memory, memory-reuse and memory-governance",
+    "uses_real_local_api": true,
+    "uses_real_llm": false
+  },
+  "checks": {
+    "ruff": "passed",
+    "diff_check": "passed",
+    "offline_lock_check": "passed",
+    "locked_packages": 69,
+    "openapi_types": "passed",
+    "typescript_vite_build": "passed",
+    "bundle_budget": "passed",
+    "largest_bundle_bytes": 322372
+  },
+  "evidence_boundary": {
+    "current_project_owner_automatic_routing": true,
+    "typed_run_scoped_entity_time_tool_query": true,
+    "known_facts_rendered_with_exact_source_versions": true,
+    "unknown_conflict_and_budget_drop_do_not_assert_fact_values": true,
+    "source_and_new_conflict_revalidated_in_receipt_transaction": true,
+    "withheld_fact_candidates_redacted_and_late_restore_blocked": true,
+    "full_context_assembler_complete": false,
+    "phase3_complete": false,
+    "phase4_complete": false,
+    "remote_runner_fact_delivery_verified": false,
+    "semantic_entailment_verified": false,
+    "enterprise_provider_smoke": false,
+    "real_model_quality": false
+  }
+}

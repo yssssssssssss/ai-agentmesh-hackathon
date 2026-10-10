@@ -4,6 +4,7 @@ import {
   Bot,
   ChevronRight,
   Cpu,
+  Laptop,
   LogOut,
   Moon,
   ScrollText,
@@ -30,7 +31,7 @@ interface SettingsDrawerProps {
 
 interface SettingsEntry {
   section: string
-  capability: AdminCapability
+  capability?: AdminCapability
   alternate?: AdminCapability
   icon: LucideIcon
   label: string
@@ -38,6 +39,7 @@ interface SettingsEntry {
 }
 
 const ENTRIES: SettingsEntry[] = [
+  { section: 'runners', icon: Laptop, label: '本地 Runner', desc: '连接和管理本地执行设备' },
   { section: 'users', capability: ADMIN_CAPABILITIES.users, icon: Users, label: '用户管理', desc: '创建、禁用账号与密码重置' },
   { section: 'agents', capability: ADMIN_CAPABILITIES.agents, icon: Bot, label: 'Agent 配置', desc: '公共 Agent 的模型与工具' },
   { section: 'providers', capability: ADMIN_CAPABILITIES.providers, alternate: ADMIN_CAPABILITIES.o2, icon: Cpu, label: 'Provider 与 O2', desc: '运行状态和工具同步' },
@@ -51,7 +53,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
   const navigate = useNavigate()
   const { user, bootstrap, logout, logoutError } = useAuth()
   const capabilities = bootstrap?.capabilities ?? []
-  const entries = ENTRIES.filter((entry) => hasCapability(capabilities, entry.capability) || (entry.alternate ? hasCapability(capabilities, entry.alternate) : false))
+  const entries = ENTRIES.filter((entry) => !entry.capability || hasCapability(capabilities, entry.capability) || (entry.alternate ? hasCapability(capabilities, entry.alternate) : false))
 
   return (
     <Drawer
