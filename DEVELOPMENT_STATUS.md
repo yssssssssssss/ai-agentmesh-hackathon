@@ -1,6 +1,8 @@
 # AgentMesh 活动开发目录
 
-本地 Codex 已接手。原工程的分支、未提交源码、`.env` 和数据库保持原状。
+本地 Codex 已接手。原工程的 `.env` 和数据库保持原状。
+
+**基线变更（2026-10-10，用户授权）：** 原工程不再保留未提交源码。原 `5a7e7c5` 上的 126 项改动和 285 项未跟踪条目已分层提交，并合并 `origin/main`（`fed741b`）。旧的 `git diff HEAD --binary` SHA-256 `1ad64180…` 不再适用。合并前状态保留在本地分支 `backup/pre-main-merge-20261010`。运行数据 `data/` 与交接目录 `AgentMesh_Handoff_PR44/` 改为 gitignore，未删除。
 
 唯一活动开发 worktree：`/Users/heyunshen/work/PROJECT/jdc/agentmesh-t01`。
 
