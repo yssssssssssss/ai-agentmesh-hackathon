@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.llm import skill_match_llm_timeout_seconds
 from agentmesh.models import (
+    AgentToolGrant,
     CandidateEvidencePathWitnessV1,
     CandidateIdentityV1,
     CandidateSnapshotV1,
@@ -906,36 +907,49 @@ def _profile_overlap(query: set[str], text: str) -> float:
     return weighted / max(1, sum(min(len(term), 4) for term in query))
 
 
-def _tool_definition(repository: SQLiteStore, reference: str) -> ToolDefinition | None:
-    direct = next(
-        (
-            item
-            for item in repository.tool_definitions
-            if item.enabled and reference in {item.id, item.name, item.external_name}
-        ),
-        None,
-    )
-    if direct is not None:
-        return direct
-    try:
-        from agentmesh.tool_runtime.mcp import resolve_mcp_requirement
+class _ToolAccess:
+    """Read tool definitions and grants once per search instead of once per tool check."""
 
-        resolution = resolve_mcp_requirement(repository, reference)
-    except (OSError, ValueError):
-        return None
-    return resolution.definition if resolution is not None else None
+    def __init__(self, repository: SQLiteStore) -> None:
+        self._repository = repository
+        self._definitions: list[ToolDefinition] | None = None
+        self._grants: list[AgentToolGrant] | None = None
+
+    def definition(self, reference: str) -> ToolDefinition | None:
+        if self._definitions is None:
+            self._definitions = [item for item in self._repository.tool_definitions if item.enabled]
+        direct = next(
+            (item for item in self._definitions if reference in {item.id, item.name, item.external_name}),
+            None,
+        )
+        if direct is not None:
+            return direct
+        try:
+            from agentmesh.tool_runtime.mcp import resolve_mcp_requirement
+
+            resolution = resolve_mcp_requirement(self._repository, reference)
+        except (OSError, ValueError):
+            return None
+        return resolution.definition if resolution is not None else None
+
+    def granted(self, user: User, reference: str) -> bool:
+        tool = self.definition(reference)
+        if tool is None:
+            return False
+        if self._grants is None:
+            self._grants = self._repository.agent_tool_grants
+        return any(
+            grant.agent_id == user.personal_agent_id and grant.tool_id == tool.id and grant.enabled
+            for grant in self._grants
+        )
+
+
+def _tool_definition(repository: SQLiteStore, reference: str) -> ToolDefinition | None:
+    return _ToolAccess(repository).definition(reference)
 
 
 def _tool_granted(repository: SQLiteStore, user: User, reference: str) -> bool:
-    tool = _tool_definition(repository, reference)
-    if tool is None:
-        return False
-    return any(
-        grant.agent_id == user.personal_agent_id
-        and grant.tool_id == tool.id
-        and grant.enabled
-        for grant in repository.agent_tool_grants
-    )
+    return _ToolAccess(repository).granted(user, reference)
 
 
 def _universal_readiness_diagnostics(
@@ -947,7 +961,9 @@ def _universal_readiness_diagnostics(
     *,
     runtime_enabled: bool,
     profile_trusted: bool,
+    tool_access: _ToolAccess | None = None,
 ) -> list[str]:
+    tools = tool_access or _ToolAccess(repository)
     profile = loaded.profile
     diagnostics: list[str] = []
     if loaded.review_state is None:
@@ -979,9 +995,9 @@ def _universal_readiness_diagnostics(
             diagnostics.append("public_resource_unavailable")
     required_tools = sorted({*tool_names_for_profile(profile), *skill.requested_tools})
     for tool_name in required_tools:
-        if _tool_definition(repository, tool_name) is None:
+        if tools.definition(tool_name) is None:
             diagnostics.append("required_tool_unavailable")
-        elif not _tool_granted(repository, user, tool_name):
+        elif not tools.granted(user, tool_name):
             diagnostics.append("tool_grant_missing")
     return list(dict.fromkeys(diagnostics))
 
@@ -1173,6 +1189,7 @@ class UniversalSkillSearchService:
         matched_atoms: dict[str, set[int]] = {}
         retrieval_pool_ids: set[str] = set()
         diagnostics: list[str] = []
+        tool_access = _ToolAccess(self._repository)
         ranking_batches = self._profile_ranker(list(query_atoms), allowed_ids)
         if len(ranking_batches) != len(query_atoms):
             ranking_batches = [([], [], ["embedding_batch_invalid"])] * len(query_atoms)
@@ -1255,6 +1272,7 @@ class UniversalSkillSearchService:
                 intent,
                 runtime_enabled=runtime_enabled,
                 profile_trusted=profile_trusted,
+                tool_access=tool_access,
             )
             if assume_unreviewed_ready:
                 readiness = [
