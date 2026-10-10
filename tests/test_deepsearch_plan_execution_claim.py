@@ -809,6 +809,7 @@ def test_generic_pause_cannot_mutate_a_deepsearch_run_or_create_an_inbox(tmp_pat
     with pytest.raises(ResearchStoreConflict, match="dedicated persistence"):
         repository.pause_agent_run_with_inbox(
             run_id=run.id,
+            expected_run=run,
             paused_state={"kind": "generic"},
             inbox_item=inbox,
             interruptions=[],

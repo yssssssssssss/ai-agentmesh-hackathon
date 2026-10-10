@@ -15,7 +15,6 @@ from agentmesh.artifacts import (
     TrustedEvidenceEnvelopeV1,
     UniversalSynthesisEnvelopeV1,
     V1ArtifactReader,
-    V1VerifiedArtifactStore,
 )
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
 from agentmesh.models import (
@@ -254,7 +253,16 @@ class StandardPlanFinalizer:
             plan.status = SkillPlanStatus.FAILED
             run = self.repository.get_agent_run(run.id) or run
             run.status = AgentRunStatus.FAILED
-            run.error_code = "output_contract_unsatisfied"
+            run.error_code = next((node.error_code for node in plan.nodes
+                                   if node.status is SkillPlanNodeStatus.FAILED and node.error_code in {
+                                       'run_model_budget_exhausted', 'run_model_budget_retry_exhausted',
+                                       'run_model_request_usage_exceeded',
+                                       'run_model_price_unavailable', 'run_model_price_currency_mismatch',
+                                       'run_model_price_configuration_invalid', 'run_model_budget_configuration_invalid',
+                                       'run_tool_budget_exhausted',
+                                       'run_tool_budget_deadline_exceeded', 'run_tool_budget_execution_changed',
+                                       'run_tool_budget_execution_identity_missing',
+                                   }), "output_contract_unsatisfied")
             transition = self.repository.finish_skill_plan_and_run(
                 plan=plan,
                 run=run,
@@ -283,8 +291,10 @@ class StandardPlanFinalizer:
         if remaining <= 0:
             raise TimeoutError("parent_run_deadline_exceeded")
         async with asyncio.timeout(remaining):
+            finalization_snapshot = self.repository.capture_synthesis_finalization(run, plan, results)
             synthesis, fallback = await self.synthesis_runner(plan, results)
         sealed_synthesis_artifact_id: str | None = None
+        synthesis_artifact: Artifact | None = None
         if universal:
             requirement_version_id = (
                 "candidate_snapshot:" + plan.candidate_snapshot.content_hash[:64]
@@ -323,7 +333,7 @@ class StandardPlanFinalizer:
                 requirement_version_id=requirement_version_id,
                 plan_version_id=f"{plan.id}:v{plan.version}",
             )
-            V1VerifiedArtifactStore(self.repository).insert_sealed(artifact)
+            synthesis_artifact = artifact
             sealed_synthesis_artifact_id = artifact.id
             synthesis.artifact_ids = list(
                 dict.fromkeys([*synthesis.artifact_ids, artifact.id])
@@ -407,6 +417,8 @@ class StandardPlanFinalizer:
             run=run,
             expected_plan_statuses={SkillPlanStatus.RUNNING},
             expected_run_statuses={AgentRunStatus.RUNNING},
+            finalization_snapshot=finalization_snapshot,
+            synthesis_artifact=synthesis_artifact,
             events=[
                 ("synthesis_completed", {"plan_id": plan.id, "fallback": fallback}),
                 (event_type, {"plan_id": plan.id, "synthesis_fallback": fallback}),

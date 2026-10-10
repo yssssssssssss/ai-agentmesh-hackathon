@@ -21,6 +21,7 @@ from agentmesh.models import (
     ChatThreadKind,
     CollaborationStage,
     Intent,
+    PermissionPolicyRule,
     Project,
     SkillOrchestrationRequestMode,
     SkillSynthesisResult,
@@ -36,12 +37,62 @@ from agentmesh.task_management.contracts import (
     TaskCommandAuthorizationV1,
     TaskCommandReceiptV1,
     TaskCreateRequest,
+    TaskManagementAction,
     TaskTransitionRequest,
     TaskUpdateRequest,
 )
-from agentmesh.task_management.service import TaskManagementError, TaskManagementService
+from agentmesh.task_management.service import TaskListQuery, TaskManagementError, TaskManagementService
 from agentmesh.task_review.contracts import TaskReviewDecisionRequest, TaskReviewSubmitRequest
 from agentmesh.task_review.service import TaskCompletionService
+
+
+def test_task_list_permission_snapshot_is_not_reused_by_the_next_request_or_write(monkeypatch, tmp_path):
+    monkeypatch.setenv('AGENTMESH_TASK_MANAGEMENT', 'write')
+    repository = SQLiteStore(tmp_path / 'task-list-policy.sqlite3')
+    user = repository.save_user(User(id='list-manager', workspace_id='list-workspace', default_project_id='list-project',
+                                    name='Manager', role='team_lead', personal_agent_id='list-agent'))
+    repository.save_project(Project(id='list-project', workspace_id=user.workspace_id, name='List', goal='Current policy',
+                                   member_ids=[user.id]))
+    service = TaskManagementService(repository)
+    created = service.create_task(TaskCreateRequest(command_id='list-policy-task', title='Current actions'), user)
+    query = TaskListQuery(project_id=user.default_project_id)
+    assert TaskManagementAction.MANAGE_RELATIONSHIPS in service.list_tasks(query, user).items[0].allowed_actions
+
+    repository.save_permission_policy_rule(PermissionPolicyRule(role=user.role, action='manage_project_tasks',
+                                                               effect='deny'))
+
+    current = service.list_tasks(query, user).items[0]
+    assert TaskManagementAction.MANAGE_RELATIONSHIPS not in current.allowed_actions
+    assert TaskManagementAction.EDIT in current.allowed_actions
+    with pytest.raises(TaskManagementError) as denied:
+        service.update_task(created.task.id, TaskUpdateRequest(command_id='denied-relationship', expected_version=1,
+                                                              parent_task_id='unknown-parent'), user)
+    assert denied.value.status_code == 403
+    assert repository.get_task(created.task.id).management.parent_task_id is None
+    repository.close()
+
+
+def test_create_task_uses_selected_authorized_project_and_replays_once(monkeypatch, tmp_path):
+    monkeypatch.setenv('AGENTMESH_TASK_MANAGEMENT', 'write')
+    repository = SQLiteStore(tmp_path / 'selected-project.sqlite3')
+    user = repository.save_user(User(id='project-member', workspace_id='workspace', default_project_id='default',
+        name='Member', role='user', personal_agent_id='personal-agent'))
+    for project_id, members in [('default', [user.id]), ('selected', [user.id]), ('private', ['other-user'])]:
+        repository.save_project(Project(id=project_id, workspace_id=user.workspace_id, name=project_id,
+                                        goal='Project work', member_ids=members))
+    service = TaskManagementService(repository)
+    request = TaskCreateRequest(command_id='selected-create', title='Reuse a reviewed method', project_id='selected')
+    created = service.create_task(request, user)
+    assert repository.get_chat_thread(created.task.thread_id).project_id == 'selected'
+    assert service.create_task(request, user).task.id == created.task.id
+    with pytest.raises(TaskManagementError) as conflict:
+        service.create_task(request.model_copy(update={'project_id': 'default'}), user)
+    assert conflict.value.status_code == 409
+    with pytest.raises(TaskManagementError) as denied:
+        service.create_task(request.model_copy(update={'command_id': 'private-create', 'project_id': 'private'}), user)
+    assert denied.value.status_code == 404
+    assert len(repository.tasks) == 1
+    repository.close()
 
 
 def test_concurrent_task_create_replays_one_durable_command(monkeypatch, tmp_path: Path) -> None:

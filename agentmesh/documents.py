@@ -21,6 +21,18 @@ class UnsupportedDocumentTypeError(ValueError):
     pass
 
 
+class DocumentParseError(RuntimeError):
+    """Static parser failure code; no input, output or native exception body."""
+
+
+def validate_parsed_limits(parsed: ParsedDocument) -> None:
+    if len(parsed.text.encode('utf-8')) > 1024 * 1024:
+        raise DocumentParseError('document_parsed_text_too_large')
+    if (len(parsed.title) > 512 or len(parsed.metadata) > 32
+        or any(len(key) > 120 or len(value) > 1000 for key, value in parsed.metadata.items())):
+        raise DocumentParseError('document_parser_metadata_too_large')
+
+
 class DocumentIngestionRequest(BaseModel):
     file_name: str = Field(min_length=1, max_length=255)
     content_type: str = Field(min_length=1, max_length=120)
@@ -111,11 +123,17 @@ class PDFDocumentParser:
             raise UnsupportedDocumentTypeError(f"无法打开 PDF 文件: {e}") from e
 
         pages_text: list[str] = []
-        for page in doc:
-            text = page.get_text("text")
-            if text.strip():
-                pages_text.append(text.strip())
-        doc.close()
+        total_bytes = 0
+        with doc:
+            if doc.page_count > 1000:
+                raise DocumentParseError('document_pdf_page_limit_exceeded')
+            for page in doc:
+                text = page.get_text("text").strip()
+                if text:
+                    total_bytes += len(text.encode('utf-8')) + 2
+                    if total_bytes > 1024 * 1024:
+                        raise DocumentParseError('document_parsed_text_too_large')
+                    pages_text.append(text)
 
         full_text = "\n\n".join(pages_text)
         title = self._extract_title(full_text, request.file_name)
@@ -219,22 +237,32 @@ class ImageOCRDocumentParser:
         return _parsed_document(request, "image_ocr", _title_from_text(text, request.file_name), text)
 
 
+class _DocumentTreeBuilder(ElementTree.TreeBuilder):
+    def doctype(self, name: str, pubid: str | None, system: str | None) -> None:
+        raise DocumentParseError('document_archive_xml_unsafe')
+
+
 def _extract_ooxml_text(content: bytes, xml_prefixes: list[str]) -> str:
     chunks: list[str] = []
     with tempfile.NamedTemporaryFile(suffix=".zip") as file:
         file.write(content)
         file.flush()
         with ZipFile(file.name) as archive:
+            entries = archive.infolist()
+            if len(entries) > 4096:
+                raise DocumentParseError('document_archive_limit_exceeded')
             names = sorted(
-                name
-                for name in archive.namelist()
-                if any(name == prefix or name.startswith(prefix) for prefix in xml_prefixes)
-                and name.endswith(".xml")
+                item.filename for item in entries
+                if any(item.filename == prefix or item.filename.startswith(prefix) for prefix in xml_prefixes)
+                and item.filename.endswith(".xml")
             )
             if not names:
                 raise KeyError("OOXML text parts not found")
+            if len(names) > 1000 or sum(archive.getinfo(name).file_size for name in names) > 4 * 1024 * 1024:
+                raise DocumentParseError('document_archive_limit_exceeded')
             for name in names:
-                root = ElementTree.fromstring(archive.read(name))
+                xml = archive.read(name)
+                root = ElementTree.fromstring(xml, parser=ElementTree.XMLParser(target=_DocumentTreeBuilder()))
                 texts = [node.text.strip() for node in root.iter() if node.tag.endswith("}t") and node.text and node.text.strip()]
                 if texts:
                     chunks.append("\n".join(texts))

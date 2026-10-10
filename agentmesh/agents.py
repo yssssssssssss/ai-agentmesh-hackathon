@@ -5,6 +5,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from functools import partial
 from typing import NoReturn
 
 from agentmesh.acquisition import (
@@ -60,7 +61,13 @@ from agentmesh.models import (
     new_id,
     now_utc,
 )
-from agentmesh.provider_status import provider_metadata
+from agentmesh.provider_status import (
+    ProviderDataMode,
+    ProviderOutcome,
+    ProviderQueryError,
+    provider_metadata,
+    validate_query_result,
+)
 from agentmesh.risk import RiskDecision, assess_external_content, assess_tool_request
 from agentmesh.seed import PROJECT, USER, WORKSPACE
 from agentmesh.service_agents import MockDataAgent, RiskAgent
@@ -77,6 +84,7 @@ from agentmesh.synthesis import (
     source_titles,
     synthesize_with_llm_result,
 )
+from agentmesh.tool_runtime.guardrails import unsafe_tool_output_reason
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +105,8 @@ class _ChatTurnState:
     requested_provider: str | None = None
     actual_provider: str | None = None
     provider_mode: str | None = None
+    data_mode: ProviderDataMode | None = None
+    outcome: ProviderOutcome | None = None
     provider_latency_ms: float | None = None
     provider_fallback_reason: str | None = None
 
@@ -666,6 +676,8 @@ class PersonalAgent:
                 requested_model=workflow_trace.requested_model,
                 actual_model=workflow_trace.actual_model,
                 provider_mode=workflow_trace.provider_mode,
+                data_mode=workflow_trace.data_mode,
+                outcome=workflow_trace.outcome,
                 latency_ms=workflow_trace.latency_ms,
                 fallback_reason=workflow_trace.fallback_reason,
                 model_fallback_reason=workflow_trace.model_fallback_reason,
@@ -695,6 +707,8 @@ class PersonalAgent:
         task.updated_at = now_utc()
         self.repository.save_task(task)
         self._audit("fail_task", "task", task.id, {"error": type(error).__name__})
+        if isinstance(error, ProviderQueryError):
+            self._audit("query_unavailable", "task", task.id, error.public_detail())
 
     def _handle_data_query(self, task: Task, content: str, user: User, state: _ChatTurnState) -> None:
         state.request_post = self._create_request_post(
@@ -708,6 +722,9 @@ class PersonalAgent:
         )
         task.steps.append("created_blackboard_request")
         state.evidence_post = self.data_agent.query(task, state.request_post, content, user)
+        state.evidence_post.metadata = validate_query_result(
+            state.evidence_post.metadata, requested_provider="data_api", has_evidence=bool(state.evidence_post.sources),
+        )
         self._capture_provider_metadata(state, state.evidence_post.metadata)
         state.synthesis_evidence_post = state.evidence_post
         self._persist_sources(state.evidence_post.sources)
@@ -981,6 +998,9 @@ class PersonalAgent:
         acquisition_result = self._document_acquisition_result(acquisition_request)
         if acquisition_result is None:
             acquisition_result = self.acquisition_agent.acquire(acquisition_request)
+        acquisition_result.metadata = validate_query_result(
+            acquisition_result.metadata, requested_provider="research", has_evidence=bool(acquisition_result.sources),
+        )
         self._capture_provider_metadata(state, acquisition_result.metadata)
         state.evidence_post = self._create_evidence_post(task, state.request_post, acquisition_result)
         content_risk = assess_external_content(acquisition_result.content)
@@ -1112,21 +1132,34 @@ class PersonalAgent:
         thread = self.repository.get_chat_thread(task.thread_id)
         if thread is None or thread.user_id != user.id:
             raise ChatThreadNotFoundError(task.thread_id)
+        # Import locally: the dispatch service uses this existing fulfillment boundary.
+        from agentmesh.research_dispatch import authorize_research_owner
+
+        authorize_research_owner(self.repository, task, user, request_post)
 
         activity_logs: list[ActivityLog] = []
         inbox_items: list[InboxItem] = []
 
-        result = self.acquisition_agent.acquire(
-            AcquisitionRequest(
-                query=request_post.content,
-                intent=task.intent,
-                workspace_id=thread.workspace_id,
-                project_id=thread.project_id,
-                user_id=user.id,
-                task_id=task.id,
-                request_post_id=request_post.id,
+        try:
+            result = self.acquisition_agent.acquire(
+                AcquisitionRequest(
+                    query=request_post.content,
+                    intent=task.intent,
+                    workspace_id=thread.workspace_id,
+                    project_id=thread.project_id,
+                    user_id=user.id,
+                    task_id=task.id,
+                    request_post_id=request_post.id,
+                )
             )
-        )
+            result.metadata = validate_query_result(
+                result.metadata, requested_provider="research", has_evidence=bool(result.sources),
+            )
+        except ProviderQueryError as error:
+            authorize_research_owner(self.repository, task, user, request_post)
+            self._mark_task_failed(task, error)
+            raise
+        authorize_research_owner(self.repository, task, user, request_post)
         evidence_post = self._create_evidence_post(task, request_post, result)
         self._persist_sources(evidence_post.sources)
 
@@ -1199,6 +1232,13 @@ class PersonalAgent:
         user: User,
     ) -> tuple[ChatMessage, bool]:
         """把一条已采纳的 evidence 推进为最终回答:回填证据状态、完成任务并向原线程追加带源回复。"""
+        try:
+            evidence_post.metadata = validate_query_result(
+                evidence_post.metadata, requested_provider="research", has_evidence=bool(evidence_post.sources),
+            )
+        except ProviderQueryError as error:
+            self._mark_task_failed(task, error)
+            raise
         evidence_post.status = "published"
         evidence_post.collaboration_stage = CollaborationStage.REVIEW
         self.repository.add_blackboard_post(evidence_post)
@@ -1225,6 +1265,14 @@ class PersonalAgent:
             user=user,
             history=self._get_thread_history(task.thread_id),
         )
+        trace = self._command_workflow_trace(task.intent, "research.dispatch", persisted=True, source="external_agent")
+        trace.llm_used = synthesis.llm_used
+        trace.requested_model = synthesis.requested_model
+        trace.actual_model = synthesis.actual_model
+        trace.model_fallback_reason = synthesis.fallback_reason
+        state = _ChatTurnState()
+        self._capture_provider_metadata(state, evidence_post.metadata)
+        self._apply_trace_provenance(trace, state, user, None)
         assistant_message = self.repository.add_chat_message(
             ChatMessage(
                 thread_id=task.thread_id,
@@ -1232,6 +1280,7 @@ class PersonalAgent:
                 content=synthesis.content,
                 scope=Scope.PRIVATE,
                 sources=self._assistant_sources(evidence_post, None),
+                workflow_trace=trace,
             )
         )
         return assistant_message, synthesis.llm_used
@@ -1333,105 +1382,62 @@ class PersonalAgent:
         self.repository.save_consent_grant(grant)
         self._audit("revoke_consent", "consent_grant", grant.id, {"grantor": grantor.id, "grantee": grantee.id})
 
-    def answer_for_peer(self, asker: User, target: User, question: str) -> DelegatedAnswer:
-        """B's twin asks A's twin. A answers strictly from A's own personal memory.
+    def answer_for_peer(
+        self, asker: User, target: User, question: str, *, command_id: str | None = None,
+        project_id: str | None = None,
+    ) -> DelegatedAnswer:
+        from agentmesh.delegated_queries import DelegatedQueryCreate, DelegatedQueryService
 
-        Runs automatically only under a standing grant and when no high-sensitivity
-        memory is matched; otherwise it halts on the confirmation gate (Inbox).
-        Only the abstracted answer and citation titles cross back to the asker.
-        """
-        matched = self._match_target_memory(target, question)
-        high_sensitivity = any(item.sensitivity == "high" for item in matched)
-        has_consent = self.repository.get_active_consent_grant(target.id, asker.id) is not None
-
-        if has_consent and not high_sensitivity:
-            return self._answer_and_audit(target, question, matched, asker_id=asker.id, auto=True)
-
-        reason = "high_sensitivity" if high_sensitivity else "no_standing_consent"
-        inbox_item = self._inbox(
-            title="确认代答请求",
-            summary=f"{asker.name} 的分身请求由你的分身代答：「{self._truncate(question, 60)}」。",
-            item_type=self.DELEGATED_CONFIRM_ITEM_TYPE,
-            scope=Scope.PRIVATE,
-            user_id=target.id,
-            metadata={"asker_id": asker.id, "target_id": target.id, "question": question, "reason": reason},
+        view = DelegatedQueryService(self.repository, llm_client=self.llm_client).create(
+            asker, DelegatedQueryCreate(project_id=project_id or asker.default_project_id, target_id=target.id,
+                                        question=question, command_id=command_id or new_id('peer_query')),
         )
-        self._audit(
-            "delegated_answer_pending", "inbox_item", inbox_item.id,
-            {"asker": asker.id, "target": target.id, "reason": reason},
+        return self._delegated_result(view)
+
+    def _delegated_result(self, view) -> DelegatedAnswer:
+        answer = view.answer
+        if view.status == 'blocked':
+            answer = '代答模型或当前授权暂不可用，未生成答复。'
+        elif view.status == 'insufficient_evidence':
+            answer = '信息不足：没有足够的可用依据。'
+        return DelegatedAnswer(
+            status=DelegatedAnswerStatus(view.status), answer=answer, citations=view.citations,
+            confidence=view.confidence, query_id=view.id,
+            inbox_item=self.repository.get_inbox_item(view.inbox_item_id) if view.inbox_item_id else None,
         )
-        return DelegatedAnswer(status=DelegatedAnswerStatus.AWAITING_CONFIRM, inbox_item=inbox_item)
 
     def resolve_delegated_answer(self, inbox_item: InboxItem, action: str) -> DelegatedAnswer:
-        """A resolves a pending delegated query: approve → answer, deny → nothing."""
-        if action not in {"approve", "deny"}:
-            raise ValueError("action must be 'approve' or 'deny'")
-        meta = inbox_item.metadata
-        target = self.repository.get_user(meta["target_id"])
-        if target is None:
-            raise ValueError("delegated-answer inbox item has no target user")
-        inbox_item.status = "resolved"
-        inbox_item.resolved_at = now_utc()
-        self.repository.save_inbox_item(inbox_item)
+        from agentmesh.delegated_queries import DelegatedQueryService
 
-        if action == "deny":
-            self._audit("delegated_answer_denied", "inbox_item", inbox_item.id, {"target": target.id})
-            return DelegatedAnswer(status=DelegatedAnswerStatus.DENIED)
-
-        question = meta.get("question", "")
-        matched = self._match_target_memory(target, question)
-        return self._answer_and_audit(target, question, matched, asker_id=meta.get("asker_id"), auto=False)
-
-    def _answer_and_audit(
-        self, target: User, question: str, matched: list[UserMemoryItem], *, asker_id: str | None, auto: bool
-    ) -> DelegatedAnswer:
-        result = self._synthesize_delegated_answer(target, question, matched)
-        self._audit(
-            "delegated_answer", "user", target.id,
-            {"asker": asker_id, "auto": auto, "confidence": result.confidence.value},
-        )
-        return result
+        query_id = inbox_item.metadata.get('query_id')
+        target = self.repository.get_user(inbox_item.user_id or '')
+        if not query_id or target is None:
+            raise ValueError('verified_delegated_query_required')
+        service = DelegatedQueryService(self.repository, llm_client=self.llm_client)
+        view = service.get(target, query_id)
+        return self._delegated_result(service.resolve(target, query_id, action=action, expected_version=view.version))
 
     def adopt_delegated_answer(
         self, asker: User, target: User, answer: DelegatedAnswer
     ) -> tuple[ContributionPoint, MemoryRelation]:
         """B adopts A's answer: record-only shadow point for A + a derived_from edge."""
-        if not answer.citations:
-            raise ValueError("cannot adopt a delegated answer that has no citations")
-        citation = answer.citations[0]
-        adopted = self.repository.add_user_memory_item(
-            UserMemoryItem(
-                user_id=asker.id,
-                layer=MemoryLayer.SHORT_TERM,
-                title=f"采纳自 {target.name} 的代答",
-                summary=self._truncate(answer.answer or "", 240),
-                source_kind="delegated_answer",
-                memory_type="note",
-                workspace_id=asker.workspace_id,
-                project_id=asker.default_project_id,
-                sources=list(answer.citations),
-            )
-        )
-        point = self.repository.add_contribution_point(
-            ContributionPoint(
-                awarded_to_id=target.id,
-                awarded_by_id=asker.id,
-                reason="delegated_answer_adopted",
-                redeemable=False,
-                workspace_id=target.workspace_id,
-            )
-        )
-        relation = self.repository.add_memory_relation(
-            MemoryRelation(
-                from_memory_id=adopted.id,
-                to_source_id=citation.id,
-                relation_type="derived_from",
-            )
-        )
-        self._audit(
-            "adopt_delegated_answer", "contribution_point", point.id,
-            {"awarded_to": target.id, "by": asker.id, "relation": relation.id},
-        )
+        if answer.status is not DelegatedAnswerStatus.ANSWERED or not answer.answer or not answer.citations:
+            raise ValueError("cannot adopt an undelivered delegated answer")
+        from agentmesh.delegated_queries import DelegatedQueryService, QueryAdoptRequest
+
+        if not answer.query_id:
+            raise ValueError('verified_delegated_query_required')
+        service = DelegatedQueryService(self.repository)
+        view = service.get(asker, answer.query_id)
+        if view.target_id != target.id or not view.current_available or not view.artifact_hash:
+            raise ValueError('cannot adopt an undelivered delegated answer')
+        receipt = service.adopt(asker, view.id, QueryAdoptRequest(
+            command_id=new_id('adopt'), expected_version=view.version, artifact_hash=view.artifact_hash,
+        ))
+        point = self.repository._get('contribution_points', receipt.point_id, ContributionPoint)
+        relation = self.repository._get('memory_relations', receipt.relation_id, MemoryRelation)
+        if point is None or relation is None:
+            raise ValueError('query_adoption_unavailable')
         return point, relation
 
     def read_peer_memory_directly(self, asker: User, target: User) -> NoReturn:
@@ -1441,18 +1447,6 @@ class PersonalAgent:
             f"Direct read of {target.id} personal memory is not permitted; use answer_for_peer."
         )
 
-    def _match_target_memory(self, target: User, question: str) -> list[UserMemoryItem]:
-        """Retrieve strictly within the target's own personal memory (hard user scope)."""
-        terms = self._search_terms(question)
-        scored: list[tuple[int, UserMemoryItem]] = []
-        for item in self.repository.list_user_memory_items(user_id=target.id):
-            haystack = f"{item.title} {item.summary} {item.memory_type}".lower()
-            score = sum(1 for term in terms if term in haystack)
-            if score >= 1:
-                scored.append((score, item))
-        scored.sort(key=lambda pair: (pair[0], pair[1].created_at), reverse=True)
-        return [item for _, item in scored]
-
     INSUFFICIENT_PREFIX = "信息不足"
 
     def _synthesize_delegated_answer(
@@ -1460,7 +1454,7 @@ class PersonalAgent:
     ) -> DelegatedAnswer:
         if not matched:
             return DelegatedAnswer(
-                status=DelegatedAnswerStatus.ANSWERED,
+                status=DelegatedAnswerStatus.INSUFFICIENT_EVIDENCE,
                 answer=f"{self.INSUFFICIENT_PREFIX}：{target.name} 的个人记忆中没有足够依据回答此问题。",
                 citations=[],
                 confidence=AnswerConfidence.NONE,
@@ -1470,17 +1464,16 @@ class PersonalAgent:
 
         llm_answer = self._llm_delegated_answer(target, question, matched)
         if llm_answer is None:
-            # No LLM configured or the call failed — fall back to a body-free template.
             return DelegatedAnswer(
-                status=DelegatedAnswerStatus.ANSWERED,
-                answer=self._delegated_template(target, matched),
-                citations=citations,
-                confidence=count_confidence,
+                status=DelegatedAnswerStatus.BLOCKED,
+                answer='代答模型未配置或本次请求不可用，未生成答复。',
+                citations=[],
+                confidence=AnswerConfidence.NONE,
             )
         if llm_answer.startswith(self.INSUFFICIENT_PREFIX):
             # Trust the model's own "insufficient" judgement over the hit count.
             return DelegatedAnswer(
-                status=DelegatedAnswerStatus.ANSWERED,
+                status=DelegatedAnswerStatus.INSUFFICIENT_EVIDENCE,
                 answer=llm_answer,
                 citations=[],
                 confidence=AnswerConfidence.NONE,
@@ -1518,58 +1511,32 @@ class PersonalAgent:
             return None
         return answer or None
 
-    @staticmethod
-    def _delegated_template(target: User, matched: list[UserMemoryItem]) -> str:
-        return (
-            f"根据「{target.name}」的 {len(matched)} 条相关个人记忆（详见引用来源），"
-            "已归纳出可参考的答复；原始记忆内容未随本次回答一并传出。"
-        )
-
     # ==== Autonomous market: agent-1 publishes a MARKETPLACE_SIGNAL ====
 
     def publish_marketplace_signal(self, user: User) -> BlackboardPost | None:
-        """agent-1: summarize the user's work into a MARKETPLACE_SIGNAL post.
+        """Summarize frozen eligible material, then atomically recheck and publish."""
+        from agentmesh.market_publishing import MarketPublishingService
 
-        The signal is an abstracted summary — capabilities / help-offered / help-needed —
-        built from the user's tasks and personal memory. Skipped when there's no source
-        material. Auto-published with a deterministic id so re-publishing refreshes the
-        user's prior signal rather than duplicating it (the auto-post enqueue/drain pipeline
-        mints a fresh id per drain, so it can't satisfy this refresh requirement — hence a
-        direct upsert). Publishing is audited.
-        """
-        memory = self.repository.list_user_memory_items(user_id=user.id)
-        tasks = self._user_tasks(user)
-        if not memory and not tasks:
+        publishing = MarketPublishingService(self.repository)
+        snapshot = publishing.prepare(user)
+        if snapshot is None:
             return None
-        post = BlackboardPost(
-            id=f"bb_signal_{user.id}",  # deterministic → re-publish refreshes, not duplicates
-            task_id=f"signal_{user.id}",  # synthetic, non-task
-            post_type=BlackboardPostType.MARKETPLACE_SIGNAL,
-            actor=self.actor,
-            title=f"{user.name} 的协作信号",
-            content=self._marketplace_signal_content(user, memory, tasks),
-            scope=Scope.PROJECT,
-            permission="project_visible",
-            read_by_agents=[self.actor],
-        )
-        self.repository.add_blackboard_post(post)
-        self._audit("publish_marketplace_signal", "blackboard_post", post.id, {"user": user.id})
-        return post
+        client = chat_llm_client(self.repository, snapshot.actor, self.llm_client,
+                                 timeout_seconds=market_llm_timeout_seconds())
+        if not publishing.current(snapshot):
+            return None
+        content = self._marketplace_signal_content(snapshot.actor, snapshot.memory, snapshot.tasks, client)
+        return publishing.commit(snapshot, content, actor=self.actor)
 
-    def _user_tasks(self, user: User) -> list[Task]:
-        thread_ids = {thread.id for thread in self.repository.chat_threads if thread.user_id == user.id}
-        return [task for task in self.repository.tasks if task.thread_id in thread_ids]
-
-    def _marketplace_signal_content(self, user: User, memory: list[UserMemoryItem], tasks: list[Task]) -> str:
-        llm_signal = self._llm_marketplace_signal(user, memory, tasks)
+    def _marketplace_signal_content(self, user: User, memory: list[UserMemoryItem], tasks: list[Task], client) -> str:
+        llm_signal = self._llm_marketplace_signal(user, memory, tasks, client)
         if llm_signal is not None:
             return llm_signal
         source_titles = [item.title for item in memory] + [task.title for task in tasks]
         capabilities = "、".join(source_titles[:5])
         return f"能力：{capabilities}\n可提供：可就以上经验为同事提供帮助与解答。\n需要：（暂无）"
 
-    def _llm_marketplace_signal(self, user: User, memory: list[UserMemoryItem], tasks: list[Task]) -> str | None:
-        client = chat_llm_client(self.repository, user, self.llm_client, timeout_seconds=market_llm_timeout_seconds())
+    def _llm_marketplace_signal(self, user: User, memory: list[UserMemoryItem], tasks: list[Task], client) -> str | None:
         if client is None:
             return None
         system_prompt = (
@@ -1596,69 +1563,103 @@ class PersonalAgent:
     ) -> list[tuple[str, DelegatedAnswer]]:
         """agent-2: scan MARKETPLACE_SIGNAL posts for needs `user` can solve.
 
-        For each solvable need on another person's signal, `user` (the helper) grants that
-        needer standing consent — participating in the market means letting peers pull
-        non-sensitive answers from your twin — and triggers `answer_for_peer(asker=needer,
-        target=user, question=need)` so the helper's twin answers the need. Non-sensitive
-        answers auto-resolve; high-sensitivity matches still hit the confirmation gate.
-
-        Cost controls: pass ``seen`` (a caller-maintained fingerprint set) to skip needs
-        already evaluated on prior passes — only re-evaluated when the need text changes;
-        pass ``max_matches`` to cap the answers triggered per run. Returns (needer_id,
-        answer) per triggered match.
+        Consent is checked by the existing answer gateway and never granted by a scout.
+        Durable fingerprints include source, knowledge, matching/model and authorization
+        versions. ``seen`` is a compatibility output only. ``max_matches`` also bounds
+        the number of signals inspected, including negative model decisions.
         """
-        capabilities = self._capability_text(user)
-        if not capabilities:
-            return []
-        client = chat_llm_client(self.repository, user, self.llm_client, timeout_seconds=market_llm_timeout_seconds())
+        from agentmesh.market_scout import MarketMatchingReadError, MarketScoutRepository, guarded_matching_client
+
+        matching = MarketScoutRepository(self.repository)
         results: list[tuple[str, DelegatedAnswer]] = []
-        for post in self.repository.blackboard_posts:
+        if max_matches is not None and max_matches < 1:
+            return []
+        for post in matching.signal_page(user, limit=min(max_matches or 20, 50)):
             if post.post_type != BlackboardPostType.MARKETPLACE_SIGNAL:
                 continue
             owner_id = post.task_id.removeprefix("signal_")
             if owner_id == user.id:  # never answer your own signal
                 continue
             need = self._extract_need(post.content)
-            if not need:
+            if not need or len(need) > 800 or unsafe_tool_output_reason(need) is not None:
                 continue
-            fingerprint = f"{owner_id}:{need}"
-            if seen is not None:
-                if fingerprint in seen:  # unchanged need already evaluated — skip the LLM cost
-                    continue
-                seen.add(fingerprint)
-            if not self._match_signal(need, capabilities, client):
+            terms = tuple(self._search_terms(need))
+            knowledge = matching.knowledge_snapshot(user, post.metadata['project_id'], query_terms=terms)
+            if knowledge is None:
+                continue
+            actor = knowledge.actor
+            client = chat_llm_client(self.repository, actor, self.llm_client, timeout_seconds=market_llm_timeout_seconds())
+            fingerprint = matching.fingerprint(actor, post, knowledge.proof_hash, client)
+            if fingerprint is None:
+                continue
+            receipt = matching.claim(actor, post, fingerprint)
+            if receipt is None:
+                continue
+            current = partial(matching.current, receipt, actor, post, terms, client)
+            try:
+                is_match = self._match_signal(need, knowledge.capabilities, guarded_matching_client(client, current))
+            except MarketMatchingReadError as error:
+                matching.settle(receipt, status="retry_wait" if error.retryable else "blocked", error_code=error.code)
                 continue
             needer = self.repository.get_user(owner_id)
             if needer is None:
+                matching.settle(receipt, status="retry_wait", error_code="market_authorization_changed")
                 continue
-            self.grant_consent(user, needer)  # helper lets the needer pull non-sensitive answers
-            answer = self.answer_for_peer(asker=needer, target=user, question=need)
-            self._audit(
-                "marketplace_match", "user", needer.id,
-                {"helper": user.id, "status": answer.status.value},
-            )
-            logger.info(
-                "market match: helper=%s needer=%s status=%s need=%r",
-                user.id, needer.id, answer.status.value, need[:60],
-            )
-            self.repository.add_blackboard_post(
-                BlackboardPost(
-                    id=f"bb_match_{user.id}_{needer.id}",  # deterministic per pair → refresh, not spam
-                    task_id="market_activity",  # synthetic, non-task → visible on the board to all
-                    post_type=BlackboardPostType.MARKETPLACE_MATCH,
-                    actor=self.actor,
-                    title=f"协作代答：{user.name} 帮 {needer.name} 解决「{self._truncate(need, 24)}」",
-                    content=self._truncate(answer.answer or "已发起代答，等待对方确认。", 200),
-                    scope=Scope.PROJECT,
-                    permission="project_visible",
-                    read_by_agents=[self.actor],
+            if not current():
+                matching.settle(receipt, status="retry_wait", error_code="market_authorization_changed")
+                continue
+            if not is_match:
+                matching.settle(receipt, status="processed", outcome="no_match")
+                continue
+            if not matching.settle(receipt, status="delivering"):
+                continue
+            try:
+                answer = self.answer_for_peer(
+                    asker=needer, target=actor, question=need, command_id=f'market:{receipt.fingerprint}',
+                    project_id=post.metadata['project_id'],
                 )
+                self._record_market_match(actor, needer, need, answer, post)
+            except Exception:
+                matching.settle(receipt, status="indeterminate", error_code="market_delivery_requires_reconciliation")
+                continue
+            matching.settle(
+                receipt, status="processed", outcome=answer.status.value,
+                inbox_id=answer.inbox_item.id if answer.inbox_item else None,
             )
+            if seen is not None:
+                seen.add(fingerprint)
             results.append((needer.id, answer))
             if max_matches is not None and len(results) >= max_matches:
                 logger.info("market scout: hit per-run cap (%d) for helper=%s", max_matches, user.id)
                 break
         return results
+
+    def _record_market_match(self, helper, needer, need, answer, signal):
+        project_id = signal.metadata.get('project_id')
+        self.repository.add_audit_event(AuditEvent(actor=self.actor, action='marketplace_match', target_type='user',
+            target_id=needer.id, workspace_id=helper.workspace_id, project_id=project_id,
+            metadata={'helper': helper.id, 'status': answer.status.value, 'query_id': answer.query_id}))
+        logger.info("market match: helper=%s needer=%s status=%s", helper.id, needer.id, answer.status.value)
+        self.repository.add_blackboard_post(
+            BlackboardPost(
+                id=f"bb_match_{helper.id}_{needer.id}", task_id="market_activity",
+                post_type=BlackboardPostType.MARKETPLACE_MATCH, actor=self.actor,
+                title=f"协作请求：{helper.name} → {needer.name}「{self._truncate(need, 24)}」",
+                content={DelegatedAnswerStatus.ANSWERED: '结果已交付请求方。',
+                         DelegatedAnswerStatus.AWAITING_CONFIRM: '已发起代答，等待本人确认。',
+                         DelegatedAnswerStatus.BLOCKED: '代答暂不可用，未生成答复。',
+                         DelegatedAnswerStatus.INSUFFICIENT_EVIDENCE: '资料不足，未生成有依据的答复。',
+                         DelegatedAnswerStatus.DENIED: '本人已拒绝代答。',
+                         DelegatedAnswerStatus.PENDING: '代答处理中。',
+                         DelegatedAnswerStatus.FAILED: '代答中断，未交付答复。'}[answer.status],
+                scope=Scope.PROJECT, permission="project_visible", read_by_agents=[self.actor],
+                metadata={
+                    "workspace_id": helper.workspace_id,
+                    "project_id": project_id or '',
+                    'answer_status': answer.status.value,
+                },
+            ),
+        )
 
     def _match_signal(self, need: str, capabilities: str, client: ChatLLM | None) -> bool:
         """Two-stage match (validated by the Issue #6 spike): keyword pre-filter → LLM confirm.
@@ -1677,18 +1678,25 @@ class PersonalAgent:
         user_prompt = f"候选人能力：{capabilities}\n求助需求：{need}\n能否切实解决？"
         try:
             reply = client.complete(system_prompt, user_prompt).strip()
-        except Exception:
-            return False
-        return reply.upper().lstrip().startswith("YES")
+        except Exception as error:
+            from agentmesh.market_scout import MarketMatchingReadError
+
+            if isinstance(error, MarketMatchingReadError):
+                raise
+            if isinstance(error, PermissionError) or isinstance(error, LLMRequestError) and error.reason == "auth_error":
+                raise MarketMatchingReadError("market_model_unauthorized", retryable=False) from error
+            if isinstance(error, ValueError):
+                raise MarketMatchingReadError("market_matching_input_invalid", retryable=False) from error
+            raise MarketMatchingReadError("market_matching_read_failed") from error
+        decision = re.match(r"^(YES|NO)(?:\s|$)", reply.upper())
+        if decision is None:
+            from agentmesh.market_scout import MarketMatchingReadError
+
+            raise MarketMatchingReadError("market_matching_response_invalid")
+        return decision[1] == "YES"
 
     def _keyword_overlap(self, left: str, right: str) -> bool:
         return bool(set(self._search_terms(left)) & set(self._search_terms(right)))
-
-    def _capability_text(self, user: User) -> str:
-        memory = self.repository.list_user_memory_items(user_id=user.id)
-        tasks = self._user_tasks(user)
-        titles = [item.title for item in memory] + [task.title for task in tasks]
-        return "、".join(titles)
 
     @staticmethod
     def _extract_need(content: str) -> str | None:
@@ -2345,6 +2353,12 @@ class PersonalAgent:
         mode = metadata.get("mode")
         if mode in {"real", "fallback"}:
             state.provider_mode = mode
+        data_mode = metadata.get("data_mode")
+        if data_mode in {"real", "demo", "derived"}:
+            state.data_mode = data_mode
+        outcome = metadata.get("outcome")
+        if outcome in {"success", "no_change", "insufficient_evidence", "blocked", "failed", "indeterminate"}:
+            state.outcome = outcome
         latency = metadata.get("latency_ms")
         if latency:
             try:
@@ -2364,6 +2378,8 @@ class PersonalAgent:
             trace.requested_provider = state.requested_provider or state.actual_provider
             trace.actual_provider = state.actual_provider or state.requested_provider
             trace.provider_mode = state.provider_mode or "real"
+            trace.data_mode = state.data_mode
+            trace.outcome = state.outcome
             trace.latency_ms = state.provider_latency_ms
             trace.fallback_reason = trace.fallback_reason or state.provider_fallback_reason
             return

@@ -4,7 +4,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from agents.testing import ScriptedModel, assistant_message
+from agents.testing import ScriptedModel, assistant_message, function_call
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
 from agentmesh.agent_runtime.service import AgentRuntimeService
@@ -602,6 +602,10 @@ def test_memory_context_quarantines_credentials_and_prompt_instructions(
     receipts = repository.list_memory_use_receipts_for_run(run.id)
     assert [receipt.memory_id for receipt in receipts] == [safe.id]
     assert len(repository.memory_citation_reservations) == 1
+    candidates = MemoryContextService(repository).candidates_for_run(repository.get_agent_run(run.id), USER)
+    assert next(view for view in candidates if view.candidate.memory_id == safe.id).state == 'delivered'
+    assert all(view.state == 'quarantined' and view.title is None for view in candidates
+               if view.candidate.memory_id != safe.id)
 
 
 def test_personal_agent_auto_search_quarantines_unsafe_memory_before_synthesis(
@@ -669,6 +673,7 @@ def test_memory_context_applies_agent_binding_before_context_budget(tmp_path, mo
             agent_id=USER.personal_agent_id,
             allowed_scopes=[Scope.PRIVATE],
             allowed_memory_types=["allowed"],
+            type_policy_version=1,
             allowed_project_ids=[PROJECT.id],
             max_results_per_query=1,
         )
@@ -776,6 +781,398 @@ def test_linked_runtime_injects_memory_context_only_in_inject_mode(tmp_path, mon
     assert "agentmesh_memory_context" in (model.first_call.system_instructions or "")
     assert "[T1]" in (model.first_call.system_instructions or "")
     assert len(repository.list_memory_use_receipts_for_run(run.id)) == 1
+
+
+def test_runtime_rejects_full_context_before_memory_delivery(tmp_path, monkeypatch) -> None:
+    from agentmesh.memory_context.request_budget import ContextRequestError
+
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, 'full-context-budget')
+    _accepted_memory(repository, 'memory_full_context_budget')
+    model = ScriptedModel([[assistant_message('unreachable')]])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    selected = runtime._select_model(USER)
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', 'inject')
+    with pytest.raises(ContextRequestError, match='context_request_budget_exceeded'):
+        asyncio.run(runtime._execute_run(
+            run=run, selected=selected, content=run.input_text + '正文' * 25000,
+            user=USER, history=[], skill=None,
+        ))
+    assert not model.calls
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
+
+
+def test_memory_is_rechecked_at_actual_model_handoff(tmp_path, monkeypatch) -> None:
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, 'actual-handoff')
+    memory = _accepted_memory(repository, 'memory_actual_handoff')
+    model = ScriptedModel([[assistant_message('unreachable')]])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    selected = runtime._select_model(USER)
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', 'inject')
+    original_streamed = runtime._run_streamed
+
+    async def withdraw_before_sdk(*args, **kwargs):
+        repository.save_memory_item(memory.model_copy(update={'status': MemoryStatus.DEPRECATED, 'version': 3}))
+        return await original_streamed(*args, **kwargs)
+
+    monkeypatch.setattr(runtime, '_run_streamed', withdraw_before_sdk)
+    with pytest.raises(MemoryContextError, match='memory_(context_bundle_invalid|use_receipt_memory_changed)'):
+        asyncio.run(runtime._execute_run(run=run, selected=selected, content=run.input_text,
+                                        user=USER, history=[], skill=None))
+    assert not model.calls
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
+
+
+@pytest.mark.parametrize('change', ['document_version', 'summary_parent'])
+def test_memory_source_change_before_handoff_blocks_derived_content(tmp_path, monkeypatch, change) -> None:
+    from agentmesh.models import DocumentRecord, MemoryProvenanceV1
+
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, f'source-{change}')
+    if change == 'document_version':
+        document = repository.add_document(DocumentRecord(
+            id='context_doc', title='Checkout source', file_name='checkout.txt', content_type='text/plain',
+            text='Checkout evidence reusable guidance.', workspace_id=USER.workspace_id, project_id=PROJECT.id,
+            uploaded_by=USER.id, source=Source(title='Checkout file', source_type='document', reference='upload://checkout.txt'),
+        ))
+        repository.add_user_memory_item(UserMemoryItem(
+            id='context_doc_chunk', title='Checkout evidence reusable guidance', summary=document.text,
+            layer=MemoryLayer.LONG_TERM, source_kind='document_import', user_id=USER.id,
+            workspace_id=USER.workspace_id, project_id=PROJECT.id, sources=[Source(
+                title='Checkout file', source_type='document', reference='document://context_doc#v1/chunk_0',
+            )],
+        ))
+    else:
+        parent = repository.add_user_memory_item(UserMemoryItem(
+            id='context_parent', title='Parent context', summary='Frozen original input.',
+            layer=MemoryLayer.LONG_TERM, source_kind='manual', user_id=USER.id,
+            workspace_id=USER.workspace_id, project_id=PROJECT.id,
+        ))
+        repository.add_user_memory_item(UserMemoryItem(
+            id='context_rollup', title='Checkout evidence reusable guidance', summary='Checkout evidence reusable guidance.',
+            layer=MemoryLayer.LONG_TERM, source_kind='project_archive', user_id=USER.id,
+            workspace_id=USER.workspace_id, project_id=PROJECT.id, provenance=MemoryProvenanceV1(
+                source_kind='manual', created_by=USER.id, source_memory_ids=[parent.id],
+                source_memory_versions=[parent.version], source_memory_hashes=[memory_content_hash(parent)],
+            ),
+        ))
+    model = ScriptedModel([[assistant_message('unreachable')]])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', 'inject')
+    original_streamed = runtime._run_streamed
+
+    async def change_source_before_sdk(*args, **kwargs):
+        if change == 'document_version':
+            repository.save_document(document.model_copy(update={'text': 'Changed evidence', 'version': 2}))
+        else:
+            repository.save_user_memory_item(parent.model_copy(update={'status': 'deprecated', 'version': 2}))
+        return await original_streamed(*args, **kwargs)
+
+    monkeypatch.setattr(runtime, '_run_streamed', change_source_before_sdk)
+    with pytest.raises(MemoryContextError, match='memory_use_source_changed'):
+        asyncio.run(runtime._execute_run(run=run, selected=runtime._select_model(USER), content=run.input_text,
+                                        user=USER, history=[], skill=None))
+    assert not model.calls
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
+
+
+@pytest.mark.parametrize('mode', ['off', 'observe', 'inject'])
+def test_runtime_core_preferences_are_independent_from_learning_opt_in(tmp_path, monkeypatch, mode) -> None:
+    from agentmesh.memory_learning.contracts import MemoryPreferencesPatchV1
+    from agentmesh.memory_learning.service import MemoryLearningService
+
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, f'preferences-{mode}')
+    prefs = MemoryLearningService(repository).patch_preferences(MemoryPreferencesPatchV1(
+        command_id='set-core', expected_version=1, core_preferences=['回答先列验证结果，再列待办。'],
+    ), USER)
+    assert not prefs.learning_enabled
+    model = ScriptedModel([[assistant_message('Answer')]])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', mode)
+    asyncio.run(runtime._execute_run(run=run, selected=runtime._select_model(USER), content=run.input_text,
+                                    user=USER, history=[], skill=None))
+    instructions = model.first_call.system_instructions or ''
+    assert ('回答先列验证结果' in instructions) == (mode == 'inject')
+
+
+def test_core_preference_change_before_handoff_blocks_stale_injection(tmp_path, monkeypatch) -> None:
+    from agentmesh.memory_learning.contracts import MemoryPreferencesPatchV1
+    from agentmesh.memory_learning.service import MemoryLearningService
+
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, 'preferences-stale')
+    service = MemoryLearningService(repository)
+    service.patch_preferences(MemoryPreferencesPatchV1(command_id='set-core', expected_version=1,
+                                                       core_preferences=['回答先列验证结果。']), USER)
+    _accepted_memory(repository, 'memory_preferences_stale')
+    model = ScriptedModel([[assistant_message('unreachable')]])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', 'inject')
+    original_streamed = runtime._run_streamed
+
+    async def change_before_sdk(*args, **kwargs):
+        service.patch_preferences(MemoryPreferencesPatchV1(command_id='clear-core', expected_version=2,
+                                                           core_preferences=[]), USER)
+        return await original_streamed(*args, **kwargs)
+
+    monkeypatch.setattr(runtime, '_run_streamed', change_before_sdk)
+    with pytest.raises(MemoryContextError, match='core_preferences_changed'):
+        asyncio.run(runtime._execute_run(run=run, selected=runtime._select_model(USER), content=run.input_text,
+                                        user=USER, history=[], skill=None))
+    assert not model.calls
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
+
+
+def test_forgetting_redacts_staged_tool_context_and_fences_its_late_delivery(tmp_path, monkeypatch) -> None:
+    import json
+    import sqlite3
+
+    from agentmesh.memory_lifecycle import MemoryForgetRequestV1, MemoryForgettingService
+
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, 'staged-forget')
+    item = repository.add_user_memory_item(UserMemoryItem(
+        id='pending_context_memory', title='Checkout evidence', summary='Private address guidance pending delivery.',
+        user_id=USER.id, workspace_id=USER.workspace_id, project_id=PROJECT.id,
+        layer=MemoryLayer.MID_TERM, source_kind='manual',
+    ))
+    service = MemoryContextService(repository)
+    bundle = service.prepare_for_run('checkout address', run=run, user=USER, agent_id=USER.personal_agent_id)
+    assert [hit.memory_id for hit in bundle.hits] == [item.id]
+    output = json.dumps({'memory': item.id, 'summary': item.summary})
+    service.stage_tool_delivery(bundle, query='checkout address', output=output, run=run, user=USER)
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
+    MemoryForgettingService(repository).forget(item.id, MemoryForgetRequestV1(
+        command_id='forget-pending', expected_version=1,
+    ), USER)
+    with repository._read_connect() as connection:
+        payload = connection.execute("SELECT payload FROM records WHERE collection = 'memory_tool_deliveries'").fetchone()['payload']
+        assert item.summary not in payload
+        assert json.loads(payload)['bundle'] is None
+    with pytest.raises(MemoryContextError, match='memory_use_source_changed'):
+        service.deliver_pending_tools(run=run, input=[{'type': 'function_call_output', 'call_id': 'late', 'output': output}])
+    with pytest.raises(sqlite3.IntegrityError, match='memory_source_withdrawn'):
+        service.stage_tool_delivery(bundle, query='checkout address', output=output, run=run, user=USER)
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
+
+
+@pytest.mark.parametrize('change', ['archived', 'non_private'])
+def test_personal_context_rechecks_current_scope_and_archive_marker(tmp_path, monkeypatch, change) -> None:
+    from agentmesh.models import now_utc
+
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, f'personal-policy-{change}')
+    item = repository.add_user_memory_item(UserMemoryItem(
+        id='personal_policy_memory', title='Checkout evidence', summary='Address guidance.',
+        user_id=USER.id, workspace_id=USER.workspace_id, project_id=PROJECT.id,
+        layer=MemoryLayer.MID_TERM, source_kind='manual',
+    ))
+    service = MemoryContextService(repository)
+    prepared = service.prepare_for_run('checkout address', run=run, user=USER, agent_id=USER.personal_agent_id)
+    assert len(prepared.hits) == 1
+    updated = item.model_copy(update={'archived_at': now_utc()} if change == 'archived' else {'scope': Scope.PROJECT})
+    repository.save_user_memory_item(updated)
+    with pytest.raises(MemoryContextError):
+        service.commit_prepared_for_run(prepared, query='checkout address', run=run, user=USER,
+                                        agent_id=USER.personal_agent_id, reason='automatic_run_context')
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
+
+
+@pytest.mark.parametrize('change', ['unchanged', 'memory_changed', 'preferences_changed', 'mode_changed',
+                                  'input_changed', 'identity_changed', 'owner_disabled', 'writer_changed'])
+def test_approval_restores_frozen_automatic_context_and_rechecks_it(tmp_path, monkeypatch, change) -> None:
+    from agentmesh.memory_learning.contracts import MemoryPreferencesPatchV1
+    from agentmesh.memory_learning.service import MemoryLearningService
+    from agentmesh.models import AgentToolGrant
+    from agentmesh.store import SDKSessionConflict
+    from agentmesh.tools import ensure_tool_seed_data
+
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, f'frozen-approval-{change}')
+    memory = _accepted_memory(repository, 'memory_frozen_approval')
+    preferences = MemoryLearningService(repository)
+    preferences.patch_preferences(MemoryPreferencesPatchV1(command_id='set-core', expected_version=1,
+                                                           core_preferences=['先列出验证结果。']), USER)
+    ensure_tool_seed_data(repository, granted_by='system')
+    repository.save_agent_tool_grant(AgentToolGrant(agent_id=USER.personal_agent_id,
+                                                    tool_id='tool_web_research', granted_by='test'))
+    model = ScriptedModel([[function_call('web_research', {'query': 'checkout'}, call_id='frozen-web')],
+                           [assistant_message('Resumed answer [T1]')]])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    tool_calls = []
+
+    def read_tool(*_args):
+        tool_calls.append('web_research')
+        return {'status': 'blocked'}
+
+    monkeypatch.setattr(runtime.tool_factory.gateway, 'web_research', read_tool)
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', 'inject')
+
+    async def scenario():
+        paused = await runtime._execute_run(run=run, selected=runtime._select_model(USER), content=run.input_text,
+                                            user=USER, history=[], skill=None)
+        assert paused.waiting_approval
+        if change == 'memory_changed':
+            repository.save_memory_item(memory.model_copy(update={'status': MemoryStatus.DEPRECATED, 'version': 3}))
+        elif change == 'preferences_changed':
+            preferences.patch_preferences(MemoryPreferencesPatchV1(command_id='clear-core', expected_version=2,
+                                                                   core_preferences=[]), USER)
+        elif change == 'mode_changed':
+            monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', 'off')
+        elif change in {'input_changed', 'identity_changed', 'writer_changed'}:
+            saved = repository.get_agent_run(run.id)
+            if change == 'input_changed':
+                saved.paused_state['original_input'] = 'A different request.'
+            elif change == 'identity_changed':
+                saved.paused_state['context']['context']['project_id'] = 'project_changed'
+            else:
+                saved.writer_generation_epoch = 2
+            repository.save_agent_run(saved)
+        elif change == 'owner_disabled':
+            repository.save_user(USER.model_copy(update={'status': 'disabled'}))
+        # A new runtime instance must use server-persisted context, without the
+        # original execution's closures or Agent object.
+        restored = AgentRuntimeService(repository=repository, model=model, enabled=True)
+        monkeypatch.setattr(restored.tool_factory.gateway, 'web_research', read_tool)
+        if change == 'unchanged':
+            result = await restored.resume(run.id, user=USER, decisions={'frozen-web': True})
+            assert result.content == 'Resumed answer [T1]'
+            assert memory.summary in model.calls[1].system_instructions
+            assert '先列出验证结果' in model.calls[1].system_instructions
+            assert len(repository.list_memory_use_receipts_for_run(run.id)) == 1
+            assert tool_calls == ['web_research']
+        else:
+            # Session checkpoints now reject these changes before restoring the
+            # frozen automatic context. Preserve the specific earliest guard.
+            session_errors = {'memory_changed': 'sdk_session_source_changed',
+                              'owner_disabled': 'sdk_session_not_authorized',
+                              'writer_changed': 'sdk_session_checkpoint_changed'}
+            error_type = SDKSessionConflict if change in session_errors else MemoryContextError
+            with pytest.raises(error_type, match=session_errors.get(change)):
+                await restored.resume(run.id, user=USER, decisions={'frozen-web': True})
+            assert len(model.calls) == 1
+            assert tool_calls == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('changed', ['input', 'instructions'])
+def test_frozen_context_checks_actual_request_before_delivery(tmp_path, monkeypatch, changed) -> None:
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, f'frozen-request-{changed}')
+    _accepted_memory(repository, 'memory_frozen_request')
+    model = ScriptedModel([[assistant_message('unreachable')]])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', 'inject')
+    original_streamed = runtime._run_streamed
+
+    async def change_before_sdk(agent, input_value, **kwargs):
+        if changed == 'input':
+            input_value = 'A different request after context preparation.'
+        else:
+            agent.instructions = 'Only the platform instructions remain.'
+        return await original_streamed(agent, input_value, **kwargs)
+
+    monkeypatch.setattr(runtime, '_run_streamed', change_before_sdk)
+    with pytest.raises(MemoryContextError, match=f'context_snapshot_{changed}_changed'):
+        asyncio.run(runtime._execute_run(run=run, selected=runtime._select_model(USER), content=run.input_text,
+                                        user=USER, history=[], skill=None))
+    assert not model.calls
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
+
+
+@pytest.mark.parametrize('change', ['replaced_before_snapshot', 'disabled_before_handoff', 'binding_disabled_before_handoff'])
+def test_context_freezes_the_skill_that_built_the_agent(tmp_path, monkeypatch, change) -> None:
+    from agentmesh.models import SkillBinding, SkillDefinition, SkillSourceScope
+
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, f'snapshot-skill-{change}')
+    _accepted_memory(repository, 'memory_skill_snapshot')
+    skill = repository.save_skill_definition(SkillDefinition(
+        id='snapshot_skill', name='snapshot-skill', title='Snapshot Skill', description='Verify frozen instructions.',
+        instructions='Original Skill instructions.', source_path=str(tmp_path / 'SKILL.md'),
+        source_scope=SkillSourceScope.BUILTIN, content_hash='a' * 64,
+    ))
+    model = ScriptedModel([[assistant_message('unreachable')]])
+    runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', 'inject')
+    original_build = runtime._build_agent
+    original_streamed = runtime._run_streamed
+
+    def replace_after_build(**kwargs):
+        agent = original_build(**kwargs)
+        repository.save_skill_definition(skill.model_copy(update={
+            'version': '2', 'content_hash': 'b' * 64, 'instructions': 'Replacement instructions.',
+        }))
+        return agent
+
+    async def disable_before_sdk(*args, **kwargs):
+        if change == 'binding_disabled_before_handoff':
+            repository.save_skill_binding(SkillBinding(agent_id=USER.personal_agent_id, skill_id=skill.id,
+                                                        enabled=False, granted_by='test'))
+        else:
+            repository.save_skill_definition(skill.model_copy(update={'enabled': False}))
+        return await original_streamed(*args, **kwargs)
+
+    if change == 'replaced_before_snapshot':
+        monkeypatch.setattr(runtime, '_build_agent', replace_after_build)
+    else:
+        monkeypatch.setattr(runtime, '_run_streamed', disable_before_sdk)
+    with pytest.raises(MemoryContextError, match='context_snapshot_skill_changed'):
+        asyncio.run(runtime._execute_run(run=run, selected=runtime._select_model(USER), content=run.input_text,
+                                        user=USER, history=[], skill=skill))
+    assert not model.calls
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
+
+
+def test_forgetting_redacts_frozen_run_context_and_fences_late_snapshot_writers(tmp_path, monkeypatch) -> None:
+    import json
+    import sqlite3
+
+    from agentmesh.memory_context.contracts import RunContextSnapshotV1
+    from agentmesh.memory_lifecycle import MemoryForgetRequestV1, MemoryForgettingService
+
+    repository = _repository(tmp_path)
+    run = _linked_run(repository, monkeypatch, 'snapshot-forget')
+    item = repository.add_user_memory_item(UserMemoryItem(
+        id='snapshot_private_memory', title='Checkout evidence', summary='Private pending guidance.',
+        user_id=USER.id, workspace_id=USER.workspace_id, project_id=PROJECT.id,
+        layer=MemoryLayer.MID_TERM, source_kind='manual',
+    ))
+    service = MemoryContextService(repository)
+    bundle = service.prepare_for_run('checkout', run=run, user=USER, agent_id=USER.personal_agent_id)
+    assert [hit.memory_id for hit in bundle.hits] == [item.id]
+    context = AgentMeshRunContext(user_id=USER.id, workspace_id=run.workspace_id, project_id=run.project_id,
+                                 thread_id=run.thread_id, run_id=run.id)
+    snapshot_id = service.stage_run_snapshot(
+        run=run, user=USER, context=context, input_text=run.input_text, query='checkout',
+        additional_instructions=bundle.rendered_context, bundle=bundle,
+        core_preferences=None, reason='automatic_run_context',
+    )
+    frozen = service.load_run_snapshot(snapshot_id, run=run)
+    with pytest.raises(sqlite3.IntegrityError, match='context_snapshot_immutable'):
+        repository._upsert('run_context_snapshots', frozen.model_copy(update={'query': 'different'}))
+    MemoryForgettingService(repository).forget(item.id, MemoryForgetRequestV1(
+        command_id='forget-snapshot', expected_version=1,
+    ), USER)
+    repository = SQLiteStore(repository.db_path)
+    service = MemoryContextService(repository)
+    with repository._read_connect() as connection:
+        raw = connection.execute("SELECT payload FROM records WHERE collection = 'run_context_snapshots' "
+                                 'AND id = ?', (snapshot_id,)).fetchone()['payload']
+    assert item.summary not in raw
+    payload = json.loads(raw)
+    assert payload['bundle'] is None and payload['core_preferences'] is None
+    assert payload['additional_instructions'] == '' and payload['status'] == 'withdrawn'
+    with pytest.raises(MemoryContextError, match='memory_use_source_changed'):
+        service.load_run_snapshot(snapshot_id, run=run)
+    with pytest.raises(sqlite3.IntegrityError, match='memory_source_withdrawn|context_snapshot_immutable'):
+        repository._upsert('run_context_snapshots', RunContextSnapshotV1.model_validate(frozen.model_dump()))
+    with pytest.raises(sqlite3.IntegrityError, match='context_snapshot_immutable'):
+        repository._upsert('run_context_snapshots', frozen.model_copy(update={'bundle': None, 'status': 'withdrawn'}))
+    assert repository.list_memory_use_receipts_for_run(run.id) == []
 
 
 def test_runtime_does_not_record_use_when_agent_build_fails_before_model_context(

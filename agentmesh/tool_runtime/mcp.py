@@ -94,7 +94,9 @@ class GovernedMCPServer(MCPServer):
         admission: OrchestrationQuiesceController | None = None,
         capacity: RuntimeCapacityController | None = None,
     ):
-        super().__init__(require_approval="always")
+        # Governance failures must abort SDK execution. Converting them to tool
+        # text would let the model continue or retry an unknown external write.
+        super().__init__(require_approval="always", failure_error_function=None)
         self.inner = inner
         self.repository = repository
         self.context = context
@@ -196,6 +198,10 @@ class GovernedMCPServer(MCPServer):
         if contains_credential(raw_arguments):
             return CallToolResult(content=[TextContent(text="MCP tool arguments were withheld by policy.")], isError=True)
         claim = self._claim(tool_name, arguments or {}, meta)
+        run = self.repository.get_agent_run(self.context.run_id)
+        from agentmesh.skill_runtime.sources import plan_run_execution_identity
+
+        expected_execution_hash = self.context.run_execution_hash or (plan_run_execution_identity(run) if run else None)
         await self.capacity.acquire_tool()
         try:
             if not self.repository.user_can_execute_agent_run(
@@ -216,7 +222,8 @@ class GovernedMCPServer(MCPServer):
             if tool_name not in self.allowed_tool_names:
                 raise PermissionError("MCP tool is not granted by AgentMesh")
             with self.admission.permit():
-                claimed = self.repository.claim_runtime_tool_call(claim)
+                claimed = self.repository.claim_runtime_tool_call(claim, expected_execution_hash=expected_execution_hash,
+                    expected_context=self.context if self.context.run_execution_hash is not None else None)
         except BaseException:
             self.capacity.release_tool()
             raise

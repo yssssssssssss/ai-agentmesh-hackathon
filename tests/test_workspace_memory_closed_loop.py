@@ -206,11 +206,13 @@ def test_general_workspace_run_is_policy_skipped_until_user_saves_it(tmp_path) -
     first = repository.save_terminal_run_memory(
         run_id=run.id,
         user_id=USER.id,
+        expected_run=run,
         title="今日设计讨论",
     )
     second = repository.save_terminal_run_memory(
         run_id=run.id,
         user_id=USER.id,
+        expected_run=run,
         title="重复请求不会改写",
     )
 

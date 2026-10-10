@@ -30,7 +30,7 @@ from agentmesh.models import (
     SkillSourceScope,
     now_utc,
 )
-from agentmesh.seed import USER
+from agentmesh.seed import USER, ensure_base_workspace_data
 from agentmesh.skill_runtime.input_preflight import SkillInputPreflightError, SkillInputPreflightService
 from agentmesh.skill_runtime.profiles import load_capability_profile_record
 from agentmesh.skill_runtime.service import SkillCatalogService
@@ -165,6 +165,8 @@ def test_direct_runtime_waits_before_calling_the_model(tmp_path: Path, configure
 def test_direct_runtime_resumes_with_frozen_text_binding(tmp_path: Path, configure_pilot_wiki) -> None:
     configure_pilot_wiki(tmp_path / "wiki")
     repository = SQLiteStore(tmp_path / "runtime-resume.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
     catalog = SkillCatalogService(repository)
     catalog.reload()
     skill = catalog.get_by_name("build-experience-metrics")

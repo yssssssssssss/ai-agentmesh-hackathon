@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from agentmesh.llm import DEFAULT_MODEL_ID, list_model_definitions_from_env, normalize_model_id
 from agentmesh.models import Agent, ModelDefinition, User
-from agentmesh.store import SQLiteStore
+
+if TYPE_CHECKING:
+    from agentmesh.store import SQLiteStore
 
 
 def ensure_model_seed_data(repository: SQLiteStore) -> None:

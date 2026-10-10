@@ -361,6 +361,11 @@ class AgentMeshToolFactory:
             if not isinstance(arguments, dict):
                 raise ValueError("Tool arguments must be an object")
             run = self.repository.get_agent_run(ctx.context.run_id)
+            expected_execution_hash = None
+            if run is not None and run.planning_mode is not AgentPlanningMode.DEEPSEARCH:
+                from agentmesh.skill_runtime.sources import plan_run_execution_identity
+
+                expected_execution_hash = ctx.context.run_execution_hash or plan_run_execution_identity(run)
             deepsearch_invocation = None
             sdk_call_id = getattr(ctx, "tool_call_id", None)
             if run is not None and run.planning_mode is AgentPlanningMode.DEEPSEARCH:
@@ -400,7 +405,9 @@ class AgentMeshToolFactory:
                 ):
                     raise PermissionError("Agent tool grant was revoked")
                 with self.admission.permit():
-                    claimed = self.repository.claim_runtime_tool_call(claim)
+                    claimed = self.repository.claim_runtime_tool_call(claim,
+                        expected_execution_hash=expected_execution_hash,
+                        expected_context=ctx.context if ctx.context.run_execution_hash is not None else None)
             except BaseException:
                 self.capacity.release_tool()
                 raise
@@ -548,7 +555,10 @@ class AgentMeshToolFactory:
                     result_hash=hashlib.sha256(output.encode("utf-8")).hexdigest(),
                 )
                 if prepared_memory is not None and unsafe_reason is None:
-                    self.gateway.commit_memory_search(ctx.context, prepared_memory)
+                    self.gateway.memory_context.stage_tool_delivery(
+                        prepared_memory.bundle, query=prepared_memory.query, output=visible,
+                        run=prepared_memory.run, user=prepared_memory.user,
+                    )
                     ctx.context.source_ids = list(
                         dict.fromkeys([*ctx.context.source_ids, *new_source_ids])
                     )

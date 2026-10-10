@@ -6,22 +6,51 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from agentmesh.automation.contracts import ProjectInspectionReportV1, ProjectInspectionRequestV1
+from agentmesh.automation.service import ProjectInspectionService
 from agentmesh.models import User, now_utc
 from agentmesh.routes.deps import current_user
 from agentmesh.store import store
-from agentmesh.task_operations.contracts import TaskOperationsSnapshotV1, TaskOptionPageV1
+from agentmesh.task_operations.contracts import (
+    ProjectStateQueryV1,
+    ProjectStateResultV1,
+    TaskOperationsSnapshotV1,
+    TaskOptionPageV1,
+)
 from agentmesh.task_operations.service import (
     TaskOperationsError,
     TaskOperationsQuery,
     TaskOperationsService,
     TaskOptionQuery,
 )
+from agentmesh.task_operations.state import ProjectStateService
 
 router = APIRouter(prefix="/api/task-operations", tags=["task-operations"])
 
 
 def _http_error(error: TaskOperationsError) -> HTTPException:
     return HTTPException(status_code=error.status_code, detail=error.code)
+
+
+@router.get("/{project_id}/state", response_model=ProjectStateResultV1)
+def project_current_state(
+    project_id: str, task_id: str | None = Query(default=None, min_length=1, max_length=120),
+    user: User = Depends(current_user),
+) -> ProjectStateResultV1:
+    try:
+        return ProjectStateService(store).query(ProjectStateQueryV1(project_id=project_id, task_id=task_id), user)
+    except TaskOperationsError as error:
+        raise _http_error(error) from error
+
+
+@router.post("/{project_id}/inspections", response_model=ProjectInspectionReportV1)
+def inspect_project(
+    project_id: str, request: ProjectInspectionRequestV1, user: User = Depends(current_user),
+) -> ProjectInspectionReportV1:
+    try:
+        return ProjectInspectionService(store).inspect(project_id, request, user)
+    except TaskOperationsError as error:
+        raise _http_error(error) from error
 
 
 @router.get("/{project_id}", response_model=TaskOperationsSnapshotV1)

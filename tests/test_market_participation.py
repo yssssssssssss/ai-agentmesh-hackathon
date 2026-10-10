@@ -38,6 +38,7 @@ def _signal_for(owner_id: str, need: str) -> None:
             post_type=BlackboardPostType.MARKETPLACE_SIGNAL, actor=PersonalAgent.actor,
             title="信号", content=f"能力：大促降级预案\n可提供：答疑\n需要：{need}",
             scope=Scope.PROJECT, permission="project_visible",
+            metadata={"workspace_id": WORKSPACE.id, "project_id": PROJECT.id},
         )
     )
 
@@ -90,3 +91,17 @@ def test_participation_api_opt_in(monkeypatch) -> None:
 
     assert resp.status_code == 200
     assert store.is_market_participant(USER.id) is True
+
+
+def test_publisher_scans_participants_in_bounded_pages_across_restart() -> None:
+    from agentmesh.store import SQLiteStore
+
+    _reset()
+    for user in (USER, TEAM_LEAD):
+        _add_memory(user.id, "大促降级预案", "核心链路保底。")
+        store.set_market_participation(user.id, True)
+    assert publish_all_signals(store, page_size=1) == 1
+    assert len([post for post in store.blackboard_posts if post.post_type == "marketplace_signal"]) == 1
+    reopened = SQLiteStore(store.db_path)
+    assert publish_all_signals(reopened, page_size=1) == 1
+    assert len([post for post in reopened.blackboard_posts if post.post_type == "marketplace_signal"]) == 2

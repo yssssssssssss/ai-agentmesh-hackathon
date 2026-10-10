@@ -16,6 +16,7 @@ from agentmesh.deepsearch.reporting import (
     materialize_deepsearch_review,
     materialize_deepsearch_synthesis,
 )
+from agentmesh.memory_context.request_budget import ModelAdmissionError
 from agentmesh.models import (
     AgentRun,
     Artifact,
@@ -138,6 +139,8 @@ class DeepSearchSynthesisService:
                     revision_count=revision_count,
                     drafts=draft.claims,
                 )
+            except ModelAdmissionError:
+                raise
             except DeepSearchReportingError as error:
                 last_error = error
                 errors = [error.code]
@@ -215,6 +218,8 @@ class DeepSearchReviewService:
                     reviewer_type="model",
                     reviewed_at=reviewed_at,
                 )
+            except ModelAdmissionError:
+                raise
             except DeepSearchReportingError as error:
                 last_error = error
                 errors = [error.code]

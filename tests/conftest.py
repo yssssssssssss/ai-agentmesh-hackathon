@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,14 @@ os.environ["AGENTMESH_DEMO_MODE"] = "1"
 os.environ["AGENTMESH_EMBEDDING_ENABLED"] = "false"
 os.environ["AGENTMESH_EMBEDDING_API_URL"] = ""
 os.environ["AGENTMESH_EMBEDDING_API_KEY"] = ""
+os.environ["AGENTMESH_O2_COMMAND"] = "agentmesh-o2-disabled-for-tests"
+os.environ["AGENTMESH_O2_RESEARCH_ENABLED"] = "false"
+os.environ["AGENTMESH_AUTOMATION_MODE"] = "off"
+os.environ["AGENTMESH_MEMORY_LEARNING"] = "off"
+os.environ["AGENTMESH_CONNECTOR_WORKER_ENABLED"] = "false"
+os.environ["AGENTMESH_WEB_PROVIDER"] = ""
+os.environ["AGENTMESH_DATA_API_URL"] = ""
+os.environ["AGENTMESH_DATA_API_KEY"] = ""
 
 
 @pytest.fixture
@@ -71,6 +81,15 @@ for key in (
     "AGENTMESH_FIRECRAWL_TIMEOUT_SECONDS",
     "AGENTMESH_FIRECRAWL_MAX_PAGES",
     "AGENTMESH_FIRECRAWL_MAX_CONTENT_CHARS",
+    "AGENTMESH_TAVILY_API_URL",
+    "AGENTMESH_TAVILY_API_KEY",
+    "AGENTMESH_WEB_COMMAND",
+    "AGENTMESH_WEB_COMMAND_TEMPLATE",
+    "AGENTMESH_CONNECTOR_PROJECT_ID",
+    "AGENTMESH_REPO_DOCS_ROOT",
+    "AGENTMESH_GITHUB_REPOSITORY",
+    "AGENTMESH_GITHUB_TOKEN",
+    "AGENTMESH_GITHUB_CREDENTIAL_VERSION",
 ):
     os.environ[key] = ""
 
@@ -85,11 +104,18 @@ def _reset_web_provider_telemetry(monkeypatch: pytest.MonkeyPatch):
     yield
 
 
-@pytest.fixture(autouse=True)
-def _reset_market_scout_state():
-    """The scout dedup cache is a process-lifetime module global; clear it between tests
-    so a fingerprint from one test doesn't suppress matching in another."""
-    from agentmesh.marketplace import reset_scout_state
+@pytest.fixture
+def stable_sdk_clock(monkeypatch: pytest.MonkeyPatch):
+    """Use elapsed time for non-timeout SDK tests even if host UTC is stepped.
 
-    reset_scout_state()
-    yield
+    Deadline-specific tests keep their own explicit clocks. Runtime admission,
+    Session authority and model handoff must observe the same test UTC.
+    """
+    captured, started = datetime.now(UTC), time.monotonic()
+
+    def clock():
+        return captured + timedelta(seconds=time.monotonic() - started)
+
+    for module in ('agentmesh.agent_runtime.service', 'agentmesh.store', 'agentmesh.memory_context.service'):
+        monkeypatch.setattr(f'{module}.now_utc', clock)
+    return clock

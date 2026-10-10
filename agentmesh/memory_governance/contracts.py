@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentmesh.memory_context.contracts import MemoryUseBacklinkV1
+from agentmesh.memory_payloads import FactAssertionV1, MemoryFactV1, ProcedureDraftV1, ProcedureMemoryV1
 from agentmesh.models import (
     MemoryLayer,
     MemoryProvenanceV1,
@@ -60,6 +61,8 @@ class TaskReviewMemoryCaptureRequest(BaseModel):
     summary: str = Field(min_length=1, max_length=2000)
     memory_type: str = Field(default="project_experience", min_length=1, max_length=80)
     layer: MemoryLayer = MemoryLayer.MID_TERM
+    facts: list[FactAssertionV1] | None = Field(default=None, min_length=1, max_length=32)
+    procedure: ProcedureDraftV1 | None = None
 
 
 class MemoryReviewDecisionRequest(BaseModel):
@@ -88,6 +91,8 @@ class MemoryRevisionRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=2000)
     memory_type: str = Field(min_length=1, max_length=80)
+    facts: list[FactAssertionV1] | None = Field(default=None, min_length=1, max_length=32)
+    procedure: ProcedureDraftV1 | None = None
 
 
 class MemoryTransitionRequest(BaseModel):
@@ -115,6 +120,8 @@ class MemoryEntryViewV1(BaseModel):
     version: int = Field(ge=1)
     content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     provenance: MemoryProvenanceV1 | None = None
+    facts: list[MemoryFactV1] | None = Field(default=None, min_length=1, max_length=32)
+    procedure: ProcedureMemoryV1 | None = None
     provenance_state: Literal["verified", "legacy_unverified"]
     supersedes_memory_id: str | None = None
     archived_at: datetime | None = None

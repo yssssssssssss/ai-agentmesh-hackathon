@@ -14,8 +14,8 @@ import logging
 import os
 
 from agentmesh.agents import PersonalAgent
+from agentmesh.market_scout import MarketScoutRepository
 from agentmesh.models import now_utc
-from agentmesh.seed import list_users
 from agentmesh.store import SQLiteStore, store
 
 logger = logging.getLogger(__name__)
@@ -53,14 +53,14 @@ publish_worker_state: dict[str, object] = {
 }
 
 
-def publish_all_signals(repository: SQLiteStore) -> int:
+def publish_all_signals(repository: SQLiteStore, *, page_size: int = 50) -> int:
     """Publish a MARKETPLACE_SIGNAL for every user that has source material. Returns the count.
 
     This is the step function the publisher worker drives each tick; it's the tested seam.
     """
     agent = PersonalAgent(repository)
     published = 0
-    for user in list_users(repository):
+    for user in MarketScoutRepository(repository).participant_page("publish", limit=page_size):
         if not repository.is_market_participant(user.id):
             continue
         if agent.publish_marketplace_signal(user) is not None:
@@ -77,8 +77,8 @@ async def publish_worker_loop() -> None:
             published = await asyncio.to_thread(publish_all_signals, store)
             publish_worker_state["last_published"] = published
             publish_worker_state["last_error"] = None
-        except Exception as error:  # pragma: no cover - defensive worker boundary
-            publish_worker_state["last_error"] = str(error)
+        except Exception:  # pragma: no cover - safe worker boundary
+            publish_worker_state["last_error"] = "market_publish_failed"
 
 
 async def start_market_publish_worker() -> None:
@@ -111,17 +111,7 @@ scout_worker_state: dict[str, object] = {
 }
 
 
-# Persistent per-helper fingerprint sets so the scout doesn't re-evaluate unchanged needs
-# every tick (cost control). In-memory: resets on restart (one re-scan after restart is fine).
-_scout_seen: dict[str, set[str]] = {}
-
-
-def reset_scout_state() -> None:
-    """Clear the scout dedup cache (used when the underlying store is reset)."""
-    _scout_seen.clear()
-
-
-def scout_all(repository: SQLiteStore) -> int:
+def scout_all(repository: SQLiteStore, *, page_size: int = 20) -> int:
     """Run every user's scout; return the total number of delegated answers triggered.
 
     This is the step function the scout worker drives each tick; it's the tested seam.
@@ -129,11 +119,12 @@ def scout_all(repository: SQLiteStore) -> int:
     """
     agent = PersonalAgent(repository)
     triggered = 0
-    for user in list_users(repository):
+    participants = MarketScoutRepository(repository).participant_page("scout", limit=min(page_size, MARKET_SCOUT_MAX_PER_RUN))
+    per_helper = max(1, MARKET_SCOUT_MAX_PER_RUN // max(1, len(participants)))
+    for user in participants:
         if not repository.is_market_participant(user.id):
             continue
-        seen = _scout_seen.setdefault(user.id, set())
-        triggered += len(agent.scout_and_match(user, seen=seen, max_matches=MARKET_SCOUT_MAX_PER_RUN))
+        triggered += len(agent.scout_and_match(user, max_matches=per_helper))
     logger.info("market scout: %d answers triggered", triggered)
     return triggered
 
@@ -145,9 +136,10 @@ async def scout_worker_loop() -> None:
         try:
             triggered = await asyncio.to_thread(scout_all, store)
             scout_worker_state["last_triggered"] = triggered
-            scout_worker_state["last_error"] = None
-        except Exception as error:  # pragma: no cover - defensive worker boundary
-            scout_worker_state["last_error"] = str(error)
+            scout_worker_state["queue"] = await asyncio.to_thread(MarketScoutRepository(store).queue_health)
+            scout_worker_state["last_error"] = scout_worker_state["queue"]["last_error_code"]
+        except Exception:  # pragma: no cover - safe worker boundary
+            scout_worker_state["last_error"] = "market_scout_failed"
 
 
 async def start_market_scout_worker() -> None:

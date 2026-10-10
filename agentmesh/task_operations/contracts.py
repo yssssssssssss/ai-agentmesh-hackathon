@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from agentmesh.models import (
     AgentRunStatus,
@@ -162,3 +162,58 @@ class TaskOptionPageV1(BaseModel):
     page: int = Field(ge=1)
     page_size: int = Field(ge=1, le=100)
     has_next: bool = False
+
+
+class ProjectStateQueryV1(BaseModel):
+    """Current local state only; missing IDs are resolved from trusted request scope."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_id: str | None = Field(default=None, min_length=1, max_length=120)
+    task_id: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class ProjectStateWatermarkV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    record_count: int = Field(ge=0)
+    latest_updated_at: AwareDatetime | None = None
+
+
+class CurrentTaskStateV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    title: str
+    version: int = Field(ge=1)
+    delivery_stage: TaskDeliveryStage
+    blocked_reason: str | None = None
+    updated_at: AwareDatetime
+    navigation_href: str
+
+
+class ProjectStateResultV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["project-state-v1"] = "project-state-v1"
+    project_id: str
+    snapshot_at: AwareDatetime
+    data_mode: Literal["real"] = "real"
+    actual_providers: tuple[Literal["local_task_store"], ...] = ("local_task_store",)
+    outcome: Literal["known", "unknown", "insufficient_evidence"] = "known"
+    task_count: int = Field(ge=0)
+    archived_task_count: int = Field(ge=0)
+    tasks_by_stage: dict[TaskDeliveryStage, int]
+    blocked_task_count: int = Field(ge=0)
+    reviews_by_status: dict[TaskReviewStatus, int]
+    task_watermark: ProjectStateWatermarkV1
+    review_watermark: ProjectStateWatermarkV1
+    task: CurrentTaskStateV1 | None = None
+    dependencies: tuple[CurrentTaskStateV1, ...] = Field(default=(), max_length=50)
+    dependency_count: int = Field(default=0, ge=0, le=50)
+    completed_dependency_count: int = Field(default=0, ge=0, le=50)
+    blocking_task_ids: tuple[str, ...] = Field(default=(), max_length=50)
+    unavailable_dependency_count: int = Field(default=0, ge=0, le=50)
+    active_run_count: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None,
+                                        description="Active Runs of the selected Task; absent without an available Task")
+    execution_ready: bool | None = None
+    missing_data: tuple[str, ...] = ()

@@ -153,12 +153,14 @@ class BoundedDAGExecutor:
             event_payload=event_payload,
             result=result,
             expected_attempt=expected_attempt,
+            expected_run=run,
+            expected_plan=plan,
         )
         if transitioned is None:
             current_run = self.repository.get_agent_run(run.id)
             if current_run is not None and current_run.status == AgentRunStatus.CANCELLED:
                 raise asyncio.CancelledError
-            raise RuntimeError(f"node_transition_conflict:{node.id}:{event_type}")
+            raise PlanExecutionConflict(f"node_transition_conflict:{node.id}:{event_type}")
         self._replace_node(plan, transitioned)
         return transitioned
 
@@ -180,7 +182,9 @@ class BoundedDAGExecutor:
         results: list[SkillNodeResult],
     ) -> tuple[SkillPlanNode, NodeExecutionOutcome | None, Exception | None]:
         with self.admission.permit():
-            claimed = self.repository.claim_skill_plan_node(plan.id, node.id)
+            claimed = self.repository.claim_skill_plan_node(
+                plan.id, node.id, expected_run=run, expected_plan=plan,
+            )
         if claimed is None:
             return node, None, RuntimeError("node_claim_conflict")
         self._replace_node(plan, claimed)
@@ -201,6 +205,8 @@ class BoundedDAGExecutor:
             return claimed, None, error
 
     async def run(self, plan: SkillPlan, run: AgentRun, *, resume: bool = False) -> PlanExecutionOutcome:
+        from agentmesh.skill_runtime.sources import plan_execution_identity, plan_run_execution_identity
+
         if (
             run.planning_contract_version
             is AgentPlanningContractVersion.STANDARD_UNIVERSAL_V1
@@ -219,6 +225,8 @@ class BoundedDAGExecutor:
                 or persisted_plan.run_id != persisted_run.id
                 or persisted_plan.status != SkillPlanStatus.RUNNING
                 or persisted_run.status != AgentRunStatus.RUNNING
+                or plan_run_execution_identity(persisted_run) != plan_run_execution_identity(run)
+                or plan_execution_identity(persisted_plan) != plan_execution_identity(plan)
             ):
                 raise PlanExecutionConflict("plan_resume_conflict")
             plan = persisted_plan
@@ -226,17 +234,24 @@ class BoundedDAGExecutor:
             self.repository.append_agent_run_event(run.id, "plan_execution_resumed", {"plan_id": plan.id})
         else:
             with self.admission.permit():
-                claimed = self.repository.claim_skill_plan_for_execution(plan.id, run.id)
+                claimed = self.repository.claim_skill_plan_for_execution(
+                    plan.id, run.id, expected_run=run, expected_plan=plan,
+                )
             if claimed is None:
                 raise PlanExecutionConflict("plan_execution_claim_conflict")
             plan = claimed
             self.repository.append_agent_run_event(run.id, "plan_execution_started", {"plan_id": plan.id})
+        execution_run = run.model_copy(deep=True)
+        execution_plan_identity = plan_execution_identity(plan)
         try:
             while True:
                 current_run = self.repository.get_agent_run(run.id)
                 current_plan = self.repository.get_skill_plan(plan.id)
                 if current_run is None or current_plan is None:
                     raise RuntimeError("Agent run disappeared during plan execution")
+                if (plan_run_execution_identity(current_run) != plan_run_execution_identity(execution_run)
+                    or plan_execution_identity(current_plan) != execution_plan_identity):
+                    raise PlanExecutionConflict("plan_execution_identity_changed")
                 run = current_run
                 plan = current_plan
                 if run.status == AgentRunStatus.CANCELLED:
@@ -313,6 +328,7 @@ class BoundedDAGExecutor:
                     ready = marked_ready
 
                 outcomes: dict[str, tuple[SkillPlanNode, NodeExecutionOutcome | None, Exception | None]] = {}
+                execution_task = asyncio.current_task()
 
                 async def execute(
                     node: SkillPlanNode,
@@ -324,13 +340,20 @@ class BoundedDAGExecutor:
                         str,
                         tuple[SkillPlanNode, NodeExecutionOutcome | None, Exception | None],
                     ] = outcomes,
+                    parent_task: asyncio.Task | None = execution_task,
                 ) -> None:
-                    result_sink[node.id] = await self._execute_one(
-                        current_plan,
-                        current_run,
-                        node,
-                        list(current_results),
-                    )
+                    try:
+                        result_sink[node.id] = await self._execute_one(
+                            current_plan,
+                            current_run,
+                            node,
+                            list(current_results),
+                        )
+                    except asyncio.CancelledError:
+                        # TaskGroup alone treats a cancelled child as successful.
+                        if parent_task is not None and not parent_task.cancelling():
+                            parent_task.cancel()
+                        raise
 
                 async with asyncio.TaskGroup() as group:
                     for node in ready:
@@ -451,6 +474,10 @@ class BoundedDAGExecutor:
                             )
                     paused_node, pause = paused[0]
                     plan = self.repository.get_skill_plan(plan.id) or plan
+                    current_node = next((item for item in plan.nodes if item.id == paused_node.id), None)
+                    if (plan_execution_identity(plan) != execution_plan_identity
+                        or current_node is None or current_node.attempt != paused_node.attempt):
+                        raise PlanExecutionConflict("plan_execution_identity_changed")
                     return PlanExecutionOutcome(
                         plan=plan,
                         run=run,
@@ -471,6 +498,9 @@ class BoundedDAGExecutor:
                 # cancelled. A process/shutdown cancellation has no such durable
                 # transition and must remain recoverable; startup recovery will
                 # mark any abandoned RUNNING node external_outcome_unknown.
+                raise
+            if (plan_run_execution_identity(current_run) != plan_run_execution_identity(execution_run)
+                or plan_execution_identity(current_plan) != execution_plan_identity):
                 raise
             if current_run.status != AgentRunStatus.RUNNING:
                 raise
@@ -531,7 +561,7 @@ class BoundedDAGExecutor:
                 current_run.status = AgentRunStatus.CANCELLED
                 current_run.error_code = None
                 event_type = "run_cancelled"
-            transition = self.repository.finish_skill_plan_and_run(
+            self.repository.finish_skill_plan_and_run(
                 plan=current_plan,
                 run=current_run,
                 expected_plan_statuses={SkillPlanStatus.RUNNING},
@@ -546,6 +576,4 @@ class BoundedDAGExecutor:
                     )
                 ],
             )
-            if transition is None:
-                raise RuntimeError("plan_cancel_transition_conflict") from None
             raise

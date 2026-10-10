@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from agents.testing import ScriptedModel, assistant_message
 
 import agentmesh.deepsearch.reporting as reporting_module
 from agentmesh.artifacts import DeepSearchArtifactSchemaRegistry, TrustedEvidenceEnvelopeV1
@@ -21,6 +23,7 @@ from agentmesh.deepsearch.contracts import (
     requirement_content_hash,
 )
 from agentmesh.deepsearch.finalization import _with_required_synthesis_sections
+from agentmesh.deepsearch.modeling import DeepSearchReviewService, DeepSearchSynthesisService
 from agentmesh.deepsearch.planning import plan_content_hash
 from agentmesh.deepsearch.reporting import (
     DEEPSEARCH_EVIDENCE_MANIFEST_MAX_BYTES,
@@ -36,6 +39,8 @@ from agentmesh.deepsearch.reporting import (
     materialize_deepsearch_synthesis,
     select_safe_claims,
 )
+from agentmesh.memory_context.request_budget import ContextRequestBudgetV1, ContextRequestError, RequestBudgetModel
+from agentmesh.memory_context.service import MemoryContextError
 from agentmesh.models import (
     AgentPlanningMode,
     AgentRun,
@@ -235,6 +240,41 @@ def _fixture() -> tuple[
         ],
     )
     return run, plan, requirement, graph, result, artifact
+
+
+@pytest.mark.parametrize('consumer', ['synthesis', 'review'])
+@pytest.mark.parametrize('denial', ['budget', 'authority'])
+def test_deepsearch_admission_refusal_is_not_a_schema_repair(consumer, denial) -> None:
+    run, plan, requirement, graph, result, artifact = _fixture()
+    artifacts = {artifact.id: artifact}
+    manifest, _ = build_evidence_manifest_artifact(run=run, plan=plan, requirement=requirement, graph=graph,
+        results=[result], evidence_artifacts=artifacts, created_at=NOW)
+    model = ScriptedModel([[assistant_message('must not be called')]])
+    measurements = []
+
+    def deny_authority():
+        raise MemoryContextError('model_handoff_not_authorized')
+
+    guarded = RequestBudgetModel(model, model_id='test', on_measure=measurements.append,
+        budget=ContextRequestBudgetV1(max_tokens=2000, max_output_tokens=1) if denial == 'budget' else None,
+        on_handoff=deny_authority if denial == 'authority' else None)
+
+    async def scenario():
+        if consumer == 'synthesis':
+            await DeepSearchSynthesisService().synthesize(model=guarded, run=run, plan=plan,
+                requirement=requirement, graph=graph, results=[result], manifest=manifest,
+                evidence_artifacts=artifacts, revision_count=0)
+        else:
+            synthesis = build_deterministic_evidence_digest(run=run, plan=plan, manifest=manifest,
+                evidence_artifacts=artifacts)
+            await DeepSearchReviewService().review(model=guarded, run=run, plan=plan, requirement=requirement,
+                graph=graph, synthesis=synthesis, manifest=manifest, evidence_artifacts=artifacts, reviewed_at=NOW)
+
+    with pytest.raises(ContextRequestError if denial == 'budget' else MemoryContextError,
+                       match='context_request_budget_exceeded' if denial == 'budget' else 'model_handoff_not_authorized'):
+        asyncio.run(scenario())
+    assert model.calls == ()
+    assert len(measurements) == 1
 
 
 def test_manifest_digest_and_coverage_form_a_deterministic_trusted_chain() -> None:

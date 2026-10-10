@@ -8,10 +8,12 @@ from typing import Annotated, Any, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from agentmesh.canonical_json import canonical_json_bytes, canonical_json_sha256
-from agentmesh.provider_status import ProviderStatus
+from agentmesh.memory_payloads import MemoryFactV1, ProcedureMemoryV1, ProjectTermAliasesV1
+from agentmesh.provider_status import ProviderDataMode, ProviderOutcome, ProviderStatus
+from agentmesh.source_contracts import SourceOriginV1, SourceSnapshotV1
 from agentmesh.task_routing.contracts import CompletionCheckResult, TaskRoutingResult
 
 
@@ -97,6 +99,7 @@ class TaskStatus(StrEnum):
 
 class ChatThreadKind(StrEnum):
     CONVERSATION = "conversation"
+    AUTOMATION = "automation"
     TASK = "task"
 
 
@@ -192,6 +195,7 @@ class Project(BaseModel):
     goal: str
     member_ids: list[str] = Field(default_factory=list)
     status: str = "active"
+    term_aliases: ProjectTermAliasesV1 | None = Field(default=None, exclude_if=lambda value: value is None)
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
 
@@ -570,12 +574,37 @@ class AgentMemoryBinding(BaseModel):
 
     id: str = Field(default_factory=lambda: new_id("amb"))
     agent_id: str
-    allowed_scopes: list[Scope] = Field(default_factory=lambda: [Scope.PRIVATE, Scope.PROJECT, Scope.TEAM_ACCEPTED])
-    allowed_memory_types: list[str] = Field(default_factory=list)
-    allowed_project_ids: list[str] = Field(default_factory=list)
-    max_results_per_query: int = 10
+    allowed_scopes: list[Scope] = Field(default_factory=lambda: [Scope.PRIVATE, Scope.PROJECT, Scope.TEAM_ACCEPTED],
+                                       min_length=1, max_length=4)
+    allowed_memory_types: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(default_factory=list,
+        max_length=32, description="Memory content types such as finding or decision; not search result categories.")
+    type_policy_version: Literal[1] | None = Field(default=None, description=(
+        "1 means content-type semantics. Restricted legacy bindings with null/missing version require an authorized "
+        "PUT before use. The server sets this field when saving configuration."))
+    allowed_project_ids: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(default_factory=list,
+                                                                                        max_length=100)
+    max_results_per_query: int = Field(default=10, ge=1, le=100)
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+
+    @property
+    def effective_memory_types(self) -> set[str] | None:
+        if not self.allowed_memory_types:
+            return None
+        return set(self.allowed_memory_types) if self.type_policy_version == 1 else set()
+
+    def allows_memory_type(self, memory_type: str) -> bool:
+        types = self.effective_memory_types
+        return types is None or memory_type in types
+
+
+class ScheduledInspectionBudgetV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    max_model_turns: int = Field(default=8, ge=1, le=8)
+    max_tool_calls: int = Field(default=12, ge=1, le=12)
+    max_tokens: int = Field(default=32000, ge=1, le=32000)
+    deadline_seconds: int = Field(default=600, ge=1, le=600)
 
 
 class ScheduledAgentTaskDefinition(BaseModel):
@@ -587,8 +616,45 @@ class ScheduledAgentTaskDefinition(BaseModel):
     enabled: bool = True
     created_by: str
     last_run_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_failure_at: datetime | None = None
+    last_error_code: str | None = None
+    blocked_reason: str | None = None
+    last_result_hash: str | None = None
+    last_result_run_id: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+    schema_version: Literal["project-inspection-schedule-v1"] | None = None
+    workspace_id: str | None = None
+    project_id: str | None = None
+    owner_user_id: str | None = None
+    template_id: Literal["daily_progress", "blockers", "pending_reviews"] | None = None
+    timezone: str = "Asia/Shanghai"
+    version: int = Field(default=1, ge=1)
+    validation_state: Literal["legacy_schedule_unvalidated", "valid"] = "legacy_schedule_unvalidated"
+    next_run_at: datetime | None = None
+    on_project_changes: bool = False
+    change_cursor: int | None = Field(default=None, ge=0)
+    misfire_policy: Literal["coalesce_latest"] = "coalesce_latest"
+    overlap_policy: Literal["skip"] = "skip"
+    budget: ScheduledInspectionBudgetV1 = Field(default_factory=ScheduledInspectionBudgetV1)
+
+    @model_validator(mode="after")
+    def validate_inspection_contract(self) -> ScheduledAgentTaskDefinition:
+        if self.schema_version is None:
+            if (
+                self.validation_state != "legacy_schedule_unvalidated" or self.next_run_at is not None
+                or self.on_project_changes or self.change_cursor is not None
+            ):
+                raise ValueError("legacy schedules cannot be executable")
+        elif (
+            not all((self.workspace_id, self.project_id, self.owner_user_id, self.template_id))
+            or self.validation_state != "valid"
+        ):
+            raise ValueError("validated inspection schedules require a complete identity")
+        if self.next_run_at is not None and self.next_run_at.utcoffset() is None:
+            raise ValueError("next_run_at must include a timezone")
+        return self
 
 
 class RiskPolicyRule(BaseModel):
@@ -639,6 +705,8 @@ class ChatWorkflowTrace(BaseModel):
     requested_model: str | None = None
     actual_model: str | None = None
     provider_mode: str | None = Field(default=None, pattern="^(real|fallback)$")
+    data_mode: ProviderDataMode | None = None
+    outcome: ProviderOutcome | None = None
     latency_ms: float | None = Field(default=None, ge=0)
     fallback_reason: str | None = None
     model_fallback_reason: str | None = None
@@ -655,6 +723,9 @@ class Source(BaseModel):
     run_id: str | None = None
     skill_id: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
+    # Preserve legacy wire values and persistent content hashes exactly.
+    snapshot: SourceSnapshotV1 | None = Field(default=None, exclude_if=lambda value: value is None)
+    origin: SourceOriginV1 | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class DocumentJobStatus(StrEnum):
@@ -678,6 +749,8 @@ class DocumentRecord(BaseModel):
     version: int = Field(default=1, ge=1)
     expected_chunks: int = Field(default=0, ge=0)
     completed_chunks: int = Field(default=0, ge=0)
+    withdrawn_at: datetime | None = None
+    withdrawn_by: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
 
@@ -687,6 +760,17 @@ class DocumentUpdateRequest(BaseModel):
     text: str = Field(min_length=1, max_length=100_000)
 
 
+class DocumentJobRetryRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    command_id: str = Field(min_length=1, max_length=120)
+    expected_version: int = Field(ge=1)
+
+
+class DocumentJobRetryReceipt(BaseModel):
+    command_id: str
+    request_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
 class DocumentParseJob(BaseModel):
     id: str = Field(default_factory=lambda: new_id("doc_job"))
     file_name: str
@@ -694,6 +778,19 @@ class DocumentParseJob(BaseModel):
     workspace_id: str
     project_id: str
     uploaded_by: str
+    input_contract: Literal['document-input-v1'] | None = None
+    input_staging_ref: str | None = None
+    input_hash: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    input_size_bytes: int | None = Field(default=None, ge=0, le=20 * 1024 * 1024)
+    input_cleanup_pending: bool = False
+    input_cleanup_error: Literal['document_input_delete_failed'] | None = None
+    input_retained_until: AwareDatetime | None = None
+    input_purged: bool = False
+    state_version: int = Field(default=1, ge=1)
+    attempt_count: int = Field(default=0, ge=0, le=3)
+    claim_id: str | None = None
+    lease_expires_at: AwareDatetime | None = None
+    retry_receipts: list[DocumentJobRetryReceipt] = Field(default_factory=list, max_length=3)
     status: DocumentJobStatus = DocumentJobStatus.QUEUED
     document_id: str | None = None
     version: int = Field(default=1, ge=1)
@@ -703,6 +800,15 @@ class DocumentParseJob(BaseModel):
     error_type: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+
+
+class DocumentJobItemResponse(BaseModel):
+    item: DocumentParseJob
+
+
+class DocumentJobsResponse(BaseModel):
+    items: list[DocumentParseJob]
+    next_cursor: int | None = None
 
 
 class ExecutionLock(BaseModel):
@@ -840,6 +946,41 @@ class TaskReviewV1(BaseModel):
         return self
 
 
+class ResearchDispatchStateV1(BaseModel):
+    """Delivery state owned by one existing research request, not a second task queue."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["research-dispatch-v1"] = "research-dispatch-v1"
+    status: Literal[
+        "running", "retry_wait", "completed", "quarantined", "failed", "blocked", "indeterminate", "cancelled"
+    ]
+    attempts: int = Field(default=0, ge=0, le=3)
+    request_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    owner_user_id: str | None = None
+    workspace_id: str | None = None
+    project_id: str | None = None
+    thread_id: str | None = None
+    claim_id: str | None = None
+    process_epoch: str | None = None
+    lease_expires_at: AwareDatetime | None = None
+    next_retry_at: AwareDatetime | None = None
+    last_error_code: str | None = None
+    evidence_post_id: str | None = None
+    updated_at: AwareDatetime
+
+
+class ResearchDispatchDrainV1(BaseModel):
+    dispatched: int = 0
+    retrying: int = 0
+    failed: int = 0
+    blocked: int = 0
+    indeterminate: int = 0
+    recovered: int = 0
+    has_more: bool = False
+    last_error_code: str | None = None
+
+
 class BlackboardPost(BaseModel):
     id: str = Field(default_factory=lambda: new_id("bb"))
     task_id: str
@@ -860,6 +1001,7 @@ class BlackboardPost(BaseModel):
     execution_lock: ExecutionLock | None = None
     done_when: str | None = None
     handoff: StructuredHandoffPacket | None = None
+    research_dispatch: ResearchDispatchStateV1 | None = None
     created_at: datetime = Field(default_factory=now_utc)
 
 
@@ -997,11 +1139,14 @@ class MemoryItem(BaseModel):
     sources: list[Source] = Field(default_factory=list)
     metadata: dict[str, str] = Field(default_factory=dict)
     provenance: MemoryProvenanceV1 | None = None
+    facts: list[MemoryFactV1] | None = Field(default=None, min_length=1, max_length=32)
+    procedure: ProcedureMemoryV1 | None = None
     version: int = Field(default=1, ge=1)
     supersedes_memory_id: str | None = Field(default=None, max_length=120)
     archived_at: datetime | None = None
     archived_by: str | None = Field(default=None, max_length=120)
     archived_from_status: MemoryStatus | None = None
+    evidence_withdrawn_at: datetime | None = None
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime | None = None
 
@@ -1030,6 +1175,8 @@ class UserMemoryItem(BaseModel):
     sources: list[Source] = Field(default_factory=list)
     status: str = "active"
     provenance: MemoryProvenanceV1 | None = None
+    facts: list[MemoryFactV1] | None = Field(default=None, min_length=1, max_length=32)
+    procedure: ProcedureMemoryV1 | None = None
     version: int = Field(default=1, ge=1)
     supersedes_memory_id: str | None = Field(default=None, max_length=120)
     archived_at: datetime | None = None
@@ -1088,6 +1235,10 @@ class ConsentGrant(BaseModel):
     grantor_id: str
     grantee_id: str
     workspace_id: str
+    project_id: str | None = None
+    version: int = Field(default=1, ge=1)
+    command_id: str | None = None
+    command_hash: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     revoked_at: datetime | None = None
 
@@ -1159,6 +1310,34 @@ class MemoryRelation(BaseModel):
     to_source_id: str
     relation_type: str = "derived_from"
     created_at: datetime = Field(default_factory=now_utc)
+    schema_version: Literal["memory-relation-v1"] | None = None
+    workspace_id: str | None = None
+    project_id: str | None = None
+    created_by: str | None = None
+    from_record_type: Literal["user_memory_item", "memory_item"] | None = None
+    target_record_type: Literal["task", "user_memory_item", "memory_item", "document", "artifact"] | None = None
+    source_version: int | None = Field(default=None, ge=1)
+    source_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    target_version: int | None = Field(default=None, ge=1)
+    target_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    evidence_record_type: Literal["task", "document"] | None = None
+    evidence_id: str | None = None
+    evidence_version: int | None = Field(default=None, ge=1)
+    evidence_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    assertion: Literal["candidate", "confirmed"] = "candidate"
+    command_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_relation_snapshot(self) -> MemoryRelation:
+        if self.schema_version is not None:
+            if self.relation_type not in {"relates_to", "supports", "contradicts", "supersedes", "caused_by"}:
+                raise ValueError("unsupported versioned relation type")
+            if not all((self.workspace_id, self.project_id, self.created_by, self.from_record_type,
+                        self.target_record_type, self.source_version, self.source_hash, self.target_version,
+                        self.target_hash, self.evidence_record_type, self.evidence_id, self.evidence_version,
+                        self.evidence_hash, self.command_hash)):
+                raise ValueError("versioned relation requires complete frozen endpoints and evidence")
+        return self
 
 
 class MarketParticipation(BaseModel):
@@ -1223,7 +1402,7 @@ class MarketMeTimelineItem(BaseModel):
     title: str
     counterpart: dict[str, str] | None = None
     topic: str = ""
-    status: Literal["answered", "awaiting_confirm", "denied", "open"] = "open"
+    status: Literal["answered", "awaiting_confirm", "denied", "open", "blocked", "insufficient_evidence"] = "open"
     sensitivity: Literal["low", "medium", "high"] = "low"
     meta: str = ""
     detail: str = ""
@@ -1260,17 +1439,12 @@ class MarketMeView(BaseModel):
 
 
 class MarketActivityItem(BaseModel):
-    """One entry in the global market activity feed (all agents' collaboration).
-
-    Unlike the personal timeline, this spans every participant so the demo shows
-    a live "trading floor" of agents helping each other. ``text`` is the fully
-    composed one-liner the frontend renders as-is.
-    """
+    """One visible current-project activity; text excludes private answer bodies."""
 
     id: str
     at: datetime
     kind: Literal["signal", "match"]
-    status: Literal["answered", "awaiting_confirm", "denied", "open"] = "open"
+    status: Literal["answered", "awaiting_confirm", "denied", "open", "blocked", "insufficient_evidence"] = "open"
     actor_name: str = ""
     counterpart_name: str = ""
     topic: str = ""
@@ -1286,9 +1460,13 @@ class MarketActivityFeed(BaseModel):
 
 
 class DelegatedAnswerStatus(StrEnum):
+    PENDING = "pending"
+    FAILED = "failed"
     ANSWERED = "answered"
     AWAITING_CONFIRM = "awaiting_confirm"
     DENIED = "denied"
+    BLOCKED = "blocked"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
 
 
 class AnswerConfidence(StrEnum):
@@ -1310,6 +1488,7 @@ class DelegatedAnswer(BaseModel):
     citations: list[Source] = Field(default_factory=list)
     confidence: AnswerConfidence = AnswerConfidence.UNSET
     inbox_item: InboxItem | None = None
+    query_id: str | None = None
 
 
 class SkillIntentComplexity(StrEnum):
@@ -2326,6 +2505,7 @@ class SkillResultSource(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     source_type: str = Field(min_length=1, max_length=80)
     reference: str = Field(default="", max_length=2000)
+    origin: SourceOriginV1 | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class SkillNodeResult(BaseModel):
@@ -2719,18 +2899,45 @@ class AgentToolsUpdateRequest(BaseModel):
 
 
 class ScheduledAgentTaskCreateRequest(BaseModel):
-    agent_id: str = Field(min_length=1, max_length=120)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    agent_id: str | None = Field(default=None, min_length=1, max_length=120)
     title: str = Field(min_length=1, max_length=200)
-    prompt: str = Field(min_length=1, max_length=2000)
+    prompt: str | None = Field(default=None, min_length=1, max_length=2000)
     schedule: str = Field(min_length=1, max_length=120)
     enabled: bool = True
+    command_id: str | None = Field(default=None, min_length=1, max_length=120)
+    project_id: str | None = Field(default=None, min_length=1, max_length=120)
+    template_id: Literal["daily_progress", "blockers", "pending_reviews"] | None = None
+    timezone: str = Field(default="Asia/Shanghai", min_length=1, max_length=120)
+    on_project_changes: bool = False
+
+    @model_validator(mode="after")
+    def validate_schedule_kind(self) -> ScheduledAgentTaskCreateRequest:
+        if (
+            self.project_id is not None or self.template_id is not None
+            or self.command_id is not None or self.on_project_changes
+        ):
+            if not all((self.project_id, self.template_id, self.command_id)):
+                raise ValueError("inspection schedules require project_id, template_id and command_id")
+        elif self.agent_id is None or self.prompt is None:
+            raise ValueError("legacy schedules require agent_id and prompt")
+        return self
 
 
 class ScheduledAgentTaskUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     title: str | None = Field(default=None, min_length=1, max_length=200)
     prompt: str | None = Field(default=None, min_length=1, max_length=2000)
     schedule: str | None = Field(default=None, min_length=1, max_length=120)
     enabled: bool | None = None
+    command_id: str | None = Field(default=None, min_length=1, max_length=120)
+    expected_version: int | None = Field(default=None, ge=1)
+    project_id: str | None = Field(default=None, min_length=1, max_length=120)
+    template_id: Literal["daily_progress", "blockers", "pending_reviews"] | None = None
+    timezone: str | None = Field(default=None, min_length=1, max_length=120)
+    on_project_changes: bool | None = None
 
 
 class RiskPolicyRuleCreateRequest(BaseModel):
@@ -2892,13 +3099,61 @@ class LearnedSkill(BaseModel):
 
 
 
+class SDKSessionMemoryDependencyV1(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
+
+    memory_id: str
+    memory_kind: MemoryKind
+    memory_record_type: Literal['memory_item', 'user_memory_item']
+    memory_version: int = Field(ge=1)
+    memory_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_run_id: str
+    projection_kind: Literal['facts', 'procedure'] | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
 class SDKSessionRecord(BaseModel):
     id: str
+    user_id: str | None = None
+    workspace_id: str | None = None
+    project_id: str | None = None
+    writer_run_id: str | None = None
+    writer_generation_epoch: int | None = Field(default=None, ge=1)
+    memory_dependencies: list[SDKSessionMemoryDependencyV1] = Field(default_factory=list, max_length=1000)
+    source_status: Literal['active', 'withdrawn'] = 'active'
+    term_alias_version: int | None = Field(default=None, ge=1, exclude_if=lambda value: value is None)
     items: list[dict[str, Any]] = Field(default_factory=list)
     synced_chat_message_ids: list[str] = Field(default_factory=list)
     version: int = Field(default=0, ge=0)
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+
+
+class SDKSessionCommitV1(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
+
+    schema_version: Literal['sdk-session-commit-v1'] = 'sdk-session-commit-v1'
+    id: str = Field(min_length=1, max_length=120)
+    session_id: str
+    run_id: str
+    writer_generation_epoch: int | None = Field(default=None, ge=1)
+    expected_version: int = Field(ge=0)
+    resulting_version: int = Field(ge=1)
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    committed_at: datetime = Field(default_factory=now_utc)
+
+
+class SDKSessionCheckpointV1(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
+
+    schema_version: Literal['sdk-session-checkpoint-v1'] = 'sdk-session-checkpoint-v1'
+    session_id: str
+    user_id: str
+    workspace_id: str
+    project_id: str
+    writer_run_id: str
+    writer_generation_epoch: int | None = Field(default=None, ge=1)
+    version: int = Field(ge=0)
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
 
 
 class AgentRunStatus(StrEnum):
@@ -3161,6 +3416,7 @@ class RunDispatchReceiptV1(BaseModel):
         "approval_resume",
         "deepsearch_plan",
         "deepsearch_recovery",
+        "project_inspection",
     ]
     generation: int = Field(default=1, ge=1)
     state: RunDispatchState = RunDispatchState.PENDING
@@ -3169,6 +3425,16 @@ class RunDispatchReceiptV1(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=now_utc)
     updated_at: datetime = Field(default_factory=now_utc)
+
+
+class ScheduledInspectionUsageV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attempt_count: int = Field(default=0, ge=0, le=3)
+    model_turns: int = Field(default=0, ge=0, le=8)
+    total_tokens: int = Field(default=0, ge=0, le=32000)
+    next_retry_at: AwareDatetime | None = None
+    last_error_code: str | None = Field(default=None, max_length=120)
 
 
 class AgentRun(BaseModel):
@@ -3193,6 +3459,8 @@ class AgentRun(BaseModel):
     orchestration_mode: Literal["off", "preview", "execute"] = "off"
     writer_generation_epoch: int | None = Field(default=None, ge=1)
     requested_orchestration_mode: SkillOrchestrationRequestMode | None = None
+    execution_location: Literal["server", "runner"] | None = None
+    runner_id: str | None = Field(default=None, max_length=120)
     agent_definition_version: str = "1"
     project_chat: bool = False
     tool_call_count: int = Field(default=0, ge=0, le=24)
@@ -3200,6 +3468,7 @@ class AgentRun(BaseModel):
     interaction_expires_at: datetime | None = None
     absolute_expires_at: datetime | None = None
     deepsearch_budget: DeepSearchBudgetV1 | None = None
+    inspection_usage: ScheduledInspectionUsageV1 | None = None
     paused_state: dict[str, Any] | None = None
     output_text: str | None = None
     error_code: str | None = None
@@ -3375,6 +3644,8 @@ class ChatTurnTrace(BaseModel):
     requested_model: str | None = None
     actual_model: str | None = None
     provider_mode: str | None = Field(default=None, pattern="^(real|fallback)$")
+    data_mode: ProviderDataMode | None = None
+    outcome: ProviderOutcome | None = None
     latency_ms: float | None = Field(default=None, ge=0)
     fallback_reason: str | None = None
     model_fallback_reason: str | None = None

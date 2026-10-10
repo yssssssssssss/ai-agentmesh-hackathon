@@ -46,6 +46,7 @@ from agentmesh.deepsearch.planning import (
 from agentmesh.deepsearch.service import deepsearch_retry_disposition
 from agentmesh.input_adapters import RunInputAdapterError, parse_run_input
 from agentmesh.memory_context.contracts import AgentRunDetailResponseV1
+from agentmesh.memory_context.request_budget import ContextRequestMeasurementV1
 from agentmesh.memory_context.service import MemoryContextError, MemoryContextService
 from agentmesh.memory_governance.contracts import MemoryBacklinksV1
 from agentmesh.memory_governance.service import MemoryGovernanceError, MemoryGovernanceService
@@ -94,6 +95,7 @@ from agentmesh.models import (
 from agentmesh.report_html import render_report_html
 from agentmesh.risk import RiskDecision, assess_external_content
 from agentmesh.routes.deps import current_user, require_default_project
+from agentmesh.runner_settings import remote_runner_enabled
 from agentmesh.runtime_admission import current_orchestration_admission
 from agentmesh.runtime_capacity import RuntimeCapacityError
 from agentmesh.skill_runtime.input_preflight import (
@@ -720,6 +722,11 @@ async def start_agent_run(
 
     runtime = agent.agent_runtime
     if request.planning_mode == AgentPlanningMode.DEEPSEARCH:
+        if remote_runner_enabled():
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "runner_deepsearch_not_supported"},
+            )
         availability = evaluate_deepsearch_availability(runtime=runtime, user=user)
         if not availability.available:
             reason = availability.reason_code.value if availability.reason_code is not None else "runtime_unavailable"
@@ -822,7 +829,9 @@ def get_agent_run(
 ) -> AgentRunDetailResponseV1:
     run = _visible_run(run_id, user)
     try:
-        memory_uses = MemoryContextService(store).usage_for_run(run, user)
+        memory_service = MemoryContextService(store)
+        memory_candidates = memory_service.candidates_for_run(run, user)
+        memory_uses = memory_service.usage_for_run(run, user)
     except MemoryContextError as error:
         raise HTTPException(status_code=404, detail=error.code) from error
     memory_item = store.get_user_memory_item(run_output_memory_id(run.id))
@@ -832,6 +841,10 @@ def get_agent_run(
     return AgentRunDetailResponseV1(
         item=run,
         memory_uses=memory_uses,
+        memory_candidates=memory_candidates,
+        context_requests=[ContextRequestMeasurementV1.model_validate(event.payload)
+                          for event in store.list_agent_run_events(run.id)
+                          if event.event_type == 'context_request_budget'][-8:],
         memory_item_id=memory_item.id if memory_item is not None else None,
         memory_disposition=(
             "projected"
@@ -865,6 +878,7 @@ def save_agent_run_memory(
     item = store.save_terminal_run_memory(
         run_id=run.id,
         user_id=user.id,
+        expected_run=run,
         title=request.title,
     )
     if item is None:
@@ -1906,4 +1920,9 @@ async def cancel_agent_run(run_id: str, user: User = Depends(current_user)) -> I
         raise HTTPException(status_code=404, detail=str(error)) from error
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
+    if run.execution_location == "runner" and store.get_run_output_projection(run.id) is None:
+        store.project_terminal_run_status(
+            run_id=run.id,
+            skipped_reason=run.error_code or "run_cancelled",
+        )
     return ItemResponse(item=run)

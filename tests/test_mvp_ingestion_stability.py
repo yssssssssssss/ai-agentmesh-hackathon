@@ -10,7 +10,7 @@ import pytest
 
 from agentmesh.documents import DocumentIngestionRequest, ParsedDocument
 from agentmesh.ingestion import BoundedIngestionExecutor, DocumentIngestionService, IngestionShutdownError
-from agentmesh.models import Scope, Source, now_utc
+from agentmesh.models import Project, Scope, Source, User, now_utc
 from agentmesh.store import SQLiteStore
 
 
@@ -50,8 +50,18 @@ def _request() -> DocumentIngestionRequest:
     )
 
 
+def _repository(path) -> SQLiteStore:
+    repository = SQLiteStore(path)
+    value = _request()
+    repository.save_user(User(id=value.uploaded_by, name='Owner', role='user', workspace_id=value.workspace_id,
+                             default_project_id=value.project_id, personal_agent_id='agent_test'))
+    repository.save_project(Project(id=value.project_id, workspace_id=value.workspace_id, name='Pilot', goal='Deliver',
+                                    member_ids=[value.uploaded_by, 'peer']))
+    return repository
+
+
 def test_unexpected_parse_failure_makes_job_terminal(tmp_path) -> None:
-    repository = SQLiteStore(tmp_path / "parse-failure.sqlite3")
+    repository = _repository(tmp_path / "parse-failure.sqlite3")
     service = DocumentIngestionService(repository=repository, parser=FailingParser())
     request = _request()
     job = service.create_job(request)
@@ -59,52 +69,57 @@ def test_unexpected_parse_failure_makes_job_terminal(tmp_path) -> None:
     result = service.run_job(job.id, request)
 
     assert result.status == "failed"
-    assert result.error == "unexpected parser failure"
+    assert result.error == "document_ingestion_failed"
     assert repository.get_document_parse_job(job.id).status == "failed"
 
 
 def test_unexpected_database_failure_makes_job_terminal(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repository = SQLiteStore(tmp_path / "database-failure.sqlite3")
+    repository = _repository(tmp_path / "database-failure.sqlite3")
     service = DocumentIngestionService(repository=repository, parser=StaticParser("parse succeeds"))
     request = _request()
     job = service.create_job(request)
 
-    def fail_source_write(source: Source) -> Source:
-        raise RuntimeError("unexpected database failure")
+    original = repository._upsert_plain_record
 
-    monkeypatch.setattr(repository, "add_source", fail_source_write)
+    def fail_source_write(connection, collection, item):
+        if collection == "sources":
+            raise RuntimeError("unexpected database failure")
+        return original(connection, collection, item)
+
+    monkeypatch.setattr(repository, "_upsert_plain_record", fail_source_write)
     result = service.run_job(job.id, request)
 
     assert result.status == "failed"
-    assert result.error == "unexpected database failure"
+    assert result.error == "document_ingestion_failed"
+    assert repository.documents == repository.sources == repository.user_memory_items == []
     assert repository.get_document_parse_job(job.id).status == "failed"
 
 
-def test_retry_fills_only_missing_current_version_chunks(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repository = SQLiteStore(tmp_path / "retry.sqlite3")
+def test_retry_atomically_replaces_a_rolled_back_import(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repository = _repository(tmp_path / "retry.sqlite3")
     text = "\n\n".join(f"section {index} " + ("x" * 450) for index in range(4))
     service = DocumentIngestionService(repository=repository, parser=StaticParser(text))
     request = _request()
     job = service.create_job(request)
-    original_add = repository.add_user_memory_item
+    original_add = repository._sync_fts
     imported = 0
 
-    def fail_after_first_chunk(item):
+    def fail_after_first_chunk(connection, collection, item):
         nonlocal imported
-        if item.source_kind == "document_import":
+        if collection == "user_memory_items" and item.source_kind == "document_import":
             imported += 1
             if imported == 2:
                 raise RuntimeError("chunk write interrupted")
-        return original_add(item)
+        return original_add(connection, collection, item)
 
-    monkeypatch.setattr(repository, "add_user_memory_item", fail_after_first_chunk)
+    monkeypatch.setattr(repository, "_sync_fts", fail_after_first_chunk)
     failed = service.run_job(job.id, request)
 
     assert failed.status == "failed"
-    assert failed.completed_chunks == 1
-    assert failed.expected_chunks > failed.completed_chunks
+    assert failed.completed_chunks == 0
+    assert repository.documents == repository.sources == repository.user_memory_items == []
 
-    monkeypatch.setattr(repository, "add_user_memory_item", original_add)
+    monkeypatch.setattr(repository, "_sync_fts", original_add)
     completed = service.run_job(job.id, request)
     document = repository.get_document(completed.document_id)
     chunks = service.current_version_chunks(document)
@@ -116,7 +131,7 @@ def test_retry_fills_only_missing_current_version_chunks(tmp_path, monkeypatch: 
 
 
 def test_completed_current_version_is_idempotent(tmp_path) -> None:
-    repository = SQLiteStore(tmp_path / "idempotent.sqlite3")
+    repository = _repository(tmp_path / "idempotent.sqlite3")
     service = DocumentIngestionService(
         repository=repository,
         parser=StaticParser("first paragraph\n\nsecond paragraph"),
@@ -137,61 +152,43 @@ def test_completed_current_version_is_idempotent(tmp_path) -> None:
 
 
 
-def test_patch_during_job_does_not_restore_old_document_version(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repository = SQLiteStore(tmp_path / "patch-during-job.sqlite3")
+def test_completed_job_does_not_restore_a_later_document_edit(tmp_path) -> None:
+    repository = _repository(tmp_path / "patch-after-job.sqlite3")
     service = DocumentIngestionService(repository=repository, parser=StaticParser("old parsed body"))
     request = _request()
-    job = service.create_job(request)
-    original_add = repository.add_user_memory_item
-    patched = False
-
-    def patch_before_summary_write(item):
-        nonlocal patched
-        if item.source_kind == "document_upload" and not patched:
-            patched = True
-            current_job = repository.get_document_parse_job(job.id)
-            current = repository.get_document(current_job.document_id)
-            current.version += 1
-            current.text = "newer patched body"
-            current.expected_chunks = 0
-            current.completed_chunks = 0
-            current.updated_at = now_utc()
-            repository.save_document(current)
-        return original_add(item)
-
-    monkeypatch.setattr(repository, "add_user_memory_item", patch_before_summary_write)
-    result = service.run_job(job.id, request)
-    persisted = repository.get_document(result.document_id)
-
-    assert result.status == "failed"
-    assert result.error_type == "StaleDocumentVersionError"
-    assert persisted.version == 2
-    assert persisted.text == "newer patched body"
-    assert persisted.expected_chunks == 0
-    assert persisted.completed_chunks == 0
+    job = service.run_job(service.create_job(request).id)
+    document = repository.get_document(job.document_id)
+    updated = document.model_copy(update={'version': 2, 'text': 'newer patched body',
+                                         'completed_chunks': 0, 'expected_chunks': 0, 'updated_at': now_utc()})
+    assert repository.save_document_if_version(updated, 1)
+    assert service.run_job(job.id).status == 'completed'
+    persisted = repository.get_document(job.document_id)
+    assert persisted.version == 2 and persisted.text == 'newer patched body'
+    assert persisted.completed_chunks == persisted.expected_chunks == 0
+    service.shutdown()
 
 
-def test_failed_job_items_are_not_searchable_and_retry_reactivates_same_ids(
+def test_failed_atomic_import_is_not_searchable_and_retry_imports_once(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repository = SQLiteStore(tmp_path / "failed-search.sqlite3")
+    repository = _repository(tmp_path / "failed-search.sqlite3")
     text = "unique partial phrase " + ("x" * 900)
     service = DocumentIngestionService(repository=repository, parser=StaticParser(text))
     request = _request()
     job = service.create_job(request)
-    original_add = repository.add_user_memory_item
+    original_add = repository._sync_fts
     writes = 0
 
-    def fail_after_first_chunk(item):
+    def fail_after_first_chunk(connection, collection, item):
         nonlocal writes
-        if item.source_kind == "document_import":
+        if collection == "user_memory_items" and item.source_kind == "document_import":
             writes += 1
             if writes == 2:
                 raise RuntimeError("chunk write interrupted")
-        return original_add(item)
+        return original_add(connection, collection, item)
 
-    monkeypatch.setattr(repository, "add_user_memory_item", fail_after_first_chunk)
+    monkeypatch.setattr(repository, "_sync_fts", fail_after_first_chunk)
     failed = service.run_job(job.id, request)
     partial_ids = {
         item.id for item in repository.user_memory_items if item.source_kind == "document_import"
@@ -205,11 +202,12 @@ def test_failed_job_items_are_not_searchable_and_retry_reactivates_same_ids(
     )
 
     assert failed.status == "failed"
-    assert partial_ids
+    assert not partial_ids
+    assert repository.documents == repository.sources == []
     assert partial_ids.isdisjoint(result.id for result in failed_results)
     assert all(repository.get_user_memory_item(item_id).status == "stale" for item_id in partial_ids)
 
-    monkeypatch.setattr(repository, "add_user_memory_item", original_add)
+    monkeypatch.setattr(repository, "_sync_fts", original_add)
     completed = service.run_job(job.id, request)
     completed_results = repository.search(
         "unique partial phrase",
@@ -223,7 +221,8 @@ def test_failed_job_items_are_not_searchable_and_retry_reactivates_same_ids(
     assert partial_ids <= {
         item.id for item in service.current_version_chunks(repository.get_document(completed.document_id))
     }
-    assert partial_ids & {result.id for result in completed_results}
+    chunk_ids = {item.id for item in service.current_version_chunks(repository.get_document(completed.document_id))}
+    assert chunk_ids & {result.id for result in completed_results}
 
 
 def test_shutdown_finishes_running_job_and_fails_canceled_queue_for_retry(tmp_path) -> None:
@@ -240,7 +239,7 @@ def test_shutdown_finishes_running_job_and_fails_canceled_queue_for_retry(tmp_pa
                 assert release_parser.wait(timeout=5)
             return super().parse(request)
 
-    repository = SQLiteStore(tmp_path / "shutdown.sqlite3")
+    repository = _repository(tmp_path / "shutdown.sqlite3")
     service = DocumentIngestionService(
         repository=repository,
         parser=BlockingFirstParser("shutdown body"),

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime
 
 from agentmesh.auth import create_password_hash
@@ -35,6 +34,7 @@ from agentmesh.models import (
     Workspace,
 )
 from agentmesh.permissions import capabilities_for_user
+from agentmesh.provider_status import demo_mode_enabled
 from agentmesh.store import SQLiteStore
 from agentmesh.tools import ensure_tool_seed_data
 
@@ -403,10 +403,6 @@ def list_projects(repository: SQLiteStore, workspace_id: str | None = None) -> l
     return [project for project in merged if project.workspace_id == workspace_id]
 
 
-def demo_mode_enabled() -> bool:
-    return os.getenv("AGENTMESH_DEMO_MODE", "").strip() == "1"
-
-
 def ensure_base_workspace_data(repository: SQLiteStore) -> None:
     if repository.get_workspace(WORKSPACE.id) is None:
         repository.save_workspace(WORKSPACE)
@@ -458,6 +454,9 @@ def ensure_demo_seed_data(repository: SQLiteStore) -> None:
                     password_hash=create_password_hash(DEFAULT_PASSWORDS[user.id]),
                 )
             )
+        if repository.get_agent(user.personal_agent_id) is None:
+            personal_agent = next(agent for agent in AGENTS if agent.id == user.personal_agent_id)
+            repository.save_agent(personal_agent)
 
 
 def ensure_seed_data(repository: SQLiteStore) -> None:

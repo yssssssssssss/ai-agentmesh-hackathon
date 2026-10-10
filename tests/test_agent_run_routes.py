@@ -90,6 +90,8 @@ def _insert_historical_artifact(artifact: Artifact) -> Artifact:
 
 
 def test_completed_workspace_run_can_be_saved_to_personal_memory() -> None:
+    store.add_chat_thread(ChatThread(id='thread_manual_memory_route', user_id=USER.id,
+        workspace_id=USER.workspace_id, project_id=USER.default_project_id, title='Manual run memory'))
     run = store.save_agent_run(
         AgentRun(
             id="run_manual_memory_route",

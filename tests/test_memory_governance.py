@@ -81,6 +81,95 @@ def _accepted_team_memory(monkeypatch, suffix: str) -> tuple[TestClient, TestCli
     return owner, reviewer, task, accepted.json()["item"]
 
 
+def test_reviewed_task_captures_fact_and_procedure_payloads_and_revision_keeps_history(monkeypatch):
+    clear_store()
+    owner, _task, review_id = _accepted_task_review(monkeypatch, "structured-memory")
+    request = {
+        "command_id": "capture-structured-memory", "target": "team_candidate",
+        "title": "Verified ownership and delivery procedure", "summary": "Keep immutable delivery evidence.",
+        "facts": [{"subject_type": "project", "subject_id": PROJECT.id, "predicate": "owner", "value": USER.id,
+                   "valid_from": "2026-10-01T00:00:00+00:00"}],
+        "procedure": {"goal_patterns": ["Deliver a reviewed artifact"], "preconditions": ["Current project member"],
+                      "tool_versions": {"artifact_store": "v1"}, "environment_versions": {},
+                      "steps": ["Seal artifact", "Submit Task Review"],
+                      "validation_conditions": ["Independent reviewer accepts the sealed artifact"]},
+    }
+    captured = owner.post(f"/api/task-reviews/{review_id}/memory-candidates", json=request)
+    assert captured.status_code == 201, captured.text
+    candidate = captured.json()
+    entry = candidate["item"]
+    assert entry["facts"][0]["source_classification"] == "human_confirmed"
+    assert entry["facts"][0]["evidence_refs"][0]["record_type"] == "artifact"
+    procedure = entry["procedure"]
+    assert procedure["human_confirmed_by"] == USER.id
+    assert procedure["successful_runs"][0]["review_ref"]["record_id"] == review_id
+    assert procedure["successful_runs"][0]["review_ref"]["version"] == 2
+    query = {"project_id": PROJECT.id, "subject_type": "project", "subject_id": PROJECT.id, "predicate": "owner"}
+    assert owner.post("/api/memory/facts/query", json=query).json()["outcome"] == "unknown"
+    reviewer = authenticated_client(TEAM_LEAD.id)
+    accepted = reviewer.post(f"/api/memory-reviews/{candidate['memory_review']['review']['id']}/decisions", json={
+        "command_id": "accept-structured-memory", "expected_memory_version": 1, "expected_review_version": 1,
+        "decision": "accepted",
+    })
+    assert accepted.status_code == 200, accepted.text
+    result = reviewer.post("/api/memory/facts/query", json=query)
+    assert result.status_code == 200, result.text
+    assert result.json()["outcome"] == "known"
+    revision = owner.post(f"/api/memory/{entry['id']}/revisions", json={
+        "command_id": "revise-structured-memory-title", "expected_version": 2,
+        "title": "Clarified delivery procedure", "summary": request["summary"], "memory_type": entry["memory_type"],
+    })
+    assert revision.status_code == 201, revision.text
+    assert revision.json()["item"]["facts"] == entry["facts"]
+    assert revision.json()["item"]["procedure"] == procedure
+
+
+def test_legacy_capture_request_hash_does_not_change_when_optional_payloads_are_added(monkeypatch):
+    from agentmesh.canonical_json import canonical_json_sha256
+
+    clear_store()
+    owner, _task, review_id = _accepted_task_review(monkeypatch, "legacy-payload-hash")
+    request = {"command_id": "legacy-payload-capture", "target": "personal", "title": "Legacy", "summary": "Legacy"}
+    response = owner.post(f"/api/task-reviews/{review_id}/memory-candidates", json=request)
+    assert response.status_code == 201, response.text
+    with store._read_connect() as connection:
+        row = connection.execute("SELECT payload FROM records WHERE collection = 'memory_governance_command_receipts'").fetchone()
+    receipt = json.loads(row["payload"])
+    expected = canonical_json_sha256({"task_review_id": review_id, "request": {
+        **request, "memory_type": "project_experience", "layer": "mid_term",
+    }})
+    assert receipt["request_hash"] == expected
+
+
+def test_fact_only_team_revision_requires_review_and_keeps_history_in_current_version(monkeypatch):
+    clear_store()
+    owner, reviewer, _task, source = _accepted_team_memory(monkeypatch, "fact-only-revision")
+    request = {"command_id": "fact-only-revision", "expected_version": source["version"], "title": source["title"],
+               "summary": source["summary"], "memory_type": source["memory_type"], "facts": [
+                   {"subject_type": "project", "subject_id": PROJECT.id, "predicate": "owner", "value": USER.id,
+                    "valid_from": "2026-09-01T00:00:00+00:00", "valid_to": "2026-10-01T00:00:00+00:00"},
+                   {"subject_type": "project", "subject_id": PROJECT.id, "predicate": "owner", "value": TEAM_LEAD.id,
+                    "valid_from": "2026-10-01T00:00:00+00:00"},
+               ]}
+    revision = owner.post(f"/api/memory/{source['id']}/revisions", json=request)
+    assert revision.status_code == 201, revision.text
+    candidate = revision.json()
+    query = {"project_id": PROJECT.id, "subject_type": "project", "subject_id": PROJECT.id, "predicate": "owner"}
+    assert owner.post("/api/memory/facts/query", json=query).json()["outcome"] == "unknown"
+    approved = reviewer.post(f"/api/memory-reviews/{candidate['memory_review']['review']['id']}/decisions", json={
+        "command_id": "accept-fact-only-revision", "expected_memory_version": 1, "expected_review_version": 1,
+        "decision": "accepted",
+    })
+    assert approved.status_code == 200, approved.text
+    past = reviewer.post("/api/memory/facts/query", json={**query, "as_of": "2026-09-15T00:00:00+00:00"}).json()
+    current = reviewer.post("/api/memory/facts/query", json=query).json()
+    assert past["outcome"] == current["outcome"] == "known"
+    assert past["facts"][0]["fact"]["value"] == USER.id
+    assert current["facts"][0]["fact"]["value"] == TEAM_LEAD.id
+    assert past["facts"][0]["memory_id"] == current["facts"][0]["memory_id"] == candidate["item"]["id"]
+    assert store.get_memory_item(source["id"]).status is MemoryStatus.DEPRECATED
+
+
 def test_accepted_task_review_captures_private_memory_with_lineage(monkeypatch) -> None:
     clear_store()
     owner, task, review_id = _accepted_task_review(monkeypatch, "personal-memory")
