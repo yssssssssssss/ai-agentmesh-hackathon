@@ -1,0 +1,19 @@
+.gitignore
+  s_3864a3cf0f33e4::t_4af94d84eab43b 16-17,31-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "ded65d3f419cb8e342260f9b3521f6a9eee3261a",
+  "prompts": {},
+  "sessions": {
+    "s_3864a3cf0f33e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f8985b60-f93b-42cc-bf00-e5bb879bbcc7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ys <138124498+yssssssssssss@users.noreply.github.com>"
+    }
+  }
+}
