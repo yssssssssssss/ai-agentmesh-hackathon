@@ -1,0 +1,21 @@
+agentmesh/app.py
+  s_3864a3cf0f33e4::t_bd0db8e075df6a 92-99,119
+tests/test_health.py
+  s_3864a3cf0f33e4::t_bd0db8e075df6a 11,603,606-607,615-616,623-624,627-634
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "64c4e512dbba5625f9aea33ce0c1cc96b983a04f",
+  "prompts": {},
+  "sessions": {
+    "s_3864a3cf0f33e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f8985b60-f93b-42cc-bf00-e5bb879bbcc7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ys <138124498+yssssssssssss@users.noreply.github.com>"
+    }
+  }
+}
