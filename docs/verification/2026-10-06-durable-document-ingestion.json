@@ -1,0 +1,99 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "durable-document-input-and-atomic-imports",
+  "date": "2026-10-06",
+  "focused_final": {
+    "3.12": {
+      "passed": 114,
+      "warnings": 5,
+      "seconds": 16.33
+    },
+    "3.13": {
+      "passed": 114,
+      "warnings": 5,
+      "seconds": 16.38
+    }
+  },
+  "full_snapshot": {
+    "status": "passed",
+    "3.12": {
+      "passed": 2356,
+      "warnings": 5,
+      "seconds": 691.49
+    },
+    "3.13": {
+      "passed": 2356,
+      "warnings": 5,
+      "seconds": 689.19
+    },
+    "logs": [
+      "/tmp/agentmesh-document-full312.log",
+      "/tmp/agentmesh-document-full313.log"
+    ],
+    "boundary": "Started after the atomic ingestion/current-authority/lease/retention/public UI implementation, before final orphan maintenance/index followups and the two extra orphan/three-attempt tests. focused_final covers those followups.",
+    "warnings": "Five existing PyMuPDF Swig deprecation warnings."
+  },
+  "frontend": {
+    "passed": 234,
+    "files": 46,
+    "seconds": 3.3
+  },
+  "checks": {
+    "openapi_types": "passed",
+    "production_build": "passed",
+    "largest_chunk_bytes": 322377,
+    "bundle_budget": "passed",
+    "ruff": "passed",
+    "diff_check": "passed",
+    "uv_lock": "69 packages, passed"
+  },
+  "red_before_green": {
+    "cleanup_failure_keeps_committed_import": "/tmp/agentmesh-document-cleanup-red.log",
+    "current_authority_before_parser": "/tmp/agentmesh-document-authority-red.log",
+    "startup_discovery": "/tmp/agentmesh-document-recovery-red.log",
+    "expired_input": "/tmp/agentmesh-document-expiry-red2.log",
+    "lease_renewal": "/tmp/agentmesh-document-heartbeat-red.log",
+    "orphan_cleanup": "/tmp/agentmesh-document-orphan-red.log"
+  },
+  "corrected_during_development": [
+    "Expiry test insertion split the preceding try/finally; restored the test before the actual failing assertion.",
+    "An old search assertion used nonexistent SearchResult.kind; changed it to actual returned chunk IDs.",
+    "Recovery task attribute was initially placed in the executor; lifespan regression caught it and it was moved to the service.",
+    "Output-owner validation was inserted in renew instead of complete; inspection and the explicit renewal regression caught it before final checks.",
+    "Generated default fields were required in the frontend fixture; added the actual response defaults and guarded optional Job identity.",
+    "A cleanup fsync patch initially matched the write path; inspection restored write failure semantics before final verification."
+  ],
+  "changed_existing_test_contract": "New uploads commit all outputs atomically, replacing prior partial-progress/stale-item expectations with rollback/zero-searchable-output/retry-once assertions. Existing edited-document/manual-import tests remain covered.",
+  "browser": {
+    "engine": "Ego Lite",
+    "task_space_id": 1,
+    "isolated_temporary_database": true,
+    "real_provider_calls_enabled": false,
+    "passed": [
+      "Real text file uploads and imports one private retrieval chunk.",
+      "Corrupt PDF reports failed rather than completed.",
+      "Owned retry of corrupt bytes increments attempts and remains failed.",
+      "Reload preserves completed and failed records.",
+      "Desktop screenshot inspected with the image viewer."
+    ],
+    "screenshot": "/tmp/agentmesh-document-import-ui.png",
+    "boundary": "UI server predates final output-owner/orphan/index followups; final focused regressions cover these guards. Browser reload verifies persisted UI states, not an OS crash during parsing."
+  },
+  "evidence_boundary": {
+    "frozen_private_original_input": true,
+    "current_actor_project_at_claim_and_commit": true,
+    "two_service_instances_one_live_claim": true,
+    "old_claim_cannot_overwrite_new_completion": true,
+    "atomic_sources_documents_memories_indexes_completion": true,
+    "owned_versioned_retry_receipts": true,
+    "retention_and_bounded_orphan_cleanup": true,
+    "parser_exception_bodies_persisted": false,
+    "whole_application_multi_process_support": false,
+    "os_parser_sandbox_or_hard_cancel": false,
+    "legacy_partial_import_repair": false,
+    "manual_edited_document_reimport_atomicity": false,
+    "enabled_vector_provider_authority_or_capacity": false,
+    "enterprise_connector_smoke": false,
+    "real_model_or_ocr_quality": false
+  }
+}

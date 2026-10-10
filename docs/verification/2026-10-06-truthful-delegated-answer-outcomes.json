@@ -1,0 +1,53 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "truthful-delegated-answer-outcomes",
+  "date": "2026-10-06",
+  "red": {
+    "outcomes_and_direct_adoption": {
+      "failed": 4,
+      "passed": 13
+    },
+    "legacy_status_adoption": {
+      "failed": 4,
+      "unexpected_http_success": 200
+    }
+  },
+  "focused_final": {
+    "3.12": {
+      "passed": 77,
+      "seconds": 24.14
+    },
+    "3.13": {
+      "passed": 77,
+      "seconds": 24.28
+    }
+  },
+  "frontend": {
+    "passed": 228,
+    "files": 44,
+    "seconds": 2.87
+  },
+  "checks": {
+    "openapi_types": "passed",
+    "production_build": "passed",
+    "ruff": "passed",
+    "diff_check": "passed",
+    "largest_chunk_bytes": 322372,
+    "bundle_budget": "passed"
+  },
+  "evidence_boundary": {
+    "model_unavailable_and_insufficient_are_not_answered": true,
+    "no_template_success": true,
+    "legacy_match_posts_cannot_create_adopted_memory_or_points": true,
+    "legacy_unverified_ui_adoption_removed": true,
+    "deterministic_model_adapters_only": true,
+    "real_model_quality": false,
+    "durable_query_and_current_bilateral_authority": false
+  },
+  "full_snapshot_boundary": "The 2302-test Python 3.12/3.13 snapshot precedes this slice and the frozen evaluation entry.",
+  "remaining": [
+    "Durable DelegatedQuery and restricted answer Artifact, scoped consent and current bilateral authority.",
+    "Restart-visible results and idempotent verified adoption.",
+    "Real model quality and enterprise provider smoke."
+  ]
+}

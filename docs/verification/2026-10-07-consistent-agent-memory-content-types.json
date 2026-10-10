@@ -1,0 +1,141 @@
+{
+  "date": "2026-10-07",
+  "status": "passed_local_related_regression",
+  "adr": "docs/adr/0044-consistent-agent-memory-content-types.md",
+  "scope": [
+    "A single exact Memory content-type meaning across ordinary/SDK search, assembled context, structured delivery, market material and delegated answers",
+    "Server-confirmed version 1 and explicit authorized resave of restricted ambiguous legacy policies; untyped policies keep existing authorization",
+    "Content types filter before MATCH/LIKE/vector and material candidate limits; SDK no longer builds an ID whitelist by hydrating whole Memory collections",
+    "Search result categories remain separate intersections; collection-local ID collisions do not admit raw documents",
+    "Policy changes withhold prepared fact/procedure delivery, candidate metadata and already delivered delegated answers",
+    "Startup retracts pre-upgrade generated Memory publications dependent on an unconfirmed restricted binding, preserving independent Task-only/current/untyped cases"
+  ],
+  "backend_related": {
+    "status": "passed",
+    "3.12": {
+      "passed": 375,
+      "seconds": 240.77,
+      "log": "/tmp/agentmesh-binding-types-final-312.log"
+    },
+    "3.13": {
+      "passed": 375,
+      "seconds": 242.06,
+      "log": "/tmp/agentmesh-binding-types-final-313.log"
+    },
+    "new_behavior_cases": 42,
+    "new_binding_type_file_cases": 35,
+    "files": [
+      "tests/test_agent_binding_types.py",
+      "tests/test_agent_binding.py",
+      "tests/test_agent_binding_authority.py",
+      "tests/test_sdk_retrieval.py",
+      "tests/test_memory_context.py",
+      "tests/test_memory_search_capacity.py",
+      "tests/test_fact_context.py",
+      "tests/test_procedure_context.py",
+      "tests/test_delegated_queries.py",
+      "tests/test_delegated_query_api.py",
+      "tests/test_scoped_memory_search.py",
+      "tests/test_market_publication_authority.py",
+      "tests/test_market_scout_authority.py",
+      "tests/test_context_request_budget.py",
+      "tests/test_sdk_session_authority.py",
+      "tests/test_sdk_session_checkpoint.py",
+      "tests/test_sdk_tool_runtime.py",
+      "tests/test_memory_forgetting.py"
+    ],
+    "boundary": "18 related suites covering binding API/authority, ordinary/scoped/context search and capacity, structured facts/procedures, SDK retrieval/tools/sessions/budget, forgetting, publication/scout and delegated queries. This is not a full backend run. The final runs include the startup publication migration."
+  },
+  "before_startup_migration": {
+    "3.12": {
+      "passed": 371,
+      "seconds": 246.53,
+      "log": "/tmp/agentmesh-binding-types-pre-migration-312.log"
+    },
+    "3.13": {
+      "passed": 371,
+      "seconds": 246.72,
+      "log": "/tmp/agentmesh-binding-types-pre-migration-313.log"
+    },
+    "boundary": "Superseded by the final 375-case runs after the four startup migration cases and implementation were added."
+  },
+  "frontend": {
+    "passed": 246,
+    "files": 51,
+    "seconds": 3.98,
+    "test_log": "/tmp/agentmesh-binding-types-frontend.log",
+    "build": "passed",
+    "build_seconds": 2.67,
+    "largest_chunk_bytes": 322425,
+    "bundle_limit_bytes": 500000,
+    "build_log": "/tmp/agentmesh-binding-types-build.log",
+    "openapi": "Regenerated: exact content-type description and nullable server-confirmed type_policy_version",
+    "openapi_log": "/tmp/agentmesh-binding-types-openapi.log"
+  },
+  "observed_red": [
+    {
+      "capture": "tool output",
+      "result": "Ordinary search returned no domain-typed result; SDK attempted a prohibited whole-collection load. Initial run stopped with 4 failed / 1 passed."
+    },
+    {
+      "capture": "tool output",
+      "result": "Two market material cases failed: 40 newer excluded types exhausted the 32-row window before the older allowed Memory was considered."
+    },
+    {
+      "capture": "tool output",
+      "result": "Delegated query returned insufficient_evidence after 205 newer excluded types crowded out the allowed Memory before filtering."
+    },
+    {
+      "capture": "tool output",
+      "result": "Pre-upgrade generated Memory publication remained published after database reopen with an unversioned restricted binding."
+    }
+  ],
+  "checks": {
+    "ruff": "passed",
+    "diff": "passed"
+  },
+  "real_llm_calls": false,
+  "real_enterprise_connector": false,
+  "real_embedding_provider": false,
+  "semantic_retrieval_boundary": "Vector SQL filtering was exercised with deterministic local vectors and a mocked embedding function, not a real Provider or scale/quality benchmark.",
+  "browser": "No UI control changed; no browser acceptance is claimed. Existing HTTP configuration and actual SQLite persistence/transactions are exercised by the related tests.",
+  "migration": "Review every restricted legacy binding's actual content types and save through the existing authorized PUT. GET does not rewrite binding configuration. Server preserves ID/creation time and sets version 1. Raw document/chat result categories are not aliases for content types.",
+  "remaining": [
+    "Full ContextAssembler priorities and complete model request/output/cost/retry/deadline budgets",
+    "Generic external Source version/hash/archive/snapshot and real connector watermarks",
+    "Verified procedure reuse, Skill publication and parser process isolation/hard cancellation",
+    "SDK Session/Runner parity and actual source-qualified remote delivery",
+    "Real 120/24-case model quality, real embedding capacity and an authorized enterprise pilot"
+  ],
+  "source_sha256": {
+    "agentmesh/models.py": "3a3b5836ae27e675bc59113d213f6c35971b563c5809ce7ad2168060e117476d",
+    "agentmesh/agent_memory_binding.py": "57550072a2d111931cafa7e46ba4d4507e6d4f927b1354792eef05214aa17840",
+    "agentmesh/store.py": "f6ffe11bd372bd55aaa35500c9ada75925cd0d92afff67cf5f8dcfa51848070f",
+    "agentmesh/retrieval/service.py": "9d8c47274ac05bece8278bf38c5de723f7cefe846ec42cf8ffb4220b706b21cf",
+    "agentmesh/memory_context/service.py": "e08ed4b4f55ac02dd05084dfb5b87cde0a5072b87e9b724c0138c4c82f0d06c6",
+    "agentmesh/memory_context/candidate_views.py": "a209cd6bd73f521e63839e318027244fc42d889cac7d321d04210acc4869d648",
+    "agentmesh/market_publishing.py": "67b855f6e03c2357445c5882bc726fd3a676a8fc59edb2b99fec73aaf800ec38",
+    "agentmesh/market_scout_materials.py": "9ef28bdad66e2d7be2d78d34b37fef0b75a5dd398d4ceae96a92d7f21c6f2af3",
+    "agentmesh/market_publication_inputs.py": "458500f2f8ad7a9e260913ff79be15f367f4fefef4bd0881b2da39ac81c7d37d",
+    "agentmesh/delegated_queries.py": "7124e03d74fb8849fbd6668bd94ab1ebfbc1cfdc7c687637135180644b4de512",
+    "agentmesh-demo/src/api/generated/schema.ts": "bb19eea7a9fc2a8551c1b2e60666e9e27883553de852cfc8a8d0e6791f5d890f",
+    "tests/test_agent_binding_types.py": "10a4b7400d179d778df86739a2a99086c5989ab17641f6a3e86c60f0dce1e41e",
+    "tests/test_agent_binding.py": "8c6289c5c3adfe0610e9ca9a1b53abfaa5463e649f120a40b10ea8ce7c55e786",
+    "tests/test_agent_binding_authority.py": "d6d197738d20c4bcf3464515bdcda54aaed836380f241c257e0b079e73e3077f",
+    "tests/test_sdk_retrieval.py": "65e5fe0ad8258db600122eeb698a71a7ada7268daf300b7418ae560dd42b1d70",
+    "tests/test_memory_context.py": "6646851ac3168946589b434999256b648a3599e937945f4f4839043e78f13d15",
+    "tests/test_memory_search_capacity.py": "5c9d31219c39ed84337521607abd1af0d284bcb4793ff0b4215511a0c942a272",
+    "tests/test_fact_context.py": "888363c58b105cafd4ad8ebebcb071dcd8af37095a20fe8c58afb190e567c8b2",
+    "tests/test_procedure_context.py": "dc1f9a0f5d1e11ed1d99460e351dcc9f4f4ac1c2fa01e0b074a352ed6a8789e4",
+    "tests/test_delegated_queries.py": "6f977ac98c9310f038f3a4cb6da8a6dde3a749aaf3c0c50ea929c2551970f564",
+    "tests/test_delegated_query_api.py": "6136fcf920d620562a38bcf3b0e644d8f8e44cdc28e9b772125f2fa6eba107c0",
+    "tests/test_scoped_memory_search.py": "65efd34ce9248ccc36f9419ba967833d89b8b0c9707091a31681d924a39185f0",
+    "tests/test_market_publication_authority.py": "4811c3ed7a05e2540899ea63981ec4f86f0b4dc077fe8b53dcf1f8b1d81d6ffb",
+    "tests/test_market_scout_authority.py": "ff5c3d29bc397c00a3e6a4f2c16a382ec4127a11c1c1d863d2db838f345c1e0e",
+    "tests/test_context_request_budget.py": "d509143ab9f35301970ca37cd7a913e92dd017175a1dff76951a3f8003b8bf50",
+    "tests/test_sdk_session_authority.py": "74e41d2b29076199090235d43fec8ceeaa5ae9f5a704b9a61660c1666f9142ee",
+    "tests/test_sdk_session_checkpoint.py": "bdd690527587cdef00d5ed040935f94b138cf6337c3a2d4986184f8dc92778dd",
+    "tests/test_sdk_tool_runtime.py": "43125f4412b8fe4d699b031173e279eb0545147f5397dcc284c93fb7fd127633",
+    "tests/test_memory_forgetting.py": "620c801ca595dfec65c5f3b8a0752b377004c172c58950c87723969f686a60d0"
+  }
+}

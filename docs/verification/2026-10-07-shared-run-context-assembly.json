@@ -1,0 +1,65 @@
+{
+  "recorded_at": "2026-10-07T06:08:19.715309+00:00",
+  "status": "shared_local_run_context_assembly_slice_verified_overall_plan_in_progress",
+  "verification_policy": "Direct critical behavior checks only; stop after passing unless a new change/failure/unresolved concern requires follow-up.",
+  "python": "3.13.0",
+  "focused": {
+    "files": 5,
+    "passed": 18,
+    "seconds": 24.32,
+    "new_assembly_tests": 5
+  },
+  "standard_node": {
+    "passed": 1,
+    "seconds": 3.37,
+    "memory_mode": "inject"
+  },
+  "static_checks": {
+    "targeted_ruff": "passed",
+    "git_diff_check": "passed"
+  },
+  "verified_behaviors": [
+    "preferences and complete recalled rendering share a character allowance",
+    "optional recall drops before full core preferences",
+    "actual SDK handoff records only selected exact memory versions",
+    "ordinary private chat avoids automatic project recall",
+    "observe mode delivers no preferences/Memory/usage",
+    "SQL project state wins over recalled narrative",
+    "current preferences/SQL/fact evidence are rechecked at model handoff",
+    "qualified reviewed procedure still delivers without executing its steps",
+    "Standard downstream node/source/synthesis executes with injection enabled"
+  ],
+  "scope": "Temporary SQLite and scripted SDK models; no host/business database or real model/Provider calls. Existing Runner envelope/worktree retained.",
+  "not_run": [
+    "full_backend_suite",
+    "dual_python_regression",
+    "browser_e2e",
+    "real_Provider_or_LLM_calls",
+    "enterprise_pilot",
+    "deployment",
+    "frontend_build_or_api_regeneration_no_surface_change"
+  ],
+  "remaining": [
+    "dynamic complete-request allocation and safe compaction",
+    "model-aware tokenizer estimates when supported",
+    "remote Runner context parity and complete indirect lineage",
+    "further procedure reuse requirements",
+    "source freshness and complete remote ACL/deletion discovery",
+    "actual model quality and team acceptance",
+    "conditional stage-six scaling"
+  ],
+  "source_hashes_at_recording": {
+    "agentmesh/memory_context/contracts.py": "419dfa04cfa4442cf607d50081df23e851539fc02a1cd54c5f0731dda744d6d9",
+    "agentmesh/memory_context/service.py": "2c1f02b568f8c0062d7425596996a958c64e196c7d6f6892b0e35e0519dbde70",
+    "agentmesh/agent_runtime/service.py": "4ec39179900382907081a42252ac45a8ab6c2d61d7333cf3a31129041cb9213f",
+    "tests/test_run_context_assembly.py": "544dbdfe3097719d37b531755fd3dc975584d5504112ecce322ae9268f4ed802"
+  },
+  "log_hashes": {
+    "/tmp/agentmesh-context-assembly-budget-red.log": "87dbed12a8f28f257dc34590ce80511a88597ef177c81df0e243b65270feb80b",
+    "/tmp/agentmesh-context-assembly-budget-green.log": "abcad5411c13fcbadae639a11e65d117fc07189448f3fef9c9747a73dd2f8dd1",
+    "/tmp/agentmesh-context-assembly-focused.log": "219f37c999fbc50a6a77cdd1167a725141ec0912414c872cafe669587808c330",
+    "/tmp/agentmesh-context-assembly-node.log": "4da0acde50ca91a5d50ccc3f4bb42d9372f0c60d20b3651c9e7d103c898a9536",
+    "/tmp/agentmesh-context-assembly-ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "/tmp/agentmesh-context-assembly-diff.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

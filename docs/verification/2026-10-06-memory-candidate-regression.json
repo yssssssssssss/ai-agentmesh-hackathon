@@ -1,0 +1,79 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "owned-memory-candidate-decisions",
+  "date": "2026-10-06",
+  "focused_final": {
+    "3.12": {
+      "passed": 124,
+      "seconds": 82.56
+    },
+    "3.13": {
+      "passed": 124,
+      "seconds": 83.03
+    }
+  },
+  "final_prepared_decision_guard_followup": {
+    "passed": 7,
+    "seconds": 2.22
+  },
+  "frontend": {
+    "passed": 227,
+    "files": 43,
+    "seconds": 3.1
+  },
+  "checks": {
+    "openapi_types": "passed",
+    "production_build": "passed",
+    "largest_chunk_bytes": 322372,
+    "bundle_budget": "passed",
+    "ruff": "passed",
+    "diff_check": "passed"
+  },
+  "red_before_implementation": {
+    "candidate_capture": {
+      "failed": 1
+    },
+    "forget_barrier": {
+      "failed": 1
+    },
+    "owned_projection": {
+      "failed": 1
+    },
+    "recall_assembly_version_race": {
+      "failed": 1
+    }
+  },
+  "corrected_test_setup_failures": [
+    "Two new UserMemoryItem fixtures omitted required layer; corrected before final runs.",
+    "The new API test used /api/agent-runs instead of the actual /api/agent/runs; corrected."
+  ],
+  "full_snapshot": {
+    "status": "passed",
+    "3.12": {
+      "passed": 2302,
+      "warnings": 5,
+      "seconds": 672.71
+    },
+    "3.13": {
+      "passed": 2302,
+      "warnings": 5,
+      "seconds": 669.55
+    },
+    "includes_document_learning_operations": true,
+    "excludes_later_frozen_memory_eval_tests": true,
+    "warnings": "Five existing PyMuPDF Swig deprecation warnings."
+  },
+  "capacity_report": "2026-10-06-memory-candidate-retrieval-benchmark.json",
+  "evidence_boundary": {
+    "body_free_candidate_metadata": true,
+    "current_owned_authority_and_exact_source_proof": true,
+    "actual_local_sdk_handoff_and_exact_receipts": true,
+    "current_fact_conflict_and_procedure_capability_recheck": true,
+    "candidate_only_snapshot_and_tool_forget_reopen_barriers": true,
+    "legacy_snapshot_bytes_preserved": true,
+    "browser_interaction_verified": false,
+    "real_model_quality": false,
+    "enterprise_provider_smoke": false,
+    "phase3_complete": false
+  }
+}

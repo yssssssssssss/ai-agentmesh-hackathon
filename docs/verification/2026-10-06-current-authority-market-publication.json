@@ -1,0 +1,102 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "current-authority-market-publication",
+  "date": "2026-10-06",
+  "full_snapshot": {
+    "3.12": {
+      "passed": 2400,
+      "warnings": 5,
+      "seconds": 712.51
+    },
+    "3.13": {
+      "passed": 2400,
+      "warnings": 5,
+      "seconds": 712.34
+    },
+    "logs": [
+      "/tmp/agentmesh-market-complete-full312.log",
+      "/tmp/agentmesh-market-complete-full313.log"
+    ],
+    "boundary": "Includes all current backend publication, explicit-project reads, opt-out and owned forgetting retraction. Later frontend board cache and wording were validated separately.",
+    "warnings": "Five existing PyMuPDF Swig deprecation warnings."
+  },
+  "focused_snapshots": {
+    "market_reads": {
+      "3.12": 106,
+      "3.13": 106
+    },
+    "publication_context_document_before_retraction": {
+      "3.12": 197,
+      "3.13": 197
+    },
+    "final_retraction_market_and_forgetting": {
+      "passed": 37,
+      "seconds": 7.06
+    }
+  },
+  "frontend_final": {
+    "passed": 236,
+    "files": 47,
+    "seconds": 3.13,
+    "log": "/tmp/agentmesh-market-publisher-frontend-complete.log"
+  },
+  "checks": {
+    "openapi_types": "passed",
+    "ruff": "passed",
+    "diff_check": "passed",
+    "production_build": "passed",
+    "build_seconds": 2.22,
+    "largest_chunk_bytes": 322377,
+    "bundle_budget": "passed"
+  },
+  "red_before_green": {
+    "twelve_original_publication_failures": "/tmp/agentmesh-market-publication-red.log",
+    "disabled_model": "/tmp/agentmesh-market-publication-disabled-red.log",
+    "unversioned_document_and_private_peer_answer": "/tmp/agentmesh-market-publication-origins-red.log",
+    "opt_out_and_owned_forgetting": "/tmp/agentmesh-market-publication-retraction-red2.log",
+    "explicit_project_read": "/tmp/agentmesh-market-explicit-project-red.log",
+    "personal_project_cache": "/tmp/agentmesh-market-cache-scope-red.log",
+    "board_project_cache": "/tmp/agentmesh-market-board-cache-red.log"
+  },
+  "corrected_during_development": [
+    "Existing direct publication fixtures had no opt-in; updated them to represent authorized publication.",
+    "The first new retraction fixture imported nonexistent forgetting symbols; corrected it before the genuine RED rerun."
+  ],
+  "browser": {
+    "engine": "Ego Lite",
+    "task_space_id": 1,
+    "isolated_temporary_database": true,
+    "provider_calls_enabled": false,
+    "passed": [
+      "Current-project generated ordinary signal is visible in the actual signal drawer.",
+      "Separate-workspace fixture content is absent.",
+      "The real opt-out button removes the generated signal and cached activity.",
+      "Reload retains opt-out and an empty recent signal/timeline state.",
+      "Desktop screenshot inspected with the image viewer."
+    ],
+    "screenshot": "/tmp/agentmesh-market-source-authority-ui.png",
+    "recovered": [
+      "A second seeding process correctly failed the SQLite single-writer guard; stopped only the owned QA server, seeded, then restarted without bypassing the guard.",
+      "Initial page request preceded QA server availability; used the displayed retry after the server was listening.",
+      "HMR invalidated a browser context; resumed the same page/task space.",
+      "Automatic click scrolling missed the main scroll container; observed its bounds and used documented mouse scrolling."
+    ],
+    "boundary": "No real LLM or enterprise connector was enabled. UI validates persisted scope/opt-out behavior, not model quality."
+  },
+  "evidence_boundary": {
+    "current_authority_before_model_and_atomic_commit": true,
+    "frozen_selected_record_and_previous_publication_comparison": true,
+    "bounded_ordinary_material_with_current_versioned_native_documents": true,
+    "signal_indexes_and_audit_atomic": true,
+    "opt_out_and_owned_forgetting_clear_generated_signal_atomically": true,
+    "explicit_project_requests_and_project_specific_cache": true,
+    "private_source_id_or_body_proofs_in_public_metadata": false,
+    "concurrent_model_calls_exactly_once": false,
+    "full_sdk_request_budget_cost_and_delivery_receipts": false,
+    "all_generic_origin_and_archive_invalidation": false,
+    "enabled_vector_provider_capacity": false,
+    "real_enterprise_connector_smoke": false,
+    "real_model_summary_quality": false,
+    "whole_phase_3_4_5_complete": false
+  }
+}

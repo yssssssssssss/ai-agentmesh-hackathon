@@ -1,0 +1,1241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AgentMesh 项目核心能力、技术特点、架构、核心流程与验证状态说明报告">
+  <title>AgentMesh 项目说明报告</title>
+  <style>
+:root {
+  color-scheme: dark;
+  --bg: #071019;
+  --surface: #0d1823;
+  --surface-2: #122231;
+  --ink: #edf5f7;
+  --muted: #9db0ba;
+  --line: rgba(183, 211, 219, .16);
+  --mint: #50e3c2;
+  --cyan: #59c8ff;
+  --amber: #f5c76b;
+  --rose: #ff8297;
+  --shadow: 0 24px 70px rgba(0, 0, 0, .28);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; background: var(--bg); }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(80, 227, 194, .10), transparent 32rem),
+    radial-gradient(circle at 90% 8%, rgba(89, 200, 255, .10), transparent 28rem),
+    var(--bg);
+  line-height: 1.72;
+}
+a { color: var(--cyan); text-underline-offset: 3px; }
+a:hover { color: var(--mint); }
+.skip-link { position: fixed; left: 1rem; top: -4rem; z-index: 20; padding: .65rem 1rem; background: #fff; color: #000; border-radius: .5rem; }
+.skip-link:focus { top: 1rem; }
+.hero {
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(80,227,194,.08), rgba(89,200,255,.05) 46%, rgba(255,130,151,.04));
+}
+.hero-inner { max-width: 1180px; margin: 0 auto; padding: 4.5rem 2rem 3.5rem; }
+.eyebrow { color: var(--mint); font-size: .78rem; font-weight: 800; letter-spacing: .17em; text-transform: uppercase; }
+.hero h1 { max-width: 850px; margin: .65rem 0 1rem; font-size: clamp(2.25rem, 6vw, 4.6rem); line-height: 1.05; letter-spacing: -.045em; }
+.hero p { max-width: 760px; margin: 0; color: var(--muted); font-size: 1.05rem; }
+.hero-meta { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.5rem; }
+.pill { border: 1px solid var(--line); border-radius: 999px; padding: .42rem .72rem; color: #c8d7dd; background: rgba(255,255,255,.035); font: 600 .77rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 2.25rem 2rem 5rem; }
+.report-body { min-width: 0; }
+.report-body > h1:first-child { display: none; }
+h2, h3, h4 { line-height: 1.26; scroll-margin-top: 1.5rem; }
+h2 { margin: 4rem 0 1.25rem; padding-top: .6rem; border-top: 1px solid var(--line); font-size: clamp(1.65rem, 3vw, 2.25rem); letter-spacing: -.025em; }
+h3 { margin: 2.3rem 0 .9rem; color: #dff7f1; font-size: 1.25rem; }
+h4 { margin: 1.7rem 0 .65rem; color: #dbeaf0; font-size: 1.05rem; }
+p, li { color: #cad7dc; }
+strong { color: #fff; }
+blockquote { margin: 1.5rem 0; padding: 1rem 1.2rem; border-left: 3px solid var(--mint); border-radius: 0 .7rem .7rem 0; background: rgba(80,227,194,.065); color: #dcebea; }
+blockquote p { margin: 0; }
+table { width: 100%; margin: 1.1rem 0 1.8rem; border-collapse: separate; border-spacing: 0; overflow: hidden; border: 1px solid var(--line); border-radius: .8rem; background: rgba(13,24,35,.72); font-size: .91rem; }
+th, td { padding: .72rem .8rem; vertical-align: top; text-align: left; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+th:last-child, td:last-child { border-right: 0; }
+tr:last-child td { border-bottom: 0; }
+th { color: #e8fbf7; background: rgba(80,227,194,.08); font-size: .78rem; letter-spacing: .04em; }
+tr:nth-child(even) td { background: rgba(255,255,255,.018); }
+code { color: #a9f4df; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+p code, li code, td code { padding: .12em .34em; border: 1px solid rgba(80,227,194,.15); border-radius: .35rem; background: rgba(80,227,194,.07); overflow-wrap: anywhere; }
+pre { overflow-x: auto; margin: 1.15rem 0 1.8rem; padding: 1.15rem; border: 1px solid var(--line); border-radius: .85rem; background: #050c12; box-shadow: inset 0 1px 0 rgba(255,255,255,.025); }
+pre code { color: #bdd0d7; font-size: .82rem; line-height: 1.55; }
+ul, ol { padding-left: 1.35rem; }
+li { margin: .28rem 0; }
+hr { margin: 4rem 0 2rem; border: 0; border-top: 1px solid var(--line); }
+.report-body > p:first-of-type + table { box-shadow: var(--shadow); }
+#executive-summary + h2 { border-top: 0; margin-top: 2.5rem; }
+footer { max-width: 1180px; margin: 0 auto; padding: 0 2rem 3rem; color: #7f949e; font-size: .78rem; }
+@media (max-width: 760px) {
+  .hero-inner, .layout, footer { padding-left: 1rem; padding-right: 1rem; }
+  .hero-inner { padding-top: 3rem; }
+  table { display: block; overflow-x: auto; white-space: normal; }
+  th, td { min-width: 8.5rem; }
+  h2 { margin-top: 3rem; }
+}
+@media print {
+  :root { color-scheme: light; --bg: #fff; --surface: #fff; --surface-2: #fff; --ink: #17242a; --muted: #53666f; --line: #ccd6da; --mint: #087f69; --cyan: #006a9c; }
+  html, body { background: #fff; color: #17242a; font-size: 10pt; }
+  .hero { background: #fff; }
+  .hero-inner { padding: 1.2cm 0 .8cm; }
+  .hero h1 { font-size: 28pt; }
+  .layout { display: block; padding: 0; }
+  .report-body { max-width: none; }
+  h2 { break-after: avoid; margin-top: 1.6rem; }
+  h3, h4 { break-after: avoid; }
+  table, pre, blockquote { break-inside: avoid; box-shadow: none; }
+  table { font-size: 8.2pt; }
+  th { background: #eef5f3; color: #17242a; }
+  p, li, code, pre code, td { color: #24363e; }
+  a { color: #075e82; text-decoration: none; }
+  .pill { color: #33464e; border-color: #bbc8cd; background: #fff; }
+  footer { padding: .7cm 0 0; }
+  @page { size: A4; margin: 1.35cm; }
+}
+</style>
+</head>
+<body>
+  <a class="skip-link" href="#report">跳到报告正文</a>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Project Brief · Code Evidence · 2026-09-10</div>
+      <h1>AgentMesh 项目说明报告</h1>
+      <p>数字员工、Skill 编排、任务交付、知识治理与跨人协作的统一 Agent 控制面。</p>
+      <div class="hero-meta" aria-label="报告快照">
+        <span class="pill">branch: feature/skill-input-preflight</span>
+        <span class="pill">commit: 0ada4bb</span>
+        <span class="pill">backend: 0.1.0</span>
+        <span class="pill">internal pilot</span>
+      </div>
+    </div>
+  </header>
+  <main id="report" class="layout">
+    <article class="report-body"><h1>AgentMesh 项目说明报告</h1>
+<blockquote>
+<p><strong>数字员工 × Agent 协作市场 × 受治理的工作执行平台</strong><br />
+文档性质：基于当前仓库代码、配置、ADR 与本地验证结果形成的现状报告；不是产品路线图，也不是生产发布承诺。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>项目快照</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>报告日期</td>
+<td>2026-09-10（CST）</td>
+</tr>
+<tr>
+<td>Git 分支</td>
+<td><code>feature/skill-input-preflight</code></td>
+</tr>
+<tr>
+<td>Git 提交</td>
+<td><code>0ada4bb29973fff565e9120bad04165b83406e92</code>（<code>Add Skill input preflight workflow</code>）</td>
+</tr>
+<tr>
+<td>代码版本</td>
+<td>Backend <code>0.1.0</code>；Frontend <code>1.0.0</code></td>
+</tr>
+<tr>
+<td>快照状态</td>
+<td>生成报告前工作区 clean；报告仅新增本目录下 <code>.md</code> 与 <code>.html</code> 两个文件</td>
+</tr>
+<tr>
+<td>主要运行形态</td>
+<td>Python 3.12+ / FastAPI / SQLite；React 18 + TypeScript + Vite；可信内网、单 Workspace、单进程</td>
+</tr>
+</tbody>
+</table>
+<h2>目录</h2>
+<ul>
+<li><a href="#executive-summary">1. 执行摘要</a></li>
+<li><a href="#positioning">2. 项目定位与核心价值</a></li>
+<li><a href="#capabilities">3. 核心能力全景</a></li>
+<li><a href="#skill-catalog">4. Skill 能力目录</a></li>
+<li><a href="#technical-characteristics">5. 技术特点</a></li>
+<li><a href="#architecture">6. 项目架构</a></li>
+<li><a href="#core-flows">7. 核心业务流程</a></li>
+<li><a href="#domain-model">8. 核心领域对象与状态边界</a></li>
+<li><a href="#frontend-api">9. 前端、API 与数据呈现</a></li>
+<li><a href="#deployment">10. 部署与配置边界</a></li>
+<li><a href="#limitations">11. 当前限制与风险</a></li>
+<li><a href="#verification">12. 验证结果</a></li>
+<li><a href="#conclusion">13. 综合结论与近期优先级</a></li>
+<li><a href="#evidence-index">附录 A：证据索引</a></li>
+<li><a href="#adr-precedence">附录 B：ADR 生效关系</a></li>
+</ul>
+<p><span id="executive-summary"></span></p>
+<h2>1. 执行摘要</h2>
+<h3>1.1 一句话定义</h3>
+<p>AgentMesh 不是单纯的聊天机器人，而是一个面向团队知识工作场景的 <strong>Agent 控制面原型</strong>：它以每位用户的个人数字员工为入口，把对话、Skill 选择与编排、工具调用、任务交付、人审、知识沉淀、记忆复用和跨人协作放进同一套可追踪的服务端状态机中。</p>
+<h3>1.2 当前判断</h3>
+<table>
+<thead>
+<tr>
+<th>判断维度</th>
+<th>结论</th>
+<th>依据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>产品闭环</td>
+<td><strong>已形成</strong></td>
+<td>从个人对话/Skill，到 Task、Artifact、Review、Memory、再次检索复用均有实现</td>
+</tr>
+<tr>
+<td>工程完整度</td>
+<td><strong>较高的原型级实现</strong></td>
+<td>169 个 OpenAPI 操作、持久化状态机、幂等/CAS、审计、SSE、恢复与容量控制</td>
+</tr>
+<tr>
+<td>Skill 平台</td>
+<td><strong>目录完整，生产信任未完成</strong></td>
+<td>84 个内置 Skill、84/84 Profile；仅 10 个当前 Planner eligible，74 个为 draft</td>
+</tr>
+<tr>
+<td>内网演示/受控试点</td>
+<td><strong>可用，但需按门禁配置</strong></td>
+<td>后端、前端单测与构建通过；核心 smoke 与容量基准通过</td>
+</tr>
+<tr>
+<td>生产发布</td>
+<td><strong>当前不建议</strong></td>
+<td>Universal 检索边界门禁失败；0/84 Profile 完成生产审批；真实 Provider 与浏览器 E2E 未完成</td>
+</tr>
+<tr>
+<td>公网部署</td>
+<td><strong>明确不支持</strong></td>
+<td>当前边界是可信内网、单 Workspace、单应用进程、单 SQLite 数据库</td>
+</tr>
+</tbody>
+</table>
+<h3>1.3 最重要的五点</h3>
+<ol>
+<li><strong>核心价值是“受治理地完成工作”，而不只是生成文本。</strong> AgentRun、SkillPlan、Artifact、Task Review、Memory Review 和 Inbox 共同形成可暂停、可审批、可恢复、可审计的执行链。</li>
+<li><strong>个人记忆与团队知识有明确边界。</strong> 个人内容默认私有；任务交付审核通过也不会自动进入团队知识，必须再次经过 Memory Review。</li>
+<li><strong>Skill 平台已经具备目录、检索、快照、DAG、执行前重校验和输入预检等关键基础设施。</strong> 但“代码能力存在”不等于“生产可信”：Profile 审批、Provider 验收和检索边界仍是硬门槛。</li>
+<li><strong>DeepSearch 是 v1 Runtime 上的显式规划模式。</strong> 它不是已退役的 <code>research-v2</code>/<code>research-v3</code>；后两者只保留历史读取或历史文档。</li>
+<li><strong>当前最适合的定位是内部创新验证与受控试点。</strong> 架构强调安全默认值和证据链，但尚未完成公网、多租户、水平扩展、真实 Provider 全链路验收。</li>
+</ol>
+<p><span id="positioning"></span></p>
+<h2>2. 项目定位与核心价值</h2>
+<h3>2.1 面向的问题</h3>
+<p>团队知识工作通常存在四个断点：</p>
+<ul>
+<li>对话产生的结论没有进入任务与交付体系；</li>
+<li>Agent 能调用什么、何时需要批准，缺少稳定边界；</li>
+<li>个人经验难以在不直接暴露原始材料的情况下参与协作；</li>
+<li>交付物、审核、知识沉淀和后续复用之间没有可追溯链路。</li>
+</ul>
+<p>AgentMesh 的设计把这些断点收敛为一条受治理链路：</p>
+<pre><code class="language-text">用户意图
+  → 对话 / 显式 Skill / 自动规划
+  → 运行前输入预检
+  → AgentRun + SkillPlan
+  → Tool / Skill 执行
+  → Artifact 与来源证据
+  → Task Review
+  → Personal Memory 或 Team Candidate
+  → Memory Review 与生命周期治理
+  → 后续 Agent 上下文复用 + Memory Use Receipt
+</code></pre>
+<h3>2.2 核心用户角色</h3>
+<ul>
+<li><strong>普通成员</strong>：使用个人数字员工、私有对话、文档、个人记忆、任务和协作市场。</li>
+<li><strong>Team Lead</strong>：在默认角色策略上可管理项目任务、审核交付、审核/治理团队知识、管理公共 Agent。</li>
+<li><strong>Admin</strong>：除业务能力外，可管理用户、团队、权限策略、风险策略、Provider/O2 状态与审计。</li>
+</ul>
+<h3>2.3 产品核心价值</h3>
+<table>
+<thead>
+<tr>
+<th>价值</th>
+<th>项目中的具体体现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>工作可执行</td>
+<td>显式 Skill、单 Skill Runtime、多 Skill DAG、DeepSearch、工具网关</td>
+</tr>
+<tr>
+<td>人机边界清晰</td>
+<td>Plan Approval、Tool Approval、Task Review、Memory Review 是不同闸门</td>
+</tr>
+<tr>
+<td>知识可治理</td>
+<td>个人/项目/团队 Scope、短/中/长期 Layer、候选/接受/争议/废弃/归档生命周期</td>
+</tr>
+<tr>
+<td>过程可追踪</td>
+<td>Run Event、AuditEvent、Provider/Model provenance、Artifact hash、Memory Use Receipt</td>
+</tr>
+<tr>
+<td>协作可闭环</td>
+<td>Blackboard、执行锁、交接、协作市场、代答确认、采纳、贡献记录、血缘关系</td>
+</tr>
+<tr>
+<td>降级可解释</td>
+<td>无模型或 Provider 时使用明确 fallback，并记录 requested/actual provider 与原因</td>
+</tr>
+</tbody>
+</table>
+<p><span id="capabilities"></span></p>
+<h2>3. 核心能力全景</h2>
+<p>状态说明：<strong>默认可用</strong>表示不依赖额外生产 Provider；<strong>条件可用</strong>表示代码已实现但需要配置或开关；<strong>历史只读</strong>表示仅保留兼容读取；<strong>未实现/后置</strong>表示不应对外宣称已具备。</p>
+<table>
+<thead>
+<tr>
+<th>能力域</th>
+<th>当前能力</th>
+<th>状态与默认值</th>
+<th>主要证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>身份与权限</td>
+<td>本地密码、12 小时 HttpOnly Session、Bearer 兼容、企业 OAuth 适配、角色与可覆盖 capability 策略</td>
+<td>本地能力默认可用；OAuth 条件可用</td>
+<td><code>agentmesh/auth.py</code>、<code>routes/auth.py</code>、<code>permissions.py</code></td>
+</tr>
+<tr>
+<td>AI 工作台</td>
+<td>私有 Thread、多轮消息、自然对话、显式 <code>$</code> Skill、来源、模型/Provider trace、历史恢复</td>
+<td>默认可用；外部模型未配置时显式降级</td>
+<td><code>routes/chat.py</code>、<code>agents.py</code>、<code>agent_runtime/</code></td>
+</tr>
+<tr>
+<td>Agent Runtime</td>
+<td>OpenAI Agents SDK、结构化输出、Tool Grant、Tool 审批、中断恢复、Run Event、SSE</td>
+<td><code>AGENTMESH_AGENT_RUNTIME=v2</code> 时启用</td>
+<td><code>agent_runtime/service.py</code>、<code>tool_runtime/</code></td>
+</tr>
+<tr>
+<td>Skill 平台</td>
+<td>84 个内置 Skill、11 个 Legacy 命令、Profile、混合检索、候选快照、版本化规划合同</td>
+<td>目录已实现；编排默认 <code>off</code></td>
+<td><code>skill_runtime/</code>、<code>builtin_skills/</code>、ADR 0004/0009</td>
+</tr>
+<tr>
+<td>Skill Input Preflight</td>
+<td>Schema 驱动表单、文本/Markdown/TXT/CSV、Run 私有输入 Artifact、冻结绑定、恢复执行</td>
+<td>当前分支已实现；1 个 Skill 使用 preflight</td>
+<td><code>input_contracts.py</code>、<code>input_preflight.py</code>、ADR 0015</td>
+</tr>
+<tr>
+<td>多 Skill 编排</td>
+<td>最多 12 个候选、6 个节点、深度 4、并发 3；DAG、审批、重试、部分完成、取消</td>
+<td><code>preview/execute</code> 条件可用；生产激活未授权</td>
+<td><code>skill_runtime/planner.py</code>、<code>executor.py</code>、<code>finalization.py</code></td>
+</tr>
+<tr>
+<td>DeepSearch</td>
+<td>显式 Requirement、澄清、ProblemGraph、Plan、真实 Web 证据、预算、封存报告、恢复</td>
+<td>默认关闭；需 Runtime/模型/真实 Web Provider/<code>execute</code></td>
+<td><code>deepsearch/</code>、<code>routes/deepsearch.py</code>、ADR 0008/0009</td>
+</tr>
+<tr>
+<td>项目任务</td>
+<td>任务 CRUD、交付阶段、指派、优先级、父子/依赖图、里程碑、日历、Agent 队列</td>
+<td>读取默认可用；写入默认 <code>read_only</code></td>
+<td><code>task_management/</code>、<code>task_operations/</code>、ADR 0011/0014</td>
+</tr>
+<tr>
+<td>任务交付审核</td>
+<td>Run 绑定、封存 Artifact 集合、指定 Reviewer、接受/返工/拒绝、Reviewer 专属读取</td>
+<td>条件可用，受任务写入与权限控制</td>
+<td><code>task_review/</code>、<code>routes/task_reviews.py</code></td>
+</tr>
+<tr>
+<td>记忆与知识治理</td>
+<td>Personal/Project/Team、三层记忆、候选审核、修订、争议/废弃/过期/归档、血缘</td>
+<td>默认可用；自动上下文注入默认关闭</td>
+<td><code>memory_governance/</code>、<code>memory_context/</code>、ADR 0012/0013</td>
+</tr>
+<tr>
+<td>检索</td>
+<td>SQLite FTS5、Scope/权限过滤、来源与引用；可选向量检索</td>
+<td>FTS 为基线；Embedding 默认关闭</td>
+<td><code>retrieval/</code>、<code>store.py</code>、ADR 0001</td>
+</tr>
+<tr>
+<td>文档</td>
+<td>TXT/Markdown/PDF/DOCX/PPTX/图片 OCR；同步/有界后台解析；分块写入私有记忆</td>
+<td>文本与办公文档可用；图片依赖 Tesseract</td>
+<td><code>documents.py</code>、<code>ingestion.py</code>、<code>routes/documents.py</code></td>
+</tr>
+<tr>
+<td>Blackboard 协作</td>
+<td>请求、证据、回复、已读、执行锁、交接、自动发布队列</td>
+<td>基础能力可用；后台 Worker 默认关闭</td>
+<td><code>routes/blackboard.py</code>、<code>agents.py</code></td>
+</tr>
+<tr>
+<td>协作市场</td>
+<td>参与开关、信号、匹配、代答确认、采纳、贡献记录与 lineage、个人关系图</td>
+<td>代码和 UI 已实现；总开关默认关闭</td>
+<td><code>marketplace.py</code>、<code>routes/market.py</code>、<code>pages/Market.tsx</code></td>
+</tr>
+<tr>
+<td>外部数据与研究</td>
+<td>Tavily、可选 Firecrawl、O2 CLI、HTTP Data API、本地指标 fallback、MCP 工具</td>
+<td>条件可用；真实 Provider 依赖宿主配置</td>
+<td><code>web_research.py</code>、<code>o2.py</code>、<code>datasources.py</code>、<code>tool_runtime/mcp.py</code></td>
+</tr>
+<tr>
+<td>运维与诊断</td>
+<td>健康检查、Provider readiness、审计、容量控制、quiesce、dispatch receipt、启动恢复</td>
+<td>已实现；真实发布 smoke 尚未执行</td>
+<td><code>routes/health.py</code>、<code>runtime_capacity.py</code>、<code>runtime_admission.py</code></td>
+</tr>
+<tr>
+<td>历史 Research</td>
+<td><code>research-v2</code> Run/Artifact 精确版本、Owner Scope、只读投影</td>
+<td>历史只读；所有 mutation 已退役</td>
+<td><code>research_orchestration/v2_history.py</code>、ADR 0007</td>
+</tr>
+<tr>
+<td>Research v3</td>
+<td>无当前入口、Runtime、UI 或恢复路径</td>
+<td>已退役，且未曾生产启用</td>
+<td>ADR 0008</td>
+</tr>
+<tr>
+<td>双通道会议采集</td>
+<td>麦克风/系统音频识别“我/他人”</td>
+<td>未实现；属于未纳入本仓库的 designOS</td>
+<td><code>CONTEXT.md</code>、ADR 0003</td>
+</tr>
+</tbody>
+</table>
+<p><span id="skill-catalog"></span></p>
+<h2>4. Skill 能力目录</h2>
+<h3>4.1 目录统计</h3>
+<p>本报告通过 <code>scripts/skill_catalog_report.py</code> 和实际 Profile 加载得到以下清单，而不是按目录名人工估算：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align:right">当前值</th>
+<th>解读</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内置 Skill</td>
+<td style="text-align:right">84</td>
+<td>84 个唯一名称，Profile 覆盖 84/84</td>
+</tr>
+<tr>
+<td>设计前 / 设计中 / 设计后</td>
+<td style="text-align:right">17 / 26 / 41</td>
+<td>与 Profile <code>primary_stage</code> 一致</td>
+</tr>
+<tr>
+<td>Planner eligible</td>
+<td style="text-align:right">10</td>
+<td>当前遗留 Pilot 集合；不代表已完成生产审批</td>
+</tr>
+<tr>
+<td>Draft Profile</td>
+<td style="text-align:right">74</td>
+<td>不进入生产候选，不授予运行信任</td>
+</tr>
+<tr>
+<td>Legacy <code>$group.command</code></td>
+<td style="text-align:right">11</td>
+<td>与内置 Skill 分开，均不参与 Planner</td>
+</tr>
+<tr>
+<td>当前适配路径完整 / tool-limited</td>
+<td style="text-align:right">57 / 27</td>
+<td>基于当前可访问 Wiki 与已注册工具；不是生产放行结论</td>
+</tr>
+<tr>
+<td>用户输入模式</td>
+<td style="text-align:right">1 preflight / 9 prompt-only / 74 未分类 draft</td>
+<td>preflight 当前仅用于 <code>build-experience-metrics</code></td>
+</tr>
+<tr>
+<td>Profile release gate</td>
+<td style="text-align:right"><strong>未通过</strong></td>
+<td><code>0/84</code> 达到生产 approved；review roster 未完成；provenance v2 缺失</td>
+</tr>
+</tbody>
+</table>
+<p>11 个 Legacy 命令为：<code>$memory.search</code>、<code>$memory.personal</code>、<code>$memory.project</code>、<code>$memory.team</code>、<code>$brief.create</code>、<code>$note.save</code>、<code>$research.request</code>、<code>$data.query</code>、<code>$risk.review</code>、<code>$memory.propose</code>、<code>$system.info</code>。</p>
+<h3>4.2 84 个内置 Skill 全量清单</h3>
+<p>图例：<strong>粗体</strong> = 当前 10 个 Planner eligible Pilot；◆ = 已启用 Skill Input Preflight。</p>
+<h4>设计前（17）</h4>
+<ul>
+<li><strong><code>competitive-analysis</code></strong>、<code>design-advisor</code>、<strong><code>generate-interview-guide</code></strong>、<code>generate-persona</code></li>
+<li><strong><code>generate-research-plan</code></strong>、<code>industry-market-analysis</code>、<code>jd-app-journey-map</code>、<strong><code>jobs-to-be-done</code></strong></li>
+<li><code>journey-map</code>、<code>prd-design-brief</code>、<strong><code>prd-feasibility</code></strong>、<strong><code>query-experiment-conclusions</code></strong></li>
+<li><code>research-screenshot-analyzer</code>、<code>search</code>、<code>structure-interview-transcript</code>、<code>synthesize-qualitative-insights</code>、<code>welcome</code></li>
+</ul>
+<h4>设计中（26）</h4>
+<ul>
+<li><code>design-md-to-relay</code>、<code>field-design-build</code>、<code>filter-tabs-design-skill</code></li>
+<li><strong><code>generate-survey</code></strong>、<strong><code>generate-usability-test</code></strong>、<code>livestream-cover-generator</code></li>
+<li><code>mega-subsidy-design-skill</code>、<code>navbar-generation</code>、<code>nested-structure-generation-skill</code></li>
+<li><code>platform-transaction-address</code>、<code>platform-transaction-cart</code>、<code>platform-transaction-cashier</code></li>
+<li><code>platform-transaction-settlement</code>、<code>platform-transaction-shared-foundation</code>、<code>platform-transaction-success-page</code></li>
+<li><code>plugin-api-key-ai</code>、<code>popup-design-skill</code>、<code>prototype-generation</code>、<code>qiangdan-hall-generator</code></li>
+<li><code>relay-component-set-architect</code>、<code>relay-component-variant-generator</code>、<code>relay-demo-from-md</code></li>
+<li><code>relay-theme-replace</code>、<code>relay-to-component-pipeline</code>、<code>senior-adaptation-tool</code>、<code>zero-banner-update</code></li>
+</ul>
+<h4>设计后（41）</h4>
+<ul>
+<li><code>accessibility-review</code>、<code>ai-decision-lab</code>、<code>analyze-satisfaction</code>、<strong><code>build-experience-metrics</code>◆</strong></li>
+<li><code>case-register</code>、<code>code-open-feedback</code>、<code>coding-repo-sync</code>、<code>component-properties-admission</code></li>
+<li><code>conversion-funnel-analysis</code>、<code>design-abtest-analysis</code>、<code>design-cleanup</code>、<code>design-md-to-portal</code></li>
+<li><code>design-md-to-spec-page</code>、<code>design-reasoning-input</code>、<code>design-review</code>、<code>dwiki</code></li>
+<li><code>feature-adoption-analysis</code>、<code>feedback-insight</code>、<code>git-workflow</code>、<code>instance-manage</code></li>
+<li><code>instance-suggest</code>、<strong><code>issue-prioritization</code></strong>、<code>jd-field-ppt-skill</code>、<code>joyspace-docs</code></li>
+<li><code>knowledge-preview</code>、<code>knowledge-update</code>、<code>leader-report</code>、<code>lieflat-charts</code></li>
+<li><code>motion-handoff-export</code>、<code>prelaunch-usability-review</code>、<code>register-experiment</code></li>
+<li><code>relay-spec-longpage</code>、<code>relay-to-design-md</code>、<code>ruler-annotation</code>、<code>run-heuristic-evaluation</code></li>
+<li><code>usability-review</code>、<code>zero-id-to-md</code>、<code>zero-md-to-page</code>、<code>zero-spec-to-md</code></li>
+<li><code>zero-superbrand-banner-audit</code>、<code>zero-to-joyspace</code></li>
+</ul>
+<h3>4.3 当前 27 个 tool-limited Skill</h3>
+<p>这些 Skill 已被目录发现，但其声明的 Bash/Read/Write/Zero MCP 等宿主能力没有映射到当前 AgentMesh 内置 Tool Gateway，因此不得被描述为可执行能力：</p>
+<p><code>case-register</code>、<code>design-advisor</code>、<code>design-md-to-portal</code>、<code>design-md-to-relay</code>、<code>design-md-to-spec-page</code>、<code>design-reasoning-input</code>、<code>design-review</code>、<code>git-workflow</code>、<code>instance-manage</code>、<code>instance-suggest</code>、<code>knowledge-preview</code>、<code>knowledge-update</code>、<code>leader-report</code>、<code>livestream-cover-generator</code>、<code>mega-subsidy-design-skill</code>、<code>navbar-generation</code>、<code>nested-structure-generation-skill</code>、<code>popup-design-skill</code>、<code>relay-to-component-pipeline</code>、<code>relay-to-design-md</code>、<code>search</code>、<code>welcome</code>、<code>zero-banner-update</code>、<code>zero-id-to-md</code>、<code>zero-md-to-page</code>、<code>zero-spec-to-md</code>、<code>zero-to-joyspace</code>。</p>
+<p><span id="technical-characteristics"></span></p>
+<h2>5. 技术特点</h2>
+<h3>5.1 服务端是唯一业务权威</h3>
+<p>React 只提交用户意图、版本和选择；权限、状态转换、候选资格、审批要求、Skill/Tool 身份、Artifact 完整性都由 FastAPI 与 SQLite 决定。前端不能通过隐藏字段或本地状态绕过服务端约束。</p>
+<h3>5.2 持久化优先，而不是依赖浏览器或进程内状态</h3>
+<ul>
+<li>AgentRun、SkillPlan、Node、Artifact、Review、Event、dispatch receipt 均持久化。</li>
+<li><code>client_turn_id + canonical payload hash</code> 用于幂等与冲突拒绝。</li>
+<li>关键更新使用乐观版本/CAS；图关系和审核等复合写入使用 SQLite 事务。</li>
+<li>刷新、GET 与 SSE 重连只读取状态，不触发新的 Provider 工作。</li>
+<li>进程内 <code>asyncio.Task</code> 只是执行机制；可恢复事实以 SQLite 为准。</li>
+</ul>
+<h3>5.3 多层人审，且每个闸门职责不同</h3>
+<pre><code class="language-text">Plan Approval   → 同意“执行哪些 Skill 节点”
+Tool Approval   → 同意“某次受控工具调用”
+Task Review     → 判断“交付物是否满足任务”
+Memory Review   → 判断“内容能否成为团队知识”
+Inbox           → 上述待办的用户工作投影，不是事实源本身
+</code></pre>
+<p>这避免了“一次确认永久放权”或“任务完成自动发布团队知识”。</p>
+<h3>5.4 证据、来源与不可变身份贯穿执行链</h3>
+<ul>
+<li>Source 记录来源类型和 reference；Runtime 进一步绑定 Run、Skill、用户和项目。</li>
+<li>Artifact 带内容哈希、验证状态、Requirement/Plan/Attempt/Step 血缘。</li>
+<li>Candidate Snapshot 冻结 Planner 实际看到的能力卡，后续修复与恢复不能换一批候选。</li>
+<li>Memory Use Receipt 只在内容真正跨过最终模型上下文边界时写入，不把搜索命中误算成使用。</li>
+<li>Provider/模型 trace 区分 requested 与 actual，并记录 fallback 原因。</li>
+</ul>
+<h3>5.5 外部内容默认不可信</h3>
+<p>Tool 参数会检查凭证型内容；外部输出经过大小、编码和提示词注入检查。可疑内容会被隔离并进入人工审核；高风险或非只读调用不能仅靠模型决定。DeepSearch v1 只接受真实、健康的 <code>web_research</code> 作为报告 Evidence，其他工具路径失败关闭。</p>
+<h3>5.6 适配器边界清晰</h3>
+<ul>
+<li>模型：OpenAI 兼容 Chat Completions，支持 JSON Schema / JSON Object 两类结构化输出模式与单次 fallback。</li>
+<li>Web：Tavily、可选 Firecrawl、命令型 provider、O2。</li>
+<li>Data：HTTP Data API → O2 → <code>local_metrics</code> fallback。</li>
+<li>Tool：5 个内置工具 <code>memory_search</code>、<code>document_search</code>、<code>data_query</code>、<code>web_research</code>、<code>risk_review</code>，另有 MCP 扩展边界。</li>
+<li>文档：Parser Protocol + 组合解析器；外部解析器仅为扩展点。</li>
+</ul>
+<h3>5.7 安全默认值与可控启用</h3>
+<p>编排、DeepSearch、任务写入、自动记忆上下文、向量检索、协作市场和后台 Worker 均采用默认关闭或只读策略。错误配置通常回落到 <code>off/read_only</code>，而不是扩大权限。</p>
+<p><span id="architecture"></span></p>
+<h2>6. 项目架构</h2>
+<h3>6.1 总体架构</h3>
+<pre><code class="language-text">┌────────────────────────────────────────────────────────────────────┐
+│ React 18 SPA · TypeScript · Vite · Tailwind · TanStack Query       │
+│ Digital Self / Workspace / Tasks / Insights / Knowledge /          │
+│ Collaboration / Market / Digital Human / Admin                     │
+└──────────────────────────────┬─────────────────────────────────────┘
+                               │ same-origin REST + SSE
+┌──────────────────────────────▼─────────────────────────────────────┐
+│ FastAPI 接入层                                                      │
+│ Auth / Request limits / 23 Router modules / OpenAPI                │
+└──────────────┬──────────────────────────────┬──────────────────────┘
+               │                              │
+┌──────────────▼────────────────┐  ┌──────────▼──────────────────────┐
+│ Agent 与编排控制面             │  │ 业务治理域                       │
+│ PersonalAgent                 │  │ Task Management / Operations    │
+│ AgentRuntimeService           │  │ Task Review                     │
+│ Skill Search / Planner / DAG  │  │ Memory Governance / Context     │
+│ Input Preflight / DeepSearch  │  │ Blackboard / Market / Inbox     │
+│ Tool Gateway / MCP            │  │ Documents / Retrieval / Risk    │
+└──────────────┬────────────────┘  └──────────┬──────────────────────┘
+               └──────────────────┬───────────┘
+                                  │
+┌─────────────────────────────────▼──────────────────────────────────┐
+│ SQLiteStore                                                        │
+│ JSON aggregate records + 专用 Run/Plan/Artifact/Review 表          │
+│ FTS5 + 可选向量侧索引 + task_operations_projection + WAL          │
+└─────────────────────────────────┬──────────────────────────────────┘
+                                  │
+┌─────────────────────────────────▼──────────────────────────────────┐
+│ 可选外部边界：LLM / Tavily / Firecrawl / O2 CLI / Data API /      │
+│ OAuth / MCP / Tesseract                                            │
+└────────────────────────────────────────────────────────────────────┘
+</code></pre>
+<h3>6.2 组件职责</h3>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>核心模块</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Web UI</td>
+<td><code>agentmesh-demo/src/</code></td>
+<td>登录态、页面编排、Server State 缓存、计划/输入/任务/知识/市场交互</td>
+</tr>
+<tr>
+<td>HTTP API</td>
+<td><code>agentmesh/routes/</code></td>
+<td>鉴权、请求校验、权限检查、错误码和服务委派；当前 OpenAPI 为 147 paths / 169 operations</td>
+</tr>
+<tr>
+<td>个人 Agent</td>
+<td><code>agentmesh/agents.py</code></td>
+<td>私有对话、Legacy Skill、BBS 求助、代答、市场信号与降级路径</td>
+</tr>
+<tr>
+<td>Agent Runtime</td>
+<td><code>agentmesh/agent_runtime/</code></td>
+<td>模型选择、Run 生命周期、SDK Session、结构化输出、dispatch/recovery</td>
+</tr>
+<tr>
+<td>Skill Runtime</td>
+<td><code>agentmesh/skill_runtime/</code></td>
+<td>发现、Profile、检索、候选快照、规划、输入预检、DAG 执行、综合输出</td>
+</tr>
+<tr>
+<td>DeepSearch</td>
+<td><code>agentmesh/deepsearch/</code></td>
+<td>Requirement、澄清、问题图、预算、证据、评审、报告和恢复</td>
+</tr>
+<tr>
+<td>Task Domain</td>
+<td><code>task_management/</code>、<code>task_operations/</code>、<code>task_review/</code></td>
+<td>项目任务、依赖图、运营读模型、交付审核</td>
+</tr>
+<tr>
+<td>Memory Domain</td>
+<td><code>memory_context/</code>、<code>memory_governance/</code></td>
+<td>上下文选择、Use Receipt、候选审核、修订和生命周期</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td><code>tool_runtime/</code>、<code>web_research.py</code>、<code>o2.py</code>、<code>datasources.py</code></td>
+<td>统一工具策略、Provider 适配与 provenance</td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td><code>store.py</code></td>
+<td>单库事务、WAL、JSON 聚合、专用控制表、FTS、只读历史连接</td>
+</tr>
+</tbody>
+</table>
+<h3>6.3 持久化设计</h3>
+<p>当前不是“纯 KV”，也不是完全关系化：</p>
+<ul>
+<li>领域对象主体仍以 <code>records(collection, id, payload, created_order)</code> JSON 聚合保存，适合原型快速演进。</li>
+<li>AgentRun、SkillPlan/Node/Result、Artifact、Task/Memory Review、DeepSearch Requirement、dispatch receipt 等高一致性对象使用专用表。</li>
+<li><code>records_fts</code> 提供 FTS5 检索；<code>records_vec</code>/<code>vector_states</code> 为可选向量路径。</li>
+<li><code>task_operations_projection</code> 是可重建读模型，由触发器和启动重建维护，不拥有 Task 事实。</li>
+<li>SQLite 必须启用 WAL；当前设计只承诺单应用进程、单 Writer。</li>
+<li>ADR 0002 的全面关系化迁移仍是计划，尚未完成。</li>
+</ul>
+<h3>6.4 运行与部署形态</h3>
+<p>开发时由 Vite <code>5178</code> 代理 <code>/api</code> 到 FastAPI <code>8010</code>；构建后由 FastAPI 同源托管 <code>agentmesh-demo/dist</code>。根目录 <code>app.html</code> 仅作为 <code>/app.html</code> 与 <code>/legacy/app.html</code> 的临时回滚入口。主应用没有独立 Docker/Kubernetes 部署定义；仓库中的 Dockerfile 属于 <code>2C-DesignWiki</code> 子项目，不应视为 AgentMesh 发布方案。</p>
+<p><span id="core-flows"></span></p>
+<h2>7. 核心业务流程</h2>
+<h3>7.1 普通对话与显式 Skill</h3>
+<pre><code class="language-text">登录用户提交消息
+  → 服务端以 client_turn_id 领取幂等回执
+  → 校验 Thread 所有权
+  → 若 Agent Runtime v2 启用：
+       自然语言 → SDK 对话
+       $内置Skill → 单 Skill Run
+  → 否则：Legacy $命令 / 意图分类 / 本地降级
+  → Tool Grant + 参数/输出 guardrail
+  → 保存私有用户消息、助手消息、Source、Trace、Audit
+  → 刷新后由服务端 Thread 恢复
+</code></pre>
+<p>普通对话默认私有。明确工作流可创建 Task、Blackboard 请求、Inbox 项和短期个人记忆；未配置模型时返回可解释的本地 fallback，而不是伪装成真实模型结果。</p>
+<h3>7.2 Standard 多 Skill 编排与输入预检</h3>
+<pre><code class="language-text">POST /api/agent/runs（planning_mode=standard）
+  → 冻结 Run 身份、planning/execution contract
+  → 解析意图与可选 Task/Scenario
+  → 检索可见且可信的 Skill
+  → 冻结最多 12 张 Candidate Snapshot 能力卡
+  → Planner 生成最多 6 节点、深度 4、并发 3 的 DAG
+  → 编译各节点 user-input contract
+       ├─ 信息不足：Run → waiting_input
+       │    → 用户填文本/上传 TXT、MD、CSV
+       │    → 校验、哈希、冻结 node-scoped bindings
+       └─ 信息完整：继续
+  → 必要时 Plan Approval
+  → 每个节点启动前重验 Skill/Profile/Tool/权限/资源
+  → Tool Approval 与 Plan Approval 独立
+  → 保存 Node Result、Artifact、Source、Usage
+  → 综合输出 → completed / partial / failed
+</code></pre>
+<p>当前 <code>build-experience-metrics</code> 是首个 preflight Skill；另外 9 个 Pilot Skill 明确为 <code>prompt_only</code>，74 个 draft Profile 尚未分类为生产输入合同。</p>
+<h3>7.3 DeepSearch v1</h3>
+<pre><code class="language-text">用户显式选择 planning_mode=deepsearch
+  → 检查 DeepSearch 开关、execute 模式、Runtime、模型
+  → 创建 orchestration_version=v1 的 Run
+  → Requirement Refiner
+       ├─ 有阻塞歧义：waiting_clarification（24h）
+       └─ 完整：构建 ProblemGraph
+  → Skill 检索 + 冻结 Plan/Snapshot
+  → 用户审批 Plan
+  → 仅真实且健康的 web_research 进入证据路径
+  → 预算预留/结算 + Tool invocation identity
+  → 封存 Evidence Artifact 与来源
+  → 事实覆盖检查 + 报告评审
+  → 生成 Markdown/HTML 可读报告
+  → 持久化终态与恢复信息
+</code></pre>
+<p>DeepSearch 不根据提示词自动猜测开启，也不会回退到已退役 Research Runtime。当前发布条件还要求真实 Provider smoke 通过。</p>
+<h3>7.4 项目任务、交付审核与知识沉淀</h3>
+<pre><code class="language-text">创建 Project Task（独立 delivery_stage）
+  → 设置负责人、优先级、父任务、依赖任务
+  → 未完成依赖阻止 start 与新 Task-linked AgentRun
+  → 人工执行或创建绑定 task_id 的 AgentRun
+  → Run 产出 sealed Artifacts
+  → Run Owner 提交 Task Review
+  → 服务端冻结 Artifact ID + hash，并选择 Reviewer
+  → Reviewer 决策：
+       accepted          → Task delivery_stage=done
+       changes_requested → 回到 in_progress
+       rejected          → 回到 in_progress
+  → accepted 后可显式捕获：
+       Personal Memory（私有）
+       或 Team Candidate（待 Memory Review）
+  → Memory Review accepted 后才成为 Team Knowledge
+</code></pre>
+<p>Task 状态、协作阶段和交付阶段是三条不同轴；Run 完成不自动完成 Task，Task Review 也不自动发布团队知识。</p>
+<h3>7.5 记忆检索与可审计复用</h3>
+<pre><code class="language-text">AgentRun 需要上下文
+  → Scope / Layer / 绑定 / 生命周期 / 权限过滤
+  → 凭证与提示词注入隔离
+  → FTS（可选 Vector）排序与去重
+  → 对完整渲染载荷做预算
+  → 预留稳定 citation label
+  → 最终交给模型时才写 MemoryUseReceiptV1
+  → Run 详情与 Memory lineage 可回看使用事实
+</code></pre>
+<p><code>AGENTMESH_MEMORY_CONTEXT=off|observe|inject</code> 默认 <code>off</code>。<code>observe</code> 只测量不注入、不写使用回执；显式 <code>memory_search</code> 在实际安全输出交给模型后才记账。</p>
+<h3>7.6 协作市场与“只出答案”</h3>
+<pre><code class="language-text">用户选择参与市场
+  → Publisher 从个人任务/记忆生成抽象协作信号
+  → Scout 扫描其他人的“需要”并匹配能力
+  → Helper 对 Needer 建立可撤销 consent
+  → Helper 的 PersonalAgent 仅在 Helper 的个人记忆中检索
+       ├─ 有 standing consent 且非高敏：自动代答
+       └─ 无 consent / 高敏：进入目标用户 Inbox 确认
+  → 只回传抽象答案与引用标题
+  → 请求方采纳
+  → 记录不可兑换贡献点 + derived_from 血缘边
+</code></pre>
+<p>这里的“只出答案”是协作与交互模式，不是隐私安全保证；LLM 生成文本仍可能语义性泄露来源事实。当前代码已有参与、确认、拒绝、采纳 API 和 UI，但市场总开关默认关闭。</p>
+<p><span id="domain-model"></span></p>
+<h2>8. 核心领域对象与状态边界</h2>
+<table>
+<thead>
+<tr>
+<th>对象</th>
+<th>是什么</th>
+<th>不是什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ChatThread</code></td>
+<td>用户与项目范围内的对话或 task-context 容器</td>
+<td>不等于项目 Task</td>
+</tr>
+<tr>
+<td><code>Task</code></td>
+<td>持久项目工作项；含执行兼容状态、协作阶段和交付元数据</td>
+<td>不等于单次 Agent 执行</td>
+</tr>
+<tr>
+<td><code>AgentRun</code></td>
+<td>一次不可变身份的 Agent 执行尝试，可绑定 Task</td>
+<td>完成后不会直接把 Task 标为 done</td>
+</tr>
+<tr>
+<td><code>SkillPlan</code></td>
+<td>服务端持久化的有界 DAG 与候选/合同快照</td>
+<td>不授予 Tool 权限</td>
+</tr>
+<tr>
+<td><code>Artifact</code></td>
+<td>Run 产物或证据，带哈希、验证状态和 lineage</td>
+<td>不自动成为 Memory</td>
+</tr>
+<tr>
+<td><code>TaskReviewV1</code></td>
+<td>对一组冻结交付物是否满足 Task 的判断</td>
+<td>不判断能否进入团队知识</td>
+</tr>
+<tr>
+<td><code>MemoryReviewV1</code></td>
+<td>Team Candidate 是否可成为 Team Knowledge 的判断</td>
+<td>不替代 Task Review</td>
+</tr>
+<tr>
+<td><code>MemoryItem</code> / <code>UserMemoryItem</code></td>
+<td>团队治理记忆 / 用户分层私有记忆</td>
+<td>Scope 与 Layer 不能混为一谈</td>
+</tr>
+<tr>
+<td><code>MemoryUseReceiptV1</code></td>
+<td>精确 Memory 版本真正进入模型上下文的不可变事实</td>
+<td>不是普通检索结果日志</td>
+</tr>
+<tr>
+<td><code>InboxItem</code></td>
+<td>面向人的待处理投影</td>
+<td>不是审批/Review 的事实源</td>
+</tr>
+<tr>
+<td><code>AuditEvent</code></td>
+<td>跨域行为与决策记录</td>
+<td>不存放敏感原始 Provider 载荷</td>
+</tr>
+</tbody>
+</table>
+<h3>关键状态分离</h3>
+<ul>
+<li><strong>Task execution status</strong>：兼容旧执行语义。</li>
+<li><strong>Task collaboration stage</strong>：Blackboard 协作阶段。</li>
+<li><strong>Task delivery stage</strong>：<code>backlog → planned → in_progress → review → done/cancelled</code>。</li>
+<li><strong>AgentRun status</strong>：包括 planning、waiting_input、waiting_clarification、waiting_plan_approval、waiting_approval、running 与终态。</li>
+<li><strong>Memory lifecycle</strong>：proposed、accepted、disputed、deprecated、expired、archived；修订不原地覆盖历史版本。</li>
+</ul>
+<p><span id="frontend-api"></span></p>
+<h2>9. 前端、API 与数据呈现</h2>
+<h3>9.1 当前 React 页面</h3>
+<table>
+<thead>
+<tr>
+<th>路由</th>
+<th>页面职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/digital-self</code></td>
+<td>当前用户的数字员工身份、活动与记忆概览</td>
+</tr>
+<tr>
+<td><code>/workspace</code></td>
+<td>对话、Skill、输入预检、计划、执行、来源、文档与报告</td>
+</tr>
+<tr>
+<td><code>/tasks</code></td>
+<td>项目任务、交付状态、依赖、里程碑、日历、Agent 队列、Review</td>
+</tr>
+<tr>
+<td><code>/insights</code></td>
+<td>项目任务/活动/记忆/审计读模型</td>
+</tr>
+<tr>
+<td><code>/knowledge</code></td>
+<td>个人记忆、团队候选、治理历史、复用与 Inbox</td>
+</tr>
+<tr>
+<td><code>/collaboration</code></td>
+<td>Blackboard 任务、回复、锁与交接</td>
+</tr>
+<tr>
+<td><code>/market</code></td>
+<td>协作市场参与、关系图、信号、代答、确认与采纳</td>
+</tr>
+<tr>
+<td><code>/digital-human</code></td>
+<td>Agent 配置、能力与知识权限展示</td>
+</tr>
+<tr>
+<td><code>/admin</code></td>
+<td>用户、Agent、Provider、策略、诊断与审计；按 capability 展示</td>
+</tr>
+</tbody>
+</table>
+<p>前端采用路由级懒加载、TanStack Query 管理 Server State、OpenAPI 生成 TypeScript 类型。构建后 FastAPI 同源托管；开发态由 Vite 代理 API。</p>
+<h3>9.2 数据真实性标记</h3>
+<p>部分参考 UI 仍混合真实服务端数据与展示 Mock：</p>
+<ul>
+<li><code>T数据</code>：当前用户权限范围内由 FastAPI/SQLite 返回的数据。</li>
+<li><code>M数据</code>：参考 Mock、固定展示常量或明确 demo seed。</li>
+</ul>
+<p>Mock 只能补足展示，不应被当成权限、状态或 mutation 成功证据。AI 工作台的核心消息、上传、搜索、Skill、Trace 和记忆检索以服务端数据为准。</p>
+<h3>9.3 API 规模</h3>
+<p>当前 OpenAPI 动态导出结果：</p>
+<ul>
+<li><strong>147</strong> 个路径；<strong>169</strong> 个操作；</li>
+<li>方法分布：GET 78、POST 70、PATCH 15、DELETE 4、PUT 2；</li>
+<li>较大的能力域包括 Agents 19、Blackboard 18、Memory 17、Agent Runs 16、Users 12、Skills 11。</li>
+</ul>
+<p>这些数字表示当前代码暴露面，不等于每个接口在默认配置下都可执行。</p>
+<h3>9.4 已确认的前端托管缺口</h3>
+<p>React Router 和侧边栏已经包含 <code>/market</code>，但 <code>agentmesh/app.py</code> 的 SPA deep-link 白名单尚未注册 <code>/market</code>。本地 FastAPI smoke 结果为：<code>/</code>、<code>/workspace</code>、<code>/tasks</code>、<code>/digital-human</code> 返回 200，而直接访问 <code>/market</code> 返回 404。应用内导航通常可工作，但刷新或直接打开 <code>/market</code> 会失败，应在下一次修复中补齐并加入 <code>test_frontend_routes.py</code>。</p>
+<p><span id="deployment"></span></p>
+<h2>10. 部署与配置边界</h2>
+<h3>10.1 最小运行方式</h3>
+<pre><code class="language-bash">/opt/homebrew/bin/python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+npm --prefix agentmesh-demo install
+npm --prefix agentmesh-demo run api:types
+npm --prefix agentmesh-demo run build
+.venv/bin/uvicorn agentmesh.app:app --reload --port 8010
+</code></pre>
+<p>开发前端可另启：</p>
+<pre><code class="language-bash">npm --prefix agentmesh-demo run dev -- --port 5178 --strictPort
+</code></pre>
+<h3>10.2 关键功能开关</h3>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>默认</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AGENTMESH_AGENT_RUNTIME</code></td>
+<td><code>legacy</code></td>
+<td>设为 <code>v2</code> 才启用 OpenAI Agents SDK Runtime；注意这与已退役的 <code>research-v2</code> 无关</td>
+</tr>
+<tr>
+<td><code>AGENTMESH_SKILL_ORCHESTRATION</code></td>
+<td><code>off</code></td>
+<td><code>off / preview / execute</code></td>
+</tr>
+<tr>
+<td><code>AGENTMESH_TASK_SCENARIO_ROUTING</code></td>
+<td><code>false</code></td>
+<td>Task/Scenario 路由提示</td>
+</tr>
+<tr>
+<td><code>AGENTMESH_DEEPSEARCH_ENABLED</code></td>
+<td><code>false</code></td>
+<td>DeepSearch 创建入口</td>
+</tr>
+<tr>
+<td><code>AGENTMESH_TASK_MANAGEMENT</code></td>
+<td><code>read_only</code></td>
+<td>Task Center 写入开关</td>
+</tr>
+<tr>
+<td><code>AGENTMESH_MEMORY_CONTEXT</code></td>
+<td><code>off</code></td>
+<td><code>off / observe / inject</code></td>
+</tr>
+<tr>
+<td><code>AGENTMESH_EMBEDDING_ENABLED</code></td>
+<td><code>false</code></td>
+<td>可选向量检索；FTS5 始终为基线</td>
+</tr>
+<tr>
+<td><code>AGENTMESH_MARKET_ENABLED</code></td>
+<td><code>false</code></td>
+<td>协作市场总开关</td>
+</tr>
+<tr>
+<td><code>AGENTMESH_DEMO_MODE</code></td>
+<td>关闭</td>
+<td>仅本地演示时创建固定账号与数据</td>
+</tr>
+<tr>
+<td>各后台 Worker</td>
+<td>关闭</td>
+<td>自动 BBS、研究调度、每日记忆等需显式启用</td>
+</tr>
+</tbody>
+</table>
+<h3>10.3 外部依赖</h3>
+<p>真实运行可选接入 LLM、Embedding、Tavily、Firecrawl、O2 CLI、HTTP Data API、MCP、OAuth、Tesseract。API Key 仅由服务端环境读取；报告没有读取、复制或输出 <code>.env</code> 内容。若 Provider 未配置，系统应显示不可用或明确 fallback，而不是把 fixture 结果冒充真实数据。</p>
+<p><span id="limitations"></span></p>
+<h2>11. 当前限制与风险</h2>
+<h3>11.1 发布阻塞项</h3>
+<ol>
+<li><strong>Universal Skill 检索边界门禁未通过。</strong> 当前校准的 boundary rejection 为 33.3%，目标为 100%；英文分组为 4/5。</li>
+<li><strong>生产 Profile 信任链未完成。</strong> 84 个 Profile 中 0 个达到 production approved；review roster 未完成，<code>profile_provenance_v2</code> 缺失。</li>
+<li><strong>真实 Provider 尚未验收。</strong> 本报告未运行 embedding、O2、Web、Data、LLM 五类真实 smoke。</li>
+<li><strong>浏览器 E2E 未实际执行。</strong> 本机缺少 Playwright Chromium；测试在 launch 阶段被环境阻塞。</li>
+<li><strong><code>/market</code> 生产托管 deep link 缺失。</strong> 应补路由与回归测试。</li>
+</ol>
+<h3>11.2 架构边界</h3>
+<ul>
+<li>单 Workspace、单应用进程、单 SQLite；不支持多租户、水平扩展、高可用或 SQLite 多进程写入。</li>
+<li>仅适合可信内网；Cookie <code>Secure</code> 依赖部署配置，仓库没有公网反向代理、TLS、WAF 或容器发布方案。</li>
+<li>FTS5 是默认检索；向量检索可选，PostgreSQL/pgvector 仍是未来决策，不是当前架构。</li>
+<li>市场中的“只出答案”不能被宣传为防语义泄露的隐私技术。</li>
+<li>部分参考页面保留 M 数据，展示完整度不等于后端业务完整度。</li>
+<li><code>research-v2</code> 只读兼容表和模块仍在仓库中；它们不是可恢复的执行 Runtime。</li>
+</ul>
+<h3>11.3 尚未纳入本仓库</h3>
+<ul>
+<li>designOS 的会议双通道采集与说话人归属；</li>
+<li>PostgreSQL / EmployeeTwin 融合；</li>
+<li>公网安全加固、HA、横向调度、独立 Worker/队列；</li>
+<li>贡献积分兑换及反作弊体系；</li>
+<li>对“只出答案”的强隐私/防推断保证。</li>
+</ul>
+<h3>11.4 文档时效差异</h3>
+<p>根 <code>CONTEXT.md</code> 标注的现状时间为 2026-08-26；当前提交为 2026-09-09。其关于“代答确认/采纳尚无公共 API/UI”的描述已被当前 <code>routes/market.py</code> 与 <code>ExchangeTabs.tsx</code> 超越。本报告在冲突处以当前代码和更新后的 ADR 为准，并保留此差异作为文档维护提醒。</p>
+<p><span id="verification"></span></p>
+<h2>12. 验证结果</h2>
+<h3>12.1 已执行检查</h3>
+<table>
+<thead>
+<tr>
+<th>检查</th>
+<th>结果</th>
+<th>关键数据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.venv/bin/python -m pytest</code></td>
+<td><strong>通过</strong></td>
+<td>1873 passed，5 个 PyMuPDF/SWIG deprecation warnings，耗时 310.08s</td>
+</tr>
+<tr>
+<td><code>.venv/bin/ruff check .</code></td>
+<td><strong>通过</strong></td>
+<td><code>All checks passed!</code></td>
+</tr>
+<tr>
+<td><code>scripts/skill_catalog_report.py</code></td>
+<td><strong>结构检查通过；发布资格否</strong></td>
+<td>84/84、无重复、0 error/0 warning；release gate false</td>
+</tr>
+<tr>
+<td><code>eval/run_skill_retrieval_eval.py</code></td>
+<td><strong>通过</strong></td>
+<td>Top-3 recall 100%；p95 43.697ms；不可用/禁用/未授权召回均 0%</td>
+</tr>
+<tr>
+<td><code>eval/run_universal_skill_retrieval_eval.py</code></td>
+<td><strong>未通过</strong></td>
+<td>FTS Top-3 96.7%、Recall@5 98.3%、p95 135.682ms，但 boundary rejection 33.3%；fake-vector 同样失败</td>
+</tr>
+<tr>
+<td>Universal 84-Profile smoke</td>
+<td><strong>通过但不可作发布 holdout</strong></td>
+<td>252 cases；Top-1/Top-3/Recall@5 均 100%；脚本明确标注 dataset contaminated</td>
+</tr>
+<tr>
+<td><code>scripts/sync_wiki_skills.py --check</code></td>
+<td><strong>通过</strong></td>
+<td>84 total、10 preserved、74 generated</td>
+</tr>
+<tr>
+<td>Skill Input Preflight smoke</td>
+<td><strong>通过</strong></td>
+<td>2 个冻结 binding、模型被调用、第二个同 Thread Run 被阻止、终态 completed</td>
+</tr>
+<tr>
+<td>Project Operations benchmark</td>
+<td><strong>通过</strong></td>
+<td>10k Tasks / 50k Task-Audit / 10k Memory / 1k accepted Team Knowledge；全部 p95 &lt; 500ms</td>
+</tr>
+<tr>
+<td><code>npm ... test -- --run</code></td>
+<td><strong>通过</strong></td>
+<td>33 files、198 tests；有 React Router SSR <code>useLayoutEffect</code> warning</td>
+</tr>
+<tr>
+<td><code>npm ... run api:types</code></td>
+<td><strong>通过</strong></td>
+<td>OpenAPI 类型成功生成，生成文件无 diff</td>
+</tr>
+<tr>
+<td><code>npm ... run build</code></td>
+<td><strong>通过</strong></td>
+<td>1793 modules；最大 JS 320,326 bytes，小于 500,000 bytes 预算</td>
+</tr>
+<tr>
+<td><code>npm ... run test:e2e</code></td>
+<td><strong>环境阻塞</strong></td>
+<td>缺少 Playwright Chromium；60 个 browser launch error、15 未运行、1 通过；未观察到应用断言结果</td>
+</tr>
+<tr>
+<td>FastAPI SPA deep-link smoke</td>
+<td><strong>部分通过</strong></td>
+<td><code>/</code>、<code>/workspace</code>、<code>/tasks</code>、<code>/digital-human</code> 为 200；<code>/market</code> 为 404</td>
+</tr>
+<tr>
+<td>报告自身校验</td>
+<td><strong>通过</strong></td>
+<td>HTML doctype/解析/内部锚点/离线资源、Markdown fence、84 Skill 覆盖与文件边界均已检查</td>
+</tr>
+</tbody>
+</table>
+<p>Project Operations 本次 p95：Task list 290.663ms、Task detail 383.671ms、Operations snapshot 262.512ms、Task options 158.121ms、Memory FTS 28.348ms。</p>
+<h3>12.2 未执行检查</h3>
+<ul>
+<li><code>scripts/provider_smoke.py --embedding --o2 --web --data --llm</code>：需要已授权的真实账号、Key 与 CLI；本报告没有使用真实外部服务。</li>
+<li>真实企业 OAuth 登录、O2 登录态、Tavily/Firecrawl、Data API、Embedding 与生产模型端到端。</li>
+<li>Playwright 浏览器 E2E：需要先安装项目锁定版本的 Chromium。</li>
+<li>生产部署、负载/长稳、故障注入、备份恢复与 rollback rehearsal。</li>
+</ul>
+<h3>12.3 如何理解这些结果</h3>
+<p><code>pytest</code> 全绿证明大量领域状态机和安全边界在隔离 fixture 中成立；它不能替代真实 Provider、浏览器、网络和生产部署验证。反过来，本次 Playwright 失败是浏览器二进制缺失造成的环境阻塞，不应误报为 60 个产品逻辑失败。Universal 检索校准则是实际门禁失败，必须按失败处理。</p>
+<p><span id="conclusion"></span></p>
+<h2>13. 综合结论与近期优先级</h2>
+<h3>13.1 综合结论</h3>
+<p>AgentMesh 已经从“聊天 + 几个工具”的原型发展为一个结构完整的内部 Agent 工作平台：</p>
+<ul>
+<li>产品上具备个人数字员工、工作台、任务中心、知识治理、协作网络和协作市场；</li>
+<li>技术上具备服务端权威状态机、有界 Skill DAG、输入预检、双重审批、证据 Artifact、记忆使用回执、幂等、审计和恢复；</li>
+<li>数据上坚持个人、项目、团队边界以及 Task Review / Memory Review 分离；</li>
+<li>集成上已经形成 LLM、Web、Data、O2、MCP 和文档解析的适配器边界。</li>
+</ul>
+<p>因此，<strong>当前版本足以支撑功能演示、内部评审和受控试点</strong>。但由于生产信任链和真实环境验收尚未完成，<strong>不应把当前分支描述为已生产就绪，也不应面向公网部署</strong>。</p>
+<h3>13.2 建议的近期优先级</h3>
+<ol>
+<li><strong>先修发布门禁，不扩功能面</strong>：修复 Universal boundary rejection 与英文 miss，重新跑独立 holdout。</li>
+<li><strong>完成 Profile 信任链</strong>：84 个 Profile 的独立审批、review roster、provenance v2 和 production eligibility。</li>
+<li><strong>补齐真实验证</strong>：安装锁定版 Chromium 跑完整 E2E；在授权宿主机运行五类真实 Provider smoke。</li>
+<li><strong>修复明确的小缺口</strong>：为 FastAPI 增加 <code>/market</code> SPA deep link，并纳入前端路由回归。</li>
+<li><strong>在试点反馈前保持架构边界</strong>：继续使用单进程 SQLite 和默认关闭策略，不提前引入多租户、队列或 PostgreSQL 迁移。</li>
+</ol>
+<p><span id="evidence-index"></span></p>
+<h2>附录 A：证据索引</h2>
+<table>
+<thead>
+<tr>
+<th>主题</th>
+<th>主要文件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>当前术语、实现/缺失边界</td>
+<td><code>CONTEXT.md</code></td>
+</tr>
+<tr>
+<td>运行、配置与能力概述</td>
+<td><code>README.md</code>、<code>.env.example</code></td>
+</tr>
+<tr>
+<td>依赖和版本</td>
+<td><code>pyproject.toml</code>、<code>agentmesh-demo/package.json</code></td>
+</tr>
+<tr>
+<td>应用入口与前端托管</td>
+<td><code>agentmesh/app.py</code>、<code>agentmesh-demo/src/App.tsx</code></td>
+</tr>
+<tr>
+<td>API 合同</td>
+<td><code>agentmesh/routes/</code>、<code>agentmesh-demo/openapi.json</code></td>
+</tr>
+<tr>
+<td>核心领域模型</td>
+<td><code>agentmesh/models.py</code></td>
+</tr>
+<tr>
+<td>持久化与事务</td>
+<td><code>agentmesh/store.py</code></td>
+</tr>
+<tr>
+<td>个人 Agent 与传统流程</td>
+<td><code>agentmesh/agents.py</code></td>
+</tr>
+<tr>
+<td>Agent Runtime</td>
+<td><code>agentmesh/agent_runtime/service.py</code></td>
+</tr>
+<tr>
+<td>Skill 目录与 Profile</td>
+<td><code>agentmesh/skill_runtime/service.py</code>、<code>profiles.py</code>、<code>agentmesh/builtin_skills/</code></td>
+</tr>
+<tr>
+<td>Universal 检索与规划</td>
+<td><code>recommendation.py</code>、<code>planner.py</code>、<code>universal_plan.py</code></td>
+</tr>
+<tr>
+<td>输入预检</td>
+<td><code>input_contracts.py</code>、<code>input_preflight.py</code>、<code>input_adapters.py</code></td>
+</tr>
+<tr>
+<td>DAG 与工具执行</td>
+<td><code>executor.py</code>、<code>finalization.py</code>、<code>tool_runtime/</code></td>
+</tr>
+<tr>
+<td>DeepSearch</td>
+<td><code>agentmesh/deepsearch/</code>、<code>routes/deepsearch.py</code></td>
+</tr>
+<tr>
+<td>Task / Review / Operations</td>
+<td><code>task_management/</code>、<code>task_review/</code>、<code>task_operations/</code></td>
+</tr>
+<tr>
+<td>Memory 治理与复用</td>
+<td><code>memory_governance/</code>、<code>memory_context/</code></td>
+</tr>
+<tr>
+<td>协作市场</td>
+<td><code>marketplace.py</code>、<code>routes/market.py</code>、<code>features/market/</code></td>
+</tr>
+<tr>
+<td>文档与检索</td>
+<td><code>documents.py</code>、<code>ingestion.py</code>、<code>retrieval/</code></td>
+</tr>
+<tr>
+<td>外部集成</td>
+<td><code>web_research.py</code>、<code>o2.py</code>、<code>datasources.py</code>、<code>llm.py</code></td>
+</tr>
+<tr>
+<td>自动化质量门禁</td>
+<td><code>.github/workflows/ci.yml</code>、<code>tests/</code>、<code>eval/</code>、<code>scripts/</code></td>
+</tr>
+</tbody>
+</table>
+<p><span id="adr-precedence"></span></p>
+<h2>附录 B：ADR 生效关系</h2>
+<ul>
+<li>ADR 0001：当前以 SQLite FTS 为主，不在 MVP 引入 pgvector。</li>
+<li>ADR 0002：全面关系化是未实施迁移计划；当前仍是 JSON 聚合 + 专用控制表的混合存储。</li>
+<li>ADR 0003：跨人“只出答案”是 MVP 核心，但不是隐私保证。</li>
+<li>ADR 0004：保留有界 DAG、双审批与 <code>off/preview/execute</code>；10 Skill 白名单限制被 ADR 0009 替代。</li>
+<li>ADR 0005、0006：Research Runtime 历史记录，已被 ADR 0007、0008 替代。</li>
+<li>ADR 0007：<code>research-v2</code> 执行面已退役，仅保留 Owner-scoped 历史读取。</li>
+<li>ADR 0008：<code>research-v3</code> 预览已退役；新深度研究走 v1 DeepSearch。</li>
+<li>ADR 0009：Universal Runtime Skill 检索、Candidate Snapshot 与版本化 Plan 合同。</li>
+<li>ADR 0010：单维护者 CI 合并例外不等于生产批准。</li>
+<li>ADR 0011：Task 交付状态、AgentRun 和协作状态分离。</li>
+<li>ADR 0012：Memory 身份、审核、修订和生命周期由 AgentMesh 自己治理。</li>
+<li>ADR 0013：Memory Use Receipt 在最终模型上下文边界写入。</li>
+<li>ADR 0014：项目运营是服务端 Task 图 + 可重建读模型，不是自动调度器。</li>
+<li>ADR 0015：Standard Skill 在执行前通过冻结的用户输入合同进行预检。</li>
+</ul>
+<hr />
+<p><strong>报告维护建议</strong>：后续每次形成发布候选时，重新记录分支/提交、运行 <code>skill_catalog_report</code>、两套检索评估、后端/前端/E2E、真实 Provider smoke，并同步修订 <code>CONTEXT.md</code> 中已经被代码超越的描述。</p>
+</article>
+  </main>
+  <footer>Standalone report · no remote fonts, scripts, stylesheets, or images · generated from the repository snapshot above.</footer>
+</body>
+</html>

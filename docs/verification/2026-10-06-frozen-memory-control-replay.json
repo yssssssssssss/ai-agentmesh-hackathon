@@ -1,0 +1,1007 @@
+{
+  "schema_version": "memory-control-replay-v1",
+  "mode": "scripted",
+  "fixture_type": "synthetic-frozen-records",
+  "dataset_sha256": "2a491cd7ec4cd3ccb78718813dad70caeb7a033cfd60386d5cfae7b648ee15ba",
+  "case_count": 120,
+  "passed_count": 120,
+  "by_category": {
+    "fact_extraction": 20,
+    "cross_session": 20,
+    "multi_version": 20,
+    "historical_time": 20,
+    "conflict_unknown": 20,
+    "withdrawal_permission": 20
+  },
+  "model_tokens": 0,
+  "real_model_quality": false,
+  "answer_correctness": null,
+  "fact_extraction_quality": null,
+  "four_baseline_quality_comparison": null,
+  "procedure_trace_quality": null,
+  "evidence_boundary": "Scripted replay confirms explicitly remembered fixture assertions; it does not measure extraction or answer quality.",
+  "cases": [
+    {
+      "case_id": "fact_extraction_01",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_02",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_03",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_04",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_05",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_06",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_07",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_08",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_09",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_10",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_11",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_12",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_13",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_14",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_15",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_16",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_17",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_18",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_19",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "fact_extraction_20",
+      "category": "fact_extraction",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "cross_session_01",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_02",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_03",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_04",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_05",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_06",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_07",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_08",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_09",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_10",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_11",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_12",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_13",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_14",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_15",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_16",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_17",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_18",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_19",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "cross_session_20",
+      "category": "cross_session",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": true
+    },
+    {
+      "case_id": "multi_version_01",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_02",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_03",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_04",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_05",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_06",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_07",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_08",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_09",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_10",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_11",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_12",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_13",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_14",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_15",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_16",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_17",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_18",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_19",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "multi_version_20",
+      "category": "multi_version",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_01",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_02",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_03",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_04",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_05",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_06",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_07",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_08",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_09",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_10",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_11",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_12",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_13",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_14",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_15",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_16",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_17",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_18",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_19",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "historical_time_20",
+      "category": "historical_time",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_01",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_02",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_03",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_04",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_05",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_06",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_07",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_08",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_09",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_10",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_11",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_12",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_13",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_14",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_15",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_16",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_17",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_18",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_19",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "conflict_unknown_20",
+      "category": "conflict_unknown",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_01",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_02",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_03",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_04",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_05",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_06",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_07",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_08",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_09",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_10",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_11",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_12",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_13",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_14",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_15",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_16",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_17",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_18",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_19",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    },
+    {
+      "case_id": "withdrawal_permission_20",
+      "category": "withdrawal_permission",
+      "passed": true,
+      "mismatches": [],
+      "private_data_excluded": true,
+      "reopened": false
+    }
+  ],
+  "date": "2026-10-06",
+  "focused_tests": {
+    "3.12": {
+      "passed": 4,
+      "seconds": 17.06
+    },
+    "3.13": {
+      "passed": 4,
+      "seconds": 17.13
+    }
+  },
+  "evidence_boundary_detail": {
+    "explicit_fixture_fact_confirmation_not_semantic_extraction": true,
+    "cross_session_cases_reopen_database_not_full_sdk_session_trajectory": true,
+    "all_queries_leave_memory_use_receipts_empty": true,
+    "host_database_sentinel_unchanged": true,
+    "wrong_literal_expectation_produces_119_of_120_and_exit_1": true,
+    "duplicate_and_non_object_dataset_rejected": true,
+    "four_baseline_real_model_quality_pending": true,
+    "two_run_procedure_traces_pending": true,
+    "phase3_complete": false
+  }
+}

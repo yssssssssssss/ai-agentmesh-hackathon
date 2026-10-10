@@ -1,0 +1,48 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "current-project-state-and-queued-local-handoff",
+  "date": "2026-10-04",
+  "scope": "authorized current Task/Review SQL, local frozen state recovery and final model admission after capacity waits",
+  "full_regression": {
+    "3.12": {"passed": 2182, "warnings": 5, "seconds": 604.16},
+    "3.13": {"passed": 2182, "warnings": 5, "seconds": 611.58}
+  },
+  "focused_boundaries": {
+    "queued_handoff": {"passed": 5, "seconds": 7.41},
+    "cases": [
+      "no prepared Memory receipt while waiting for model capacity",
+      "current actor and evidence rechecked after waiting",
+      "mutated tool schema remeasured before delegate",
+      "concurrent owners have separate task-local admission gates",
+      "active local Runs prevent selected Task execution readiness",
+      "SQL counts remain exact above the Task inspection hydration limit",
+      "changed SQL snapshots stop approval recovery and subsequent model requests"
+    ]
+  },
+  "frontend": {"passed": 218, "files": 40},
+  "browser": {
+    "passed": 3,
+    "seconds": 27.8,
+    "scope": "project-inspections, structured-memory, memory-reuse",
+    "actual_local_api_cases": ["project-inspections", "structured-memory"],
+    "mocked_run_projection_cases": ["memory-reuse"],
+    "uses_real_llm": false
+  },
+  "checks": {
+    "ruff": "passed", "diff_check": "passed", "offline_lock_check": "passed",
+    "locked_packages": 69, "openapi_types": "passed",
+    "typescript_vite_build": "passed", "bundle_budget": "passed",
+    "largest_bundle_bytes": 322372
+  },
+  "evidence_boundary": {
+    "current_shared_managed_task_counts_and_reviews": true,
+    "direct_dependency_scope_and_missingness": true,
+    "current_run_authority_in_off_mode": true,
+    "final_budget_and_delivery_after_capacity": true,
+    "full_context_assembler_complete": false,
+    "complete_session_ownership_and_archives": false,
+    "phase3_complete": false, "phase4_complete": false,
+    "remote_runner_state_delivery_verified": false,
+    "enterprise_provider_smoke": false, "real_model_quality": false
+  }
+}

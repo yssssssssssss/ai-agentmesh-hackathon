@@ -1,0 +1,111 @@
+{
+  "recorded_at": "2026-10-07T03:49:53.258315+00:00",
+  "status": "manual_read_slice_verified_overall_plan_in_progress",
+  "verification_policy": "Directly affected checks per change; full multi-version regressions at stage acceptance.",
+  "runtime": {
+    "python": "3.13.0",
+    "openai_agents": "0.21.1",
+    "pydantic": "2.13.4"
+  },
+  "focused": {
+    "passed": 30,
+    "seconds": 3.86
+  },
+  "related": {
+    "files": 13,
+    "passed": 295,
+    "seconds": 54.45
+  },
+  "frontend": {
+    "api_types": "passed",
+    "build": "passed",
+    "largest_bundle_bytes": 322425,
+    "bundle_limit_bytes": 500000,
+    "browser_tests": "not_run"
+  },
+  "static_checks": {
+    "ruff": "passed",
+    "git_diff_check": "passed"
+  },
+  "real_read": {
+    "scope": "isolated_backend_read_only_pilot",
+    "results": [
+      {
+        "provider": "repo_docs",
+        "pages": 1,
+        "documents": 3,
+        "completed_at": "2026-10-07T03:44:38.599508+00:00",
+        "body_hashes_verified": true
+      },
+      {
+        "provider": "github_issues",
+        "pages": 3,
+        "documents": 9,
+        "completed_at": "2026-10-07T03:44:42.536260+00:00",
+        "body_hashes_verified": true
+      }
+    ]
+  },
+  "real_read_initial_failure": "connector_pagination_invalid; canonical repository Link plus after cursor; fixed",
+  "fixture_failure": "Withdrawal test initially treated the public documents list as a mapping; corrected separately.",
+  "scope": "Temporary SQLite; seeded owned project; real repository docs and public GitHub Issues; no LLM calls.",
+  "not_run": [
+    "full_backend_suite",
+    "dual_python_regression",
+    "deployment",
+    "enterprise_team_pilot"
+  ],
+  "remaining": [
+    "since_watermarks",
+    "provider_acl_deletion_omission_discovery",
+    "durable_failure_state",
+    "disabled_connector_projection_invalidation",
+    "cursor_configuration_migration_reset",
+    "background_rate_limits_cancellation",
+    "frontend_sync_controls",
+    "complete_indirect_origin_invalidation",
+    "real_model_quality_acceptance"
+  ],
+  "file_sha256_at_recording": {
+    "agentmesh/connector_sync/__init__.py": "ebc415385e26a9928a55258327c770d2f567518438ab2de2827b4ace49e3dd37",
+    "agentmesh/connector_sync/contracts.py": "be4e7dfd512bbd749166c45e24ddb2fa088009130300fbf1b45e16889fac3fe0",
+    "agentmesh/connector_sync/readers.py": "3ee6afb269c941ec6c47bd8fbc3af883215046f49e17b5aed6123b02eb4e9ff1",
+    "agentmesh/connector_sync/service.py": "c209838d2519b7e95642e62ab3cee35097164747ecb8a74c55a3969806f95dc3",
+    "agentmesh/connector_sync/configuration.py": "8b584e34df2d3e4cdbcbd5813789a85253b3a386ad293e0872364bb59ffa3127",
+    "agentmesh/routes/data_sources.py": "7cdd84d84a46626e8b541a2a695260ee5d277ea6890a41982077ccac2635a35b",
+    "agentmesh/source_contracts.py": "269a7255dc2e489249ef8cda6fae727cc919804a0580cf2404a89a795add2252",
+    "agentmesh/source_authority.py": "7f1d2c17a20a9859386592bfa4c125bc8db935a1f4ee783da880ead37348e47b",
+    "agentmesh/models.py": "c7a7f70ae676c025b84da553d72e3dc97492212ca3ce8ac8da737628ea7bb284",
+    "agentmesh/store.py": "928c2714e47027490ac07796e047846f72ab786bfed65b08cf3802e78f71347e",
+    "agentmesh/tool_runtime/gateway.py": "88fb5828f578e48817e24f233ac9f62fb9c029a23d29f24a8b9f012d2a261652",
+    "agentmesh/skill_runtime/sources.py": "cb25d3250b1b8a7597e73ffa49adbf8c292fa933805f97b4e8edb934e3eb0467",
+    "agentmesh/document_memory.py": "363c661465f20ebb1a9f53dcd96ba0a7bdc5016e50fbf67ab4702c86d6edc78a",
+    "tests/test_connector_sync.py": "a9d536cc111bf80fdd2ffa3e03b5bd5e67837e7b78d49b59a6f5f347333f5119",
+    "tests/test_connector_api.py": "9e384d8c0821e4ac784d2efce9033b14bb23f4118ff68a4cdcafbe726d481224",
+    "tests/test_github_connector.py": "1866a258136c9c43fd00f425c801050918faab03003ec2f87a4587b3caa4969c",
+    "agentmesh-demo/src/api/generated/schema.ts": "e3e7323794f0c1646e3de72f9c3e5c8cd47ca200bd97e797f0c16e57d6fe53dd",
+    ".env.example": "80758cef08a50a2e1e2b9cb9469c28add280a4da4c937eb862bd80ca4a1a96b9"
+  },
+  "log_sha256": {
+    "/tmp/agentmesh-connector-citation-red.log": "59ea8def577a0a4a7f5cbaaada8fd27d7a00b8a0277d2b110c203aec0e30f60e",
+    "/tmp/agentmesh-connector-synthesis-functional-red.log": "2cc4f192fcff8d08839642a06469fab315e0be2f53fa7ae5ea9869743cbc94a0",
+    "/tmp/agentmesh-connector-native-sync-red.log": "1cbda401a4fee15c300d8f00013585a14fdeb1171907154cb82ff813f745b096",
+    "/tmp/agentmesh-connector-withdrawal-functional-red.log": "36618c8bcc791421d7ffabc8883b4f7aa6db4a74b29ee977b923cf6d694cf26e",
+    "/tmp/agentmesh-connector-fifo-red.log": "ac89b240a4a602292623c2e26134d4444be82b6eaf49ae40b8e27a3f3ba3f6c2",
+    "/tmp/agentmesh-connector-inventory-red.log": "e648745412c055c7bdf02af3c3ac1dbeddfb3f31ee59e09d4b4a163dfb149398",
+    "/tmp/agentmesh-github-body-red.log": "e69bdfc73235ebe2f87172891d2fbc10ab9d2fdc6a708caa7d8ba74d9bd562dc",
+    "/tmp/agentmesh-connector-empty-status-red.log": "298ac853c5cb72f6548d4956d5c990e58e4f76bc0f8035961b03f5d1d9d56a60",
+    "/tmp/agentmesh-connector-binding-red.log": "8f2b69a4b5e0b33ba42e597866d1e4527d698d53f3895ea909ba56ebe438f9c7",
+    "/tmp/agentmesh-connector-cursor-integrity-red.log": "1ad41cb0716541cfe1d5d3f35e4e417f2a4dfde2b224bc62ead64155a3130068",
+    "/tmp/agentmesh-connector-real-pilot.log": "54dd0dfb66ffdc72b505c4eceef49c34edc3ecbf9ed37bbf0cfbe0750b7b5959",
+    "/tmp/agentmesh-github-pagination-inspection.log": "73b2ab72151a46b40e0a3c877d4c39159d3f95d60ad949b239051df9ebdd9799",
+    "/tmp/agentmesh-github-real-pagination-red.log": "fc9704ee0da8899b31ac916ac6e1c49d6e5e2b08f8d8605885b1d3e78cbbdd17",
+    "/tmp/agentmesh-connector-real-pilot-final.log": "0b024b7199f6759a177a984271a5b00e03630b1d042c933df280b7a829c60880",
+    "/tmp/agentmesh-connector-final-focused.log": "a7ac80e02b74f046e53ca79154923783abff54640ed2c9a28a62f8722ef86e9c",
+    "/tmp/agentmesh-connector-related-final.log": "cbb92008d9d677ba2522512b272452d6bcae597baf3aae5207c6e86ff0f27f80",
+    "/tmp/agentmesh-connector-api-types.log": "32bfe0182a679f812751b3e0cd62ccd906e80aa395957b668e64b6f41f7db080",
+    "/tmp/agentmesh-connector-frontend-build.log": "c8376074812a0db52f2b733131876170ca42256986bb8bd590c1e9e5b05b520e",
+    "/tmp/agentmesh-connector-final-ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "/tmp/agentmesh-connector-final-diff.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

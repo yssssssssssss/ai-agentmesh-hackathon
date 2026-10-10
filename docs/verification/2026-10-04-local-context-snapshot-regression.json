@@ -1,0 +1,35 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "local-frozen-context-approval-recovery",
+  "date": "2026-10-04",
+  "scope": "private Run snapshots, direct/Standard approval recovery, current source/preferences/identities, snapshot redaction and late-writer barriers",
+  "full_regression_before_skill_followup": {
+    "3.12": {"passed": 2114, "warnings": 5, "seconds": 491.91},
+    "3.13": {"passed": 2114, "warnings": 5, "seconds": 491.00}
+  },
+  "final_skill_followup": {
+    "scope": "snapshot, request budget, Session, SDK tools, approvals, Standard DAG, DeepSearch recovery, MCP, forgetting and general Runtime",
+    "3.12": {"passed": 193, "seconds": 91.65},
+    "3.13": {"passed": 193, "seconds": 91.41},
+    "new_boundary_cases": 3,
+    "boundaries": ["Skill replaced between Agent build and snapshot", "Skill disabled before handoff", "agent Skill binding revoked before handoff"]
+  },
+  "checks": {"ruff": "passed", "diff_check": "passed"},
+  "frontend": {
+    "rerun": false,
+    "reason": "no frontend or public API contract change in this slice",
+    "previous_verified_snapshot": "2026-10-04-stage3-context-delivery-regression.json"
+  },
+  "evidence_boundary": {
+    "local_direct_standard_automatic_context_approval_recovery": true,
+    "server_restart_and_partial_approval_cases": true,
+    "withdrawn_pending_snapshot_late_restore_blocked": true,
+    "full_context_assembler_complete": false,
+    "phase3_complete": false,
+    "phase4_complete": false,
+    "remote_runner_delivery_verified": false,
+    "complete_session_ownership_and_source_archives": false,
+    "enterprise_provider_smoke": false,
+    "real_model_quality": false
+  }
+}

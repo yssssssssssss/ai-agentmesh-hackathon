@@ -1,0 +1,210 @@
+{
+  "date": "2026-10-07",
+  "status": "passed_local_related_regression",
+  "adr": "docs/adr/0048-atomic-standard-synthesis-finalization.md",
+  "scope": [
+    "Per-call ordinary/Universal finalization snapshot of Run identity, plan semantic fields/version, full normalized node results and Source citation-record identities",
+    "Current actor/project/membership/thread/deadline/writer and frozen-input checks in the actual terminal SQLite write transaction",
+    "Shared bounded Source read snapshots for local model handoff and finalization",
+    "Verified Universal synthesis Artifact, Plan/Run/Inbox convergence and terminal events commit or roll back together",
+    "Admission refusals bypass Universal partial fallback; superseded writers/plans cannot be failed by old execution"
+  ],
+  "backend_related": {
+    "status": "passed",
+    "3.12": {
+      "passed": 719,
+      "seconds": 319.8,
+      "log": "/tmp/agentmesh-standard-finalization-final-312.log"
+    },
+    "3.13": {
+      "passed": 719,
+      "seconds": 321.3,
+      "log": "/tmp/agentmesh-standard-finalization-final-313.log"
+    },
+    "files": [
+      "tests/test_context_request_budget.py",
+      "tests/test_model_handoff_authority.py",
+      "tests/test_nonstream_model_context.py",
+      "tests/test_queued_model_handoff.py",
+      "tests/test_agent_runtime_sdk.py",
+      "tests/test_skill_orchestration.py",
+      "tests/test_skill_orchestration_integration.py",
+      "tests/test_universal_standard_preview.py",
+      "tests/test_universal_planner.py",
+      "tests/test_deepsearch_runtime_service.py",
+      "tests/test_deepsearch_runtime_artifact_budget.py",
+      "tests/test_deepsearch_runtime_recovery.py",
+      "tests/test_deepsearch_planning.py",
+      "tests/test_deepsearch_clarification.py",
+      "tests/test_deepsearch_finalizer.py",
+      "tests/test_deepsearch_reporting.py",
+      "tests/test_deepsearch_finalization.py",
+      "tests/test_deepsearch_finalization_store.py",
+      "tests/test_sdk_session.py",
+      "tests/test_sdk_session_authority.py",
+      "tests/test_sdk_session_memory_lineage.py",
+      "tests/test_sdk_session_checkpoint.py",
+      "tests/test_memory_context.py",
+      "tests/test_fact_context.py",
+      "tests/test_procedure_context.py",
+      "tests/test_project_state_context.py",
+      "tests/test_source_persistence.py",
+      "tests/test_sdk_tool_runtime.py",
+      "tests/test_skill_resources.py",
+      "tests/test_artifact_access.py",
+      "tests/test_datasources.py",
+      "tests/test_cold_start_import.py",
+      "tests/test_document_manual_import.py",
+      "tests/test_document_job_api.py",
+      "tests/test_delegated_queries.py",
+      "tests/test_delegated_query_api.py",
+      "tests/test_market_scout_authority.py",
+      "tests/test_standard_finalization_authority.py",
+      "tests/test_universal_plan.py",
+      "tests/test_skill_plans.py",
+      "tests/test_run_dispatch_receipts.py",
+      "tests/test_orchestration_quiesce.py",
+      "tests/test_runner_node_service.py",
+      "tests/test_runner_plan_execution.py"
+    ],
+    "new_behavior_cases": 14,
+    "full_backend_run": false
+  },
+  "focused_final": {
+    "passed": 120,
+    "seconds": 38.13,
+    "log": "/tmp/agentmesh-standard-finalization-related-final-focused.log",
+    "files": [
+      "tests/test_standard_finalization_authority.py",
+      "tests/test_nonstream_model_context.py",
+      "tests/test_skill_orchestration.py",
+      "tests/test_universal_plan.py",
+      "tests/test_skill_plans.py",
+      "tests/test_run_dispatch_receipts.py"
+    ]
+  },
+  "observed_red": [
+    {
+      "log": "/tmp/agentmesh-standard-finalization-source-red.log",
+      "result": "1 failed: Source deleted after synthesis returned still committed report."
+    },
+    {
+      "log": "/tmp/agentmesh-standard-finalization-authority-red.log",
+      "result": "6 failed / 1 deselected: owner/project/membership/thread/deadline/generation changes at final commit were ignored."
+    },
+    {
+      "log": "/tmp/agentmesh-standard-finalization-generation-red.log",
+      "result": "1 failed / 6 deselected: old finalization refusal marked the newer writer generation failed."
+    },
+    {
+      "log": "/tmp/agentmesh-standard-finalization-artifact-red-valid-2.log",
+      "result": "1 failed / 7 deselected: a real SQLite terminal-event abort left a previously independently sealed synthesis Artifact. This historical run had one test enum-serialization warning, subsequently corrected."
+    },
+    {
+      "log": "/tmp/agentmesh-standard-finalization-input-red.log",
+      "result": "The plan-version case verified refusal but found error handling failed the new plan. The node-result case in this run used an invalid append-only insert; it was corrected to controlled raw-row corruption before the final input GREEN."
+    }
+  ],
+  "setup_and_development_observations": [
+    {
+      "log": "/tmp/agentmesh-standard-finalization-authority-green.log",
+      "result": "7 failed while implementing snapshot: the strict canonical encoder rejected existing binary floating-point plan/result fields. Strict JSON decode to Decimal now precedes hashing; encoder policy is unchanged."
+    },
+    {
+      "logs": [
+        "/tmp/agentmesh-standard-finalization-artifact-red.log",
+        "/tmp/agentmesh-standard-finalization-artifact-red-valid.log"
+      ],
+      "result": "Two fixture setup errors: incomplete CandidateSnapshot hash payload and attempting to mutate immutable Run contract markers. Corrected by a complete snapshot and a separately created Universal Run before the functional artifact RED."
+    },
+    {
+      "log": "/tmp/agentmesh-standard-finalization-related-initial.log",
+      "result": "15 failed / 91 passed: abstract finalizer fixtures lacked current owners/projects and prior tests expected old non-admission exception types. Fixtures now use persisted authority; exact safe refusal code and no-output assertions remain required."
+    }
+  ],
+  "positive_controls": [
+    "Valid Universal synthesis, its verified Artifact, current plan and completed Run commit together",
+    "A SQLite event-insert fault rolls back the newly sealed Artifact and report/synthesis state",
+    "Source or owner changes at Universal commit produce failed state, no new synthesis Artifact and no partial fallback",
+    "New writer generation and new plan version remain running after old execution is refused",
+    "Changed append-only node payload, citation record or deadline cannot commit stale synthesis",
+    "Existing abstract ordinary retry/partial completion tests now run with real current authority rather than bypassing the gate"
+  ],
+  "checks": {
+    "ruff": "passed",
+    "diff": "passed"
+  },
+  "api_frontend": {
+    "public_schema_changed": false,
+    "frontend_changed": false,
+    "frontend_tests_build_browser": "not rerun; backend finalization-only change"
+  },
+  "limits": {
+    "sources": "600 distinct current citation records; each Source JSON at most 16 KiB",
+    "hashes": "Canonical per-call JSON identities; Source excludes created_at, plan excludes timestamps/completion_check/synthesis",
+    "scope": "Local citation identity and complete normalized node/plan input, not an external body/version or persistent ContextSnapshot"
+  },
+  "not_verified": [
+    "Full backend or remote CI",
+    "Real LLM/enterprise connector",
+    "Generic external Source lifecycle or original evidence body invalidation",
+    "Persistent finalization/ContextSnapshot or remote Runner delivery contract",
+    "Current authority at subsequent Runtime output projections",
+    "Complete stages 3-5 or real memory-quality acceptance"
+  ],
+  "source_sha256": {
+    "agentmesh/skill_runtime/sources.py": "934a9cc501d47b14731c6317340bd8df4e6d55eff982edf08141b1977882905c",
+    "agentmesh/skill_runtime/finalization.py": "b18e66a45dd0cecca813bbc3b3e476948a3f4dded6d0b2074463014055de1f77",
+    "agentmesh/agent_runtime/service.py": "a9a2b2506037e61ed0c6daece65932a9999d422e65cb9fdbb1982f676928a5a2",
+    "agentmesh/store.py": "1da4f205243560358c7af248eb1e0f4bfc67881c98fe74802d1722c4b4f46fd2",
+    "tests/test_context_request_budget.py": "d509143ab9f35301970ca37cd7a913e92dd017175a1dff76951a3f8003b8bf50",
+    "tests/test_model_handoff_authority.py": "6b1b6f60164b615ecd4435b3c9d362d7b83481d8299bf3821920c2be43164f70",
+    "tests/test_nonstream_model_context.py": "0f6631bd9e02eeca5e2154d1d0cc89750390b960f9cfd422c19945604fccd707",
+    "tests/test_queued_model_handoff.py": "569b8199f17cef3a87dbf7be59964e98d19a6a0a8c177c398c30e684adc1ce4e",
+    "tests/test_agent_runtime_sdk.py": "e20abd96e41c7e34bfbd7141d97543fcb38ebc7d25b381f6d90d1c66d4cf8e9d",
+    "tests/test_skill_orchestration.py": "e68a044048e2997c779ba487a7281b0cb7f0cdd1a04ab3805099f42a84b7f178",
+    "tests/test_skill_orchestration_integration.py": "e298fed7cc5f369a83a6d04d157d3757edf15c1780fd916c419182b482f5bf80",
+    "tests/test_universal_standard_preview.py": "900311897fc91843492a84779bacc1d3a96c017478ee9e52a74bec3f9e6e6824",
+    "tests/test_universal_planner.py": "9d5a7bbe90bf0cb7f00d5c0f32eef94fff25c25939f4f594efdece069e82e86b",
+    "tests/test_deepsearch_runtime_service.py": "70250a7e9045360db6ac937fea6f7d1fbcbdade064d19e63c3b451ff7e386d00",
+    "tests/test_deepsearch_runtime_artifact_budget.py": "9cedc72f08b5214d73aa77bbfc6a6b09fe6782f67e0801148227325650f17561",
+    "tests/test_deepsearch_runtime_recovery.py": "887db3a38e8ca784bc37fba0351651d5c3b93723e7cb968083f6428844b9725e",
+    "tests/test_deepsearch_planning.py": "aa126fb1e9c99e665efad8ef6a2201b1d478d3fb07914034aa8fd8f4600d6f78",
+    "tests/test_deepsearch_clarification.py": "04e2def3b650286be347af12fcf98adf13ae9022d33187b15ec4759fe3757a8e",
+    "tests/test_deepsearch_finalizer.py": "338c829a5b9f3ee0c266f51ad6ed64dd29ec36191fe4b6231b71884d91397020",
+    "tests/test_deepsearch_reporting.py": "cad0e41af1f6cd6fd129827a0beb22263322e1e510752317e8b755b90eb241c5",
+    "tests/test_deepsearch_finalization.py": "7730149c69e040bfd500aaeb5c48ea4ee78016f55ca895dcc1a3843d86e65167",
+    "tests/test_deepsearch_finalization_store.py": "5a4647e5467b5cd612d4eb7a22b277ffabb6b74079fcf4187b5a62f78e113be6",
+    "tests/test_sdk_session.py": "f9c3f674c7df77c808b808041a0fa012d9e6dae2d003907b007233ccb5b90449",
+    "tests/test_sdk_session_authority.py": "74e41d2b29076199090235d43fec8ceeaa5ae9f5a704b9a61660c1666f9142ee",
+    "tests/test_sdk_session_memory_lineage.py": "43ee908871964ce67c0bb7f331c5520d6390b9a929c38c9e5b358823bf28949e",
+    "tests/test_sdk_session_checkpoint.py": "bdd690527587cdef00d5ed040935f94b138cf6337c3a2d4986184f8dc92778dd",
+    "tests/test_memory_context.py": "6646851ac3168946589b434999256b648a3599e937945f4f4839043e78f13d15",
+    "tests/test_fact_context.py": "888363c58b105cafd4ad8ebebcb071dcd8af37095a20fe8c58afb190e567c8b2",
+    "tests/test_procedure_context.py": "dc1f9a0f5d1e11ed1d99460e351dcc9f4f4ac1c2fa01e0b074a352ed6a8789e4",
+    "tests/test_project_state_context.py": "2d739a7877e4e8300742659fbcaa6f60d71625fd74d2f9828f882e000be66b0f",
+    "tests/test_source_persistence.py": "6fbaed81d5c2f4929c33877b55c36b39183dc653841cc6bf1c0dd05a4be55531",
+    "tests/test_sdk_tool_runtime.py": "43125f4412b8fe4d699b031173e279eb0545147f5397dcc284c93fb7fd127633",
+    "tests/test_skill_resources.py": "cada50502be3ac899060273cdc62fae3486f6bfa5048bbdd30d7ee91b29f3a04",
+    "tests/test_artifact_access.py": "740878c684e122987cd38c8705bbfec9269c9f7d3385d6fb2d74971748a8839f",
+    "tests/test_datasources.py": "691f18c0c1d2edb0651af5081e8d771255a0e7d92d2c50f494d6241f3ffa6e56",
+    "tests/test_cold_start_import.py": "105f3c392c98c15f6b025c9a33fea0804bc70cbf78f425eac4497ed20d7982ff",
+    "tests/test_document_manual_import.py": "c87df687c916e03aa88a648458de385d0b39d37ebd1485b8aefc5286a93eb97d",
+    "tests/test_document_job_api.py": "e75ded3778d6d2e299b7a3ce35e0ee1b3694b8475ff1ed51da96a24d1730aeff",
+    "tests/test_delegated_queries.py": "6f977ac98c9310f038f3a4cb6da8a6dde3a749aaf3c0c50ea929c2551970f564",
+    "tests/test_delegated_query_api.py": "6136fcf920d620562a38bcf3b0e644d8f8e44cdc28e9b772125f2fa6eba107c0",
+    "tests/test_market_scout_authority.py": "ff5c3d29bc397c00a3e6a4f2c16a382ec4127a11c1c1d863d2db838f345c1e0e",
+    "tests/test_standard_finalization_authority.py": "35218c86f562822c8658161b375fea9d13929bcbc81806c3ab89d2f6922d5b96",
+    "tests/test_universal_plan.py": "0f88dbbd0fe31960e0c21378f2f7fec182a3621b0ba34aabbfd8085b06d638e2",
+    "tests/test_skill_plans.py": "d65107414a6fd357a39ba93160c84c19263f7a2db364236bb4eab6837f34592e",
+    "tests/test_run_dispatch_receipts.py": "defd9feabc860d795fab2183efbda35e5bc435380781c10ee6dba4b590d8ad41",
+    "tests/test_orchestration_quiesce.py": "3af518acf45290c18db39874a542114032159f82c84198f8a0222378d486aed5",
+    "tests/test_runner_node_service.py": "461c3a467238881c3c9f18f4ff1fd2043b24ecbfa60d5c635f6e62de375ab090",
+    "tests/test_runner_plan_execution.py": "0250d7f04f5fe14965d65e1efd238e6c843eef6b90501bf8e052fb8815c1eb8a",
+    "README.md": "3179e72045cdda36722b282d446157b49e5966dc7dcc9191c97a164d5c1bfc4b",
+    "CONTEXT.md": "4f2c561da553deeba4b5b5f2568dca8c5a456f12fb634e243d67b47d04fc513a",
+    "docs/plans/2026-10-04-agentmesh-complete-optimization-plan.md": "816b2080329ba14859862450c66a9d68f64dc0935ca24de1cca2d78ee04ea270",
+    "docs/adr/0048-atomic-standard-synthesis-finalization.md": "940aff9a6a54b4179a9504635bec3f3cad0d4490c1a786f02cad7efc956851b9"
+  },
+  "source_hash_boundary": "Current complete workspace files including preserved preexisting work; not a claim that every line changed in this slice. Prior verification records remain historical snapshots and are not rewritten."
+}

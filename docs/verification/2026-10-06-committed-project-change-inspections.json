@@ -1,0 +1,132 @@
+{
+  "date": "2026-10-06",
+  "status": "passed_local_related_regression",
+  "adr": "docs/adr/0042-committed-project-change-inspections.md",
+  "scope": [
+    "Explicit project Task/Task Review change opt-in on existing schedules",
+    "Server-owned committed cursor and current shared-project visibility",
+    "Quiet/coalescing windows, automatic-run floor and bounded fair scan",
+    "Transactional current authorization plus occurrence/Run/dispatch/cursor admission",
+    "Rollback, competition/restart, paused/configuration CAS behavior",
+    "Existing owner-only real read reports/Inbox with zero model usage"
+  ],
+  "limits": {
+    "quiet_seconds": 30,
+    "sustained_edit_coalescing_seconds": 300,
+    "automatic_run_floor_seconds": 300,
+    "tick_default": 50,
+    "tick_max": 100,
+    "metadata_rows_per_change_window": 2,
+    "queue_wait_is_additional": true
+  },
+  "semantics": {
+    "history_on_opt_in": "not replayed",
+    "paused_period": "no independent trigger replay on resume",
+    "template_change": "new committed watermark",
+    "raw_task_edits": "not events",
+    "private_chat": "excluded",
+    "external_webhooks": "not activated",
+    "blocked_and_overlap": "durable outcome consumes source window; no second replay queue",
+    "cron_manual_admission": "can consume current changes in the same transaction",
+    "change_admission": "does not advance cron slot"
+  },
+  "new_behavior_cases": 32,
+  "related_regression": {
+    "3.12": {
+      "passed": 148,
+      "seconds": 54.1,
+      "log": "/tmp/agentmesh-automation-changes-regression-final312.log"
+    },
+    "3.13": {
+      "passed": 148,
+      "seconds": 55.16,
+      "log": "/tmp/agentmesh-automation-changes-regression-final313.log"
+    },
+    "boundary": "Automation changes/occurrences/schedules/time policies/frozen rule evaluation, project inspection, Task management routes/standalone/operations and Task Review."
+  },
+  "observed_red_logs": [
+    "/tmp/agentmesh-automation-changes-red.log",
+    "/tmp/agentmesh-automation-changes-fairness-red.log"
+  ],
+  "intermediate_results": {
+    "first_related_before_fairness": 147,
+    "corrected_test_setup": [
+      "Used actual current_user dependency and domain method/response/enum names",
+      "Counted one new inspection Inbox relative to the existing Task Review Inbox",
+      "The real review/report case uses its actual task clock without extending a production deadline"
+    ],
+    "first_frontend_build": "Type checking found older test fixtures missing the newly generated default field; fixtures now explicitly set false."
+  },
+  "frontend": {
+    "passed": 242,
+    "files": 50,
+    "seconds": 3.01,
+    "log": "/tmp/agentmesh-automation-changes-frontend-final.log",
+    "build": "passed",
+    "vite_seconds": 2.43,
+    "build_log": "/tmp/agentmesh-automation-changes-build-final.log",
+    "largest_bundle_bytes": 322377,
+    "bundle_limit_bytes": 500000
+  },
+  "checks": {
+    "openapi": "regenerated in temporary database",
+    "ruff": "passed",
+    "diff": "passed"
+  },
+  "browser": {
+    "browser": "Ego Lite",
+    "space_id": 1,
+    "isolated_database": true,
+    "schedule_id": "sched_b78c3eff829c",
+    "project_id": "prj_618_home_appliance",
+    "enabled": false,
+    "on_project_changes": true,
+    "cursor": 28960,
+    "occurrence_count": 1,
+    "trigger": "change",
+    "status": "completed",
+    "run_id": "run_0b47f1f070c9296cf30f0e6b013f60de",
+    "tools": 1,
+    "model_turns": 0,
+    "tokens": 0,
+    "manual_steps": [
+      "Saved explicit change opt-in through checkbox",
+      "Created project Task through task dialog",
+      "Observed change-triggered completed Run and versioned real report",
+      "Paused schedule through visible button",
+      "Restarted backend and reloaded the same durable report without another occurrence"
+    ],
+    "screenshot": "Two Page.captureScreenshot requests timed out; no screenshot claimed",
+    "cleanup": {
+      "test_role_restored": "user",
+      "automation_mode_restored": "off",
+      "temporary_backend_runtime_restored": "legacy",
+      "schedule_paused": true
+    }
+  },
+  "full_backend": "Not rerun in this slice. Related 148-case runs are not the entire backend suite.",
+  "real_llm_calls": false,
+  "real_embedding_provider": false,
+  "real_enterprise_connector": false,
+  "source_sha256": {
+    "agentmesh/models.py": "c3460c4c68903148f656a876ae63d3c61cb233533e96da0713128aa18146062d",
+    "agentmesh/store.py": "11d2fb97182622f40a23f0ad56093a2457993a2b2dc88049bf978345cd21bce2",
+    "agentmesh/automation/changes.py": "5a4f281f1d3c7ccb8cb4018f03e73ffce48d7077340bbbea409c42d03ecea531",
+    "agentmesh/automation/contracts.py": "f47d4039a8ba94d3556b95751bfcd644b5647af5bbd5dbcb417a9e2f2439fbfa",
+    "agentmesh/automation/coordinator.py": "548117ea8a69b82d610a96674ab06409bb27c8ee910e7eea7b3656ec5519ee0a",
+    "agentmesh/automation/occurrences.py": "80b0fd3daa8a106b26d36882a91d9677443f80d379b40875fe11ed12f40ca609",
+    "agentmesh/automation/schedules.py": "57a7f00ac9e0b341778318d2b495bf0d3a835841bae202aa6a6d79e40630079b",
+    "agentmesh/automation/schedule_repository.py": "a911ac5299ed51133ead28e0707d828843f3d2f209f0c166d7621f6053dba727",
+    "tests/test_automation_changes.py": "e845644216e1bd3a1e8fca9165abd417cdcc3bf36b0f53fde851ead63aea269e",
+    "agentmesh-demo/src/components/tasks/AutomationSchedulePanel.tsx": "085adcdac4fa6891bf4dc8af5593d70be82edca5074cb337b9c1575b77cf42e8",
+    "agentmesh-demo/src/components/tasks/AutomationSchedulePanel.test.tsx": "fd8546bb8c4673a83aa59d3654a978702b555e8f99bc7d0461a5fbc902ed2d59",
+    "agentmesh-demo/src/features/tasks/automationApi.test.ts": "908380931df92d613dc61a88ba76cfaac80f52cebcb98e522798138dffb7993b",
+    "agentmesh-demo/src/api/generated/schema.ts": "da4fd94a71aed9192bcd73bf17c929381fc7ee30b2df7fa32614d6c862828433"
+  },
+  "remaining": [
+    "Real authorized connector/cursor/source archives and external webhook acceptance",
+    "Bounded relations and independently verified procedure reuse",
+    "Complete ContextAssembler/type semantics and SDK/Runner budgets/delivery",
+    "Parser isolation and real model/vector/enterprise quality acceptance"
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "document-learning-operations",
+  "date": "2026-10-06",
+  "focused_final": {
+    "3.12": {
+      "passed": 47,
+      "seconds": 5.07
+    },
+    "3.13": {
+      "passed": 47,
+      "seconds": 4.87
+    }
+  },
+  "frontend": {
+    "passed": 226,
+    "files": 43,
+    "seconds": 6.73
+  },
+  "checks": {
+    "openapi_types": "passed",
+    "production_build": "passed",
+    "largest_chunk_bytes": 322372,
+    "bundle_budget": "passed",
+    "ruff": "passed",
+    "diff_check": "passed"
+  },
+  "red_before_implementation": {
+    "retry_after": {
+      "failed": 4,
+      "passed": 3
+    },
+    "heartbeat": {
+      "failed": 4
+    },
+    "health_projection": {
+      "failed": 2
+    }
+  },
+  "full_snapshot_boundary": "The 2278-case full snapshots in authorized-memory-search-regression preceded these learning changes; the final focused tests include them.",
+  "evidence_boundary": {
+    "durable_retry_after_and_not_before_gate": true,
+    "unknown_usage_reservation_retained": true,
+    "live_epoch_and_current_source_policy_heartbeat": true,
+    "actual_async_extraction_wait_renewal_and_opt_out_cancellation": true,
+    "owned_current_project_sql_aggregates": true,
+    "owner_only_metadata_api": true,
+    "budget_lease_queue_and_cleanup_ui": true,
+    "browser_interaction_verified": false,
+    "real_model_quality": false,
+    "enterprise_provider_smoke": false,
+    "phase3_complete": false
+  }
+}

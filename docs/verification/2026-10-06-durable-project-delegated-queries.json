@@ -1,0 +1,113 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "durable-project-delegated-queries",
+  "date": "2026-10-06",
+  "focused_final": {
+    "3.12": {
+      "passed": 142,
+      "seconds": 40.59
+    },
+    "3.13": {
+      "passed": 142,
+      "seconds": 40.33
+    }
+  },
+  "full_snapshot": {
+    "status": "passed",
+    "logs": [
+      "/tmp/agentmesh-query-full312.log",
+      "/tmp/agentmesh-query-full313.log"
+    ],
+    "boundary": "Started before the final additional artifact content-type/index and safe record-identity guards; these guards are covered in focused_final.",
+    "3.12": {
+      "passed": 2336,
+      "warnings": 5,
+      "seconds": 690.16
+    },
+    "3.13": {
+      "passed": 2336,
+      "warnings": 5,
+      "seconds": 692.4
+    },
+    "warnings": "Five existing PyMuPDF Swig deprecation warnings."
+  },
+  "frontend": {
+    "passed": 231,
+    "files": 45,
+    "seconds": 2.87
+  },
+  "checks": {
+    "openapi_types": "passed",
+    "production_build": "passed",
+    "largest_chunk_bytes": 322377,
+    "bundle_budget": "passed",
+    "ruff": "passed",
+    "diff_check": "passed",
+    "uv_lock": "69 packages, passed"
+  },
+  "red_before_guard": {
+    "adopted_memory_origin_after_helper_change": {
+      "failed": 1,
+      "passed": 3
+    },
+    "current_helper_memory_binding": {
+      "failed": 1
+    },
+    "artifact_content_type_index": {
+      "failed": 1,
+      "passed": 2
+    }
+  },
+  "corrected_test_setup": [
+    "Initial fixture omitted required source_kind.",
+    "An inserted test accidentally split the reopen assertions; restored the original test boundary.",
+    "Binding fixture used an incorrect getter name; corrected before the genuine failing assertion.",
+    "One pytest command named a nonexistent suite and ran no tests.",
+    "Final OpenAPI response defaults require confidence and current_available in the frontend fixture; added both."
+  ],
+  "initial_related_integration": {
+    "failed": 6,
+    "passed": 48,
+    "cause": "Eight lexicographically selected search terms excluded the meaningful Chinese prefix; changed bounded term ordering to question position and short terms. Static legacy unavailable messages now project truthfully without persisting them as answers."
+  },
+  "browser": {
+    "engine": "Ego Lite",
+    "task_space_id": 1,
+    "isolated_temporary_database": true,
+    "real_provider_calls_enabled": false,
+    "passed": [
+      "Requester creates a pending query.",
+      "Only answering owner receives confirmation controls.",
+      "Confirmation of absent evidence reports insufficient_evidence without adoption.",
+      "Scoped automatic policy can be enabled and revoked without joining the market.",
+      "Confirmation of eligible demo text with no model reports blocked without adoption.",
+      "Reload retains both actual outcome states."
+    ],
+    "harness_corrections": [
+      "First navigation preceded Vite startup; reused the same space after it was ready.",
+      "Snapshot subtree root requires a snapshot ref; used DOM inspection instead.",
+      "Navigation immediately after login aborted it; waited for logged-in UI before navigating."
+    ],
+    "backend_boundary": "Isolated browser server predates the final memory-binding and artifact-index guard followups; the listed normal/insufficient/unconfigured UI scenarios are unchanged. focused_final verifies those final guards."
+  },
+  "evidence_boundary": {
+    "current_bilateral_user_project_agent_authority": true,
+    "scope_and_binding_aware_frozen_evidence": true,
+    "project_consent_and_optin_sensitive_confirmation": true,
+    "restricted_sealed_query_artifact": true,
+    "public_private_source_titles_links_and_memory_ids_hidden": true,
+    "atomic_idempotent_private_adoption": true,
+    "adopted_origin_rechecked_for_future_context": true,
+    "restart_visible_result_and_no_retry_of_started_unknown_call": true,
+    "real_model_quality": false,
+    "full_sdk_request_budget_and_memory_delivery_receipts": false,
+    "structured_fact_or_procedure_delegation": false,
+    "enterprise_connector_smoke": false
+  },
+  "remaining": [
+    "Uniform nonstream SDK token/cost, cancellation/deadline and model-input delivery governance.",
+    "Structured fact/procedure delegation with exact time/applicability semantics.",
+    "General market workspace isolation, connectors and controlled relation lookup.",
+    "Real model quality, enterprise source and all remaining phase 3/4/5 work."
+  ]
+}
