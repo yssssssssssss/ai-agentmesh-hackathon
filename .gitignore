@@ -12,6 +12,9 @@ data/*.sqlite3-*
 data/**/*.sqlite3
 data/**/*.sqlite3-*
 data/*.writer.lock
+data/*.inputs/
+# Runtime data and evaluation outputs stay local.
+/data/
 .DS_Store
 
 # React/Vite/Playwright generated artifacts
@@ -25,6 +28,8 @@ blob-report/
 agentmesh-demo/openapi.json
 
 # Local-only tooling & throwaway artifacts
+/AgentMesh_Handoff_PR44/
+*.bak
 .scratch/
 .dev/
 .claude/
