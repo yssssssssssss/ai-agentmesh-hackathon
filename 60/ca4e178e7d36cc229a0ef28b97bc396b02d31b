@@ -1,0 +1,22 @@
+tests/test_search_fts.py
+  s_3864a3cf0f33e4::t_9075af85d34f1b 194-197,202-219
+  s_3864a3cf0f33e4::t_bc2d0637b6824a 198-201
+agentmesh/store.py
+  s_3864a3cf0f33e4::t_6272dc83ff861d 244-245,19882-19883
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "60ca4e178e7d36cc229a0ef28b97bc396b02d31b",
+  "prompts": {},
+  "sessions": {
+    "s_3864a3cf0f33e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f8985b60-f93b-42cc-bf00-e5bb879bbcc7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ys <138124498+yssssssssssss@users.noreply.github.com>"
+    }
+  }
+}
