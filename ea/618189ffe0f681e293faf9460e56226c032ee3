@@ -1,0 +1,24 @@
+agentmesh/pilot_metrics.py
+  s_3864a3cf0f33e4::t_cf1e162b485c68 1-120
+scripts/pilot_metrics.py
+  s_3864a3cf0f33e4::t_a66048ad174b36 1-36
+tests/test_pilot_metrics.py
+  s_3864a3cf0f33e4::t_fb5f1c9fefd060 164-177
+  s_3864a3cf0f33e4::t_c4e93af25b8aef 1-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "ea618189ffe0f681e293faf9460e56226c032ee3",
+  "prompts": {},
+  "sessions": {
+    "s_3864a3cf0f33e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f8985b60-f93b-42cc-bf00-e5bb879bbcc7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ys <138124498+yssssssssssss@users.noreply.github.com>"
+    }
+  }
+}
