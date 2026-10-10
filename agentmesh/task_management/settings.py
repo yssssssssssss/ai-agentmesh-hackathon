@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from enum import StrEnum
+
+from agentmesh.profiles import env_setting
 
 
 class TaskManagementMode(StrEnum):
@@ -12,7 +13,7 @@ class TaskManagementMode(StrEnum):
 
 
 def task_management_mode() -> TaskManagementMode:
-    raw = os.getenv("AGENTMESH_TASK_MANAGEMENT", TaskManagementMode.READ_ONLY.value).strip().lower()
+    raw = env_setting("AGENTMESH_TASK_MANAGEMENT", TaskManagementMode.READ_ONLY.value).strip().lower()
     try:
         return TaskManagementMode(raw)
     except ValueError:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from agentmesh.agent_runtime.settings import skill_orchestration_mode
+from agentmesh.agent_runtime.settings import agent_runtime_enabled, skill_orchestration_mode
 from agentmesh.automation.coordinator import AutomationCoordinator
 from agentmesh.connector_sync.coordinator import ConnectorSyncCoordinator
 from agentmesh.connector_sync.service import ConnectorSyncService
@@ -24,6 +25,7 @@ from agentmesh.marketplace import (
 from agentmesh.memory_learning.coordinator import MemoryLearningCoordinator
 from agentmesh.model_registry import ensure_model_seed_data
 from agentmesh.permissions import ensure_permission_policy_seed_data
+from agentmesh.profiles import validate_profile
 from agentmesh.request_limits import RequestBodyLimitMiddleware
 from agentmesh.research_orchestration.v2_artifact_history import V2ArtifactHistoryReader
 from agentmesh.research_orchestration.v2_history import V2HistoryAdapter
@@ -84,6 +86,8 @@ FRONTEND_DIST = ROOT_DIR / "agentmesh-demo" / "dist"
 FRONTEND_INDEX = FRONTEND_DIST / "index.html"
 FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 
+logger = logging.getLogger(__name__)
+
 
 def initialize_application_data(repository: SQLiteStore) -> None:
     repository.reconcile_run_dispatches_for_startup()
@@ -104,6 +108,11 @@ def initialize_application_data(repository: SQLiteStore) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_profile()
+    if not agent_runtime_enabled():
+        logger.warning(
+            "legacy chat runtime is deprecated (ADR 0053); set AGENTMESH_PROFILE=pilot or AGENTMESH_AGENT_RUNTIME=v2"
+        )
     store.initialize()
     initialize_application_data(store)
     ConnectorSyncService.reconcile_startup_bindings(store)
