@@ -12,6 +12,15 @@ function jsonResponse(payload: object) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('task management API', () => {
+  it('queries an inspection with a scoped template and explicit history window', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ project_id: 'project/1', outcome: 'no_change' }))
+    vi.stubGlobal('fetch', fetchMock)
+    await taskManagementApi.inspect('project/1', { template_id: 'daily_progress', since: '2030-01-01T00:00:00Z' })
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/task-operations/project%2F1/inspections')
+    const request = fetchMock.mock.calls[0][1]
+    expect(request.method).toBe('POST')
+    expect(JSON.parse(request.body)).toEqual({ template_id: 'daily_progress', since: '2030-01-01T00:00:00Z' })
+  })
   it('loads one bounded management page', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
       items: [{ task: { id: 'task-101' }, management: {}, readiness: {}, allowed_actions: [] }],
@@ -77,6 +86,7 @@ describe('task management API', () => {
 
     await taskManagementApi.create({
       command_id: 'command-1',
+      project_id: 'selected-project',
       title: '准备项目复盘',
       description: '整理本轮结论',
       task_type: 'review',
@@ -91,6 +101,7 @@ describe('task management API', () => {
     expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ method: 'POST' }))
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual(expect.objectContaining({
       command_id: 'command-1',
+      project_id: 'selected-project',
       title: '准备项目复盘',
       priority: 'p1',
     }))

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, MessageSquareText, ShieldCheck, ThumbsUp, X } from 'lucide-react'
+import { Check, MessageSquareText, ShieldCheck, X } from 'lucide-react'
 import type { MarketMeTimelineItem, TimelineCategory, TimelineStatus } from '../types'
 import { Drawer } from '../../../components/ui/Drawer'
 import { Button } from '../../../components/ui/Button'
@@ -38,31 +38,37 @@ const CATEGORY_TAG: Record<TimelineCategory, { en: string; zh: string; dot: stri
 
 const STATUS_STYLE: Record<
   TimelineStatus,
-  { en: string; text: string; ring: string; bg: string }
+  { label: string; text: string; ring: string; bg: string }
 > = {
   answered: {
-    en: 'ANSWERED',
+    label: '已回答',
     text: 'text-mint-300',
     ring: 'ring-mint-400/40',
     bg: 'bg-mint-400/[0.08]',
   },
   awaiting_confirm: {
-    en: 'AWAITING_CONFIRM',
+    label: '待确认',
     text: 'text-remind',
     ring: 'ring-remind/40',
     bg: 'bg-remind/[0.08]',
   },
   denied: {
-    en: 'DENIED',
+    label: '已拒绝',
     text: 'text-rose',
     ring: 'ring-rose/40',
     bg: 'bg-rose/[0.08]',
   },
   open: {
-    en: 'OPEN',
+    label: '进行中',
     text: 'text-slate-300',
     ring: 'ring-white/[0.14]',
     bg: 'bg-white/[0.04]',
+  },
+  blocked: {
+    label: '暂不可用', text: 'text-slate-300', ring: 'ring-white/[0.14]', bg: 'bg-white/[0.04]',
+  },
+  insufficient_evidence: {
+    label: '资料不足', text: 'text-remind', ring: 'ring-remind/40', bg: 'bg-remind/[0.08]',
   },
 }
 
@@ -94,7 +100,7 @@ function counts(list: MarketMeTimelineItem[]) {
   let open = 0
   let closed = 0
   for (const item of list) {
-    if (item.status === 'answered' || item.status === 'denied') closed++
+    if (['answered', 'denied', 'blocked', 'insufficient_evidence'].includes(item.status)) closed++
     else open++
   }
   return { open, closed }
@@ -122,24 +128,17 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
   const resolveMutation = useMutation({
     mutationFn: ({ inboxItemId, action }: { inboxItemId: string; action: 'approve' | 'deny' }) =>
       marketApi.resolveDelegated(inboxItemId, action),
-    onSuccess: (_data, variables) => {
-      setActionResult(variables.action === 'approve' ? '已批准，答案已发送给对方。' : '已拒绝，未透露任何内容。')
+    onSuccess: (data, variables) => {
+      setActionResult(variables.action === 'deny' ? '已拒绝本次代答。'
+        : data.status === 'answered' ? '已批准，答复已交付请求方。'
+        : data.status === 'insufficient_evidence' ? '已确认，但资料不足，未生成有依据的答复。'
+        : '已确认，代答暂不可用，未交付答复。')
       void invalidateMarket()
     },
     onError: () => setActionResult('操作失败，请稍后重试。'),
   })
 
-  const adoptMutation = useMutation({
-    mutationFn: ({ helperId, question }: { helperId: string; question: string }) =>
-      marketApi.adopt(helperId, question),
-    onSuccess: () => {
-      setActionResult('已采纳，对方获得一条贡献记录，并建立了来源血缘。')
-      void invalidateMarket()
-    },
-    onError: () => setActionResult('采纳失败，请稍后重试。'),
-  })
-
-  const actionBusy = resolveMutation.isPending || adoptMutation.isPending
+  const actionBusy = resolveMutation.isPending
 
   const groups = useMemo(() => {
     return {
@@ -158,15 +157,15 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
     zh: string
     sub: string
   }> = [
-    { key: 'all', en: 'ALL', zh: '全部往来', sub: `${groups.all.length} records` },
+    { key: 'all', en: 'RECENT', zh: '最近往来', sub: `${groups.all.length} records` },
     {
       key: 'request',
-      en: 'MY REQUESTS',
-      zh: '我提出的求助',
+      en: 'MY SIGNALS',
+      zh: '我发布的信号',
       sub: `${requestCounts.open} open · ${requestCounts.closed} closed`,
     },
-    { key: 'incoming', en: 'RECEIVED', zh: '谁帮了我', sub: `${groups.incoming.length} matches` },
-    { key: 'outgoing', en: 'GIVEN', zh: '我帮了谁', sub: `${groups.outgoing.length} matches` },
+    { key: 'incoming', en: 'RECEIVED', zh: '收到的回应', sub: `${groups.incoming.length} matches` },
+    { key: 'outgoing', en: 'GIVEN', zh: '发出的回应', sub: `${groups.outgoing.length} matches` },
   ]
 
   const list = groups[filter]
@@ -253,7 +252,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
                     <span
                       className={`rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wider ring-1 ${status.text} ${status.ring} ${status.bg}`}
                     >
-                      {status.en}
+                      {status.label}
                     </span>
                     <button
                       type="button"
@@ -289,7 +288,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
               <span className="text-slate-300">{CATEGORY_TAG[selected.category].zh}</span>
             </span>
             <span className={`rounded-md px-2 py-1 font-semibold uppercase tracking-wider ring-1 ${STATUS_STYLE[selected.status].text} ${STATUS_STYLE[selected.status].ring} ${STATUS_STYLE[selected.status].bg}`}>
-              {STATUS_STYLE[selected.status].en}
+              {STATUS_STYLE[selected.status].label}
             </span>
           </div>
 
@@ -315,7 +314,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
 
           <div className="flex items-start gap-2 border-t border-white/[0.06] pt-4 text-[11.5px] leading-relaxed text-slate-400">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            答案由对方分身依据其私有记忆生成，只回传结论，原始记忆不离境。
+          此处展示协作信号或历史状态。受限答复与可核对引用请查看本人的提问记录。
           </div>
 
           {actionResult ? (
@@ -351,16 +350,7 @@ export function ExchangeTabs({ timeline }: ExchangeTabsProps) {
           ) : null}
 
           {selected.category === 'incoming' && selected.status === 'answered' && selected.counterpart ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={<ThumbsUp className="h-4 w-4" />}
-              loading={adoptMutation.isPending}
-              disabled={actionBusy}
-              onClick={() => adoptMutation.mutate({ helperId: selected.counterpart!.id, question: selected.topic })}
-            >
-              采纳此答案（给对方记一次贡献）
-            </Button>
+            <p className="text-sm text-slate-500">历史协作状态缺少可核对的答案产物，不能采纳为知识。</p>
           ) : null}
         </div>
       ) : null}

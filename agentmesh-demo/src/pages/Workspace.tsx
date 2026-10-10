@@ -637,7 +637,7 @@ export function Workspace() {
                 </section>
               ) : null}
               {currentRun && runQuery.data?.item.id === currentRun.id ? (
-                <MemoryUsePanel items={runQuery.data?.memory_uses ?? []} />
+                <MemoryUsePanel items={runQuery.data?.memory_uses ?? []} requests={runQuery.data?.context_requests ?? []} candidates={runQuery.data?.memory_candidates ?? []} />
               ) : null}
             </div>
 

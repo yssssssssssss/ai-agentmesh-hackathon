@@ -4,6 +4,8 @@ import type {
   ManagedTaskDetail,
   ManagedTaskPage,
   MemoryCaptureResponse,
+  ProjectInspectionReport,
+  ProjectInspectionRequest,
   TaskOperationsSnapshot,
   TaskOptionPage,
   TaskArchivePayload,
@@ -21,6 +23,11 @@ export interface ManagedTaskResponse {
 }
 
 export const taskManagementApi = {
+  inspect: (projectId: string, payload: ProjectInspectionRequest) =>
+    apiRequest<ProjectInspectionReport>(`/api/task-operations/${encodeURIComponent(projectId)}/inspections`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   list: (projectId: string, page = 1, pageSize = 100) =>
     apiRequest<ManagedTaskPage>(
       `/api/tasks?project_id=${encodeURIComponent(projectId)}&page=${page}&page_size=${pageSize}`,

@@ -31,6 +31,11 @@ export interface DocumentRecord {
   text: string
   file_name: string
   version: number
+  project_id?: string
+  uploaded_by?: string
+  expected_chunks?: number
+  completed_chunks?: number
+  source?: components['schemas']['Source']
 }
 
 export interface MemoryOverview {
@@ -85,6 +90,16 @@ export const knowledgeApi = {
   documents: () => apiRequest<{ items: DocumentRecord[] }>('/api/documents'),
   document: (documentId: string) =>
     apiRequest<ItemResponse<DocumentRecord>>(`/api/documents/${encodeURIComponent(documentId)}`),
+  updateDocument: ({ documentId, expectedVersion, text }: {
+    documentId: string; expectedVersion: number; text: string
+  }) => apiRequest<ItemResponse<DocumentRecord>>(`/api/documents/${encodeURIComponent(documentId)}`, {
+    method: 'PATCH', body: JSON.stringify({ expected_version: expectedVersion, text }),
+  }),
+  importDocument: ({ documentId, expectedVersion }: { documentId: string; expectedVersion: number }) =>
+    apiRequest<{ status: 'imported' | 'already_imported'; chunk_count: number }>(
+      `/api/documents/${encodeURIComponent(documentId)}/import-to-memory?expected_version=${expectedVersion}`,
+      { method: 'POST' },
+    ),
   updateInbox: (itemId: string, payload: components['schemas']['InboxUpdateRequest']) =>
     apiRequest<ItemResponse<InboxItem>>(`/api/inbox/${encodeURIComponent(itemId)}`, {
       method: 'PATCH',

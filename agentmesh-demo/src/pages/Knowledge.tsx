@@ -4,6 +4,9 @@ import { ArrowRight, ArrowRightLeft, CheckCircle2, FolderKanban, Layers3, Refres
 
 import { ApiError } from '../api/client'
 import { AssetsPanel } from '../components/knowledge/AssetsPanel'
+import { DocumentLearningPanel } from '../components/knowledge/DocumentLearningPanel'
+import { DocumentImportPanel } from '../components/knowledge/DocumentImportPanel'
+import { DocumentMaintenancePanel } from '../components/knowledge/DocumentMaintenancePanel'
 import { ConfirmKnowledgeModal } from '../components/knowledge/ConfirmKnowledgeModal'
 import { GovernanceHistoryPanel } from '../components/knowledge/GovernanceHistoryPanel'
 import {
@@ -16,7 +19,10 @@ import {
   type DrawerTarget,
 } from '../components/knowledge/KnowledgeDetailDrawer'
 import { PendingCandidatePanel } from '../components/knowledge/PendingCandidatePanel'
+import { ProjectTerminologyPanel } from '../components/knowledge/ProjectTerminologyPanel'
+import { ProjectFactQueryPanel } from '../components/knowledge/ProjectFactQueryPanel'
 import { ShareTimeline } from '../components/knowledge/ShareTimeline'
+import { SourceSyncPanel } from '../components/knowledge/SourceSyncPanel'
 import { Button } from '../components/ui/Button'
 import { DataSourceBadge } from '../components/ui/DataSourceBadge'
 import { PageHeader } from '../components/ui/PageHeader'
@@ -171,6 +177,7 @@ export function Knowledge() {
     ? null
     : { ...transitionTarget, version: latestTransitionVersion ?? transitionTarget.version }
   const requestedMemoryId = searchParams.get('memory')?.trim() || null
+  const requestedDocumentId = searchParams.get('document')?.trim() || null
   const drawerMemoryId = drawerTarget?.kind === 'asset' && drawerTarget.asset.memoryKind.value
     ? drawerTarget.asset.id.value
     : null
@@ -192,6 +199,12 @@ export function Knowledge() {
     ?? queries.documents.error
 
   useEffect(() => {
+    if (requestedDocumentId) {
+      const document = viewModel.assets.data.items.find((candidate) => candidate.kind === 'document'
+        && candidate.id.value === requestedDocumentId)
+      if (document) setDrawerTarget({ kind: 'asset', asset: document })
+      return
+    }
     const memoryId = requestedMemoryId
     if (!memoryId) return
     const asset = viewModel.assets.data.items.find((candidate) => candidate.id.value === memoryId)
@@ -231,6 +244,7 @@ export function Knowledge() {
     lineageQuery.data,
     projectName,
     requestedMemoryId,
+    requestedDocumentId,
     viewModel.assets.data.items,
     viewModel.governance.data.items,
     viewModel.pending.data.items,
@@ -240,6 +254,7 @@ export function Knowledge() {
     setDrawerTarget(null)
     const next = new URLSearchParams(searchParams)
     next.delete('memory')
+    next.delete('document')
     setSearchParams(next, { replace: true })
   }
 
@@ -428,6 +443,18 @@ export function Knowledge() {
         title="我的知识"
         subtitle="经过确认并从真实工作中沉淀的经验，可被数字员工在后续项目中检索、引用和复用。"
       />
+      {user?.id && selectedProjectId ? <>
+        <ProjectFactQueryPanel key={`facts:${user.id}:${selectedProjectId}`} userId={user.id}
+          workspaceId={user.workspace_id} projectId={selectedProjectId} />
+        <SourceSyncPanel key={`sources:${user.id}:${selectedProjectId}`} userId={user.id}
+          workspaceId={user.workspace_id} projectId={selectedProjectId} />
+        <DocumentImportPanel key={`imports:${user.id}:${selectedProjectId}`} userId={user.id} projectId={selectedProjectId} />
+        <DocumentMaintenancePanel key={`documents:${user.id}:${selectedProjectId}`} userId={user.id} projectId={selectedProjectId}
+          documents={queries.documents.data?.items ?? []} loading={queries.documents.isLoading} error={Boolean(queries.documents.error)} />
+        <DocumentLearningPanel key={`learning:${user.id}:${selectedProjectId}`} userId={user.id} projectId={selectedProjectId} />
+        <ProjectTerminologyPanel key={`terms:${user.id}:${selectedProjectId}`} userId={user.id} projectId={selectedProjectId}
+          canManage={(bootstrap?.capabilities ?? []).includes('manage_team_memory')} />
+      </> : null}
       <div className="flex flex-wrap items-center gap-3">
         <Tabs items={tabs} value={tab} onChange={setTab} />
         <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -537,6 +564,7 @@ export function Knowledge() {
         onConfirm={confirmBrief}
       />
       <KnowledgeDetailDrawer
+        context={context}
         open={drawerTarget !== null}
         target={drawerTarget}
         busy={busy}

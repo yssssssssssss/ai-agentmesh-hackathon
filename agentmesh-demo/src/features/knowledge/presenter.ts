@@ -48,6 +48,8 @@ export interface KnowledgeUsageRecord {
 }
 
 export interface KnowledgeAssetView {
+  lifecycleTarget?: { kind: 'memory' | 'document'; id: string; version: number; ownerUserId: string }
+  structuredMemory?: PresentedValue<Pick<MemoryItem, 'facts' | 'procedure'>>
   kind: 'user_memory' | 'accepted_memory' | 'document'
   id: PresentedValue<string>
   title: PresentedValue<string>
@@ -78,6 +80,9 @@ export interface KnowledgeAssetView {
 }
 
 export interface PendingKnowledgeView {
+  delegatedQueryId?: PresentedValue<string | null>
+  structuredMemory?: PresentedValue<Pick<MemoryItem, 'facts' | 'procedure'>>
+  inspectionRunId?: PresentedValue<string | null>
   kind: 'inbox' | 'team_candidate'
   id: PresentedValue<string>
   title: PresentedValue<string>
@@ -200,6 +205,8 @@ function userMemoryAsset(item: UserMemoryItem, input: KnowledgeViewModelInput): 
   const reference = referenceAssets.get(item.id ?? '')
   const governed = item.provenance != null
   return {
+    lifecycleTarget: item.id && item.scope === 'private' && item.version != null && item.status !== 'forgotten'
+      ? { kind: 'memory', id: item.id, version: item.version, ownerUserId: item.user_id } : undefined,
     kind: 'user_memory',
     id: presentedValue(item.id ?? item.title, 'T'),
     title: presentedValue(item.title, 'T'),
@@ -231,6 +238,7 @@ function userMemoryAsset(item: UserMemoryItem, input: KnowledgeViewModelInput): 
     sourceTaskId: presentedValue(item.provenance?.task_id ?? null, 'T'),
     sourceRunId: presentedValue(item.provenance?.run_id ?? null, 'T'),
     sourceReviewId: presentedValue(item.provenance?.review_id ?? null, 'T'),
+    structuredMemory: presentedValue({ facts: item.facts, procedure: item.procedure }, 'T'),
   }
 }
 
@@ -241,6 +249,8 @@ export function memoryEntryAsset(
   const reference = referenceAssets.get(item.id ?? '')
   const governed = item.provenance != null
   return {
+    lifecycleTarget: item.kind === 'personal' && item.scope === 'private' && item.owner_user_id && item.status !== 'forgotten'
+      ? { kind: 'memory', id: item.id, version: item.version, ownerUserId: item.owner_user_id } : undefined,
     kind: 'accepted_memory',
     id: presentedValue(item.id ?? item.title, 'T'),
     title: presentedValue(item.title, 'T'),
@@ -275,11 +285,14 @@ export function memoryEntryAsset(
     sourceTaskId: presentedValue(item.provenance?.task_id ?? null, 'T'),
     sourceRunId: presentedValue(item.provenance?.run_id ?? null, 'T'),
     sourceReviewId: presentedValue(item.provenance?.review_id ?? null, 'T'),
+    structuredMemory: presentedValue({ facts: item.facts, procedure: item.procedure }, 'T'),
   }
 }
 
 function documentAsset(document: DocumentRecord): KnowledgeAssetView {
   return {
+    lifecycleTarget: document.uploaded_by
+      ? { kind: 'document', id: document.id, version: document.version, ownerUserId: document.uploaded_by } : undefined,
     kind: 'document',
     id: presentedValue(document.id, 'T'),
     title: presentedValue(document.title, 'T'),
@@ -333,6 +346,8 @@ function pendingInbox(
     documentId: presentedValue(documentId, 'T'),
     documentVersion: presentedValue(documentVersion, 'T'),
     taskId: presentedValue(item.metadata?.task_id || null, 'T'),
+    inspectionRunId: presentedValue(item.item_type === 'project_inspection' ? item.metadata?.run_id || null : null, 'T'),
+    delegatedQueryId: presentedValue(item.item_type === 'delegated_answer_confirmation' ? item.metadata?.query_id || null : null, 'T'),
     memoryId: presentedValue(item.metadata?.memory_id || null, 'T'),
     memoryVersion: presentedValue(null, 'T'),
     memoryReview: presentedValue(null, 'T'),
@@ -361,6 +376,7 @@ function pendingCandidate(item: MemoryItem, input: KnowledgeViewModelInput): Pen
     memoryId: presentedValue(item.id ?? null, 'T'),
     memoryVersion: presentedValue(item.version ?? 1, 'T'),
     memoryReview: presentedValue(item.memory_review ?? null, 'T'),
+    structuredMemory: presentedValue({ facts: item.facts, procedure: item.procedure }, 'T'),
     toolCalls: presentedValue([], 'T'),
     allowedActions: presentedValue([...item.allowed_actions], 'T'),
   }
@@ -532,7 +548,7 @@ export function buildKnowledgeViewModel(input: KnowledgeViewModelInput): Knowled
         ...(input.overview.data?.sections.short ?? []),
         ...(input.overview.data?.sections.project ?? []),
         ...(input.overview.data?.sections.archive ?? []),
-      ])
+      ]).filter((item) => item.status === 'active' && !item.archived_at)
     : []
   const teamMemories = input.memory.state === 'available'
     ? input.memory.data?.items ?? []

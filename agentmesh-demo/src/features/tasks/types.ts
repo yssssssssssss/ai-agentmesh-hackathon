@@ -90,3 +90,6 @@ export type TaskOperationsSnapshot = Omit<
 export type TaskOption = components['schemas']['TaskOptionV1']
 export type TaskOptionPage = components['schemas']['TaskOptionPageV1']
 export type AgentQueueState = components['schemas']['AgentQueueState']
+export type ProjectInspectionReport = components['schemas']['ProjectInspectionReportV1']
+export type ProjectInspectionRequest = components['schemas']['ProjectInspectionRequestV1']
+export type InspectionTemplate = ProjectInspectionRequest['template_id']

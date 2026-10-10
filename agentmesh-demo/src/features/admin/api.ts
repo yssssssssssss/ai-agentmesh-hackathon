@@ -23,6 +23,8 @@ export type User = components['schemas']['User']
 export type UserCreateRequest = components['schemas']['UserCreateRequest']
 export type PermissionPolicyRule = components['schemas']['PermissionPolicyRule']
 export type RiskPolicyRule = components['schemas']['RiskPolicyRule']
+export type RunnerDevice = components['schemas']['RunnerDeviceV1']
+export type RunnerEnrollmentReview = components['schemas']['RunnerEnrollmentReviewResponse']
 export type AuditListResponse = components['schemas']['AuditListResponse']
 export type ProviderHealthCheckResponse = components['schemas']['ProviderHealthCheckResponse']
 export type O2StatusResponse = components['schemas']['O2StatusResponse']
@@ -35,6 +37,8 @@ type ModelsResponse = components['schemas']['ModelsResponse']
 type ToolsResponse = components['schemas']['ToolsResponse']
 type PermissionPoliciesResponse = components['schemas']['PermissionPoliciesResponse']
 type RiskPoliciesResponse = components['schemas']['RiskPoliciesResponse']
+type RunnerDevicesResponse = components['schemas']['RunnerDevicesResponse']
+type RunnerEnrollmentApprovalResponse = components['schemas']['RunnerEnrollmentApprovalResponse']
 type StatusResponse = components['schemas']['StatusResponse']
 
 export function hasCapability(capabilities: readonly string[], capability: AdminCapability) {
@@ -151,6 +155,43 @@ export function useProviderAdmin(
       ]),
   })
   return { providers, o2, sync }
+}
+
+export function useRunnerAdmin(context: AdminQueryScope, userCode: string | null) {
+  const queryClient = useQueryClient()
+  const runnersKey = [...queryKeys.admin.root(context), 'runners'] as const
+  const enrollmentKey = [...runnersKey, 'enrollment', userCode ?? ''] as const
+  const runners = useQuery({
+    queryKey: runnersKey,
+    queryFn: () => apiRequest<RunnerDevicesResponse>('/api/runners'),
+  })
+  const enrollment = useQuery({
+    queryKey: enrollmentKey,
+    queryFn: () => apiRequest<RunnerEnrollmentReview>(
+      `/api/runner/enrollment/${encodeURIComponent(userCode ?? '')}`,
+    ),
+    enabled: Boolean(userCode),
+    retry: false,
+    refetchInterval: userCode ? 2_000 : false,
+  })
+  const approve = useMutation({
+    mutationFn: () => apiRequest<RunnerEnrollmentApprovalResponse>(
+      `/api/runner/enrollment/${encodeURIComponent(userCode ?? '')}/approve`,
+      { method: 'POST' },
+    ),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: runnersKey }),
+      queryClient.invalidateQueries({ queryKey: enrollmentKey }),
+    ]),
+  })
+  const revoke = useMutation({
+    mutationFn: (runnerId: string) => apiRequest<StatusResponse>(
+      `/api/runners/${encodeURIComponent(runnerId)}/revoke`,
+      { method: 'POST' },
+    ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: runnersKey }),
+  })
+  return { runners, enrollment, approve, revoke }
 }
 
 export function usePolicyAdmin(

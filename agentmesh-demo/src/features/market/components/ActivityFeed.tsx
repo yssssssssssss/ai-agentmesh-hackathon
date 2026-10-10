@@ -25,6 +25,10 @@ function accentFor(item: MarketActivityItem): Accent {
       return { dot: 'bg-remind', icon: 'text-remind', ring: 'ring-remind/25', label: '等待确认' }
     case 'denied':
       return { dot: 'bg-rose', icon: 'text-rose', ring: 'ring-rose/25', label: '已婉拒' }
+    case 'blocked':
+      return { dot: 'bg-slate-400', icon: 'text-slate-300', ring: 'ring-white/[0.14]', label: '暂不可用' }
+    case 'insufficient_evidence':
+      return { dot: 'bg-remind', icon: 'text-remind', ring: 'ring-remind/25', label: '资料不足' }
     default:
       return { dot: 'bg-slate-400', icon: 'text-slate-300', ring: 'ring-white/[0.14]', label: '进行中' }
   }
