@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from agentmesh.app import app
+from agentmesh.app import app, check_runtime_configuration
 from agentmesh.models import (
     AgentPlanningMode,
     AgentRunStatus,
@@ -600,10 +600,11 @@ class TestConfigProfile:
         assert runtime["task_management_mode"] == "write"
 
     def test_unknown_profile_stops_application_startup(self, monkeypatch):
+        # Startup runs this check before any service starts; a full lifespan here would shut down shared services.
         monkeypatch.setenv("AGENTMESH_PROFILE", "prod")
 
-        with pytest.raises(ValueError, match="unknown AGENTMESH_PROFILE"), TestClient(app):
-            pass
+        with pytest.raises(ValueError, match="unknown AGENTMESH_PROFILE"):
+            check_runtime_configuration()
 
 
 class TestLegacyRuntimeDeprecation:
@@ -611,15 +612,23 @@ class TestLegacyRuntimeDeprecation:
         monkeypatch.delenv("AGENTMESH_PROFILE", raising=False)
         monkeypatch.setenv("AGENTMESH_AGENT_RUNTIME", "legacy")
 
-        with caplog.at_level("WARNING", logger="agentmesh.app"), TestClient(app):
-            pass
+        with caplog.at_level("WARNING", logger="agentmesh.app"):
+            check_runtime_configuration()
 
         assert any("legacy chat runtime is deprecated" in record.message for record in caplog.records)
 
     def test_startup_does_not_warn_on_the_sdk_runtime(self, monkeypatch, caplog):
         monkeypatch.setenv("AGENTMESH_AGENT_RUNTIME", "v2")
 
-        with caplog.at_level("WARNING", logger="agentmesh.app"), TestClient(app):
-            pass
+        with caplog.at_level("WARNING", logger="agentmesh.app"):
+            check_runtime_configuration()
 
         assert not any("legacy chat runtime is deprecated" in record.message for record in caplog.records)
+
+
+def test_lifespan_runs_the_runtime_configuration_check(monkeypatch):
+    import inspect
+
+    from agentmesh import app as app_module
+
+    assert "check_runtime_configuration()" in inspect.getsource(app_module.lifespan)

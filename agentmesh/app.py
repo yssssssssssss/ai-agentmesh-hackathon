@@ -89,6 +89,14 @@ FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 logger = logging.getLogger(__name__)
 
 
+def check_runtime_configuration() -> None:
+    validate_profile()
+    if not agent_runtime_enabled():
+        logger.warning(
+            "legacy chat runtime is deprecated (ADR 0053); set AGENTMESH_PROFILE=pilot or AGENTMESH_AGENT_RUNTIME=v2"
+        )
+
+
 def initialize_application_data(repository: SQLiteStore) -> None:
     repository.reconcile_run_dispatches_for_startup()
     repository.reconcile_orphaned_agent_runs()
@@ -108,11 +116,7 @@ def initialize_application_data(repository: SQLiteStore) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    validate_profile()
-    if not agent_runtime_enabled():
-        logger.warning(
-            "legacy chat runtime is deprecated (ADR 0053); set AGENTMESH_PROFILE=pilot or AGENTMESH_AGENT_RUNTIME=v2"
-        )
+    check_runtime_configuration()
     store.initialize()
     initialize_application_data(store)
     ConnectorSyncService.reconcile_startup_bindings(store)
