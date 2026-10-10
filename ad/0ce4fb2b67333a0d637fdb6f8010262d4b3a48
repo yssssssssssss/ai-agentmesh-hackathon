@@ -1,0 +1,47 @@
+agentmesh/profiles.py
+  s_3864a3cf0f33e4::t_d688695ab10701 1-13,16-19,21-49
+  s_3864a3cf0f33e4::t_df6ddd4c154d71 14-15,20
+tests/test_health.py
+  s_3864a3cf0f33e4::t_ad39c0d7539078 606-624
+  s_3864a3cf0f33e4::t_b11ad4af4b8dda 70,585-605
+agentmesh/agent_runtime/settings.py
+  s_3864a3cf0f33e4::t_d95a014218b373 6-7,16,24,32,36
+agentmesh/memory_context/settings.py
+  s_3864a3cf0f33e4::t_d95a014218b373 5-6,15
+agentmesh/automation/settings.py
+  s_3864a3cf0f33e4::t_d95a014218b373 5-6,9
+agentmesh/routes/health.py
+  s_3864a3cf0f33e4::t_c61c2949f9c795 25
+  s_3864a3cf0f33e4::t_b11ad4af4b8dda 379
+agentmesh/app.py
+  s_3864a3cf0f33e4::t_b11ad4af4b8dda 111
+  s_3864a3cf0f33e4::t_8365aae0714c90 6,89
+  s_3864a3cf0f33e4::t_5f58efba9559bb 14,112-115
+  s_3864a3cf0f33e4::t_c61c2949f9c795 28
+  s_3864a3cf0f33e4::t_dc2ad58074bc27 90
+agentmesh/task_management/settings.py
+  s_3864a3cf0f33e4::t_d95a014218b373 7-8,16
+.env.example
+  s_3864a3cf0f33e4::t_b78d6b40cd09da 8-14,37,45,48,50
+tests/test_settings_profile.py
+  s_3864a3cf0f33e4::t_0c2f698d3c6b3b 62,108-109,115-118
+  s_3864a3cf0f33e4::t_fe5f48d39c3a04 16,106-107,110-114
+  s_3864a3cf0f33e4::t_aca22658a7cfce 3-4
+  s_3864a3cf0f33e4::t_c2739f671f8015 1-2,5-15,17-61,63-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "ad0ce4fb2b67333a0d637fdb6f8010262d4b3a48",
+  "prompts": {},
+  "sessions": {
+    "s_3864a3cf0f33e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f8985b60-f93b-42cc-bf00-e5bb879bbcc7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ys <138124498+yssssssssssss@users.noreply.github.com>"
+    }
+  }
+}
