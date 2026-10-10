@@ -241,6 +241,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = ROOT_DIR / "data" / "agentmesh.sqlite3"
 _SQLITE_BUSY_TIMEOUT_SECONDS = 5.0
 _SQLITE_BUSY_TIMEOUT_MS = int(_SQLITE_BUSY_TIMEOUT_SECONDS * 1000)
+# SQLite's default SQLITE_MAX_LIKE_PATTERN_LENGTH; longer patterns raise OperationalError.
+_SQLITE_MAX_LIKE_PATTERN_BYTES = 50_000
 
 
 class BriefConfirmationError(RuntimeError):
@@ -19877,6 +19879,8 @@ class SQLiteStore:
         memory_types: set[str] | None = None,
     ) -> list[sqlite3.Row]:
         like_pattern = f"%{needle}%"
+        if len(like_pattern.encode()) > _SQLITE_MAX_LIKE_PATTERN_BYTES:
+            return []
         collection_values = sorted(allowed_collections) if allowed_collections is not None else []
         collection_clause = ""
         if collection_values:
