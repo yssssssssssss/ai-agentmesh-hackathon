@@ -1,0 +1,28 @@
+tests/test_sdk_tool_runtime.py
+  s_3864a3cf0f33e4::t_4b30b7ed879df4 406
+tests/test_automation_occurrences.py
+  s_3864a3cf0f33e4::t_427520afdb3b45 79
+tests/test_health.py
+  s_3864a3cf0f33e4::t_427520afdb3b45 47-48
+tests/test_task_management_routes.py
+  s_3864a3cf0f33e4::t_427520afdb3b45 15
+tests/test_agent_runtime_sdk.py
+  s_3864a3cf0f33e4::t_4b30b7ed879df4 74
+  s_3864a3cf0f33e4::t_427520afdb3b45 460
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "771d649d78372358b939b2ebd43746d98286b121",
+  "prompts": {},
+  "sessions": {
+    "s_3864a3cf0f33e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f8985b60-f93b-42cc-bf00-e5bb879bbcc7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ys <138124498+yssssssssssss@users.noreply.github.com>"
+    }
+  }
+}
