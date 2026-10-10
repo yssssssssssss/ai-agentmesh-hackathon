@@ -44,7 +44,8 @@ class TestProviderHealthCheck:
         response = client.get("/api/health/providers")
         assert response.status_code == 401
 
-    def test_returns_all_providers(self, auth_client: TestClient):
+    def test_returns_all_providers(self, auth_client: TestClient, monkeypatch):
+        monkeypatch.delenv("AGENTMESH_PROFILE", raising=False)
         response = auth_client.get("/api/health/providers")
         assert response.status_code == 200
         data = response.json()

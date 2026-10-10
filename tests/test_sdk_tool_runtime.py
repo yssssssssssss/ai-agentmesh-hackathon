@@ -403,6 +403,7 @@ def test_user_granted_read_only_web_tool_does_not_require_per_call_approval(tmp_
         content_hash="granted-read-hash",
         requested_tools=["web_research"],
     )
+    repository.save_skill_definition(skill)
     model = ScriptedModel(
         [
             [function_call("web_research", {"query": "current market"}, call_id="web_read")],

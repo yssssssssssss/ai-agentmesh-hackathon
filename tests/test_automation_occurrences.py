@@ -76,6 +76,7 @@ def test_off_and_observe_never_write_runs_receipts_or_schedule_watermarks(schedu
     repository, user = schedule_project
     definition = _definition(repository, user)
     if mode is None:
+        monkeypatch.delenv("AGENTMESH_PROFILE", raising=False)
         monkeypatch.delenv("AGENTMESH_AUTOMATION_MODE", raising=False)
     else:
         monkeypatch.setenv("AGENTMESH_AUTOMATION_MODE", mode)

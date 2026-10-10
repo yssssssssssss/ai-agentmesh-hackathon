@@ -71,6 +71,7 @@ def test_sdk_runtime_injects_activated_skill_instructions(tmp_path) -> None:
     model = ScriptedModel([[assistant_message("SDK skill answer")]])
     runtime = AgentRuntimeService(repository=repository, model=model, enabled=True)
     skill = _skill()
+    repository.save_skill_definition(skill)
 
     answer = runtime.run_sync(
         content="plan a checkout usability study",
@@ -456,6 +457,7 @@ def test_sdk_strict_tool_compatibility_flag(monkeypatch) -> None:
 
 
 def test_runtime_flag_is_disabled_by_default(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("AGENTMESH_PROFILE", raising=False)
     monkeypatch.delenv("AGENTMESH_AGENT_RUNTIME", raising=False)
     runtime = AgentRuntimeService(repository=SQLiteStore(tmp_path / "runtime.sqlite3"))
 
