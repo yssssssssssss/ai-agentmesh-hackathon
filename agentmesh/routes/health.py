@@ -22,6 +22,7 @@ from agentmesh.memory_context.settings import memory_context_mode
 from agentmesh.models import AgentPlanningMode, AgentRunStatus, ProviderHealthCheckResponse, User
 from agentmesh.o2 import O2CommandRunner, maybe_register_o2_data_connector, o2_research_provider_status
 from agentmesh.permissions import ACTION_VIEW_PROVIDER_HEALTH
+from agentmesh.profiles import active_profile
 from agentmesh.provider_status import ProviderStatus, build_provider_status
 from agentmesh.routes.deps import require_permission
 from agentmesh.runtime_capacity import current_runtime_capacity
@@ -375,6 +376,7 @@ def _agent_runtime_status(*, deepsearch_recovery_running: bool = False) -> dict[
         "mode": "real" if ready else "fallback",
         "sdk_version": getattr(openai_agents, "__version__", "unknown"),
         "runtime_enabled": runtime_enabled,
+        "config_profile": active_profile(),
         "skill_orchestration_mode": orchestration_mode.value,
         "task_management_mode": task_management_mode().value,
         "memory_context_mode": memory_context_mode().value,

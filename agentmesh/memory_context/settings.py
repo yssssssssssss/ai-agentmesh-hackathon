@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 from enum import StrEnum
+
+from agentmesh.profiles import env_setting
 
 
 class MemoryContextMode(StrEnum):
@@ -11,7 +12,7 @@ class MemoryContextMode(StrEnum):
 
 
 def memory_context_mode() -> MemoryContextMode:
-    raw = os.getenv("AGENTMESH_MEMORY_CONTEXT", MemoryContextMode.OFF.value).strip().lower()
+    raw = env_setting("AGENTMESH_MEMORY_CONTEXT", MemoryContextMode.OFF.value).strip().lower()
     try:
         return MemoryContextMode(raw)
     except ValueError:

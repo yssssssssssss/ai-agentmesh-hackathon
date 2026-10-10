@@ -12,6 +12,7 @@ from tests.test_chat_flow import authenticated_client, clear_store
 
 def test_task_management_is_read_only_by_default(monkeypatch) -> None:
     clear_store()
+    monkeypatch.delenv("AGENTMESH_PROFILE", raising=False)
     monkeypatch.delenv("AGENTMESH_TASK_MANAGEMENT", raising=False)
     client = authenticated_client()
 

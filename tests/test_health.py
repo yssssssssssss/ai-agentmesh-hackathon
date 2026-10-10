@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from agentmesh.app import app
+from agentmesh.app import app, check_runtime_configuration
 from agentmesh.models import (
     AgentPlanningMode,
     AgentRunStatus,
@@ -44,7 +44,8 @@ class TestProviderHealthCheck:
         response = client.get("/api/health/providers")
         assert response.status_code == 401
 
-    def test_returns_all_providers(self, auth_client: TestClient):
+    def test_returns_all_providers(self, auth_client: TestClient, monkeypatch):
+        monkeypatch.delenv("AGENTMESH_PROFILE", raising=False)
         response = auth_client.get("/api/health/providers")
         assert response.status_code == 200
         data = response.json()
@@ -67,6 +68,7 @@ class TestProviderHealthCheck:
         assert runtime["planner_health"] in {"disabled", "ready", "degraded"}
         assert runtime["task_management_mode"] == "read_only"
         assert runtime["memory_context_mode"] == "off"
+        assert runtime["config_profile"] is None
         assert runtime["deepsearch_recovery_running"] is False
         assert not any(key.startswith("research_writer_") for key in runtime)
         assert not any(key.startswith("research_preview_") for key in runtime)
@@ -581,3 +583,52 @@ class TestProviderHealthCheck:
             response = auth_client.get("/api/health/providers")
         data = response.json()
         assert data["overall"] == "degraded"
+
+
+class TestConfigProfile:
+    def test_pilot_profile_is_reported_with_its_effective_modes(self, auth_client: TestClient, monkeypatch):
+        monkeypatch.setenv("AGENTMESH_PROFILE", "pilot")
+        for name in ("AGENTMESH_AGENT_RUNTIME", "AGENTMESH_MEMORY_CONTEXT", "AGENTMESH_TASK_MANAGEMENT"):
+            monkeypatch.delenv(name, raising=False)
+
+        response = auth_client.get("/api/health/providers")
+
+        runtime = next(item for item in response.json()["providers"] if item["name"] == "openai_agents_sdk")
+        assert runtime["config_profile"] == "pilot"
+        assert runtime["runtime_enabled"] is True
+        assert runtime["memory_context_mode"] == "inject"
+        assert runtime["task_management_mode"] == "write"
+
+    def test_unknown_profile_stops_application_startup(self, monkeypatch):
+        # Startup runs this check before any service starts; a full lifespan here would shut down shared services.
+        monkeypatch.setenv("AGENTMESH_PROFILE", "prod")
+
+        with pytest.raises(ValueError, match="unknown AGENTMESH_PROFILE"):
+            check_runtime_configuration()
+
+
+class TestLegacyRuntimeDeprecation:
+    def test_startup_warns_when_the_legacy_chat_path_is_active(self, monkeypatch, caplog):
+        monkeypatch.delenv("AGENTMESH_PROFILE", raising=False)
+        monkeypatch.setenv("AGENTMESH_AGENT_RUNTIME", "legacy")
+
+        with caplog.at_level("WARNING", logger="agentmesh.app"):
+            check_runtime_configuration()
+
+        assert any("legacy chat runtime is deprecated" in record.message for record in caplog.records)
+
+    def test_startup_does_not_warn_on_the_sdk_runtime(self, monkeypatch, caplog):
+        monkeypatch.setenv("AGENTMESH_AGENT_RUNTIME", "v2")
+
+        with caplog.at_level("WARNING", logger="agentmesh.app"):
+            check_runtime_configuration()
+
+        assert not any("legacy chat runtime is deprecated" in record.message for record in caplog.records)
+
+
+def test_lifespan_runs_the_runtime_configuration_check(monkeypatch):
+    import inspect
+
+    from agentmesh import app as app_module
+
+    assert "check_runtime_configuration()" in inspect.getsource(app_module.lifespan)

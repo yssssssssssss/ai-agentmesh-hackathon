@@ -105,6 +105,8 @@ Start the app with production-safe defaults:
 
 The default startup does not create demo users, fixed passwords, or demo content. This MVP supports one Workspace, one default Project, one application instance, and one SQLite database; do not expose it to the public internet.
 
+For an internal pilot, set `AGENTMESH_PROFILE=pilot` to run the single governed path (SDK runtime, Memory inject, Task write). See `docs/runbooks/internal-pilot.md` and ADR 0053; the legacy chat runtime is deprecated.
+
 For an isolated local demo database only, opt in explicitly:
 
 ```bash
