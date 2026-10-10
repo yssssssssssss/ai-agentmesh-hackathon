@@ -144,6 +144,6 @@
 | 这跟套壳 ChatGPT 有什么区别？ | 差异不在"能不能聊"，在于 Blackboard 多 Agent 协作、三层记忆治理、风险审批闭环、真实内网工具接入——这些是 551 个测试覆盖的工程量，不是 prompt 模板。 |
 | 记忆系统的语义检索用什么模型？ | Qwen3-Embedding 做向量化，FTS5 做词法检索，RRF 做混合排序融合两路结果（对应代码 P2/`docs/memory-optimization-plan.md`）。 |
 | 互助市场会不会隐私泄露？ | 默认关闭，用户 opt-in 才参与；发布的是"需求信号"不是原始记忆内容，且仍受 scope 权限过滤。 |
-| Oxygen-CLI 集成是真的还是 mock？ | 接口和适配器是真的，已用真机验证命令契约（见 `O2_SMOKE_TEST.md`）；能否跑通取决于演示环境是否有内网凭证，如实说明当前环境状态。 |
+| Oxygen-CLI 集成是真的还是 mock？ | 接口和适配器是真的，已用真机验证命令契约（见 `docs/archive/O2_SMOKE_TEST.md`）；能否跑通取决于演示环境是否有内网凭证，如实说明当前环境状态。 |
 | 单文件前端/技术栈是不是很原始？ | 已迁移到 React 参考 UI（`agentmesh-demo/`，TanStack Query + Vite），旧的单文件 `app.html` 保留一个发布周期做兼容过渡。 |
 | 下一步最想做什么？ | 把 Oxygen-CLI 的"最后一公里"真实打通到生产凭证，以及把已经在记录的 `ContributionPoint` 贡献点做成看得见的排行榜和可兑现的奖励规则——这两个是我们自己排的第一优先级。 |
