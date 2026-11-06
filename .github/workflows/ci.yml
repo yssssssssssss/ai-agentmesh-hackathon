@@ -44,6 +44,16 @@ jobs:
         env:
           AGENTMESH_EMBEDDING_ENABLED: "false"
 
+  backend-required:
+    name: Backend clean install, Ruff, pytest
+    if: always()
+    needs: backend
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "$RESULT" = success
+        env:
+          RESULT: ${{ needs.backend.result }}
+
   frontend:
     name: Frontend types, unit tests, build
     runs-on: ubuntu-latest
