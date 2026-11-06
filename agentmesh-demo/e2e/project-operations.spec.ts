@@ -40,7 +40,7 @@ test('operates a project through dependencies, milestones, calendar, and the Age
     due_at: '2026-10-01T00:00:00Z',
   })
 
-  await page.goto('/tasks?surface=overview')
+  await page.goto('/tasks?surface=overview&calendar_month=2026-10')
   await expect(page.getByRole('heading', { name: '关键依赖链' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '近期里程碑' })).toBeVisible()
   await expect(page.getByText('Slice 6 发布里程碑')).toBeVisible()
@@ -51,7 +51,7 @@ test('operates a project through dependencies, milestones, calendar, and the Age
   await expect(page.getByRole('heading', { name: '项目日历' })).toBeVisible()
   await expect(page.getByText('实现项目运营界面')).toBeVisible()
   await page.getByRole('button', { name: '下一时间段' }).click()
-  await expect(page).toHaveURL(/calendar_month=/)
+  await expect(page).toHaveURL(/[?&]calendar_month=2026-11(?:&|$)/)
   await expect(page.getByRole('heading', { name: '项目日历' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Agent 队列', exact: true }).click()
