@@ -100,6 +100,7 @@ class TestSearchForAgent:
                 agent_id=agent.id,
                 allowed_scopes=[Scope.TEAM_ACCEPTED],
                 allowed_memory_types=["document"],
+                type_policy_version=1,
                 max_results_per_query=10,
             )
         )
@@ -109,12 +110,16 @@ class TestSearchForAgent:
                 summary="规范内容",
                 memory_type="standard",
                 scope=Scope.TEAM_ACCEPTED,
+                status=MemoryStatus.ACCEPTED,
                 workspace_id="ws1",
             )
         )
+        allowed = s.add_memory_item(MemoryItem(
+            title="部署资料", summary="允许的内容类型", memory_type="document",
+            scope=Scope.TEAM_ACCEPTED, status=MemoryStatus.ACCEPTED, workspace_id="ws1",
+        ))
         results = s.search_for_agent("部署", agent.id, workspace_id="ws1")
-        # memory_item type not in allowed_memory_types=["document"]
-        assert all(r.result_type == "document" for r in results)
+        assert [(r.result_type, r.id) for r in results] == [("memory_item", allowed.id)]
 
     def test_binding_limits_max_results(self) -> None:
         s = _fresh_store()
@@ -150,7 +155,7 @@ class TestAgentBindingAPI:
 
     def test_get_binding_empty(self) -> None:
         client = _authenticated_client()
-        resp = client.get("/api/agents/nonexistent/memory-binding")
+        resp = client.get(f"/api/agents/{USER.personal_agent_id}/memory-binding")
         assert resp.status_code == 200
         assert resp.json()["binding"] is None
 
@@ -170,7 +175,7 @@ class TestAgentBindingAPI:
             json={
                 "agent_id": agent.id,
                 "allowed_scopes": ["team_accepted"],
-                "allowed_memory_types": ["memory_item"],
+                "allowed_memory_types": ["finding"],
                 "allowed_project_ids": [PROJECT.id],
                 "max_results_per_query": 3,
             },

@@ -14,6 +14,7 @@ from agentmesh.models import (
     ChatThreadKind,
     CollaborationStage,
     Intent,
+    PermissionPolicyRule,
     Project,
     Task,
     TaskAssigneeKind,
@@ -114,8 +115,10 @@ class TaskManagementService:
         self.repository = repository
 
     def create_task(self, request: TaskCreateRequest, user: User) -> TaskManagementViewV1:
-        project = self._project_for_user(user, user.default_project_id)
-        request_hash = canonical_json_sha256(request.model_dump(mode="json"))
+        project = self._project_for_user(user, request.project_id or user.default_project_id)
+        request_hash = canonical_json_sha256(request.model_dump(
+            mode="json", exclude={"project_id"} if request.project_id is None else set(),
+        ))
         receipt_id = self._receipt_id(user.id, request.command_id)
         existing = self.repository.get_task_command_receipt(receipt_id)
         if existing is not None:
@@ -198,6 +201,7 @@ class TaskManagementService:
 
     def list_tasks(self, query: TaskListQuery, user: User) -> TaskManagementPageV1:
         self._project_for_user(user, query.project_id)
+        permission_rules = self.repository.permission_policy_rules
         for boundary in (query.due_after, query.due_before):
             if boundary is not None and boundary.utcoffset() is None:
                 raise TaskManagementError("task_due_filter_timezone_required", status_code=422)
@@ -246,6 +250,7 @@ class TaskManagementService:
                         graph=graph,
                         active_run_task_ids=active_run_task_ids,
                         pending_review_by_task=pending_review_by_task,
+                        permission_rules=permission_rules,
                     )
                     for task, thread in page_records
                 ],
@@ -310,6 +315,7 @@ class TaskManagementService:
                 graph=graph,
                 active_run_task_ids=active_run_task_ids,
                 pending_review_by_task=pending_review_by_task,
+                permission_rules=permission_rules,
             )
             for task, thread, management in records[start:end]
         ]
@@ -772,6 +778,7 @@ class TaskManagementService:
         graph: TaskGraph | None = None,
         active_run_task_ids: set[str] | None = None,
         pending_review_by_task: dict[str, TaskReviewV1] | None = None,
+        permission_rules: list[PermissionPolicyRule] | None = None,
     ) -> TaskManagementViewV1:
         resolved_thread = thread or self.repository.get_chat_thread(task.thread_id)
         if resolved_thread is None:
@@ -801,13 +808,13 @@ class TaskManagementService:
                 and has_permission(
                     user,
                     ACTION_REVIEW_TASK_DELIVERABLES,
-                    self.repository.permission_policy_rules,
+                    permission_rules if permission_rules is not None else self.repository.permission_policy_rules,
                 )
                 and task_management_mode() is TaskManagementMode.WRITE
             )
             actions = [TaskManagementAction.REVIEW_DELIVERABLE] if can_review else []
         else:
-            actions = self.allowed_actions(user, resolved_management, readiness)
+            actions = self.allowed_actions(user, resolved_management, readiness, permission_rules=permission_rules)
         return TaskManagementViewV1(
             task=task,
             management=resolved_management,
@@ -820,13 +827,17 @@ class TaskManagementService:
         user: User,
         management: TaskManagementMetadataV1,
         readiness: TaskReadinessV1 | None = None,
+        *,
+        permission_rules: list[PermissionPolicyRule] | None = None,
     ) -> list[TaskManagementAction]:
         if task_management_mode() is not TaskManagementMode.WRITE or management.archived_at is not None:
             return []
-        if not self._can_manage(user, management):
+        rules = permission_rules if permission_rules is not None else self.repository.permission_policy_rules
+        is_manager = has_permission(user, ACTION_MANAGE_PROJECT_TASKS, rules)
+        if not self._can_manage(user, management, manage_permission=is_manager):
             return []
         actions = [TaskManagementAction.EDIT, TaskManagementAction.ASSIGN]
-        if self._is_project_manager(user) and (
+        if is_manager and (
             readiness is None or readiness.state is not TaskReadinessState.RUNNING
         ):
             actions.append(TaskManagementAction.MANAGE_RELATIONSHIPS)
@@ -845,7 +856,7 @@ class TaskManagementService:
         actions.extend(
             TaskManagementAction(action.value)
             for action in transitions
-            if (action != TaskTransitionAction.COMPLETE or self._is_project_manager(user))
+            if (action != TaskTransitionAction.COMPLETE or is_manager)
             and not (
                 (
                     action is TaskTransitionAction.START
@@ -860,7 +871,7 @@ class TaskManagementService:
         )
         if (
             management.delivery_stage in {TaskDeliveryStage.DONE, TaskDeliveryStage.CANCELLED}
-            and self._is_project_manager(user)
+            and is_manager
         ):
             actions.append(TaskManagementAction.ARCHIVE)
         return list(dict.fromkeys(actions))
@@ -997,8 +1008,11 @@ class TaskManagementService:
         if not graph.dependencies_done(task.id):
             raise TaskManagementError("task_dependencies_incomplete")
 
-    def _can_manage(self, user: User, management: TaskManagementMetadataV1) -> bool:
-        if has_permission(user, ACTION_MANAGE_PROJECT_TASKS, self.repository.permission_policy_rules):
+    def _can_manage(self, user: User, management: TaskManagementMetadataV1,
+                    *, manage_permission: bool | None = None) -> bool:
+        if manage_permission is None:
+            manage_permission = self._is_project_manager(user)
+        if manage_permission:
             return True
         if management.created_by == user.id:
             return True

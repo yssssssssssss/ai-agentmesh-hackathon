@@ -330,6 +330,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/runs/{run_id}/memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save Agent Run Memory */
+        post: operations["save_agent_run_memory_api_agent_runs__run_id__memory_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/runs/{run_id}/input-request": {
         parameters: {
             query?: never;
@@ -898,6 +915,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agents/scheduled-tasks/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Schedule Status */
+        get: operations["schedule_status_api_agents_scheduled_tasks_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/scheduled-tasks/{definition_id}/run-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Scheduled Inspection Now */
+        post: operations["run_scheduled_inspection_now_api_agents_scheduled_tasks__definition_id__run_now_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/scheduled-tasks/{definition_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scheduled Inspection Runs */
+        get: operations["scheduled_inspection_runs_api_agents_scheduled_tasks__definition_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/inspection-runs/{run_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scheduled Inspection Report */
+        get: operations["scheduled_inspection_report_api_agents_inspection_runs__run_id__report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agents/scheduled-tasks/{definition_id}": {
         parameters: {
             query?: never;
@@ -969,7 +1054,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Agent Memory Binding
-         * @description Remove memory binding (agent reverts to full access).
+         * @description Remove the binding; ordinary memory authorization still applies.
          */
         delete: operations["delete_agent_memory_binding_api_agents__agent_id__memory_binding_delete"];
         options?: never;
@@ -1261,6 +1346,281 @@ export interface paths {
         put?: never;
         /** Reply Blackboard Post */
         post: operations["reply_blackboard_post_api_blackboard_posts__post_id__reply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/facts/terminology/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Terminology */
+        get: operations["project_terminology_api_memory_facts_terminology__project_id__get"];
+        /** Update Project Terminology */
+        put: operations["update_project_terminology_api_memory_facts_terminology__project_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/facts/source-documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Document Evidence */
+        get: operations["document_evidence_api_memory_facts_source_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/facts/remember": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remember Facts */
+        post: operations["remember_facts_api_memory_facts_remember_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/facts/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Facts */
+        post: operations["query_facts_api_memory_facts_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/learning/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status */
+        get: operations["status_api_memory_learning_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preferences */
+        get: operations["preferences_api_memory_preferences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Preferences */
+        patch: operations["patch_preferences_api_memory_preferences_patch"];
+        trace?: never;
+    };
+    "/api/memory/learning/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Jobs */
+        get: operations["jobs_api_memory_learning_jobs_get"];
+        put?: never;
+        /** Learn */
+        post: operations["learn_api_memory_learning_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/learning/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job */
+        get: operations["job_api_memory_learning_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/learning/jobs/{job_id}/candidate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Candidate */
+        get: operations["candidate_api_memory_learning_jobs__job_id__candidate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/learning/jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry */
+        post: operations["retry_api_memory_learning_jobs__job_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/learning/jobs/{job_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm */
+        post: operations["confirm_api_memory_learning_jobs__job_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/source-spans/{span_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Source Span */
+        get: operations["source_span_api_memory_source_spans__span_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/{memory_id}/forget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Forget */
+        post: operations["forget_api_memory__memory_id__forget_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/sources/documents/{document_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw */
+        post: operations["withdraw_api_memory_sources_documents__document_id__withdraw_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/relations/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Memory Relations */
+        post: operations["query_memory_relations_api_memory_relations_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory/relations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Memory Relation */
+        post: operations["create_memory_relation_api_memory_relations_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1729,6 +2089,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/market/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Queries */
+        get: operations["list_queries_api_market_queries_get"];
+        put?: never;
+        /** Create Query */
+        post: operations["create_query_api_market_queries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/queries/{query_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Query */
+        get: operations["get_query_api_market_queries__query_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/queries/{query_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Query */
+        post: operations["resolve_query_api_market_queries__query_id__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/queries/{query_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume Query */
+        post: operations["resume_query_api_market_queries__query_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/queries/{query_id}/adopt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Adopt Query */
+        post: operations["adopt_query_api_market_queries__query_id__adopt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/query-consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Query Consents */
+        get: operations["list_query_consents_api_market_query_consents_get"];
+        /** Set Query Consent */
+        put: operations["set_query_consent_api_market_query_consents_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/market/status": {
         parameters: {
             query?: never;
@@ -1816,11 +2280,7 @@ export interface paths {
         };
         /**
          * Market Activity
-         * @description Global activity feed: every agent's signals and matches, newest first.
-         *
-         *     Where /me is the current user's personal view, this is the whole trading
-         *     floor — so the demo can show many agents helping each other in real time.
-         *     Each item's ``text`` is fully composed server-side; the frontend renders it.
+         * @description Current-project activity, newest first, with no private answer bodies.
          */
         get: operations["market_activity_api_market_activity_get"];
         put?: never;
@@ -1862,11 +2322,7 @@ export interface paths {
         put?: never;
         /**
          * Adopt Delegated Answer Route
-         * @description The asker adopts a helper's answer: records a contribution point + lineage edge.
-         *
-         *     Builds the adopted answer from the match post already on the board (the answer the
-         *     helper's twin produced), rather than re-synthesizing — so adoption doesn't depend on
-         *     a live LLM or standing consent at demo time.
+         * @description Legacy match posts contain status metadata, not verifiable answer artifacts.
          */
         post: operations["adopt_delegated_answer_route_api_market_delegated_answers_adopt_post"];
         delete?: never;
@@ -1920,6 +2376,23 @@ export interface paths {
         get: operations["document_job_detail_api_documents_jobs__job_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Document Job */
+        post: operations["retry_document_job_api_documents_jobs__job_id__retry_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1998,6 +2471,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Connectors */
+        get: operations["project_connectors_api_projects__project_id__connectors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/connectors/{provider}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sync Project Connector */
+        post: operations["sync_project_connector_api_projects__project_id__connectors__provider__sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/connectors/{cursor_id}/control": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Control Project Connector */
+        post: operations["control_project_connector_api_projects__project_id__connectors__cursor_id__control_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/data-agent/query": {
         parameters: {
             query?: never;
@@ -2048,6 +2572,329 @@ export interface paths {
         head?: never;
         /** Update Risk Policy */
         patch: operations["update_risk_policy_api_risk_policies__rule_id__patch"];
+        trace?: never;
+    };
+    "/api/runner/enrollment/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Runner Enrollment */
+        post: operations["start_runner_enrollment_api_runner_enrollment_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/enrollment/{user_code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Runner Enrollment */
+        get: operations["get_runner_enrollment_api_runner_enrollment__user_code__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/enrollment/{user_code}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Runner Enrollment */
+        post: operations["approve_runner_enrollment_api_runner_enrollment__user_code__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/enrollment/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange Runner Enrollment Token */
+        post: operations["exchange_runner_enrollment_token_api_runner_enrollment_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runner Heartbeat */
+        post: operations["runner_heartbeat_api_runner_heartbeat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claim Runner Dispatch */
+        post: operations["claim_runner_dispatch_api_runner_dispatches_claim_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/model-handoffs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Authorize Runner Model Handoff */
+        post: operations["authorize_runner_model_handoff_api_runner_dispatches__lease_id__model_handoffs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/tool-handoffs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Authorize Runner Tool Handoff */
+        post: operations["authorize_runner_tool_handoff_api_runner_dispatches__lease_id__tool_handoffs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/model-deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Runner Model Delivery */
+        post: operations["confirm_runner_model_delivery_api_runner_dispatches__lease_id__model_deliveries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/renew": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renew Runner Dispatch */
+        post: operations["renew_runner_dispatch_api_runner_dispatches__lease_id__renew_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append Runner Events */
+        post: operations["append_runner_events_api_runner_dispatches__lease_id__events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/node-complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Runner Node Dispatch */
+        post: operations["complete_runner_node_dispatch_api_runner_dispatches__lease_id__node_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/node-fail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fail Runner Node Dispatch */
+        post: operations["fail_runner_node_dispatch_api_runner_dispatches__lease_id__node_fail_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Runner Artifact */
+        post: operations["upload_runner_artifact_api_runner_dispatches__lease_id__artifacts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Runner Dispatch */
+        post: operations["complete_runner_dispatch_api_runner_dispatches__lease_id__complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/fail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fail Runner Dispatch */
+        post: operations["fail_runner_dispatch_api_runner_dispatches__lease_id__fail_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runner/dispatches/{lease_id}/cancelled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledge Runner Cancellation */
+        post: operations["acknowledge_runner_cancellation_api_runner_dispatches__lease_id__cancelled_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runners */
+        get: operations["list_runners_api_runners_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runners/{runner_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Runner */
+        post: operations["revoke_runner_api_runners__runner_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/skills": {
@@ -2301,6 +3148,40 @@ export interface paths {
         put?: never;
         /** Archive Task */
         post: operations["archive_task_api_tasks__task_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/task-operations/{project_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Current State */
+        get: operations["project_current_state_api_task_operations__project_id__state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/task-operations/{project_id}/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Inspect Project */
+        post: operations["inspect_project_api_task_operations__project_id__inspections_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2694,8 +3575,16 @@ export interface components {
             agent_id: string;
             /** Allowed Scopes */
             allowed_scopes?: components["schemas"]["Scope"][];
-            /** Allowed Memory Types */
+            /**
+             * Allowed Memory Types
+             * @description Memory content types such as finding or decision; not search result categories.
+             */
             allowed_memory_types?: string[];
+            /**
+             * Type Policy Version
+             * @description 1 means content-type semantics. Restricted legacy bindings with null/missing version require an authorized PUT before use. The server sets this field when saving configuration.
+             */
+            type_policy_version?: 1 | null;
             /** Allowed Project Ids */
             allowed_project_ids?: string[];
             /**
@@ -2805,6 +3694,10 @@ export interface components {
             /** Writer Generation Epoch */
             writer_generation_epoch?: number | null;
             requested_orchestration_mode?: components["schemas"]["SkillOrchestrationRequestMode"] | null;
+            /** Execution Location */
+            execution_location?: ("server" | "runner") | null;
+            /** Runner Id */
+            runner_id?: string | null;
             /**
              * Agent Definition Version
              * @default 1
@@ -2827,6 +3720,7 @@ export interface components {
             /** Absolute Expires At */
             absolute_expires_at?: string | null;
             deepsearch_budget?: components["schemas"]["DeepSearchBudgetV1"] | null;
+            inspection_usage?: components["schemas"]["ScheduledInspectionUsageV1"] | null;
             /** Paused State */
             paused_state?: {
                 [key: string]: unknown;
@@ -2870,6 +3764,18 @@ export interface components {
             item: components["schemas"]["AgentRun"];
             /** Memory Uses */
             memory_uses?: components["schemas"]["MemoryUseViewV1"][];
+            /** Context Requests */
+            context_requests?: components["schemas"]["ContextRequestMeasurementV1"][];
+            /** Memory Candidates */
+            memory_candidates?: components["schemas"]["MemoryContextCandidateViewV1"][];
+            /** Memory Item Id */
+            memory_item_id?: string | null;
+            /**
+             * Memory Disposition
+             * @default not_applicable
+             * @enum {string}
+             */
+            memory_disposition: "projected" | "policy_skipped" | "not_applicable";
         };
         /** AgentRunEvent */
         AgentRunEvent: {
@@ -2895,6 +3801,15 @@ export interface components {
         AgentRunEventsResponse: {
             /** Items */
             items: components["schemas"]["AgentRunEvent"][];
+        };
+        /** AgentRunMemorySaveRequest */
+        AgentRunMemorySaveRequest: {
+            /** Title */
+            title?: string | null;
+        };
+        /** AgentRunMemorySaveResponse */
+        AgentRunMemorySaveResponse: {
+            item: components["schemas"]["UserMemoryItem"];
         };
         /** AgentRunRetryRequest */
         AgentRunRetryRequest: {
@@ -2927,6 +3842,11 @@ export interface components {
             /** Items */
             items: components["schemas"]["Agent"][];
         };
+        /**
+         * AnswerConfidence
+         * @enum {string}
+         */
+        AnswerConfidence: "" | "none" | "low" | "high";
         /**
          * ArtifactVerificationState
          * @enum {string}
@@ -3036,6 +3956,22 @@ export interface components {
             /** Blackboard Post Id */
             blackboard_post_id?: string | null;
         };
+        /** AutomationStatusV1 */
+        AutomationStatusV1: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "off" | "observe" | "execute";
+            /** Runtime Available */
+            runtime_available: boolean;
+            /** Running */
+            running: boolean;
+            /** Last Tick At */
+            last_tick_at?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+        };
         /** BlackboardHandoffRequest */
         BlackboardHandoffRequest: {
             /** Goal */
@@ -3092,6 +4028,7 @@ export interface components {
             /** Done When */
             done_when?: string | null;
             handoff?: components["schemas"]["StructuredHandoffPacket"] | null;
+            research_dispatch?: components["schemas"]["ResearchDispatchStateV1"] | null;
             /**
              * Created At
              * Format: date-time
@@ -3162,6 +4099,7 @@ export interface components {
             /** Done When */
             done_when?: string | null;
             handoff?: components["schemas"]["StructuredHandoffPacket"] | null;
+            research_dispatch?: components["schemas"]["ResearchDispatchStateV1"] | null;
             /**
              * Created At
              * Format: date-time
@@ -3509,7 +4447,7 @@ export interface components {
          * ChatThreadKind
          * @enum {string}
          */
-        ChatThreadKind: "conversation" | "task";
+        ChatThreadKind: "conversation" | "automation" | "task";
         /** ChatThreadListResponse */
         ChatThreadListResponse: {
             /** Items */
@@ -3572,6 +4510,10 @@ export interface components {
             actual_model?: string | null;
             /** Provider Mode */
             provider_mode?: string | null;
+            /** Data Mode */
+            data_mode?: ("real" | "demo" | "derived") | null;
+            /** Outcome */
+            outcome?: ("success" | "no_change" | "insufficient_evidence" | "blocked" | "failed" | "indeterminate") | null;
             /** Latency Ms */
             latency_ms?: number | null;
             /** Fallback Reason */
@@ -3612,6 +4554,10 @@ export interface components {
             actual_model?: string | null;
             /** Provider Mode */
             provider_mode?: string | null;
+            /** Data Mode */
+            data_mode?: ("real" | "demo" | "derived") | null;
+            /** Outcome */
+            outcome?: ("success" | "no_change" | "insufficient_evidence" | "blocked" | "failed" | "indeterminate") | null;
             /** Latency Ms */
             latency_ms?: number | null;
             /** Fallback Reason */
@@ -3695,6 +4641,199 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /** ConnectorControlRequestV1 */
+        ConnectorControlRequestV1: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "disable" | "reset" | "cancel" | "enable_auto" | "pause_auto";
+            /**
+             * Interval Seconds
+             * @default 900
+             */
+            interval_seconds: number;
+        };
+        /** ConnectorStatusListV1 */
+        ConnectorStatusListV1: {
+            /** Items */
+            items: components["schemas"]["ConnectorStatusV1"][];
+            /**
+             * Auto Sync Available
+             * @default false
+             */
+            auto_sync_available: boolean;
+        };
+        /** ConnectorStatusV1 */
+        ConnectorStatusV1: {
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "repo_docs" | "github_issues";
+            /** Namespace */
+            namespace: string;
+            cursor: components["schemas"]["ConnectorSyncCursorV1"] | null;
+            /**
+             * Configured
+             * @default true
+             */
+            configured: boolean;
+            /**
+             * Configuration Changed
+             * @default false
+             */
+            configuration_changed: boolean;
+        };
+        /** ConnectorSyncCursorV1 */
+        ConnectorSyncCursorV1: {
+            /**
+             * Schema Version
+             * @default connector_sync_cursor_v1
+             * @constant
+             */
+            schema_version: "connector_sync_cursor_v1";
+            /** Id */
+            id: string;
+            /** Owner User Id */
+            owner_user_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "repo_docs" | "github_issues";
+            /** Namespace */
+            namespace: string;
+            /** Configuration Hash */
+            configuration_hash: string;
+            /** Version */
+            version: number;
+            /** Next Position */
+            next_position?: string | null;
+            /** Last Successful At */
+            last_successful_at?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
+            /** Observed Count */
+            observed_count: number;
+            /**
+             * Status
+             * @default idle
+             * @enum {string}
+             */
+            status: "idle" | "syncing" | "reading" | "failed" | "disabled" | "cancelled";
+            /** Read Claim Id */
+            read_claim_id?: string | null;
+            /** Read Lease Until */
+            read_lease_until?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Operator Bound
+             * @default true
+             */
+            operator_bound: boolean;
+            /**
+             * Auto Sync Enabled
+             * @default false
+             */
+            auto_sync_enabled: boolean;
+            /**
+             * Interval Seconds
+             * @default 900
+             */
+            interval_seconds: number;
+            /** Next Sync At */
+            next_sync_at?: string | null;
+            /** Next Allowed At */
+            next_allowed_at?: string | null;
+            /**
+             * Scan Mode
+             * @default full
+             * @enum {string}
+             */
+            scan_mode: "full" | "incremental";
+            /** Scan Started At */
+            scan_started_at?: string | null;
+            /** Scan Since */
+            scan_since?: string | null;
+            /** Watermark At */
+            watermark_at?: string | null;
+            /** Last Full Sync At */
+            last_full_sync_at?: string | null;
+            /** Seen Source Ids */
+            seen_source_ids?: string[];
+            /** Last Failed At */
+            last_failed_at?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /**
+             * Consecutive Failures
+             * @default 0
+             */
+            consecutive_failures: number;
+        };
+        /** ConnectorSyncRequestV1 */
+        ConnectorSyncRequestV1: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Mode
+             * @default incremental
+             * @enum {string}
+             */
+            mode: "incremental" | "full";
+        };
+        /** ContextRequestMeasurementV1 */
+        ContextRequestMeasurementV1: {
+            /** Model Id */
+            model_id: string;
+            /**
+             * Estimation Method
+             * @default utf8_conservative
+             * @constant
+             */
+            estimation_method: "utf8_conservative";
+            /** Total Chars */
+            total_chars: number;
+            /** Estimated Input Tokens */
+            estimated_input_tokens: number;
+            /** Output Token Cap */
+            output_token_cap: number;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "allowed" | "withheld";
+        };
+        /** CurrentTaskStateV1 */
+        CurrentTaskStateV1: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Version */
+            version: number;
+            delivery_stage: components["schemas"]["TaskDeliveryStage"];
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Navigation Href */
+            navigation_href: string;
         };
         /** DailyMemorySummaryRequest */
         DailyMemorySummaryRequest: {
@@ -4276,6 +5415,65 @@ export interface components {
             /** Canonical Arguments Hash */
             canonical_arguments_hash: string;
         };
+        /** DelegatedQueryCreate */
+        DelegatedQueryCreate: {
+            /** Project Id */
+            project_id: string;
+            /** Target Id */
+            target_id: string;
+            /** Question */
+            question: string;
+            /** Command Id */
+            command_id: string;
+        };
+        /** DelegatedQueryList */
+        DelegatedQueryList: {
+            /** Items */
+            items: components["schemas"]["DelegatedQueryView"][];
+        };
+        /** DelegatedQueryView */
+        DelegatedQueryView: {
+            /** Id */
+            id: string;
+            /** Project Id */
+            project_id: string;
+            /** Requester Id */
+            requester_id: string;
+            /** Target Id */
+            target_id: string;
+            /** Question */
+            question: string;
+            /** Version */
+            version: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "awaiting_confirm" | "answered" | "insufficient_evidence" | "blocked" | "denied" | "failed";
+            /** Inbox Item Id */
+            inbox_item_id?: string | null;
+            /** Answer */
+            answer?: string | null;
+            /** @default none */
+            confidence: components["schemas"]["AnswerConfidence"];
+            /** Citations */
+            citations?: components["schemas"]["Source"][];
+            /** Artifact Hash */
+            artifact_hash?: string | null;
+            /**
+             * Current Available
+             * @default false
+             */
+            current_available: boolean;
+            /** Unavailable Reason */
+            unavailable_reason?: string | null;
+            adoption?: components["schemas"]["QueryAdoptionV1"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** DeliverableAtomV1 */
         DeliverableAtomV1: {
             /**
@@ -4289,6 +5487,167 @@ export interface components {
             label: string;
             /** Output Kind */
             output_kind: string;
+        };
+        /** DocumentJobItemResponse */
+        DocumentJobItemResponse: {
+            item: components["schemas"]["DocumentParseJob"];
+        };
+        /** DocumentJobRetryReceipt */
+        DocumentJobRetryReceipt: {
+            /** Command Id */
+            command_id: string;
+            /** Request Hash */
+            request_hash: string;
+        };
+        /** DocumentJobRetryRequest */
+        DocumentJobRetryRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Version */
+            expected_version: number;
+        };
+        /**
+         * DocumentJobStatus
+         * @enum {string}
+         */
+        DocumentJobStatus: "queued" | "running" | "completed" | "failed";
+        /** DocumentJobsResponse */
+        DocumentJobsResponse: {
+            /** Items */
+            items: components["schemas"]["DocumentParseJob"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+        };
+        /** DocumentLearnRequestV1 */
+        DocumentLearnRequestV1: {
+            /** Source Document Id */
+            source_document_id: string;
+            /** Source Version */
+            source_version: number;
+            /** Source Hash */
+            source_hash: string;
+        };
+        /** DocumentParseJob */
+        DocumentParseJob: {
+            /** Id */
+            id?: string;
+            /** File Name */
+            file_name: string;
+            /** Content Type */
+            content_type: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Uploaded By */
+            uploaded_by: string;
+            /** Input Contract */
+            input_contract?: "document-input-v1" | null;
+            /** Input Staging Ref */
+            input_staging_ref?: string | null;
+            /** Input Hash */
+            input_hash?: string | null;
+            /** Input Size Bytes */
+            input_size_bytes?: number | null;
+            /**
+             * Input Cleanup Pending
+             * @default false
+             */
+            input_cleanup_pending: boolean;
+            /** Input Cleanup Error */
+            input_cleanup_error?: "document_input_delete_failed" | null;
+            /** Input Retained Until */
+            input_retained_until?: string | null;
+            /**
+             * Input Purged
+             * @default false
+             */
+            input_purged: boolean;
+            /**
+             * State Version
+             * @default 1
+             */
+            state_version: number;
+            /**
+             * Attempt Count
+             * @default 0
+             */
+            attempt_count: number;
+            /** Claim Id */
+            claim_id?: string | null;
+            /** Lease Expires At */
+            lease_expires_at?: string | null;
+            /** Retry Receipts */
+            retry_receipts?: components["schemas"]["DocumentJobRetryReceipt"][];
+            /** @default queued */
+            status: components["schemas"]["DocumentJobStatus"];
+            /** Document Id */
+            document_id?: string | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Expected Chunks
+             * @default 0
+             */
+            expected_chunks: number;
+            /**
+             * Completed Chunks
+             * @default 0
+             */
+            completed_chunks: number;
+            /** Error */
+            error?: string | null;
+            /** Error Type */
+            error_type?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
+        /** DocumentSourceSpanV1 */
+        DocumentSourceSpanV1: {
+            /**
+             * Schema Version
+             * @default document-source-span-v1
+             * @constant
+             */
+            schema_version: "document-source-span-v1";
+            /** Id */
+            id: string;
+            /** Document Id */
+            document_id: string;
+            /** Source Id */
+            source_id: string;
+            /** Source Version */
+            source_version: number;
+            /** Source Hash */
+            source_hash: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /** User Id */
+            user_id: string;
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+            /** Quote */
+            quote: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** DocumentUpdateRequest */
         DocumentUpdateRequest: {
@@ -4403,6 +5762,134 @@ export interface components {
          * @enum {string}
          */
         ExecutionRelation: "serial" | "parallel" | "parallel_then_merge" | "conditional";
+        /** FactAssertionV1 */
+        FactAssertionV1: {
+            /**
+             * Subject Type
+             * @enum {string}
+             */
+            subject_type: "project" | "task" | "user" | "term";
+            /** Subject Id */
+            subject_id: string;
+            /** Predicate */
+            predicate: string;
+            /** Value */
+            value: string;
+            /** Valid From */
+            valid_from?: string | null;
+            /** Valid To */
+            valid_to?: string | null;
+            /**
+             * Time Precision
+             * @default instant
+             * @enum {string}
+             */
+            time_precision: "instant" | "day" | "month" | "unknown";
+        };
+        /** FactConflictV1 */
+        FactConflictV1: {
+            /** Group Id */
+            group_id: string;
+            /** Fact Indexes */
+            fact_indexes: number[];
+        };
+        /** FactHitV1 */
+        FactHitV1: {
+            /** Memory Id */
+            memory_id: string;
+            /**
+             * Memory Record Type
+             * @enum {string}
+             */
+            memory_record_type: "memory_item" | "user_memory_item";
+            /** Memory Version */
+            memory_version: number;
+            /** Memory Hash */
+            memory_hash: string;
+            /** Scope */
+            scope: string;
+            /** Status */
+            status: string;
+            fact: components["schemas"]["MemoryFactV1"];
+        };
+        /** FactQueryResultV1 */
+        FactQueryResultV1: {
+            /**
+             * Schema Version
+             * @default fact-query-result-v1
+             * @constant
+             */
+            schema_version: "fact-query-result-v1";
+            /** Project Id */
+            project_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "known" | "unknown" | "conflict" | "insufficient_evidence";
+            /** Facts */
+            facts?: components["schemas"]["FactHitV1"][];
+            /** Conflicts */
+            conflicts?: components["schemas"]["FactConflictV1"][];
+            /** Missing Data */
+            missing_data?: string[];
+            /**
+             * Automatic Context Eligible
+             * @default false
+             */
+            automatic_context_eligible: boolean;
+            term_resolution?: components["schemas"]["TermResolutionV1"] | null;
+        };
+        /** FactQueryV1 */
+        FactQueryV1: {
+            /** Project Id */
+            project_id: string;
+            /**
+             * Subject Type
+             * @enum {string}
+             */
+            subject_type: "project" | "task" | "user" | "term";
+            /** Subject Id */
+            subject_id: string;
+            /** Predicate */
+            predicate: string;
+            /** As Of */
+            as_of?: string | null;
+            /** Interval From */
+            interval_from?: string | null;
+            /** Interval To */
+            interval_to?: string | null;
+            /** Observed Before */
+            observed_before?: string | null;
+        };
+        /** FactRememberV1 */
+        FactRememberV1: {
+            /** Command Id */
+            command_id: string;
+            /** Title */
+            title: string;
+            /** Summary */
+            summary: string;
+            /** Project Id */
+            project_id: string;
+            /** Source Document Id */
+            source_document_id: string;
+            /** Source Version */
+            source_version: number;
+            /** Source Hash */
+            source_hash: string;
+            /** Facts */
+            facts: components["schemas"]["FactAssertionV1"][];
+            /** Supersedes Memory Id */
+            supersedes_memory_id?: string | null;
+            /** Expected Memory Version */
+            expected_memory_version?: number | null;
+        };
         /** GroupMemorySummaryRequest */
         GroupMemorySummaryRequest: {
             /** Project Id */
@@ -4560,6 +6047,111 @@ export interface components {
          * @enum {string}
          */
         InputDecision: "continue" | "degrade" | "clarify" | "human_confirmation";
+        /** InspectionBlockerV1 */
+        InspectionBlockerV1: {
+            /** Task Id */
+            task_id: string;
+            /** Title */
+            title: string;
+            delivery_stage: components["schemas"]["TaskDeliveryStage"];
+            /** Reasons */
+            reasons: ("blocked" | "dependency" | "overdue" | "stale")[];
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Blocking Task Ids */
+            blocking_task_ids?: string[];
+            /** Due At */
+            due_at?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Navigation Href */
+            navigation_href: string;
+            /** Evidence Refs */
+            evidence_refs?: components["schemas"]["InspectionEvidenceRefV1"][];
+        };
+        /** InspectionChangeV1 */
+        InspectionChangeV1: {
+            /** Task Id */
+            task_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "created" | "updated" | "completed" | "reopened" | "blocked" | "unblocked" | "pending_review" | "archived";
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Version */
+            version: number;
+            /** Navigation Href */
+            navigation_href: string;
+            /** Evidence Refs */
+            evidence_refs?: components["schemas"]["InspectionEvidenceRefV1"][];
+        };
+        /** InspectionEvidenceRefV1 */
+        InspectionEvidenceRefV1: {
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "task" | "task_command" | "task_review_command" | "task_review" | "memory_review";
+            /** Source Id */
+            source_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Navigation Href */
+            navigation_href: string;
+        };
+        /** InspectionPendingReviewV1 */
+        InspectionPendingReviewV1: {
+            /** Review Id */
+            review_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "task_review" | "memory_review";
+            /** Subject Id */
+            subject_id: string;
+            /** Title */
+            title: string;
+            /** Reviewer Id */
+            reviewer_id: string;
+            /** Assigned To Me */
+            assigned_to_me: boolean;
+            /** Navigation Href */
+            navigation_href: string;
+            /** Evidence Refs */
+            evidence_refs?: components["schemas"]["InspectionEvidenceRefV1"][];
+        };
+        /** InspectionRecommendationV1 */
+        InspectionRecommendationV1: {
+            /** Reason */
+            reason: string;
+            /** Navigation Href */
+            navigation_href: string;
+            /** Evidence Refs */
+            evidence_refs?: components["schemas"]["InspectionEvidenceRefV1"][];
+        };
+        /** InspectionSourceWatermarkV1 */
+        InspectionSourceWatermarkV1: {
+            /** Record Count */
+            record_count: number;
+            /** Latest Updated At */
+            latest_updated_at?: string | null;
+        };
         /**
          * Intent
          * @enum {string}
@@ -4590,6 +6182,22 @@ export interface components {
             /** Excluded Knowledge */
             excluded_knowledge?: string[];
         };
+        /** LearningConfirmationV1 */
+        LearningConfirmationV1: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Memory Version */
+            expected_memory_version: number;
+            /** Selected Fact Indexes */
+            selected_fact_indexes: number[];
+        };
+        /** LearningRetryRequestV1 */
+        LearningRetryRequestV1: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Lease Epoch */
+            expected_lease_epoch: number;
+        };
         /** LoginRequest */
         LoginRequest: {
             /** User Id */
@@ -4609,11 +6217,7 @@ export interface components {
         };
         /**
          * MarketActivityItem
-         * @description One entry in the global market activity feed (all agents' collaboration).
-         *
-         *     Unlike the personal timeline, this spans every participant so the demo shows
-         *     a live "trading floor" of agents helping each other. ``text`` is the fully
-         *     composed one-liner the frontend renders as-is.
+         * @description One visible current-project activity; text excludes private answer bodies.
          */
         MarketActivityItem: {
             /** Id */
@@ -4633,7 +6237,7 @@ export interface components {
              * @default open
              * @enum {string}
              */
-            status: "answered" | "awaiting_confirm" | "denied" | "open";
+            status: "answered" | "awaiting_confirm" | "denied" | "open" | "blocked" | "insufficient_evidence";
             /**
              * Actor Name
              * @default
@@ -4775,7 +6379,7 @@ export interface components {
              * @default open
              * @enum {string}
              */
-            status: "answered" | "awaiting_confirm" | "denied" | "open";
+            status: "answered" | "awaiting_confirm" | "denied" | "open" | "blocked" | "insufficient_evidence";
             /**
              * Sensitivity
              * @default low
@@ -4879,6 +6483,51 @@ export interface components {
          * @enum {string}
          */
         MemoryCaptureTarget: "personal" | "team_candidate";
+        /**
+         * MemoryContextCandidateV1
+         * @description Body-free frozen decision, subordinate to a prepared Memory bundle.
+         */
+        MemoryContextCandidateV1: {
+            /** Memory Id */
+            memory_id: string;
+            /**
+             * Memory Record Type
+             * @enum {string}
+             */
+            memory_record_type: "memory_item" | "user_memory_item";
+            /** Memory Version */
+            memory_version: number;
+            /** Memory Hash */
+            memory_hash: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "prepared" | "withheld" | "quarantined" | "budget_dropped";
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "selected" | "unsafe_content" | "source_unavailable" | "snapshot_changed" | "budget_limit" | "fact_unavailable" | "procedure_unavailable";
+        };
+        /** MemoryContextCandidateViewV1 */
+        MemoryContextCandidateViewV1: {
+            candidate: components["schemas"]["MemoryContextCandidateV1"];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "prepared" | "withheld" | "quarantined" | "budget_dropped" | "delivered";
+            /** Title */
+            title?: string | null;
+            /** Citation Label */
+            citation_label?: string | null;
+            /**
+             * Current Available
+             * @default false
+             */
+            current_available: boolean;
+        };
         /** MemoryCreateRequest */
         MemoryCreateRequest: {
             /** Title */
@@ -4933,6 +6582,9 @@ export interface components {
             /** Content Hash */
             content_hash?: string | null;
             provenance?: components["schemas"]["MemoryProvenanceV1"] | null;
+            /** Facts */
+            facts?: components["schemas"]["MemoryFactV1"][] | null;
+            procedure?: components["schemas"]["ProcedureMemoryV1"] | null;
             /**
              * Provenance State
              * @enum {string}
@@ -4960,6 +6612,88 @@ export interface components {
             memory_review?: components["schemas"]["MemoryReviewV1"] | null;
             /** Navigation Href */
             navigation_href: string;
+        };
+        /** MemoryEvidenceRefV1 */
+        MemoryEvidenceRefV1: {
+            /**
+             * Record Type
+             * @enum {string}
+             */
+            record_type: "document" | "artifact" | "source" | "source_span" | "task_review";
+            /** Record Id */
+            record_id: string;
+            /** Version */
+            version: number;
+            /** Content Hash */
+            content_hash: string;
+        };
+        /** MemoryFactV1 */
+        MemoryFactV1: {
+            /**
+             * Subject Type
+             * @enum {string}
+             */
+            subject_type: "project" | "task" | "user" | "term";
+            /** Subject Id */
+            subject_id: string;
+            /** Predicate */
+            predicate: string;
+            /** Value */
+            value: string;
+            /** Valid From */
+            valid_from?: string | null;
+            /** Valid To */
+            valid_to?: string | null;
+            /**
+             * Time Precision
+             * @default instant
+             * @enum {string}
+             */
+            time_precision: "instant" | "day" | "month" | "unknown";
+            /**
+             * Schema Version
+             * @default memory-fact-v1
+             * @constant
+             */
+            schema_version: "memory-fact-v1";
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Evidence Refs */
+            evidence_refs: components["schemas"]["MemoryEvidenceRefV1"][];
+            /**
+             * Source Classification
+             * @enum {string}
+             */
+            source_classification: "human_confirmed" | "system_observation" | "model_inference";
+            /** Conflict Group */
+            conflict_group?: string | null;
+        };
+        /** MemoryForgetRequestV1 */
+        MemoryForgetRequestV1: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Version */
+            expected_version: number;
+        };
+        /** MemoryForgetResultV1 */
+        MemoryForgetResultV1: {
+            /** Target Id */
+            target_id: string;
+            /** Invalidated Count */
+            invalidated_count: number;
+            /**
+             * Cleanup Status
+             * @default queued
+             */
+            cleanup_status: string;
+            /**
+             * Retention Notice
+             * @default 阻止后续记忆使用并清理检索索引；已交付内容、团队审核记录、审计和备份不在本次删除范围内。
+             */
+            retention_notice: string;
         };
         /** MemoryGovernanceEventV1 */
         MemoryGovernanceEventV1: {
@@ -5008,6 +6742,9 @@ export interface components {
                 [key: string]: string;
             };
             provenance?: components["schemas"]["MemoryProvenanceV1"] | null;
+            /** Facts */
+            facts?: components["schemas"]["MemoryFactV1"][] | null;
+            procedure?: components["schemas"]["ProcedureMemoryV1"] | null;
             /**
              * Version
              * @default 1
@@ -5020,6 +6757,8 @@ export interface components {
             /** Archived By */
             archived_by?: string | null;
             archived_from_status?: components["schemas"]["MemoryStatus"] | null;
+            /** Evidence Withdrawn At */
+            evidence_withdrawn_at?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -5060,6 +6799,9 @@ export interface components {
                 [key: string]: string;
             };
             provenance?: components["schemas"]["MemoryProvenanceV1"] | null;
+            /** Facts */
+            facts?: components["schemas"]["MemoryFactV1"][] | null;
+            procedure?: components["schemas"]["ProcedureMemoryV1"] | null;
             /**
              * Version
              * @default 1
@@ -5072,6 +6814,8 @@ export interface components {
             /** Archived By */
             archived_by?: string | null;
             archived_from_status?: components["schemas"]["MemoryStatus"] | null;
+            /** Evidence Withdrawn At */
+            evidence_withdrawn_at?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -5098,6 +6842,180 @@ export interface components {
          * @enum {string}
          */
         MemoryLayer: "short_term" | "mid_term" | "long_term";
+        /** MemoryLearningJobV1 */
+        MemoryLearningJobV1: {
+            /**
+             * Schema Version
+             * @default memory-learning-job-v1
+             * @constant
+             */
+            schema_version: "memory-learning-job-v1";
+            /** Id */
+            id: string;
+            /** Source Document Id */
+            source_document_id: string;
+            /** Source Id */
+            source_id: string;
+            /** Source Version */
+            source_version: number;
+            /** Source Hash */
+            source_hash: string;
+            /**
+             * Extraction Schema Version
+             * @default document-facts-v1
+             * @constant
+             */
+            extraction_schema_version: "document-facts-v1";
+            /** User Id */
+            user_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Model Id */
+            model_id: string;
+            /**
+             * Status
+             * @default queued
+             * @enum {string}
+             */
+            status: "queued" | "running" | "retry_wait" | "completed" | "blocked" | "cancelled" | "failed";
+            /**
+             * Attempt
+             * @default 0
+             */
+            attempt: number;
+            /**
+             * Lease Epoch
+             * @default 0
+             */
+            lease_epoch: number;
+            /** Lease Expires At */
+            lease_expires_at?: string | null;
+            /** Next Attempt At */
+            next_attempt_at?: string | null;
+            /** Preferences Version */
+            preferences_version: number;
+            /**
+             * Token Cap
+             * @default 32000
+             */
+            token_cap: number;
+            /**
+             * Reserved Tokens
+             * @default 0
+             */
+            reserved_tokens: number;
+            /**
+             * Actual Tokens
+             * @default 0
+             */
+            actual_tokens: number;
+            /**
+             * Usage Status
+             * @default not_started
+             * @enum {string}
+             */
+            usage_status: "not_started" | "reported" | "unknown";
+            /**
+             * Unreported Attempts
+             * @default 0
+             */
+            unreported_attempts: number;
+            /**
+             * Attempt Token Reservation
+             * @default 0
+             */
+            attempt_token_reservation: number;
+            /** Candidate Memory Id */
+            candidate_memory_id?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** MemoryLearningQueueHealthV1 */
+        MemoryLearningQueueHealthV1: {
+            /**
+             * Ready
+             * @default 0
+             */
+            ready: number;
+            /**
+             * Running
+             * @default 0
+             */
+            running: number;
+            /**
+             * Retry Wait
+             * @default 0
+             */
+            retry_wait: number;
+            /**
+             * Expired Leases
+             * @default 0
+             */
+            expired_leases: number;
+            /**
+             * Failures
+             * @default 0
+             */
+            failures: number;
+            /**
+             * Blocked
+             * @default 0
+             */
+            blocked: number;
+            /**
+             * Unreported Attempts
+             * @default 0
+             */
+            unreported_attempts: number;
+            /** Oldest Ready Age Seconds */
+            oldest_ready_age_seconds?: number | null;
+            /** Oldest Cleanup Age Seconds */
+            oldest_cleanup_age_seconds?: number | null;
+        };
+        /** MemoryLearningStatusV1 */
+        MemoryLearningStatusV1: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "off" | "observe" | "execute";
+            /** Learning Enabled */
+            learning_enabled: boolean;
+            /**
+             * Source Byte Limit
+             * @default 12000
+             */
+            source_byte_limit: number;
+            /**
+             * Job Token Cap
+             * @default 32000
+             */
+            job_token_cap: number;
+            /** Daily Reserved Tokens */
+            daily_reserved_tokens: number;
+            /** Cleanup Pending */
+            cleanup_pending: number;
+            /**
+             * Daily Token Cap
+             * @default 64000
+             */
+            daily_token_cap: number;
+            queue?: components["schemas"]["MemoryLearningQueueHealthV1"];
+            /** Alerts */
+            alerts?: ("queue_delayed" | "lease_expired" | "budget_exhausted" | "cleanup_delayed" | "usage_unreported")[];
+        };
         /**
          * MemoryLifecycleAction
          * @enum {string}
@@ -5177,6 +7095,56 @@ export interface components {
             /** Has Next */
             has_next: boolean;
         };
+        /** MemoryPreferencesPatchV1 */
+        MemoryPreferencesPatchV1: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Version */
+            expected_version: number;
+            /** Learning Enabled */
+            learning_enabled?: boolean | null;
+            /** Core Preferences */
+            core_preferences?: string[] | null;
+            /** Daily Token Cap */
+            daily_token_cap?: number | null;
+        };
+        /** MemoryPreferencesV1 */
+        MemoryPreferencesV1: {
+            /**
+             * Schema Version
+             * @default memory-preferences-v1
+             * @constant
+             */
+            schema_version: "memory-preferences-v1";
+            /** Id */
+            id: string;
+            /** User Id */
+            user_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Learning Enabled
+             * @default false
+             */
+            learning_enabled: boolean;
+            /** Core Preferences */
+            core_preferences?: string[];
+            /**
+             * Daily Token Cap
+             * @default 64000
+             */
+            daily_token_cap: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
         /** MemoryProvenanceV1 */
         MemoryProvenanceV1: {
             /**
@@ -5209,6 +7177,146 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
+        };
+        /**
+         * MemoryRelation
+         * @description A lineage edge from a memory item to the source it was derived from.
+         */
+        MemoryRelation: {
+            /** Id */
+            id?: string;
+            /** From Memory Id */
+            from_memory_id: string;
+            /** To Source Id */
+            to_source_id: string;
+            /**
+             * Relation Type
+             * @default derived_from
+             */
+            relation_type: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /** Schema Version */
+            schema_version?: "memory-relation-v1" | null;
+            /** Workspace Id */
+            workspace_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Created By */
+            created_by?: string | null;
+            /** From Record Type */
+            from_record_type?: ("user_memory_item" | "memory_item") | null;
+            /** Target Record Type */
+            target_record_type?: ("task" | "user_memory_item" | "memory_item" | "document" | "artifact") | null;
+            /** Source Version */
+            source_version?: number | null;
+            /** Source Hash */
+            source_hash?: string | null;
+            /** Target Version */
+            target_version?: number | null;
+            /** Target Hash */
+            target_hash?: string | null;
+            /** Evidence Record Type */
+            evidence_record_type?: ("task" | "document") | null;
+            /** Evidence Id */
+            evidence_id?: string | null;
+            /** Evidence Version */
+            evidence_version?: number | null;
+            /** Evidence Hash */
+            evidence_hash?: string | null;
+            /**
+             * Assertion
+             * @default candidate
+             * @enum {string}
+             */
+            assertion: "candidate" | "confirmed";
+            /** Command Hash */
+            command_hash?: string | null;
+        };
+        /** MemoryRelationCreateV1 */
+        MemoryRelationCreateV1: {
+            /** Project Id */
+            project_id: string;
+            /** Command Id */
+            command_id: string;
+            source: components["schemas"]["RelationVersionRefV1"];
+            target: components["schemas"]["RelationVersionRefV1"];
+            evidence: components["schemas"]["RelationVersionRefV1"];
+            /**
+             * Relation Type
+             * @enum {string}
+             */
+            relation_type: "relates_to" | "supports" | "contradicts" | "supersedes" | "caused_by";
+            /**
+             * Assertion
+             * @default candidate
+             * @enum {string}
+             */
+            assertion: "candidate" | "confirmed";
+        };
+        /** MemoryRelationGraphV1 */
+        MemoryRelationGraphV1: {
+            /**
+             * Schema Version
+             * @default memory-relation-graph-v1
+             * @constant
+             */
+            schema_version: "memory-relation-graph-v1";
+            /**
+             * Data Mode
+             * @default real
+             * @constant
+             */
+            data_mode: "real";
+            /** Project Id */
+            project_id: string;
+            /** Root Key */
+            root_key: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Nodes */
+            nodes?: components["schemas"]["RelationNodeV1"][];
+            /** Edges */
+            edges?: components["schemas"]["RelationEdgeV1"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Diagnostics */
+            diagnostics?: string[];
+        };
+        /** MemoryRelationQueryV1 */
+        MemoryRelationQueryV1: {
+            /** Project Id */
+            project_id: string;
+            root: components["schemas"]["RelationLookupV1"];
+            /**
+             * Max Hops
+             * @default 2
+             */
+            max_hops: number;
+            /**
+             * Max Nodes
+             * @default 20
+             */
+            max_nodes: number;
+            /**
+             * Max Edges
+             * @default 40
+             */
+            max_edges: number;
+            /**
+             * Max Chars
+             * @default 8000
+             */
+            max_chars: number;
         };
         /**
          * MemoryReviewAllowedAction
@@ -5317,6 +7425,9 @@ export interface components {
             summary: string;
             /** Memory Type */
             memory_type: string;
+            /** Facts */
+            facts?: components["schemas"]["FactAssertionV1"][] | null;
+            procedure?: components["schemas"]["ProcedureDraftV1"] | null;
         };
         /** MemoryRevisionResponseV1 */
         MemoryRevisionResponseV1: {
@@ -5646,6 +7757,66 @@ export interface components {
             /** Depends On */
             depends_on?: components["schemas"]["_ProblemQuestionId"][];
         };
+        /** ProcedureDraftV1 */
+        ProcedureDraftV1: {
+            /** Goal Patterns */
+            goal_patterns: string[];
+            /** Preconditions */
+            preconditions?: string[];
+            /** Tool Versions */
+            tool_versions?: {
+                [key: string]: string;
+            };
+            /** Environment Versions */
+            environment_versions?: {
+                [key: string]: string;
+            };
+            /** Steps */
+            steps: string[];
+            /** Validation Conditions */
+            validation_conditions: string[];
+        };
+        /** ProcedureMemoryV1 */
+        ProcedureMemoryV1: {
+            /** Goal Patterns */
+            goal_patterns: string[];
+            /** Preconditions */
+            preconditions?: string[];
+            /** Tool Versions */
+            tool_versions?: {
+                [key: string]: string;
+            };
+            /** Environment Versions */
+            environment_versions?: {
+                [key: string]: string;
+            };
+            /** Steps */
+            steps: string[];
+            /** Validation Conditions */
+            validation_conditions: string[];
+            /**
+             * Schema Version
+             * @default procedure-memory-v1
+             * @constant
+             */
+            schema_version: "procedure-memory-v1";
+            /** Successful Runs */
+            successful_runs?: components["schemas"]["ProcedureRunEvidenceV1"][];
+            /** Failed Runs */
+            failed_runs?: string[];
+            /** Human Confirmed By */
+            human_confirmed_by?: string | null;
+            /** Human Confirmed At */
+            human_confirmed_at?: string | null;
+        };
+        /** ProcedureRunEvidenceV1 */
+        ProcedureRunEvidenceV1: {
+            /** Run Id */
+            run_id: string;
+            review_ref: components["schemas"]["MemoryEvidenceRefV1"];
+            /** Artifact Refs */
+            artifact_refs: components["schemas"]["MemoryEvidenceRefV1"][];
+        };
         /** Project */
         Project: {
             /** Id */
@@ -5663,6 +7834,7 @@ export interface components {
              * @default active
              */
             status: string;
+            term_aliases?: components["schemas"]["ProjectTermAliasesV1"] | null;
             /**
              * Created At
              * Format: date-time
@@ -5688,10 +7860,190 @@ export interface components {
             /** Goal */
             goal: string;
         };
+        /** ProjectInspectionReportV1 */
+        ProjectInspectionReportV1: {
+            /**
+             * Schema Version
+             * @default project-inspection-v1
+             * @constant
+             */
+            schema_version: "project-inspection-v1";
+            /** Project Id */
+            project_id: string;
+            /**
+             * Template Id
+             * @enum {string}
+             */
+            template_id: "daily_progress" | "blockers" | "pending_reviews";
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /**
+             * Data Mode
+             * @default real
+             * @constant
+             */
+            data_mode: "real";
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "completed" | "no_change" | "insufficient_evidence";
+            /** Source Watermarks */
+            source_watermarks: {
+                [key: string]: components["schemas"]["InspectionSourceWatermarkV1"];
+            };
+            /** Changes */
+            changes?: components["schemas"]["InspectionChangeV1"][];
+            /** Blockers */
+            blockers?: components["schemas"]["InspectionBlockerV1"][];
+            /** Pending Reviews */
+            pending_reviews?: components["schemas"]["InspectionPendingReviewV1"][];
+            /** Recommendations */
+            recommendations?: components["schemas"]["InspectionRecommendationV1"][];
+            /** Missing Data */
+            missing_data?: string[];
+            /** Actual Providers */
+            actual_providers?: string[];
+            /** Evidence Refs */
+            evidence_refs?: components["schemas"]["InspectionEvidenceRefV1"][];
+        };
+        /** ProjectInspectionRequestV1 */
+        ProjectInspectionRequestV1: {
+            /**
+             * Template Id
+             * @enum {string}
+             */
+            template_id: "daily_progress" | "blockers" | "pending_reviews";
+            /** Since */
+            since?: string | null;
+        };
         /** ProjectMemorySummaryRequest */
         ProjectMemorySummaryRequest: {
             /** Project Id */
             project_id?: string | null;
+        };
+        /** ProjectStateResultV1 */
+        ProjectStateResultV1: {
+            /**
+             * Schema Version
+             * @default project-state-v1
+             * @constant
+             */
+            schema_version: "project-state-v1";
+            /** Project Id */
+            project_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /**
+             * Data Mode
+             * @default real
+             * @constant
+             */
+            data_mode: "real";
+            /**
+             * Actual Providers
+             * @default [
+             *       "local_task_store"
+             *     ]
+             */
+            actual_providers: "local_task_store"[];
+            /**
+             * Outcome
+             * @default known
+             * @enum {string}
+             */
+            outcome: "known" | "unknown" | "insufficient_evidence";
+            /** Task Count */
+            task_count: number;
+            /** Archived Task Count */
+            archived_task_count: number;
+            /** Tasks By Stage */
+            tasks_by_stage: {
+                [key: string]: number;
+            };
+            /** Blocked Task Count */
+            blocked_task_count: number;
+            /** Reviews By Status */
+            reviews_by_status: {
+                [key: string]: number;
+            };
+            task_watermark: components["schemas"]["ProjectStateWatermarkV1"];
+            review_watermark: components["schemas"]["ProjectStateWatermarkV1"];
+            task?: components["schemas"]["CurrentTaskStateV1"] | null;
+            /**
+             * Dependencies
+             * @default []
+             */
+            dependencies: components["schemas"]["CurrentTaskStateV1"][];
+            /**
+             * Dependency Count
+             * @default 0
+             */
+            dependency_count: number;
+            /**
+             * Completed Dependency Count
+             * @default 0
+             */
+            completed_dependency_count: number;
+            /**
+             * Blocking Task Ids
+             * @default []
+             */
+            blocking_task_ids: string[];
+            /**
+             * Unavailable Dependency Count
+             * @default 0
+             */
+            unavailable_dependency_count: number;
+            /**
+             * Active Run Count
+             * @description Active Runs of the selected Task; absent without an available Task
+             */
+            active_run_count?: number | null;
+            /** Execution Ready */
+            execution_ready?: boolean | null;
+            /**
+             * Missing Data
+             * @default []
+             */
+            missing_data: string[];
+        };
+        /** ProjectStateWatermarkV1 */
+        ProjectStateWatermarkV1: {
+            /** Record Count */
+            record_count: number;
+            /** Latest Updated At */
+            latest_updated_at?: string | null;
+        };
+        /** ProjectTermAliasesV1 */
+        ProjectTermAliasesV1: {
+            /**
+             * Schema Version
+             * @default project-term-aliases-v1
+             * @constant
+             */
+            schema_version: "project-term-aliases-v1";
+            /** Version */
+            version: number;
+            /** Aliases */
+            aliases?: {
+                [key: string]: string;
+            };
+            /** Confirmed By */
+            confirmed_by?: string | null;
+            /** Confirmed At */
+            confirmed_at?: string | null;
         };
         /**
          * ProviderDiagnostic
@@ -5730,6 +8082,128 @@ export interface components {
             overall: string;
             /** Providers */
             providers: components["schemas"]["ProviderDiagnostic"][];
+        };
+        /** QueryAdoptRequest */
+        QueryAdoptRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Version */
+            expected_version: number;
+            /** Artifact Hash */
+            artifact_hash: string;
+        };
+        /** QueryAdoptionV1 */
+        QueryAdoptionV1: {
+            /** Command Id */
+            command_id: string;
+            /** Memory Id */
+            memory_id: string;
+            /** Point Id */
+            point_id: string;
+            /** Relation Id */
+            relation_id: string;
+            /** Artifact Hash */
+            artifact_hash: string;
+        };
+        /** QueryConsentList */
+        QueryConsentList: {
+            /** Items */
+            items: components["schemas"]["QueryConsentView"][];
+        };
+        /** QueryConsentRequest */
+        QueryConsentRequest: {
+            /** Project Id */
+            project_id: string;
+            /** Grantee Id */
+            grantee_id: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Expected Version */
+            expected_version: number;
+            /** Command Id */
+            command_id: string;
+        };
+        /** QueryConsentView */
+        QueryConsentView: {
+            /** Grantee Id */
+            grantee_id: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Version */
+            version: number;
+        };
+        /** QueryResolveRequest */
+        QueryResolveRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "approve" | "deny";
+            /** Expected Version */
+            expected_version: number;
+        };
+        /** RelationEdgeV1 */
+        RelationEdgeV1: {
+            /** Id */
+            id: string;
+            /** From Key */
+            from_key: string;
+            /** To Key */
+            to_key: string;
+            /** Relation Type */
+            relation_type: string;
+            /**
+             * Assertion
+             * @enum {string}
+             */
+            assertion: "native" | "candidate" | "confirmed";
+            evidence?: components["schemas"]["RelationVersionRefV1"] | null;
+        };
+        /** RelationLookupV1 */
+        RelationLookupV1: {
+            /**
+             * Record Type
+             * @enum {string}
+             */
+            record_type: "task" | "user_memory_item" | "memory_item" | "document" | "artifact";
+            /** Record Id */
+            record_id: string;
+        };
+        /** RelationNodeV1 */
+        RelationNodeV1: {
+            /**
+             * Record Type
+             * @enum {string}
+             */
+            record_type: "task" | "user_memory_item" | "memory_item" | "document" | "artifact";
+            /** Record Id */
+            record_id: string;
+            /** Version */
+            version: number;
+            /** Content Hash */
+            content_hash: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: string;
+            /** Navigation Href */
+            navigation_href: string;
+            /** Depth */
+            depth: number;
+        };
+        /** RelationVersionRefV1 */
+        RelationVersionRefV1: {
+            /**
+             * Record Type
+             * @enum {string}
+             */
+            record_type: "task" | "user_memory_item" | "memory_item" | "document" | "artifact";
+            /** Record Id */
+            record_id: string;
+            /** Version */
+            version: number;
+            /** Content Hash */
+            content_hash: string;
         };
         /** RequirementAmbiguityV1 */
         RequirementAmbiguityV1: {
@@ -5905,6 +8379,95 @@ export interface components {
             recommendations?: components["schemas"]["ResearchClaimProjection"][];
             /** Limitations */
             limitations?: string[];
+        };
+        /** ResearchDispatchDrainV1 */
+        ResearchDispatchDrainV1: {
+            /**
+             * Dispatched
+             * @default 0
+             */
+            dispatched: number;
+            /**
+             * Retrying
+             * @default 0
+             */
+            retrying: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Blocked
+             * @default 0
+             */
+            blocked: number;
+            /**
+             * Indeterminate
+             * @default 0
+             */
+            indeterminate: number;
+            /**
+             * Recovered
+             * @default 0
+             */
+            recovered: number;
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
+            /** Last Error Code */
+            last_error_code?: string | null;
+        };
+        /**
+         * ResearchDispatchStateV1
+         * @description Delivery state owned by one existing research request, not a second task queue.
+         */
+        ResearchDispatchStateV1: {
+            /**
+             * Schema Version
+             * @default research-dispatch-v1
+             * @constant
+             */
+            schema_version: "research-dispatch-v1";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "retry_wait" | "completed" | "quarantined" | "failed" | "blocked" | "indeterminate" | "cancelled";
+            /**
+             * Attempts
+             * @default 0
+             */
+            attempts: number;
+            /** Request Hash */
+            request_hash: string;
+            /** Owner User Id */
+            owner_user_id?: string | null;
+            /** Workspace Id */
+            workspace_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Thread Id */
+            thread_id?: string | null;
+            /** Claim Id */
+            claim_id?: string | null;
+            /** Process Epoch */
+            process_epoch?: string | null;
+            /** Lease Expires At */
+            lease_expires_at?: string | null;
+            /** Next Retry At */
+            next_retry_at?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** Evidence Post Id */
+            evidence_post_id?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** ResearchEvidenceProjection */
         ResearchEvidenceProjection: {
@@ -6296,6 +8859,700 @@ export interface components {
          * @enum {string}
          */
         RunInputArtifactStatus: "uploaded" | "processing" | "ready" | "failed" | "quarantined";
+        /** RunModelUsageV1 */
+        RunModelUsageV1: {
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+        };
+        /** RunnerArtifactUploadRequest */
+        RunnerArtifactUploadRequest: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Artifact Type */
+            artifact_type: string;
+            /** Content Type */
+            content_type: string;
+            /** Content */
+            content: string;
+            /** Content Hash */
+            content_hash: string;
+        };
+        /** RunnerArtifactUploadResponse */
+        RunnerArtifactUploadResponse: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Content Hash */
+            content_hash: string;
+            /** Size Bytes */
+            size_bytes: number;
+        };
+        /** RunnerCancellationRequest */
+        RunnerCancellationRequest: {
+            /** Command Id */
+            command_id: string;
+        };
+        /** RunnerCapabilitiesV1 */
+        RunnerCapabilitiesV1: {
+            /**
+             * Schema Version
+             * @default runner-capabilities-v1
+             * @constant
+             */
+            schema_version: "runner-capabilities-v1";
+            /** Platform */
+            platform: string;
+            /** Architecture */
+            architecture: string;
+            /** Runner Version */
+            runner_version: string;
+            /**
+             * Protocol Version
+             * @default runner-v1
+             * @constant
+             */
+            protocol_version: "runner-v1";
+            /** Tools */
+            tools?: string[];
+            /** Model Capabilities */
+            model_capabilities?: string[];
+        };
+        /** RunnerCompletionRequest */
+        RunnerCompletionRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Output Text */
+            output_text: string;
+            /** Artifact Ids */
+            artifact_ids?: string[];
+            /** Requested Model */
+            requested_model?: string | null;
+            /** Actual Model */
+            actual_model?: string | null;
+            /**
+             * Total Tokens
+             * @default 0
+             */
+            total_tokens: number;
+        };
+        /** RunnerCompletionRequestV2 */
+        RunnerCompletionRequestV2: {
+            /** Command Id */
+            command_id: string;
+            /** Output Text */
+            output_text: string;
+            /** Artifact Ids */
+            artifact_ids?: string[];
+            /** Requested Model */
+            requested_model?: string | null;
+            /** Actual Model */
+            actual_model?: string | null;
+            /**
+             * Total Tokens
+             * @default 0
+             */
+            total_tokens: number;
+            /**
+             * Schema Version
+             * @default runner-completion-v2
+             * @constant
+             */
+            schema_version: "runner-completion-v2";
+            session_commit: components["schemas"]["RunnerSessionCommitV1"];
+        };
+        /** RunnerContextReferenceV1 */
+        RunnerContextReferenceV1: {
+            /** Id */
+            id: string;
+            /** Content Hash */
+            content_hash: string;
+        };
+        /** RunnerConversationMessageV1 */
+        RunnerConversationMessageV1: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Content */
+            content: string;
+        };
+        /**
+         * RunnerDeviceStatus
+         * @enum {string}
+         */
+        RunnerDeviceStatus: "active" | "revoked";
+        /** RunnerDeviceV1 */
+        RunnerDeviceV1: {
+            /**
+             * Schema Version
+             * @default runner-device-v1
+             * @constant
+             */
+            schema_version: "runner-device-v1";
+            /** Id */
+            id?: string;
+            /** Owner User Id */
+            owner_user_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Name */
+            name: string;
+            capabilities: components["schemas"]["RunnerCapabilitiesV1"];
+            /** @default active */
+            status: components["schemas"]["RunnerDeviceStatus"];
+            /** Last Seen At */
+            last_seen_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+            /** Revoked At */
+            revoked_at?: string | null;
+        };
+        /** RunnerDevicesResponse */
+        RunnerDevicesResponse: {
+            /** Items */
+            items: components["schemas"]["RunnerDeviceV1"][];
+        };
+        /** RunnerDispatchClaimRequest */
+        RunnerDispatchClaimRequest: {
+            capabilities: components["schemas"]["RunnerCapabilitiesV1"];
+        };
+        /** RunnerDispatchClaimResponse */
+        RunnerDispatchClaimResponse: {
+            /** Envelope */
+            envelope: components["schemas"]["RunnerExecutionEnvelopeV1"] | components["schemas"]["RunnerExecutionEnvelopeV2"] | components["schemas"]["RunnerExecutionEnvelopeV3"];
+        };
+        /** RunnerDispatchResultResponse */
+        RunnerDispatchResultResponse: {
+            /** Run Id */
+            run_id: string;
+            /** Status */
+            status: string;
+        };
+        /** RunnerEnrollmentApprovalResponse */
+        RunnerEnrollmentApprovalResponse: {
+            status: components["schemas"]["RunnerEnrollmentStatus"];
+            /** Runner Id */
+            runner_id: string;
+        };
+        /** RunnerEnrollmentReviewResponse */
+        RunnerEnrollmentReviewResponse: {
+            /** Runner Id */
+            runner_id: string;
+            /** Device Name */
+            device_name: string;
+            capabilities: components["schemas"]["RunnerCapabilitiesV1"];
+            status: components["schemas"]["RunnerEnrollmentStatus"];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /** RunnerEnrollmentStartRequest */
+        RunnerEnrollmentStartRequest: {
+            /** Device Name */
+            device_name: string;
+            capabilities: components["schemas"]["RunnerCapabilitiesV1"];
+        };
+        /** RunnerEnrollmentStartResponse */
+        RunnerEnrollmentStartResponse: {
+            /** Device Code */
+            device_code: string;
+            /** User Code */
+            user_code: string;
+            /** Verification Uri */
+            verification_uri: string;
+            /** Expires In */
+            expires_in: number;
+            /** Interval */
+            interval: number;
+        };
+        /**
+         * RunnerEnrollmentStatus
+         * @enum {string}
+         */
+        RunnerEnrollmentStatus: "pending" | "approved" | "consumed" | "expired";
+        /** RunnerEnrollmentTokenRequest */
+        RunnerEnrollmentTokenRequest: {
+            /** Device Code */
+            device_code: string;
+        };
+        /** RunnerEnrollmentTokenResponse */
+        RunnerEnrollmentTokenResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "authorization_pending" | "approved";
+            runner?: components["schemas"]["RunnerDeviceV1"] | null;
+            /** Access Token */
+            access_token?: string | null;
+            /**
+             * Token Type
+             * @default Bearer
+             * @constant
+             */
+            token_type: "Bearer";
+        };
+        /** RunnerEventBatchRequest */
+        RunnerEventBatchRequest: {
+            /** Events */
+            events: components["schemas"]["RunnerExecutionEventV1"][];
+        };
+        /** RunnerEventBatchResponse */
+        RunnerEventBatchResponse: {
+            /** Accepted Event Ids */
+            accepted_event_ids: string[];
+        };
+        /** RunnerExecutionEnvelopeV1 */
+        RunnerExecutionEnvelopeV1: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            schema_version: "runner-execution-envelope-v1";
+            /** Envelope Hash */
+            envelope_hash: string;
+            /**
+             * Operation Kind
+             * @default standard_direct
+             * @enum {string}
+             */
+            operation_kind: "standard_direct" | "standard_skill_node";
+            /** Lease Id */
+            lease_id: string;
+            /**
+             * Lease Expires At
+             * Format: date-time
+             */
+            lease_expires_at: string;
+            /** Run Id */
+            run_id: string;
+            /** Operation Key */
+            operation_key: string;
+            /** Dispatch Generation */
+            dispatch_generation: number;
+            /** Owner User Id */
+            owner_user_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Thread Id */
+            thread_id: string;
+            /** Task Id */
+            task_id?: string | null;
+            /** Input Text */
+            input_text: string;
+            /** History */
+            history?: components["schemas"]["RunnerConversationMessageV1"][];
+            skill?: components["schemas"]["RunnerSkillSnapshotV1"] | null;
+            /** Tools */
+            tools?: components["schemas"]["RunnerToolSnapshotV1"][];
+            /** Plan Id */
+            plan_id?: string | null;
+            /** Node Id */
+            node_id?: string | null;
+            /** Node Attempt */
+            node_attempt?: number | null;
+            /** Node Prompt */
+            node_prompt?: {
+                [key: string]: unknown;
+            } | null;
+            /** Instructions */
+            instructions: string;
+            /** Model Id */
+            model_id: string;
+            /**
+             * Deadline At
+             * Format: date-time
+             */
+            deadline_at: string;
+        };
+        /** RunnerExecutionEnvelopeV2 */
+        RunnerExecutionEnvelopeV2: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            schema_version: "runner-execution-envelope-v2";
+            /** Envelope Hash */
+            envelope_hash: string;
+            /**
+             * Operation Kind
+             * @default standard_direct
+             * @constant
+             */
+            operation_kind: "standard_direct";
+            /** Lease Id */
+            lease_id: string;
+            /**
+             * Lease Expires At
+             * Format: date-time
+             */
+            lease_expires_at: string;
+            /** Run Id */
+            run_id: string;
+            /** Operation Key */
+            operation_key: string;
+            /** Dispatch Generation */
+            dispatch_generation: number;
+            /** Owner User Id */
+            owner_user_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Thread Id */
+            thread_id: string;
+            /** Task Id */
+            task_id?: string | null;
+            /** Input Text */
+            input_text: string;
+            /** History */
+            history?: components["schemas"]["RunnerConversationMessageV1"][];
+            skill?: components["schemas"]["RunnerSkillSnapshotV1"] | null;
+            /** Tools */
+            tools?: components["schemas"]["RunnerToolSnapshotV1"][];
+            /** Plan Id */
+            plan_id?: string | null;
+            /** Node Id */
+            node_id?: string | null;
+            /** Node Attempt */
+            node_attempt?: number | null;
+            /** Node Prompt */
+            node_prompt?: {
+                [key: string]: unknown;
+            } | null;
+            /** Instructions */
+            instructions: string;
+            /** Model Id */
+            model_id: string;
+            /**
+             * Deadline At
+             * Format: date-time
+             */
+            deadline_at: string;
+            session: components["schemas"]["RunnerSessionSnapshotV1"];
+        };
+        /** RunnerExecutionEnvelopeV3 */
+        RunnerExecutionEnvelopeV3: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            schema_version: "runner-execution-envelope-v3";
+            /** Envelope Hash */
+            envelope_hash: string;
+            /**
+             * Operation Kind
+             * @default standard_direct
+             * @enum {string}
+             */
+            operation_kind: "standard_direct" | "standard_skill_node";
+            /** Lease Id */
+            lease_id: string;
+            /**
+             * Lease Expires At
+             * Format: date-time
+             */
+            lease_expires_at: string;
+            /** Run Id */
+            run_id: string;
+            /** Operation Key */
+            operation_key: string;
+            /** Dispatch Generation */
+            dispatch_generation: number;
+            /** Owner User Id */
+            owner_user_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Thread Id */
+            thread_id: string;
+            /** Task Id */
+            task_id?: string | null;
+            /** Input Text */
+            input_text: string;
+            /** History */
+            history?: components["schemas"]["RunnerConversationMessageV1"][];
+            skill?: components["schemas"]["RunnerSkillSnapshotV1"] | null;
+            /** Tools */
+            tools?: components["schemas"]["RunnerToolSnapshotV1"][];
+            /** Plan Id */
+            plan_id?: string | null;
+            /** Node Id */
+            node_id?: string | null;
+            /** Node Attempt */
+            node_attempt?: number | null;
+            /** Node Prompt */
+            node_prompt?: {
+                [key: string]: unknown;
+            } | null;
+            /** Instructions */
+            instructions: string;
+            /** Model Id */
+            model_id: string;
+            /**
+             * Deadline At
+             * Format: date-time
+             */
+            deadline_at: string;
+            session?: components["schemas"]["RunnerSessionSnapshotV1"] | null;
+            context?: components["schemas"]["RunnerContextReferenceV1"] | null;
+        };
+        /** RunnerExecutionEventV1 */
+        RunnerExecutionEventV1: {
+            /** Client Event Id */
+            client_event_id: string;
+            /**
+             * Event Type
+             * @enum {string}
+             */
+            event_type: "execution_started" | "model_started" | "model_completed" | "tool_started" | "tool_completed" | "tool_failed" | "execution_completed" | "execution_failed";
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+        };
+        /** RunnerFailureRequest */
+        RunnerFailureRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Error Code */
+            error_code: string;
+        };
+        /** RunnerHeartbeatRequest */
+        RunnerHeartbeatRequest: {
+            capabilities: components["schemas"]["RunnerCapabilitiesV1"];
+        };
+        /** RunnerHeartbeatResponse */
+        RunnerHeartbeatResponse: {
+            runner: components["schemas"]["RunnerDeviceV1"];
+            /**
+             * Server Time
+             * Format: date-time
+             */
+            server_time?: string;
+        };
+        /** RunnerLeaseRenewResponse */
+        RunnerLeaseRenewResponse: {
+            /** Lease Id */
+            lease_id: string;
+            /**
+             * Lease Expires At
+             * Format: date-time
+             */
+            lease_expires_at: string;
+            /**
+             * Cancel Requested
+             * @default false
+             */
+            cancel_requested: boolean;
+        };
+        /** RunnerModelDeliveryRequestV1 */
+        RunnerModelDeliveryRequestV1: {
+            /** Handoff Id */
+            handoff_id: string;
+            /** Request Hash */
+            request_hash: string;
+            /** Total Tokens */
+            total_tokens?: number | null;
+            usage?: components["schemas"]["RunModelUsageV1"] | null;
+        };
+        /** RunnerModelDeliveryResponseV1 */
+        RunnerModelDeliveryResponseV1: {
+            /** Handoff Id */
+            handoff_id: string;
+            /** Receipt Ids */
+            receipt_ids?: string[];
+            /** Budget Error Code */
+            budget_error_code?: ("run_model_request_usage_exceeded" | "run_model_budget_exhausted") | null;
+        };
+        /** RunnerModelHandoffRequestV1 */
+        RunnerModelHandoffRequestV1: {
+            /** Client Request Id */
+            client_request_id: string;
+            /** Envelope Hash */
+            envelope_hash: string;
+            /** Request Hash */
+            request_hash: string;
+            /**
+             * Stage
+             * @default execution
+             * @enum {string}
+             */
+            stage: "execution" | "compaction";
+            /** Input Hashes */
+            input_hashes?: string[];
+            /** Instructions Hash */
+            instructions_hash: string;
+            /** Model Id */
+            model_id: string;
+            /** Total Chars */
+            total_chars: number;
+            /** Estimated Input Tokens */
+            estimated_input_tokens: number;
+            /** Output Token Cap */
+            output_token_cap: number;
+        };
+        /** RunnerModelHandoffResponseV1 */
+        RunnerModelHandoffResponseV1: {
+            /** Handoff Id */
+            handoff_id: string;
+        };
+        /** RunnerNodeCompletionRequest */
+        RunnerNodeCompletionRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Result Payload */
+            result_payload: {
+                [key: string]: unknown;
+            };
+            /** Requested Model */
+            requested_model?: string | null;
+            /** Actual Model */
+            actual_model?: string | null;
+            /**
+             * Total Tokens
+             * @default 0
+             */
+            total_tokens: number;
+        };
+        /** RunnerNodeCompletionRequestV2 */
+        RunnerNodeCompletionRequestV2: {
+            /** Command Id */
+            command_id: string;
+            /** Result Payload */
+            result_payload: {
+                [key: string]: unknown;
+            };
+            /** Requested Model */
+            requested_model?: string | null;
+            /** Actual Model */
+            actual_model?: string | null;
+            /**
+             * Total Tokens
+             * @default 0
+             */
+            total_tokens: number;
+            /**
+             * Schema Version
+             * @default runner-node-completion-v2
+             * @constant
+             */
+            schema_version: "runner-node-completion-v2";
+        };
+        /** RunnerSessionCommitV1 */
+        RunnerSessionCommitV1: {
+            /**
+             * Schema Version
+             * @default runner-session-commit-v1
+             * @constant
+             */
+            schema_version: "runner-session-commit-v1";
+            /** Thread Id */
+            thread_id: string;
+            /** Version */
+            version: number;
+            /** Items */
+            items?: {
+                [key: string]: unknown;
+            }[];
+            /** Snapshot Hash */
+            snapshot_hash: string;
+        };
+        /** RunnerSessionSnapshotV1 */
+        RunnerSessionSnapshotV1: {
+            /**
+             * Schema Version
+             * @default runner-session-snapshot-v1
+             * @constant
+             */
+            schema_version: "runner-session-snapshot-v1";
+            /** Thread Id */
+            thread_id: string;
+            /** Version */
+            version: number;
+            /** Items */
+            items?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** RunnerSkillSnapshotV1 */
+        RunnerSkillSnapshotV1: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Title */
+            title: string;
+            /** Version */
+            version: string;
+            /** Content Hash */
+            content_hash: string;
+        };
+        /** RunnerToolHandoffRequestV1 */
+        RunnerToolHandoffRequestV1: {
+            /** Client Request Id */
+            client_request_id: string;
+            /** Envelope Hash */
+            envelope_hash: string;
+            /** Tool Name */
+            tool_name: string;
+            /** Tool Snapshot Hash */
+            tool_snapshot_hash: string;
+            /** Arguments Hash */
+            arguments_hash: string;
+            /** Tool Call Hash */
+            tool_call_hash?: string | null;
+        };
+        /** RunnerToolHandoffResponseV1 */
+        RunnerToolHandoffResponseV1: {
+            /** Handoff Id */
+            handoff_id: string;
+            /** Tool Call Count */
+            tool_call_count: number;
+        };
+        /** RunnerToolSnapshotV1 */
+        RunnerToolSnapshotV1: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Input Schema */
+            input_schema: {
+                [key: string]: unknown;
+            };
+            /**
+             * Side Effect
+             * @default read
+             * @constant
+             */
+            side_effect: "read";
+            /** Implementation Id */
+            implementation_id: string;
+            /** Implementation Version */
+            implementation_version: string;
+        };
         /** ScenarioAssignmentOptionV1 */
         ScenarioAssignmentOptionV1: {
             /** Scenario Id */
@@ -6338,11 +9595,11 @@ export interface components {
         /** ScheduledAgentTaskCreateRequest */
         ScheduledAgentTaskCreateRequest: {
             /** Agent Id */
-            agent_id: string;
+            agent_id?: string | null;
             /** Title */
             title: string;
             /** Prompt */
-            prompt: string;
+            prompt?: string | null;
             /** Schedule */
             schedule: string;
             /**
@@ -6350,6 +9607,22 @@ export interface components {
              * @default true
              */
             enabled: boolean;
+            /** Command Id */
+            command_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Template Id */
+            template_id?: ("daily_progress" | "blockers" | "pending_reviews") | null;
+            /**
+             * Timezone
+             * @default Asia/Shanghai
+             */
+            timezone: string;
+            /**
+             * On Project Changes
+             * @default false
+             */
+            on_project_changes: boolean;
         };
         /** ScheduledAgentTaskDefinition */
         ScheduledAgentTaskDefinition: {
@@ -6372,6 +9645,18 @@ export interface components {
             created_by: string;
             /** Last Run At */
             last_run_at?: string | null;
+            /** Last Success At */
+            last_success_at?: string | null;
+            /** Last Failure At */
+            last_failure_at?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Last Result Hash */
+            last_result_hash?: string | null;
+            /** Last Result Run Id */
+            last_result_run_id?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -6382,6 +9667,65 @@ export interface components {
              * Format: date-time
              */
             updated_at?: string;
+            /** Schema Version */
+            schema_version?: "project-inspection-schedule-v1" | null;
+            /** Workspace Id */
+            workspace_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Owner User Id */
+            owner_user_id?: string | null;
+            /** Template Id */
+            template_id?: ("daily_progress" | "blockers" | "pending_reviews") | null;
+            /**
+             * Timezone
+             * @default Asia/Shanghai
+             */
+            timezone: string;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Validation State
+             * @default legacy_schedule_unvalidated
+             * @enum {string}
+             */
+            validation_state: "legacy_schedule_unvalidated" | "valid";
+            /** Next Run At */
+            next_run_at?: string | null;
+            /**
+             * On Project Changes
+             * @default false
+             */
+            on_project_changes: boolean;
+            /** Change Cursor */
+            change_cursor?: number | null;
+            /**
+             * Misfire Policy
+             * @default coalesce_latest
+             * @constant
+             */
+            misfire_policy: "coalesce_latest";
+            /**
+             * Overlap Policy
+             * @default skip
+             * @constant
+             */
+            overlap_policy: "skip";
+            budget?: components["schemas"]["ScheduledInspectionBudgetV1"];
+        };
+        /** ScheduledAgentTaskPageV1 */
+        ScheduledAgentTaskPageV1: {
+            /** Items */
+            items: components["schemas"]["ScheduledAgentTaskDefinition"][];
+            /** Total Count */
+            total_count: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
         };
         /** ScheduledAgentTaskUpdateRequest */
         ScheduledAgentTaskUpdateRequest: {
@@ -6393,6 +9737,155 @@ export interface components {
             schedule?: string | null;
             /** Enabled */
             enabled?: boolean | null;
+            /** Command Id */
+            command_id?: string | null;
+            /** Expected Version */
+            expected_version?: number | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Template Id */
+            template_id?: ("daily_progress" | "blockers" | "pending_reviews") | null;
+            /** Timezone */
+            timezone?: string | null;
+            /** On Project Changes */
+            on_project_changes?: boolean | null;
+        };
+        /** ScheduledInspectionBudgetV1 */
+        ScheduledInspectionBudgetV1: {
+            /**
+             * Max Model Turns
+             * @default 8
+             */
+            max_model_turns: number;
+            /**
+             * Max Tool Calls
+             * @default 12
+             */
+            max_tool_calls: number;
+            /**
+             * Max Tokens
+             * @default 32000
+             */
+            max_tokens: number;
+            /**
+             * Deadline Seconds
+             * @default 600
+             */
+            deadline_seconds: number;
+        };
+        /** ScheduledInspectionUsageV1 */
+        ScheduledInspectionUsageV1: {
+            /**
+             * Attempt Count
+             * @default 0
+             */
+            attempt_count: number;
+            /**
+             * Model Turns
+             * @default 0
+             */
+            model_turns: number;
+            /**
+             * Total Tokens
+             * @default 0
+             */
+            total_tokens: number;
+            /** Next Retry At */
+            next_retry_at?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+        };
+        /** ScheduledOccurrenceV1 */
+        ScheduledOccurrenceV1: {
+            /**
+             * Schema Version
+             * @default scheduled-occurrence-v1
+             * @constant
+             */
+            schema_version: "scheduled-occurrence-v1";
+            /** Id */
+            id: string;
+            /** Schedule Id */
+            schedule_id: string;
+            /** Definition Version */
+            definition_version: number;
+            /**
+             * Trigger
+             * @enum {string}
+             */
+            trigger: "scheduled" | "manual" | "change";
+            /** Trigger Key */
+            trigger_key: string;
+            /**
+             * Scheduled At
+             * Format: date-time
+             */
+            scheduled_at: string;
+            /** Local Slot */
+            local_slot?: string | null;
+            /** Source Cursor */
+            source_cursor?: number | null;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Owner User Id */
+            owner_user_id: string;
+            /**
+             * Template Id
+             * @enum {string}
+             */
+            template_id: "daily_progress" | "blockers" | "pending_reviews";
+            budget: components["schemas"]["ScheduledInspectionBudgetV1"];
+            /** Run Id */
+            run_id?: string | null;
+            /**
+             * Admission
+             * @enum {string}
+             */
+            admission: "admitted" | "skipped" | "blocked";
+            /** Reason */
+            reason?: string | null;
+            /** Manual Actor Id */
+            manual_actor_id?: string | null;
+            /** Command Hash */
+            command_hash?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ScheduledRunNowRequestV1 */
+        ScheduledRunNowRequestV1: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Version */
+            expected_version: number;
+        };
+        /** ScheduledRunPageV1 */
+        ScheduledRunPageV1: {
+            /** Items */
+            items: components["schemas"]["ScheduledRunSummaryV1"][];
+            /** Total Count */
+            total_count: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
+        /** ScheduledRunSummaryV1 */
+        ScheduledRunSummaryV1: {
+            occurrence: components["schemas"]["ScheduledOccurrenceV1"];
+            status?: components["schemas"]["AgentRunStatus"] | null;
+            /** Error Code */
+            error_code?: string | null;
+            /**
+             * Tool Call Count
+             * @default 0
+             */
+            tool_call_count: number;
+            usage?: components["schemas"]["ScheduledInspectionUsageV1"] | null;
         };
         /**
          * Scope
@@ -7176,6 +10669,7 @@ export interface components {
              * @default
              */
             reference: string;
+            origin?: components["schemas"]["SourceOriginV1"] | null;
         };
         /** SkillRoutingDecision */
         SkillRoutingDecision: {
@@ -7261,6 +10755,55 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
+            snapshot?: components["schemas"]["SourceSnapshotV1"] | null;
+            origin?: components["schemas"]["SourceOriginV1"] | null;
+        };
+        /** SourceOriginV1 */
+        SourceOriginV1: {
+            /**
+             * Schema Version
+             * @default source_origin_v1
+             * @constant
+             */
+            schema_version: "source_origin_v1";
+            /** Source Id */
+            source_id: string;
+            /** Revision */
+            revision: number;
+            /** Source Hash */
+            source_hash: string;
+            /** Body Sha256 */
+            body_sha256: string;
+        };
+        /** SourceSnapshotV1 */
+        SourceSnapshotV1: {
+            /**
+             * Schema Version
+             * @default source_snapshot_v1
+             * @constant
+             */
+            schema_version: "source_snapshot_v1";
+            /** Provider */
+            provider: string;
+            /** External Id */
+            external_id: string;
+            /** Version */
+            version: string;
+            /** Body Sha256 */
+            body_sha256: string;
+            /** Revision */
+            revision: number;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /**
+             * Lifecycle
+             * @default active
+             * @enum {string}
+             */
+            lifecycle: "active" | "archived" | "deleted" | "unavailable";
         };
         /**
          * StatusResponse
@@ -7393,6 +10936,8 @@ export interface components {
         TaskCreateRequest: {
             /** Command Id */
             command_id: string;
+            /** Project Id */
+            project_id?: string | null;
             /** Title */
             title: string;
             /**
@@ -7787,6 +11332,9 @@ export interface components {
             memory_type: string;
             /** @default mid_term */
             layer: components["schemas"]["MemoryLayer"];
+            /** Facts */
+            facts?: components["schemas"]["FactAssertionV1"][] | null;
+            procedure?: components["schemas"]["ProcedureDraftV1"] | null;
         };
         /** TaskReviewMutationResponseV1 */
         TaskReviewMutationResponseV1: {
@@ -8064,6 +11612,33 @@ export interface components {
             /** @default user */
             role: components["schemas"]["UserRole"];
         };
+        /** TermAliasUpdateV1 */
+        TermAliasUpdateV1: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Version */
+            expected_version: number;
+            /** Aliases */
+            aliases: {
+                [key: string]: string;
+            };
+        };
+        /** TermResolutionV1 */
+        TermResolutionV1: {
+            /** Canonical Subject Id */
+            canonical_subject_id: string;
+            /** Matched Subject Ids */
+            matched_subject_ids: string[];
+            /** Alias Version */
+            alias_version: number;
+            /** Confirmed By */
+            confirmed_by: string;
+            /**
+             * Confirmed At
+             * Format: date-time
+             */
+            confirmed_at: string;
+        };
         /** ToolDefinition */
         ToolDefinition: {
             /** Id */
@@ -8279,6 +11854,9 @@ export interface components {
              */
             status: string;
             provenance?: components["schemas"]["MemoryProvenanceV1"] | null;
+            /** Facts */
+            facts?: components["schemas"]["MemoryFactV1"][] | null;
+            procedure?: components["schemas"]["ProcedureMemoryV1"] | null;
             /**
              * Version
              * @default 1
@@ -8999,6 +12577,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentRunDetailResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_agent_run_memory_api_agent_runs__run_id__memory_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentRunMemorySaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunMemorySaveResponse"];
                 };
             };
             /** @description Validation Error */
@@ -10163,7 +13776,12 @@ export interface operations {
     };
     scheduled_agent_tasks_api_agents_scheduled_tasks_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+                page?: number;
+                page_size?: number;
+                include_unvalidated?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10176,7 +13794,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItemsResponse"];
+                    "application/json": components["schemas"]["ScheduledAgentTaskPageV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -10201,6 +13828,126 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduledAgentTaskDefinition"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schedule_status_api_agents_scheduled_tasks_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationStatusV1"];
+                };
+            };
+        };
+    };
+    run_scheduled_inspection_now_api_agents_scheduled_tasks__definition_id__run_now_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                definition_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduledRunNowRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledOccurrenceV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scheduled_inspection_runs_api_agents_scheduled_tasks__definition_id__runs_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                definition_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledRunPageV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scheduled_inspection_report_api_agents_inspection_runs__run_id__report_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInspectionReportV1"];
                 };
             };
             /** @description Validation Error */
@@ -10687,9 +14434,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ResearchDispatchDrainV1"];
                 };
             };
         };
@@ -10916,6 +14661,605 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_terminology_api_memory_facts_terminology__project_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTermAliasesV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_terminology_api_memory_facts_terminology__project_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TermAliasUpdateV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTermAliasesV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    document_evidence_api_memory_facts_source_documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryEvidenceRefV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remember_facts_api_memory_facts_remember_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactRememberV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserMemoryItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_facts_api_memory_facts_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactQueryV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactQueryResultV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    status_api_memory_learning_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryLearningStatusV1"];
+                };
+            };
+        };
+    };
+    preferences_api_memory_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryPreferencesV1"];
+                };
+            };
+        };
+    };
+    patch_preferences_api_memory_preferences_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryPreferencesPatchV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryPreferencesV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    jobs_api_memory_learning_jobs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryLearningJobV1"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    learn_api_memory_learning_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentLearnRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryLearningJobV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_api_memory_learning_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryLearningJobV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    candidate_api_memory_learning_jobs__job_id__candidate_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserMemoryItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_api_memory_learning_jobs__job_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LearningRetryRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryLearningJobV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_api_memory_learning_jobs__job_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LearningConfirmationV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserMemoryItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    source_span_api_memory_source_spans__span_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                span_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentSourceSpanV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    forget_api_memory__memory_id__forget_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryForgetRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryForgetResultV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_api_memory_sources_documents__document_id__withdraw_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryForgetRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryForgetResultV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_memory_relations_api_memory_relations_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryRelationQueryV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryRelationGraphV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_memory_relation_api_memory_relations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryRelationCreateV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryRelation"];
                 };
             };
             /** @description Validation Error */
@@ -11847,9 +16191,271 @@ export interface operations {
             };
         };
     };
-    market_status_api_market_status_get: {
+    list_queries_api_market_queries_get: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DelegatedQueryList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_query_api_market_queries_post: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DelegatedQueryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DelegatedQueryView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_query_api_market_queries__query_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                query_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DelegatedQueryView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_query_api_market_queries__query_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                query_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueryResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DelegatedQueryView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_query_api_market_queries__query_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                query_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DelegatedQueryView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    adopt_query_api_market_queries__query_id__adopt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                query_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueryAdoptRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryAdoptionV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_query_consents_api_market_query_consents_get: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryConsentList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_query_consent_api_market_query_consents_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueryConsentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryConsentView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    market_status_api_market_status_get: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -11867,11 +16473,22 @@ export interface operations {
                     };
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     market_board_api_market_board_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -11887,6 +16504,15 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -11946,7 +16572,9 @@ export interface operations {
     };
     market_me_api_market_me_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -11962,11 +16590,22 @@ export interface operations {
                     "application/json": components["schemas"]["MarketMeView"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     market_activity_api_market_activity_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -11980,6 +16619,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MarketActivityFeed"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -12055,7 +16703,9 @@ export interface operations {
     };
     upload_document_api_documents_upload_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12090,7 +16740,11 @@ export interface operations {
     };
     document_jobs_api_documents_jobs_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+                limit?: number;
+                before?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12103,9 +16757,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["DocumentJobsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -12127,9 +16788,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["DocumentJobItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_document_job_api_documents_jobs__job_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentJobRetryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentJobItemResponse"];
                 };
             };
             /** @description Validation Error */
@@ -12237,7 +16931,9 @@ export interface operations {
     };
     import_document_to_memory_api_documents__document_id__import_to_memory_post: {
         parameters: {
-            query?: never;
+            query?: {
+                expected_version?: number | null;
+            };
             header?: never;
             path: {
                 document_id: string;
@@ -12286,6 +16982,109 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    project_connectors_api_projects__project_id__connectors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorStatusListV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_project_connector_api_projects__project_id__connectors__provider__sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorSyncRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorSyncCursorV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    control_project_connector_api_projects__project_id__connectors__cursor_id__control_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                cursor_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorControlRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorSyncCursorV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -12404,6 +17203,632 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_runner_enrollment_api_runner_enrollment_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerEnrollmentStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerEnrollmentStartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_runner_enrollment_api_runner_enrollment__user_code__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerEnrollmentReviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_runner_enrollment_api_runner_enrollment__user_code__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerEnrollmentApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    exchange_runner_enrollment_token_api_runner_enrollment_token_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerEnrollmentTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerEnrollmentTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    runner_heartbeat_api_runner_heartbeat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerHeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerHeartbeatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claim_runner_dispatch_api_runner_dispatches_claim_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerDispatchClaimRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerDispatchClaimResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    authorize_runner_model_handoff_api_runner_dispatches__lease_id__model_handoffs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerModelHandoffRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerModelHandoffResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    authorize_runner_tool_handoff_api_runner_dispatches__lease_id__tool_handoffs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerToolHandoffRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerToolHandoffResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_runner_model_delivery_api_runner_dispatches__lease_id__model_deliveries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerModelDeliveryRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerModelDeliveryResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    renew_runner_dispatch_api_runner_dispatches__lease_id__renew_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerLeaseRenewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    append_runner_events_api_runner_dispatches__lease_id__events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerEventBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerEventBatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_runner_node_dispatch_api_runner_dispatches__lease_id__node_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerNodeCompletionRequestV2"] | components["schemas"]["RunnerNodeCompletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerDispatchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fail_runner_node_dispatch_api_runner_dispatches__lease_id__node_fail_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerFailureRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerDispatchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_runner_artifact_api_runner_dispatches__lease_id__artifacts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerArtifactUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerArtifactUploadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_runner_dispatch_api_runner_dispatches__lease_id__complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerCompletionRequestV2"] | components["schemas"]["RunnerCompletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerDispatchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fail_runner_dispatch_api_runner_dispatches__lease_id__fail_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerFailureRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerDispatchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    acknowledge_runner_cancellation_api_runner_dispatches__lease_id__cancelled_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunnerCancellationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerDispatchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runners_api_runners_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerDevicesResponse"];
+                };
+            };
+        };
+    };
+    revoke_runner_api_runners__runner_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runner_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
                 };
             };
             /** @description Validation Error */
@@ -12929,6 +18354,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskManagementItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_current_state_api_task_operations__project_id__state_get: {
+        parameters: {
+            query?: {
+                task_id?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectStateResultV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    inspect_project_api_task_operations__project_id__inspections_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectInspectionRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInspectionReportV1"];
                 };
             };
             /** @description Validation Error */

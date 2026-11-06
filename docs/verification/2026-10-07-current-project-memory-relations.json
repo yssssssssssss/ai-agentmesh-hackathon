@@ -1,0 +1,167 @@
+{
+  "date": "2026-10-07",
+  "status": "passed_local_related_regression",
+  "adr": "docs/adr/0043-current-project-memory-relations.md",
+  "scope": [
+    "Human current-project metadata graph over existing governed local records",
+    "Independent endpoint/evidence visibility and frozen versions/hashes",
+    "Native Task/Review/Artifact and document/fact/span citation proofs",
+    "Private-origin isolation, transactional annotation/audit and durable replay",
+    "Task/Knowledge panels, candidate and explicit human annotations"
+  ],
+  "limits": {
+    "max_hops": 2,
+    "default_nodes": 20,
+    "max_nodes": 40,
+    "default_edges": 40,
+    "max_edges": 80,
+    "default_json_chars": 8000,
+    "max_json_chars": 12000,
+    "candidate_rows_per_scan": 128,
+    "candidate_rows_per_request": 512,
+    "proof_decoded_record_reads": 200,
+    "proof_decoded_payload_bytes": 4194304,
+    "fact_references_per_memory_scan": 128,
+    "limits_are_not_os_or_sql_latency_guarantees": true
+  },
+  "new_behavior_cases": 45,
+  "related_regression": {
+    "3.12": {
+      "passed": 256,
+      "seconds": 300.2,
+      "log": "/tmp/agentmesh-memory-relations-final-312.log"
+    },
+    "3.13": {
+      "passed": 256,
+      "seconds": 295.97,
+      "log": "/tmp/agentmesh-memory-relations-final-313.log"
+    },
+    "boundary": "Relations, Memory governance/facts/forgetting/learning/context/search, native document import, Task commands/reviews.",
+    "note": "These runs precede the final snapshot-local metadata cache and equivalent owner-only citation short circuit. The affected relation suite was then rerun under both versions."
+  },
+  "final_metadata_cache_regression": {
+    "3.12": {
+      "passed": 45,
+      "seconds": 13.76,
+      "log": "/tmp/agentmesh-memory-relations-metadata-final-312.log"
+    },
+    "3.13": {
+      "passed": 45,
+      "seconds": 13.77,
+      "log": "/tmp/agentmesh-memory-relations-metadata-final-313.log"
+    },
+    "venv_3.13": {
+      "passed": 45,
+      "seconds": 14.31,
+      "log": "/tmp/agentmesh-memory-relations-final-venv.log"
+    }
+  },
+  "observed_semantic_red_cases": [
+    "Missing relation query/create HTTP contracts",
+    "Frozen Fact document citation and native document backlinks",
+    "Task children/reverse dependencies",
+    "Frozen personal-share parent",
+    "User/shared Memory ID collision in review cache",
+    "Global-note/project-document mismatch",
+    "Unproven legacy links starving older frozen facts",
+    "Stored replay snapshot changed without its command hash",
+    "Legacy backlink ID outside the declared contract"
+  ],
+  "frontend": {
+    "passed": 246,
+    "files": 51,
+    "seconds": 4.5,
+    "log": "/tmp/agentmesh-memory-relations-frontend.log",
+    "openapi_regenerated": true,
+    "build_passed": true,
+    "build_log": "/tmp/agentmesh-memory-relations-build.log",
+    "largest_bundle_bytes": 322425,
+    "bundle_limit_bytes": 500000
+  },
+  "browser": {
+    "tool": "Ego Lite",
+    "task_space_id": 1,
+    "isolated_backend_port": 8021,
+    "isolated_frontend_port": 5181,
+    "providers_enabled": false,
+    "evidence_log": "/tmp/agentmesh-memory-relations-browser-evidence.json",
+    "evidence": {
+      "fixture": {
+        "document_id": "doc_input_c1edee55c23fd47c00b1028b7f573486",
+        "memory_id": "umem_5d0966183575",
+        "project_id": "prj_618_home_appliance"
+      },
+      "candidate": {
+        "node_count": 3,
+        "edge_count": 3,
+        "assertions": [
+          "candidate",
+          "native",
+          "native"
+        ],
+        "relation_ids": [
+          "memrel_25c9032df0ebc150062b8261c9c90f7ad668910479c76fd1ab78bbf3b360eb7a"
+        ]
+      },
+      "document_navigation": {
+        "url": "http://127.0.0.1:5181/knowledge?project=prj_618_home_appliance&document=doc_input_c1edee55c23fd47c00b1028b7f573486",
+        "panel_text": "关联记录刷新关联查看当前可访问、依据仍有效的两层关联。候选关联需要人工判断。关联验收：上线负责人 · v1支持关联验收资料.txt · v1候选关联个人记忆 → 文档文档依据 · v1关联验收：上线负责人 · v1引用关联验收资料.txt · v1已核对来源个人记忆 → 文档文档依据 · v1关联验收资料.txt [1/1] · v1引用关联验收资料.txt · v1已核对来源个人记忆 → 文档文档依据 · v1"
+      },
+      "backend_restart_preserved": true,
+      "confirmed": {
+        "relation_ids": [
+          "memrel_d9b84092673a2996ef75def48dee91e95b039e4139aaffd1968239c0b470dc68"
+        ],
+        "panel_text": "关联记录刷新关联查看当前可访问、依据仍有效的两层关联。候选关联需要人工判断。关联验收：上线负责人 · v1支持关联验收资料.txt · v1人工确认个人记忆 → 文档文档依据 · v1关联验收：上线负责人 · v1支持关联验收资料.txt · v1候选关联个人记忆 → 文档文档依据 · v1关联验收：上线负责人 · v1引用关联验收资料.txt · v1已核对来源个人记忆 → 文档文档依据 · v1关联验收资料.txt [1/1] · v1引用关联验收资料.txt · v1已核对来源个人记忆 → 文档文档依据 · v1为已展示的记录补充判断，保存时会重新核对权限与依据。关联记录选择关联记录关联验收资料.txt · v1关联验收资料.txt [1/1] · v1关系相关支持矛盾替代由此引起判断依据选择当前任务或文档关联验收资料.txt · v1我已核对依据，确认此关联保存关联关联已保存。"
+      },
+      "same_form_replay_kept_one_confirmation": true,
+      "source_edit": {
+        "document_version": 2,
+        "node_count": 1,
+        "edge_count": 0,
+        "panel_text": "关联记录刷新关联查看当前可访问、依据仍有效的两层关联。候选关联需要人工判断。暂无可展示的关联。"
+      },
+      "task_drawer": {
+        "url": "http://127.0.0.1:5181/tasks?task=task_d7784abd891f&project=prj_618_home_appliance",
+        "panel_text": "关联记录刷新关联查看当前可访问、依据仍有效的两层关联。候选关联需要人工判断。暂无可展示的关联。"
+      }
+    },
+    "screenshot_claimed": false,
+    "notes": [
+      "Nested-drawer pointer interception was inspected; focus/Space/Enter saved explicit confirmation.",
+      "One unsupported snapshot-root option was corrected to actual snapshot refs.",
+      "Browser QA preceded the final equivalent metadata caching adjustment; the final relation suites verify current code."
+    ]
+  },
+  "checks": {
+    "ruff_all": "passed",
+    "git_diff_check": "passed"
+  },
+  "source_hashes": {
+    "agentmesh/memory_relations.py": "7f7d334e5912406044313f0470b1fb7ce7c4db1c5e6c7a3d6c0eeb26ea3b7361",
+    "agentmesh/models.py": "eae40121420920e9dbc8aa4c1f6aed1c81498a70fcba83f53648dfa5f36b0ee3",
+    "agentmesh/routes/memory.py": "45501c6fe6c9591c95bead71ff63a03f0dddc2052a4545852d1e45444623b173",
+    "agentmesh/memory_facts.py": "1644c3d5f5e2dbda72011fa808a84182f5eb7c8d3df08fcfecafc553af3658a5",
+    "agentmesh/memory_context/origin.py": "e3f8f832a5280af348ca4d3faafa3cb9fb35583e2706080c045b5aae54d29ca9",
+    "tests/test_memory_relations.py": "d4afbfac62d0571f775ff7b91387ce047c72f02ed4dcfa794358cd11e957bccd",
+    "agentmesh-demo/src/features/knowledge/relationsApi.ts": "865ac36aa86a77291ea11eafacba00b1ee5ee7abe941b2021c42166b7b2064bc",
+    "agentmesh-demo/src/components/knowledge/MemoryRelationsPanel.tsx": "785b805eb73e0465ea2998eba25d11703d920fa33645ff6065af5cd4b6bf01e1",
+    "agentmesh-demo/src/components/knowledge/MemoryRelationsPanel.test.tsx": "9ae7edd3bc8d27a4d1d22bd7b979fe7a1e8a8d9435a3e57e094196550a0ef1e8",
+    "agentmesh-demo/src/components/knowledge/KnowledgeDetailDrawer.tsx": "1454f69ead1eb1f681636df38deebb3db751dd4a12819fcc90986ce2c779b1c8",
+    "agentmesh-demo/src/components/tasks/TaskDetailDrawer.tsx": "f8f75a59a0b7265a17152f12280ef001ecc68d727596604c4f359216d5069e50",
+    "agentmesh-demo/src/pages/Knowledge.tsx": "6c246c752040cddc35dddef2e03ffb1e30e9bfae3d7d7d3433c4830aee9eda07",
+    "agentmesh-demo/src/pages/Tasks.tsx": "424258a6855b3337cfffb365cdef8f621311fafc69346a745d4fad919cf02f65",
+    "agentmesh-demo/src/api/generated/schema.ts": "20b828cdc53ce4ec9969ef0039abdb21edd4b348eef36e5738c60b424ed0e6f2"
+  },
+  "full_backend_suite_rerun": false,
+  "real_model_quality_verified": false,
+  "external_connector_verified": false,
+  "remaining": [
+    "General Source version/hash/archive/snapshot and connector cursor contracts",
+    "Model-inferred relations, arbitrary-record discovery and candidate review workflows",
+    "Artifact/Memory-parent reverse indexes and graph SDK delivery",
+    "Full context/Runner request, cost, output, cancellation and delivery governance",
+    "Real-model evaluation and enterprise pilot",
+    "Stages 3-5 remain in progress"
+  ]
+}

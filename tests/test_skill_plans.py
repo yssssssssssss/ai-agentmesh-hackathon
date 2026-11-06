@@ -105,6 +105,8 @@ def _candidate(
 def _approval_plan(repository: SQLiteStore, *, suffix: str) -> tuple[AgentRun, SkillPlan, SkillCandidate]:
     ensure_base_workspace_data(repository)
     repository.save_user(USER)
+    repository.add_chat_thread(ChatThread(id=f'thread_approval_{suffix}', user_id=USER.id,
+        workspace_id=USER.workspace_id, project_id=USER.default_project_id, title='Plan approval'))
     candidate = _candidate("approval_skill", inputs=["design_requirement"], outputs=["design_analysis"])
     run = repository.save_agent_run(
         AgentRun(
@@ -422,6 +424,8 @@ def test_plan_api_supports_limited_adjustment_and_preview_approval(
     prd_profile = store.get_skill_capability_profile(prd.id)
     interview_profile = store.get_skill_capability_profile(interview.id)
     assert prd_profile is not None and interview_profile is not None
+    store.add_chat_thread(ChatThread(id='thread_plan_api_preview', user_id=USER.id,
+        workspace_id=USER.workspace_id, project_id=USER.default_project_id, title='Preview approval'))
     run = store.save_agent_run(
         AgentRun(
             id="run_plan_api_preview",

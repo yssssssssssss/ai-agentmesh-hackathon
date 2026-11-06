@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -30,6 +31,7 @@ from agentmesh.models import (
     ItemResponse,
     ItemsResponse,
     MemoryItem,
+    ResearchDispatchDrainV1,
     Scope,
     Source,
     StructuredHandoffPacket,
@@ -156,6 +158,7 @@ RESEARCH_DISPATCH_WORKER_INTERVAL_SECONDS = positive_int_env(
     "AGENTMESH_RESEARCH_DISPATCH_WORKER_INTERVAL_SECONDS", 30
 )
 research_dispatch_worker_task: asyncio.Task | None = None
+_research_dispatch_epoch = uuid4().hex
 research_dispatch_worker_state: dict[str, object] = {
     "enabled": RESEARCH_DISPATCH_WORKER_ENABLED,
     "interval_seconds": RESEARCH_DISPATCH_WORKER_INTERVAL_SECONDS,
@@ -167,43 +170,10 @@ research_dispatch_worker_state: dict[str, object] = {
 
 
 def drain_dispatchable_research_requests(actor: str) -> dict[str, object]:
-    from agentmesh.agents import RequestAlreadyFulfilledError
+    from agentmesh.research_dispatch import ResearchDispatchService
     from agentmesh.routes.chat import agent
 
-    dispatched = 0
-    for post in list(store.blackboard_posts):
-        if post.post_type != "request":
-            continue
-        task = store.get_task(post.task_id)
-        if task is None or task.status != "waiting_external_agent":
-            continue
-        if "requested_tool_call_approval" in task.steps:
-            continue
-        thread = store.get_chat_thread(task.thread_id)
-        if thread is None:
-            continue
-        user = store.get_user(thread.user_id)
-        if user is None:
-            continue
-        try:
-            agent.fulfill_research_request(post, user)
-            dispatched += 1
-        except RequestAlreadyFulfilledError:
-            continue
-        except Exception:
-            continue
-
-    if dispatched:
-        store.add_audit_event(
-            create_audit_event(
-                actor,
-                "drain_research_dispatch",
-                "blackboard_research_dispatch",
-                "research_requests",
-                {"dispatched": dispatched},
-            )
-        )
-    return {"dispatched": dispatched}
+    return ResearchDispatchService(store, agent, process_epoch=_research_dispatch_epoch).drain(actor).model_dump()
 
 
 async def research_dispatch_worker_loop() -> None:
@@ -213,9 +183,9 @@ async def research_dispatch_worker_loop() -> None:
         try:
             result = await asyncio.to_thread(drain_dispatchable_research_requests, "research_dispatch_worker")
             research_dispatch_worker_state["last_dispatched"] = result["dispatched"]
-            research_dispatch_worker_state["last_error"] = None
-        except Exception as error:  # pragma: no cover
-            research_dispatch_worker_state["last_error"] = str(error)
+            research_dispatch_worker_state["last_error"] = result.get("last_error_code")
+        except Exception:  # pragma: no cover - safe worker boundary; item outcomes remain durable
+            research_dispatch_worker_state["last_error"] = "research_dispatch_worker_failed"
 
 
 async def start_research_dispatch_worker() -> None:
@@ -663,7 +633,8 @@ def dispatch_blackboard_request(
     post_id: str,
     user: User = Depends(current_user),
 ) -> dict[str, object]:
-    from agentmesh.agents import RequestAlreadyFulfilledError
+    from agentmesh.provider_status import ProviderQueryError
+    from agentmesh.research_dispatch import ResearchDispatchService, ResearchRequestBlockedError
     from agentmesh.routes.chat import agent
 
     post = store.get_blackboard_post(post_id)
@@ -682,9 +653,11 @@ def dispatch_blackboard_request(
         raise HTTPException(status_code=409, detail="Request is gated behind a pending tool approval")
 
     try:
-        fulfillment = agent.fulfill_research_request(post, user)
-    except RequestAlreadyFulfilledError as error:
-        raise HTTPException(status_code=409, detail="Request has already been fulfilled") from error
+        fulfillment = ResearchDispatchService(store, agent, process_epoch=_research_dispatch_epoch).dispatch(post.id, user)
+    except ResearchRequestBlockedError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from error
+    except ProviderQueryError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.public_detail()) from error
 
     store.add_audit_event(
         create_audit_event(
@@ -749,11 +722,18 @@ def drain_auto_blackboard_posts_endpoint(user: User = Depends(current_user)) -> 
 
 
 @router.get("/research-dispatch/worker")
-def research_dispatch_worker_status(_: User = Depends(current_user)) -> dict[str, object]:
-    return research_dispatch_worker_state
+def research_dispatch_worker_status(user: User = Depends(current_user)) -> dict[str, object]:
+    from agentmesh.research_dispatch import ResearchDispatchRepository
+
+    health = ResearchDispatchRepository(store).queue_health(workspace_id=user.workspace_id)
+    return {
+        **research_dispatch_worker_state,
+        "last_error": health["last_error_code"] or research_dispatch_worker_state["last_error"],
+        "queue": health,
+    }
 
 
-@router.post("/research-dispatch/drain")
+@router.post("/research-dispatch/drain", response_model=ResearchDispatchDrainV1)
 def drain_research_dispatch_endpoint(user: User = Depends(current_user)) -> dict[str, object]:
     ensure_admin(user)
     return drain_dispatchable_research_requests(user.id)

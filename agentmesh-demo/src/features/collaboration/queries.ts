@@ -18,9 +18,9 @@ export const collaborationKeys = {
   cards: queryKeys.tasks.cards,
   task: queryKeys.tasks.detail,
   marketStatus: (context: CollaborationContext) =>
-    ['market', 'status', context.userId, context.workspaceId] as const,
+    ['market', 'status', context.userId, context.workspaceId, context.projectId] as const,
   marketBoard: (context: CollaborationContext) =>
-    ['market', 'board', context.userId, context.workspaceId] as const,
+    ['market', 'board', context.userId, context.workspaceId, context.projectId] as const,
   participation: (context: CollaborationContext) =>
     ['market', 'participation', context.userId, context.workspaceId] as const,
 }
@@ -104,16 +104,16 @@ export function useTaskDetail(context: CollaborationContext, taskId: string | nu
 
 export function useMarketQueries(context: CollaborationContext, marketVisible: boolean) {
   const documentVisible = useDocumentVisible()
-  const enabled = marketVisible && documentVisible
+  const enabled = marketVisible && documentVisible && !!context.projectId
   const status = useQuery({
     queryKey: collaborationKeys.marketStatus(context),
-    queryFn: collaborationApi.marketStatus,
+    queryFn: () => collaborationApi.marketStatus(context.projectId),
     enabled,
     refetchInterval: enabled ? 30_000 : false,
   })
   const board = useQuery({
     queryKey: collaborationKeys.marketBoard(context),
-    queryFn: collaborationApi.marketBoard,
+    queryFn: () => collaborationApi.marketBoard(context.projectId),
     enabled,
     refetchInterval: enabled ? 30_000 : false,
   })

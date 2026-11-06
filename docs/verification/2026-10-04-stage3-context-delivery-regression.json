@@ -1,0 +1,26 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "stage3-local-request-budget-and-memory-delivery",
+  "date": "2026-10-04",
+  "scope": "complete streamed SDK request budgets, core preferences, exact tool output delivery, origin checks and complete compaction tool units",
+  "python": {
+    "3.12": {"passed": 2102, "warnings": 5, "seconds": 505.63},
+    "3.13": {"passed": 2102, "warnings": 5, "seconds": 508.17}
+  },
+  "frontend": {"passed": 218, "files": 40},
+  "browser": {"passed": 81, "duration": "7.0m"},
+  "checks": {
+    "ruff": "passed", "openapi_types": "passed", "build": "passed",
+    "bundle_largest_bytes": 322372, "bundle_limit_bytes": 500000,
+    "lock_check": "passed", "diff_check": "passed"
+  },
+  "evidence_boundary": {
+    "enterprise_provider_smoke": false, "real_model_quality": false,
+    "full_context_assembler_complete": false, "phase3_complete": false,
+    "semantic_entailment_proven": false, "large_retrieval_capacity_verified": false,
+    "remote_runner_request_budget_verified": false,
+    "frozen_automatic_context_approval_recovery_complete": false,
+    "cumulative_online_cost_target_verified": false,
+    "estimation_method": "utf8_conservative"
+  }
+}

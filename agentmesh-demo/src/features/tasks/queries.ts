@@ -15,15 +15,37 @@ import type {
 } from './types'
 
 export function taskManagementErrorMessage(error: unknown): string {
-  if (!(error instanceof ApiError)) return error instanceof Error ? error.message : '请求失败，请稍后重试。'
-  const rawDetail = error.detail
+  if (!(error instanceof Error)) return '请求失败，请稍后重试。'
+  const rawDetail = error instanceof ApiError ? error.detail : error.message
   const detail = typeof rawDetail === 'string'
     ? rawDetail
     : rawDetail && typeof rawDetail === 'object' && 'code' in rawDetail
       ? String((rawDetail as { code: unknown }).code)
-      : `请求失败（${error.status}）`
+      : error instanceof ApiError ? `请求失败（${error.status}）` : error.message
   const messages: Record<string, string> = {
     task_management_read_only: '任务中心当前为只读模式。',
+    schedule_cron_invalid: '请填写有效的五段 cron，例如 30 9 * * *。',
+    schedule_cron_unreachable: '该日历计划没有可用的运行时间，请调整日期。',
+    schedule_timezone_invalid: '请填写有效的 IANA 时区，例如 Asia/Shanghai。',
+    schedule_frequency_too_high: '自动巡检的最短间隔为 5 分钟。',
+    schedule_version_conflict: '巡检配置已更新，请刷新后重试。',
+    schedule_command_conflict: '该操作标识已用于不同请求，请重新操作。',
+    schedule_permission_denied: '没有管理当前项目巡检的权限。',
+    schedule_actor_not_authorized: '执行账号已停用或权限已变化。',
+    schedule_owner_not_authorized: '配置 owner 的项目权限已撤销，巡检已停止。',
+    schedule_agent_not_authorized: '配置 owner 的个人 Agent 当前不可用。',
+    schedule_project_inactive: '项目已停用，请先恢复项目后再运行。',
+    automation_execution_disabled: '自动执行当前关闭或处于观察模式。',
+    automation_runtime_unavailable: '执行服务尚未启用，请由管理员检查配置。',
+    schedule_overlap: '上一轮仍在执行，本次已跳过。',
+    schedule_utc_frequency_limit: '距离上一轮不足 5 分钟，本次已跳过。',
+    inspection_deadline_exceeded: '巡检已达到 10 分钟执行时限。',
+    inspection_tool_budget_exceeded: '巡检已达到工具调用预算。',
+    inspection_read_retry_exhausted: '读取重试已用尽，请检查数据源后手动重跑。',
+    inspection_report_not_found: '报告不可访问；完整报告仅配置 owner 可见。',
+    inspection_report_not_ready: '报告尚未就绪，请稍后刷新运行记录。',
+    inspection_execution_failed: '巡检失败，请查看运行记录并核对来源。',
+    legacy_schedule_unvalidated: '历史配置需要重新绑定项目与模板后才能执行。',
     task_command_conflict: '该操作标识已经用于不同请求，请重新操作。',
     task_version_conflict: '任务已被其他操作更新，请刷新后重试。',
     task_transition_invalid: '当前交付阶段不允许此操作。',
@@ -77,10 +99,13 @@ export function taskManagementErrorMessage(error: unknown): string {
   return messages[detail] ?? detail
 }
 
-async function invalidateTaskData(
+export async function refreshTaskData(
   queryClient: ReturnType<typeof useQueryClient>,
   refreshBootstrap: () => Promise<void>,
 ) {
+  // An initial fetch without cached data is otherwise reused by refetchQueries.
+  // Cancel that older snapshot before asking for post-mutation projections.
+  await queryClient.cancelQueries({ queryKey: queryKeys.tasks.root })
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.tasks.root, refetchType: 'none' }),
     queryClient.invalidateQueries({ queryKey: queryKeys.audit.root }),
@@ -158,7 +183,7 @@ export function useManagedTaskDetail(
 export function useTaskManagementMutations() {
   const queryClient = useQueryClient()
   const { refreshBootstrap } = useAuth()
-  const settled = () => invalidateTaskData(queryClient, refreshBootstrap)
+  const settled = () => refreshTaskData(queryClient, refreshBootstrap)
   const create = useMutation({
     mutationFn: (payload: TaskCreatePayload) => taskManagementApi.create(payload),
     onSettled: settled,

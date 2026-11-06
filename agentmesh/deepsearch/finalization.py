@@ -36,6 +36,7 @@ from agentmesh.deepsearch.reporting import (
     evaluate_evidence_coverage,
     read_evidence_manifest_artifact,
 )
+from agentmesh.memory_context.request_budget import ModelAdmissionError
 from agentmesh.models import (
     AgentPlanningMode,
     AgentRun,
@@ -810,6 +811,8 @@ class DeepSearchFinalizer:
                 ):
                     raise DeepSearchReportingError("deepsearch_synthesis_invalid")
                 return synthesis, None, None
+            except ModelAdmissionError:
+                raise
             except Exception:
                 pass
         operation = self._reserve_finalization_operation(
@@ -883,6 +886,8 @@ class DeepSearchFinalizer:
             ):
                 raise DeepSearchReportingError("deepsearch_review_invalid")
             return outcome
+        except ModelAdmissionError:
+            raise
         except DeepSearchReportingError:
             return _error_review(synthesis, "deepsearch_review_invalid")
         except Exception as error:
@@ -1555,7 +1560,7 @@ class DeepSearchFinalizer:
                     continue
                 else:
                     raise RuntimeError("deepsearch_finalization_state_invalid")
-            except DeepSearchReportingError as error:
+            except (DeepSearchReportingError, ModelAdmissionError) as error:
                 return terminate_deepsearch_without_report(
                     self.repository,
                     run_id=run.id,

@@ -23,7 +23,7 @@ test.describe('Collaboration Market', () => {
     await expect(tiles.getByText('我的记忆')).toBeVisible()
     await expect(tiles.getByText('我发出的信号')).toBeVisible()
     await expect(tiles.getByText('收到的回应')).toBeVisible()
-    await expect(tiles.getByText('我提供的帮助')).toBeVisible()
+    await expect(tiles.getByText('我发起的回应')).toBeVisible()
   })
 
   test('graph section renders once market data resolves', async ({ page }) => {
@@ -43,15 +43,15 @@ test.describe('Collaboration Market', () => {
     await expect(region).toBeVisible()
 
     const tablist = region.getByRole('tablist')
-    await expect(tablist.getByRole('tab', { name: /全部/ })).toBeVisible()
-    await expect(tablist.getByRole('tab', { name: /我提出的求助/ })).toBeVisible()
-    await expect(tablist.getByRole('tab', { name: /谁帮了我/ })).toBeVisible()
-    await expect(tablist.getByRole('tab', { name: /我帮了谁/ })).toBeVisible()
+    await expect(tablist.getByRole('tab', { name: /最近往来/ })).toBeVisible()
+    await expect(tablist.getByRole('tab', { name: /我发布的信号/ })).toBeVisible()
+    await expect(tablist.getByRole('tab', { name: /收到的回应/ })).toBeVisible()
+    await expect(tablist.getByRole('tab', { name: /发出的回应/ })).toBeVisible()
 
     // Switching tabs should not throw and should keep the region mounted.
-    await tablist.getByRole('tab', { name: /谁帮了我/ }).click()
+    await tablist.getByRole('tab', { name: /收到的回应/ }).click()
     await expect(region).toBeVisible()
-    await tablist.getByRole('tab', { name: /我帮了谁/ }).click()
+    await tablist.getByRole('tab', { name: /发出的回应/ }).click()
     await expect(region).toBeVisible()
   })
 })

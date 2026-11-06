@@ -1,0 +1,98 @@
+{
+  "date": "2026-10-06",
+  "status": "passed_local_related_regression",
+  "adr": "docs/adr/0041-current-project-market-scout-material.md",
+  "scope": [
+    "Current actor, private Agent, project, binding and model eligibility per signal project",
+    "Bounded relevant SQL candidates, selected private titles and current native source proof",
+    "Primary and fallback pre-send revalidation without mutating the shared client",
+    "YES and NO post-result revalidation and current matching-claim ownership/expiry",
+    "Literal native chunk validation against the current document even without a version bump",
+    "Existing independent peer-confirmation, durable deduplication and retry behavior"
+  ],
+  "limits": {
+    "query_terms": 8,
+    "metadata_candidates_per_sql_search": 200,
+    "distinct_memory_payload_candidates": 32,
+    "task_payload_candidates": 32,
+    "selected_memory_max": 8,
+    "selected_task_max": 8,
+    "title_characters_per_item": 120,
+    "question_characters": 800,
+    "memory_payload_characters": 32000,
+    "task_payload_characters": 65536,
+    "sources_per_memory": 8,
+    "origin_proof_record_keys": 64,
+    "origin_ancestor_limit": 4,
+    "native_chunk_document_text_bytes": 1048576
+  },
+  "matching_specialized": {
+    "passed": 46,
+    "new_authority_cases": 24,
+    "seconds": 12.99,
+    "log": "/tmp/agentmesh-scout-authority-native-content-green.log"
+  },
+  "related_regression": {
+    "3.12": {
+      "passed": 347,
+      "seconds": 244.83,
+      "log": "/tmp/agentmesh-scout-authority-regression312.log"
+    },
+    "3.13": {
+      "passed": 347,
+      "seconds": 243.48,
+      "log": "/tmp/agentmesh-scout-authority-regression313.log"
+    },
+    "boundary": "Current market matching/publication/read/participation/activity, binding, memory context/facts/SDK retrieval/Session lineage/governance, delegated answers and manual document import."
+  },
+  "additional_origin_regression": {
+    "3.12": {
+      "passed": 74,
+      "seconds": 7.72,
+      "log": "/tmp/agentmesh-scout-authority-origin-regression312.log"
+    },
+    "3.13": {
+      "passed": 74,
+      "seconds": 7.72,
+      "log": "/tmp/agentmesh-scout-authority-origin-regression313.log"
+    },
+    "boundary": "Document jobs/staging/input recovery/API, learning and forgetting. These files do not overlap the 347-case selection."
+  },
+  "observed_red_logs": [
+    "/tmp/agentmesh-scout-authority-archive-red.log",
+    "/tmp/agentmesh-scout-authority-project-red.log",
+    "/tmp/agentmesh-scout-authority-binding-red.log",
+    "/tmp/agentmesh-scout-authority-document-qualified-red.log",
+    "/tmp/agentmesh-scout-authority-before-send-red.log",
+    "/tmp/agentmesh-scout-authority-native-content-red.log"
+  ],
+  "intermediate_corrections": [
+    "The first combined keyword lookup skipped short Chinese terms and required all tokens, losing positive matches. Bounded per-term FTS and the existing short-term fallback restored the positive flows.",
+    "The first document-only test was vacuous while positive lookup was broken. An explicit model-call assertion was added; the qualified RED then proved stale document output was delivered before the fix.",
+    "A missing guardrails import and loop capture were corrected; callback arguments now bind through partial.",
+    "The lease test initially assumed the delegated-query lease duration. It now advances beyond the actual unchanged ten-minute matching lease; production deadlines were not shortened or extended."
+  ],
+  "checks": {
+    "ruff": "passed",
+    "diff": "passed"
+  },
+  "api_contract": "No HTTP or stored-model schema changed; no frontend control changed.",
+  "full_backend": "Not rerun in this slice; the 347 plus 74 related cases are not represented as the full backend suite.",
+  "real_llm_calls": false,
+  "real_embedding_provider": false,
+  "real_enterprise_connector": false,
+  "remaining": [
+    "Full request/output token, cost, retry/cancel and delivery governance across SDK/Runner and legacy calls",
+    "General external Source version/hash/tombstone archives and structured/remote lineage parity",
+    "Unified ContextAssembler and binding type semantics across consumers",
+    "Committed Task/Review automation, connectors, relations and procedure reuse",
+    "Real model quality, enabled vector capacity and an authorized enterprise pilot"
+  ],
+  "source_sha256": {
+    "agentmesh/market_scout_materials.py": "6c7f6af4a0f0c79343c213894a343a39a71603ee5e23a0ec8d007f03a7f1cc7b",
+    "agentmesh/market_scout.py": "bc185b5469cb91084a4f8c17a57cad12a7fe2fa860d23aede1e884a575ccdeb8",
+    "agentmesh/agents.py": "4baf7dbf23e442396fecbfc9bf4f6c02e1c4be9aa979266dfc76508043799241",
+    "agentmesh/memory_context/origin.py": "e3f8f832a5280af348ca4d3faafa3cb9fb35583e2706080c045b5aae54d29ca9",
+    "tests/test_market_scout_authority.py": "5ab120297b3b929a080edbf254daf43f7d8d234d894312495252b3079275eafb"
+  }
+}

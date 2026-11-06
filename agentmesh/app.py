@@ -11,6 +11,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from agentmesh.agent_runtime.settings import skill_orchestration_mode
+from agentmesh.automation.coordinator import AutomationCoordinator
+from agentmesh.connector_sync.coordinator import ConnectorSyncCoordinator
+from agentmesh.connector_sync.service import ConnectorSyncService
 from agentmesh.deepsearch.recovery import DeepSearchRecoveryCoordinator
 from agentmesh.marketplace import (
     start_market_publish_worker,
@@ -18,6 +21,7 @@ from agentmesh.marketplace import (
     stop_market_publish_worker,
     stop_market_scout_worker,
 )
+from agentmesh.memory_learning.coordinator import MemoryLearningCoordinator
 from agentmesh.model_registry import ensure_model_seed_data
 from agentmesh.permissions import ensure_permission_policy_seed_data
 from agentmesh.request_limits import RequestBodyLimitMiddleware
@@ -47,15 +51,19 @@ from agentmesh.routes.inbox import router as inbox_router
 from agentmesh.routes.market import router as market_router
 from agentmesh.routes.memory import router as memory_router
 from agentmesh.routes.memory import start_daily_memory_worker, stop_daily_memory_worker
+from agentmesh.routes.memory_facts import router as memory_facts_router
 from agentmesh.routes.memory_governance import router as memory_governance_router
+from agentmesh.routes.memory_learning import router as memory_learning_router
 from agentmesh.routes.research import router as research_router
 from agentmesh.routes.risk import router as risk_router
+from agentmesh.routes.runners import router as runners_router
 from agentmesh.routes.skills import router as skills_router
 from agentmesh.routes.task_operations import router as task_operations_router
 from agentmesh.routes.task_reviews import router as task_reviews_router
 from agentmesh.routes.tasks import router as tasks_router
 from agentmesh.routes.users import router as users_router
 from agentmesh.routes.workspace import router as workspace_router
+from agentmesh.runner_settings import remote_runner_enabled
 from agentmesh.runtime_admission import install_orchestration_admission
 from agentmesh.runtime_capacity import RuntimeCapacityController, install_runtime_capacity
 from agentmesh.seed import (
@@ -98,6 +106,7 @@ def initialize_application_data(repository: SQLiteStore) -> None:
 async def lifespan(app: FastAPI):
     store.initialize()
     initialize_application_data(store)
+    ConnectorSyncService.reconcile_startup_bindings(store)
     research_v2_history_reader = V2HistoryAdapter(store, V2ArtifactHistoryReader(store))
     app.state.research_v2_history_reader = research_v2_history_reader
     runtime = chat_agent.agent_runtime
@@ -114,6 +123,16 @@ async def lifespan(app: FastAPI):
         if callable(start_dispatch_pump):
             await start_dispatch_pump()
     app.state.orchestration_quiesce_controller = orchestration_admission
+    automation = AutomationCoordinator(
+        store, runtime_available=lambda: bool(runtime and getattr(runtime, "enabled", False)),
+        wake_dispatch=getattr(runtime, "wake_dispatch_pump", None),
+        admission=orchestration_admission,
+    )
+    app.state.automation_coordinator = automation
+    memory_learning = MemoryLearningCoordinator(store, admission=orchestration_admission)
+    app.state.memory_learning_coordinator = memory_learning
+    connectors = ConnectorSyncCoordinator(store, admission=orchestration_admission)
+    app.state.connector_sync_coordinator = connectors
     deepsearch_recovery = (
         DeepSearchRecoveryCoordinator(
             store,
@@ -121,7 +140,7 @@ async def lifespan(app: FastAPI):
             admission=orchestration_admission,
             mode_provider=skill_orchestration_mode,
         )
-        if runtime is not None
+        if runtime is not None and not remote_runner_enabled()
         else None
     )
     app.state.deepsearch_recovery_coordinator = deepsearch_recovery
@@ -137,6 +156,10 @@ async def lifespan(app: FastAPI):
                 recovery_wakeup if callable(recovery_wakeup) else None
             )
     try:
+        await ingestion_service.start_recovery()
+        await automation.start()
+        await memory_learning.start()
+        await connectors.start()
         if deepsearch_recovery is not None:
             await deepsearch_recovery.start()
         await start_auto_post_worker()
@@ -147,6 +170,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         try:
+            await ingestion_service.stop_recovery()
+            await automation.stop()
+            await memory_learning.stop()
+            await connectors.stop()
             if runtime is not None:
                 stop_dispatch_pump = getattr(runtime, "stop_dispatch_pump", None)
                 if callable(stop_dispatch_pump):
@@ -159,6 +186,12 @@ async def lifespan(app: FastAPI):
             await stop_daily_memory_worker()
             await stop_auto_post_worker()
         finally:
+            if getattr(app.state, "automation_coordinator", None) is automation:
+                del app.state.automation_coordinator
+            if getattr(app.state, "memory_learning_coordinator", None) is memory_learning:
+                del app.state.memory_learning_coordinator
+            if getattr(app.state, "connector_sync_coordinator", None) is connectors:
+                del app.state.connector_sync_coordinator
             if getattr(app.state, "research_v2_history_reader", None) is research_v2_history_reader:
                 del app.state.research_v2_history_reader
             if (
@@ -216,6 +249,8 @@ app.include_router(artifacts_router)
 app.include_router(chat_router)
 app.include_router(agents_router)
 app.include_router(blackboard_router)
+app.include_router(memory_facts_router)
+app.include_router(memory_learning_router)
 app.include_router(memory_router)
 app.include_router(memory_governance_router)
 app.include_router(inbox_router)
@@ -223,6 +258,7 @@ app.include_router(market_router)
 app.include_router(documents_router)
 app.include_router(data_sources_router)
 app.include_router(risk_router)
+app.include_router(runners_router)
 app.include_router(skills_router)
 app.include_router(tasks_router)
 app.include_router(task_operations_router)

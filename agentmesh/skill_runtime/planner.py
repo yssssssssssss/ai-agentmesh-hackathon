@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agentmesh.agent_runtime.settings import task_scenario_routing_enabled
 from agentmesh.canonical_json import canonical_json_bytes
+from agentmesh.memory_context.request_budget import ModelAdmissionError
 from agentmesh.models import (
     SkillCandidate,
     SkillIntent,
@@ -266,6 +267,8 @@ class SkillIntentAnalyzer:
                     "explicit_skill_names": [],
                 }
             ), []
+        except ModelAdmissionError:
+            raise
         except Exception:
             return deterministic_intent(content), ["intent_schema_fallback"]
 
@@ -560,6 +563,53 @@ class _UniversalPlannerDraft(BaseModel):
     output_contract: list[str] = Field(default_factory=list, max_length=20)
     optional_synthesis_outputs: list[str] = Field(default_factory=list, max_length=20)
     nodes: list[_UniversalPlannerNodeDraft] = Field(min_length=1, max_length=6)
+
+
+def deterministic_multi_skill_draft(
+    intent: SkillIntent,
+    candidates: list[SkillCandidate],
+) -> SkillPlanDraft:
+    if not candidates:
+        raise PlannerUnavailable("No eligible Skill candidates")
+    synthesis_outputs = {"executive_summary", "summary", "synthesis"}
+    required_outputs = [item for item in intent.deliverables if item not in synthesis_outputs]
+    selected: list[tuple[SkillCandidate, list[str]]] = []
+    remaining = list(dict.fromkeys(required_outputs))
+    for candidate in candidates:
+        covered = [item for item in remaining if item in candidate.profile.output_kinds]
+        if not covered:
+            continue
+        selected.append((candidate, covered))
+        remaining = [item for item in remaining if item not in covered]
+        if not remaining:
+            break
+    if remaining:
+        raise PlannerUnavailable("No ready Skill set can satisfy the requested deliverables")
+    if not selected:
+        selected = [(candidates[0], candidates[0].profile.output_kinds[:1])]
+    nodes = []
+    for index, (candidate, outputs) in enumerate(selected, start=1):
+        profile = candidate.profile
+        accepted_inputs = [kind for kind in intent.input_kinds if kind in profile.input_kinds]
+        nodes.append(
+            SkillPlanNode(
+                id=f"node_{index}_{candidate.skill_name.replace('-', '_')}",
+                skill_id=candidate.skill_id,
+                skill_version=profile.skill_version,
+                skill_content_hash=profile.skill_content_hash,
+                reason=candidate.reason,
+                required=True,
+                input_bindings=[f"user.{kind}" for kind in accepted_inputs] or ["user.request"],
+                output_contract=outputs,
+                required_tool_names=sorted(tool_names_for_profile(profile)),
+                side_effect=profile.side_effect,
+            )
+        )
+    return SkillPlanDraft(
+        output_contract=list(dict.fromkeys(item for _candidate, outputs in selected for item in outputs)),
+        synthesis_output_contract=[item for item in intent.deliverables if item in synthesis_outputs],
+        nodes=nodes,
+    )
 
 
 class SkillPlanner:

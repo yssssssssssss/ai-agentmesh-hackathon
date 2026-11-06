@@ -1,0 +1,116 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "generated-publication-input-invalidation",
+  "date": "2026-10-06",
+  "publication_suite": {
+    "passed": 49,
+    "new_cases": 29,
+    "seconds": 12.38,
+    "log": "/tmp/agentmesh-publication-inputs-final-local.log"
+  },
+  "related_regression": {
+    "3.12": {"passed": 151, "seconds": 38.16, "log": "/tmp/agentmesh-publication-inputs-regression-current312.log"},
+    "3.13": {"passed": 151, "seconds": 38.09, "log": "/tmp/agentmesh-publication-inputs-regression-current313.log"}
+  },
+  "first_full_snapshot": {
+    "3.12": {"passed": 2452, "failed": 2, "warnings": 5, "seconds": 2393.76},
+    "3.13": {"passed": 2453, "failed": 1, "warnings": 5, "seconds": 2389.78},
+    "logs": ["/tmp/agentmesh-publication-inputs-full312.log", "/tmp/agentmesh-publication-inputs-full313.log"],
+    "failures": {
+      "both": "test_project_operations_benchmark_script_emits_a_passing_contract: task-list p95 exceeded the unchanged 500ms threshold (674.329ms / 785.131ms).",
+      "3.12_only": "test_review_submission_wins_handoff_race_without_partial_handoff: the request did not reach the test entry gate within five seconds."
+    },
+    "boundary": "Failed snapshots before the request-local permission reuse and explicitly closed read-only list connections; no passing full regression is claimed here."
+  },
+  "performance_diagnosis_and_fix": {
+    "before_isolated_task_list_p95_ms": 1353.408,
+    "before_log": "/tmp/agentmesh-publication-inputs-benchmark-isolated312.log",
+    "profile": "/tmp/agentmesh-publication-inputs-operations-profile.pstats",
+    "profile_seconds": 14.188,
+    "profile_permission_rule_reads": 660,
+    "profile_permission_rule_cumulative_seconds": 2.279,
+    "profile_three_list_calls_cumulative_seconds": 2.597,
+    "change": "One fresh permission-rule snapshot per Task list response; single views also reuse their resolved manage permission. Writes and the next request recheck live policy. Collection readers use the existing read-only connection and close it explicitly.",
+    "before_list_reader_change_related": {
+      "3.12": {"passed": 25, "seconds": 97.44},
+      "3.13": {"passed": 25, "seconds": 89.22}
+    },
+    "current_related": {
+      "3.12": {"passed": 102, "seconds": 517.52, "log": "/tmp/agentmesh-publication-inputs-action-reader312.log"},
+      "3.13": {"passed": 102, "seconds": 516.32, "log": "/tmp/agentmesh-publication-inputs-action-reader313.log"}
+    },
+    "review_gate_isolated": {"passed": 1, "seconds": 4.6, "log": "/tmp/agentmesh-publication-inputs-review-race312.log"},
+    "scale_benchmark": "docs/verification/2026-10-06-generated-publication-project-operations-benchmark.json",
+    "scale_counts": {"tasks": 10000, "task_audit_events": 50000, "memory_records": 10000, "accepted_team_knowledge": 1000},
+    "scale_iterations": 7,
+    "scale_task_list_p95_ms": 297.976,
+    "scale_task_detail_p95_ms": 483.819,
+    "scale_all_queries_below_500ms": true,
+    "scale_embedding_provider_enabled": false,
+    "boundary": "No benchmark threshold, production timeout, test gate timeout or authorization check was relaxed. The isolated gate result is not a full race-suite substitute."
+  },
+  "full_regression": {
+    "status": "passed",
+    "3.12": {"passed": 2455, "warnings": 5, "seconds": 986.97},
+    "3.13": {"passed": 2455, "warnings": 5, "seconds": 984.99},
+    "logs": ["/tmp/agentmesh-publication-inputs-full-final312.log", "/tmp/agentmesh-publication-inputs-full-final313.log"],
+    "boundary": "Final full runs include all production changes in this slice, the new policy-change regression and read-only collection connections. The five warnings are existing PyMuPDF deprecations."
+  },
+  "frontend": {
+    "passed": 241,
+    "files": 50,
+    "seconds": 3.89,
+    "log": "/tmp/agentmesh-publication-inputs-ui-test.log",
+    "build": "passed",
+    "build_seconds": 2.46,
+    "largest_chunk_bytes": 322377,
+    "bundle_limit_bytes": 500000,
+    "build_log": "/tmp/agentmesh-publication-inputs-ui-build.log",
+    "openapi": "No API contract changed in this slice."
+  },
+  "observed_red_logs": [
+    "/tmp/agentmesh-publication-inputs-red.log",
+    "/tmp/agentmesh-publication-inputs-doc-red.log",
+    "/tmp/agentmesh-publication-inputs-thread-red.log",
+    "/tmp/agentmesh-publication-inputs-reopen-red.log",
+    "/tmp/agentmesh-publication-inputs-readers-red.log",
+    "/tmp/agentmesh-publication-inputs-ui-red.log"
+  ],
+  "fixture_correction": {
+    "reason": "The matching restart fixture authored an unproven generated ID. Its input now has an explicitly manual ID; restart deduplication, changed helper knowledge and scope-rejection assertions remain intact.",
+    "earlier_failed_regression_logs": [
+      "/tmp/agentmesh-publication-inputs-regression312.log",
+      "/tmp/agentmesh-publication-inputs-regression313.log",
+      "/tmp/agentmesh-publication-inputs-regression-final312.log",
+      "/tmp/agentmesh-publication-inputs-regression-final313.log"
+    ],
+    "boundary": "The earlier runs failed, including a run begun before all fixture references were updated. Only the current logs above are passing snapshots."
+  },
+  "browser": {
+    "tool": "Ego Lite",
+    "task_space": 1,
+    "page": "p1",
+    "backend": "http://127.0.0.1:8021",
+    "frontend": "http://127.0.0.1:5181",
+    "database": "/tmp/agentmesh-query-ui-20261006.sqlite3",
+    "document_id": "doc_input_1e36e92525304701b252551379bb7523",
+    "publication_setup": "With the owned QA server stopped, the existing publisher committed a qualified no-model signal with 19 dependencies, including the controlled document. The server then restarted with current code.",
+    "actions": [
+      "Market showed the current signal online and one published record.",
+      "Knowledge selected the current document v3 with 1/1 imported chunks.",
+      "Actual textarea/save controls saved v4 with 0/0 current chunks.",
+      "Market refresh showed no published signal and no old signal activity.",
+      "The absent-signal explanation was corrected to report the current publication fact; the final screenshot was viewed."
+    ],
+    "final_screenshot": "/tmp/agentmesh-publication-inputs-withdrawn-final.png",
+    "boundary": "Isolated local QA of the publication flow with model/external/embedding Providers disabled, before the later internal action-hint/collection-reader optimizations covered by the final full regression. It does not measure actual model output quality or real external-system synchronization."
+  },
+  "implementation_boundaries": [
+    "Private relation projection of selected native records and authority keys; no additional Runtime, queue or public private-source manifest.",
+    "At most 94 dependency keys under existing 8-Memory/8-Task input bounds.",
+    "Dependency triggers conservatively retract on selected-record payload changes and ignore identical/unselected/peer/new Memory writes. Existing document/forgetting commands retain conservative aggregate withdrawal.",
+    "Native Document and Task Thread proofs cover after-publication changes and source body changes without a version bump.",
+    "External Source archives/watermarks, scout qualification, full SDK/Runner governance and real Provider quality remain unfinished."
+  ],
+  "checks": {"ruff": "passed", "git_diff_check": "passed"}
+}

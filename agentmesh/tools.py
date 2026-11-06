@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from agentmesh.memory_context.contracts import RunFactQueryV1
+from agentmesh.memory_context.procedure_context import ProcedureQueryV1
 from agentmesh.models import AgentToolGrant, ToolDefinition, User
 from agentmesh.o2 import O2RegistryAdapter
 from agentmesh.store import SQLiteStore
+from agentmesh.task_operations.contracts import ProjectStateQueryV1
 
 WEB_RESEARCH_OUTPUT_SCHEMA = {
     "type": "object",
@@ -122,6 +125,18 @@ ZERO_DESIGN_READ_TOOL_ID = "tool_zero_design_read"
 
 SYSTEM_TOOLS = [
     ToolDefinition(
+        id="tool_project_state",
+        name="project_state",
+        description="从当前授权项目的 Task/Review SQL 查询真实任务统计。指定真实 task_id 可查询状态与依赖；"
+                    "不从聊天估算完成数，不查询历史或其他项目。project_id 传 null 使用当前项目。",
+        category="data",
+        risk_level="low",
+        side_effect="read",
+        implementation_id="agentmesh.tool_runtime.gateway.ToolGateway.project_state",
+        implementation_version="1",
+        input_schema=ProjectStateQueryV1.model_json_schema(),
+    ),
+    ToolDefinition(
         id=ZERO_DESIGN_READ_TOOL_ID,
         name="zero_design_read",
         description="通过用户本地 Zero MCP 读取 Relay 设计元数据、上下文、截图、变量和资源。",
@@ -137,12 +152,21 @@ SYSTEM_TOOLS = [
     ToolDefinition(
         id="tool_memory_search",
         name="memory_search",
-        description="检索个人、项目和团队记忆中的可引用内容。",
+        description="检索个人、项目和团队记忆。明确实体/谓词/时间的事实用 fact_query；冲突或无证据时不猜答案。",
         category="memory",
+        implementation_version="3",
         risk_level="low",
         input_schema={
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "要检索的记忆或经验"}},
+            "properties": {
+                "query": {"type": "string", "description": "要检索的记忆或经验"},
+                "fact_query": {"anyOf": [RunFactQueryV1.model_json_schema(), {"type": "null"}],
+                               "description": "明确事实查询。project_id 默认当前项目；project/task 的 subject_id 默认当前项目/任务。"
+                                              "user/term 必须指定真实 ID，不能猜姓名。普通检索传 null。"},
+                "procedure_query": {"anyOf": [ProcedureQueryV1.model_json_schema(), {"type": "null"}],
+                                    "description": "按真实记忆 ID 检查已验收经验；目标来自当前 Run，工具授权和版本会重检。"
+                                                   "与 fact_query 互斥；普通检索传 null。"},
+            },
             "required": ["query"],
             "additionalProperties": False,
         },
@@ -186,6 +210,30 @@ SYSTEM_TOOLS = [
             "additionalProperties": False,
         },
         output_schema=WEB_RESEARCH_OUTPUT_SCHEMA,
+    ),
+    ToolDefinition(
+        id="tool_local_file_read",
+        name="local_file_read",
+        description="读取本地 Runner 明确授权目录中的 UTF-8 文本文件。",
+        category="local_runner",
+        risk_level="low",
+        provider="local_runner",
+        side_effect="read",
+        implementation_id="runner:local_file_read",
+        implementation_version="1",
+        approval_required=False,
+        timeout_seconds=15,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "位于 Runner 授权根目录中的文件路径",
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
     ),
     ToolDefinition(
         id="tool_document_upload",
@@ -243,10 +291,10 @@ SYSTEM_TOOLS = [
 ]
 
 DEFAULT_TOOL_GRANTS = {
-    "agent_personal_current": ["tool_memory_search", "tool_data_query", "tool_web_research"],
+    "agent_personal_current": ["tool_memory_search", "tool_project_state", "tool_data_query", "tool_web_research"],
 
-    "agent_personal_lead": ["tool_memory_search", "tool_risk_review", "tool_data_query"],
-    "agent_personal_admin": ["tool_memory_search", "tool_risk_review", "tool_data_query"],
+    "agent_personal_lead": ["tool_memory_search", "tool_project_state", "tool_risk_review", "tool_data_query"],
+    "agent_personal_admin": ["tool_memory_search", "tool_project_state", "tool_risk_review", "tool_data_query"],
     "agent_research": ["tool_memory_search", "tool_web_research"],
     "agent_data": ["tool_memory_search"],
     "agent_risk": ["tool_risk_review"],

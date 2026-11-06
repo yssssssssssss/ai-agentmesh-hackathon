@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from agents import OpenAIChatCompletionsModel
 from agents.models.interface import Model
@@ -19,7 +20,9 @@ from agentmesh.llm import (
 )
 from agentmesh.model_registry import resolve_agent_model_id
 from agentmesh.models import User
-from agentmesh.store import SQLiteStore
+
+if TYPE_CHECKING:
+    from agentmesh.store import SQLiteStore
 
 _SDK_HTTP_TIMEOUT_FLOOR_SECONDS = 300.0
 
@@ -30,6 +33,7 @@ class SelectedSDKModel:
     requested_model: str
     actual_model: str
     structured_output_mode: SDKStructuredOutputMode = SDKStructuredOutputMode.JSON_SCHEMA
+    client: AsyncOpenAI | None = None
 
 
 def _base_url(value: str) -> str:
@@ -40,50 +44,66 @@ def _base_url(value: str) -> str:
     return normalized
 
 
+def selected_model_from_env(
+    model_id: str, *, timeout_seconds: float | None = None, max_retries: int | None = None,
+) -> SelectedSDKModel | None:
+    config = model_config_from_env(model_id)
+    if config is None:
+        return None
+    if config["api_style"] != "chat_completions":
+        raise ValueError(
+            f"OpenAI Agents SDK runtime does not support API style '{config['api_style']}'"
+        )
+    structured_output_mode = sdk_structured_output_mode(config["id"])
+    # Runtime accounts SDK model attempts. Hidden HTTP retries would spend again
+    # inside a single reservation, so default retry ownership stays with the SDK.
+    client_options = {"max_retries": 0 if max_retries is None else max_retries}
+    client = AsyncOpenAI(
+        api_key=config["api_key"],
+        base_url=_base_url(config["base_url"]),
+        timeout=timeout_seconds if timeout_seconds is not None else max(
+            _SDK_HTTP_TIMEOUT_FLOOR_SECONDS,
+            llm_chat_timeout_seconds(),
+            research_skill_timeout_seconds(),
+        ),
+        **client_options,
+    )
+    buffered = os.getenv("AGENTMESH_SDK_BUFFER_STREAMED_TOOL_CALLS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    model_class = (
+        JSONObjectChatCompletionsModel
+        if structured_output_mode == SDKStructuredOutputMode.JSON_OBJECT
+        else OpenAIChatCompletionsModel
+    )
+    model = model_class(
+        model=config["model_name"],
+        openai_client=client,
+        buffer_streamed_tool_calls=buffered,
+    )
+    return SelectedSDKModel(
+        model=model,
+        requested_model=model_id,
+        actual_model=config["model_name"],
+        structured_output_mode=structured_output_mode,
+        client=client,
+    )
+
+
 class AgentMeshModelFactory:
     def __init__(self, repository: SQLiteStore):
         self.repository = repository
 
-    def for_user(self, user: User) -> SelectedSDKModel | None:
-        return self.for_model_id(resolve_agent_model_id(self.repository, user))
+    def for_user(
+        self, user: User, *, timeout_seconds: float | None = None, max_retries: int | None = None,
+    ) -> SelectedSDKModel | None:
+        model_id = resolve_agent_model_id(self.repository, user)
+        if timeout_seconds is None and max_retries is None:
+            return self.for_model_id(model_id)
+        return selected_model_from_env(model_id, timeout_seconds=timeout_seconds, max_retries=max_retries)
 
     def for_model_id(self, model_id: str) -> SelectedSDKModel | None:
-        config = model_config_from_env(model_id)
-        if config is None:
-            return None
-        if config["api_style"] != "chat_completions":
-            raise ValueError(
-                f"OpenAI Agents SDK runtime does not support API style '{config['api_style']}'"
-            )
-        structured_output_mode = sdk_structured_output_mode(config["id"])
-        client = AsyncOpenAI(
-            api_key=config["api_key"],
-            base_url=_base_url(config["base_url"]),
-            timeout=max(
-                _SDK_HTTP_TIMEOUT_FLOOR_SECONDS,
-                llm_chat_timeout_seconds(),
-                research_skill_timeout_seconds(),
-            ),
-        )
-        buffered = os.getenv("AGENTMESH_SDK_BUFFER_STREAMED_TOOL_CALLS", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        model_class = (
-            JSONObjectChatCompletionsModel
-            if structured_output_mode == SDKStructuredOutputMode.JSON_OBJECT
-            else OpenAIChatCompletionsModel
-        )
-        model = model_class(
-            model=config["model_name"],
-            openai_client=client,
-            buffer_streamed_tool_calls=buffered,
-        )
-        return SelectedSDKModel(
-            model=model,
-            requested_model=model_id,
-            actual_model=config["model_name"],
-            structured_output_mode=structured_output_mode,
-        )
+        return selected_model_from_env(model_id)

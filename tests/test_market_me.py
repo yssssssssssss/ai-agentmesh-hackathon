@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from agentmesh.models import (
     AuditEvent,
     BlackboardPost,
@@ -10,7 +12,7 @@ from agentmesh.models import (
     Scope,
     UserMemoryItem,
 )
-from agentmesh.seed import USER
+from agentmesh.seed import PROJECT, USER
 from agentmesh.store import store
 from tests.test_chat_flow import authenticated_client, clear_store
 
@@ -41,6 +43,7 @@ def _seed_signal(user_id: str, need: str, created_at: datetime | None = None) ->
         content=f"能力：设计\n可提供：设计经验\n需要：{need}",
         scope=Scope.PROJECT,
         permission="project_visible",
+        metadata={"workspace_id": USER.workspace_id, "project_id": PROJECT.id},
         created_at=created_at or datetime.now(UTC),
     )
     store.add_blackboard_post(post)
@@ -61,6 +64,7 @@ def _seed_match(
         action="marketplace_match",
         target_type="user",
         target_id=needer,
+        workspace_id=USER.workspace_id, project_id=PROJECT.id,
         metadata={"helper": helper, "status": status, "need": need},
         created_at=at or datetime.now(UTC),
     )
@@ -178,3 +182,26 @@ def test_market_me_timeline_is_sorted_desc() -> None:
     ordered = [item["topic"] for item in payload["timeline"] if item["category"] != "request"]
     assert ordered[0] == "新的"
     assert ordered[1] == "旧的"
+
+
+@pytest.mark.parametrize("status", ["answered", "awaiting_confirm", "blocked", "insufficient_evidence"])
+def test_legacy_match_status_cannot_be_adopted_as_answer(status: str) -> None:
+    clear_store()
+    client = authenticated_client()
+    store.add_blackboard_post(BlackboardPost(
+        id=f"bb_match_usr_team_lead_{USER.id}", task_id="match", actor="agent_personal",
+        post_type=BlackboardPostType.MARKETPLACE_MATCH, title="协作状态",
+        content="结果已交付请求方。", scope=Scope.PROJECT, permission="project_visible",
+        metadata={"answer_status": status},
+    ))
+    with store._connect() as connection:
+        before = dict(connection.execute("SELECT collection, count(*) FROM records GROUP BY collection").fetchall())
+    response = client.post("/api/market/delegated-answers/adopt", params={
+        "helper_id": "usr_team_lead", "question": "指标口径",
+    })
+    assert response.status_code == 409
+    assert response.json()["detail"] == "verified_delegated_query_required"
+    with store._connect() as connection:
+        after = dict(connection.execute("SELECT collection, count(*) FROM records GROUP BY collection").fetchall())
+    for collection in ("sources", "user_memory_items", "memory_relations", "contribution_points"):
+        assert after.get(collection, 0) == before.get(collection, 0)

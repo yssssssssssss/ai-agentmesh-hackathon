@@ -1,0 +1,108 @@
+{
+  "recorded_at": "2026-10-07T04:26:15.059691+00:00",
+  "status": "manual_incremental_slice_verified_overall_plan_in_progress",
+  "verification_policy": "Directly affected checks per change; full multi-version regressions at stage acceptance.",
+  "backend": {
+    "files": 3,
+    "passed": 37,
+    "seconds": 7.42
+  },
+  "frontend": {
+    "test_files": 2,
+    "passed": 4,
+    "api_types": "passed",
+    "build": "passed",
+    "largest_bundle_bytes": 322425,
+    "bundle_limit_bytes": 500000
+  },
+  "static_checks": {
+    "targeted_ruff": "passed",
+    "git_diff_check": "passed"
+  },
+  "real_read": {
+    "scope": "isolated_backend_read_only_pilot",
+    "results": [
+      {
+        "provider": "repo_docs",
+        "pages": 1,
+        "documents": 3,
+        "completed_at": "2026-10-07T04:15:51.411738+00:00",
+        "incremental_observed_count": null,
+        "incremental_watermark_advanced": false,
+        "body_hashes_verified": true
+      },
+      {
+        "provider": "github_issues",
+        "pages": 3,
+        "documents": 9,
+        "completed_at": "2026-10-07T04:15:54.904510+00:00",
+        "incremental_observed_count": 0,
+        "incremental_watermark_advanced": true,
+        "body_hashes_verified": true
+      }
+    ]
+  },
+  "browser": {
+    "engine": "Ego Lite",
+    "task_space": 1,
+    "scope": "Temporary SQLite, synthetic server-only session and six temporary text documents on owned port 8127.",
+    "passed": [
+      "start page one",
+      "continue final page",
+      "six document mirrors visible",
+      "managed body read-only",
+      "explicit import of current mirror: one search chunk"
+    ],
+    "initial_harness_failure": "Auth endpoint required the temporary server session; corrected without changing browser credentials.",
+    "pointer_failure": "Import click intercepted by section during automatic scrolling; observed state then used documented focus/Enter.",
+    "cleanup": "Owned temporary server stopped; same TaskSpace kept on about:blank for continuing user goal."
+  },
+  "regression_fixed": "Access failure on page two previously resumed page two and left earlier roots unavailable; recovery now restarts full scan.",
+  "not_run": [
+    "full_backend_suite",
+    "dual_python_regression",
+    "real_LLM_calls",
+    "enterprise_team_pilot",
+    "deployment"
+  ],
+  "remaining": [
+    "disable and removed-configuration origin invalidation",
+    "cursor reset/configuration migration",
+    "background scheduling/rate limits/cancellation",
+    "complete Provider ACL/deletion discovery",
+    "observation freshness policy",
+    "complete indirect Session/Runner/Artifact lineage",
+    "unified context/process reuse",
+    "real model quality acceptance"
+  ],
+  "source_hashes_at_recording": {
+    "agentmesh/connector_sync/contracts.py": "2ca5369fabad462c20561b1ec53e7735deade41f6e68b5ad83f91c96d0e61b44",
+    "agentmesh/connector_sync/readers.py": "fc37afcf0476d41af8d02df19108bf095949ccce43eacb70d47358477c08b2d3",
+    "agentmesh/connector_sync/service.py": "0453cf8ba0fcd03c31d3bd0ac1680a4dd850e4486a1441cdde333cac0193c36b",
+    "agentmesh/routes/data_sources.py": "984f686ccfa73976ccb70eafe6c059058a4eb63625223dc9209a5c825daaac29",
+    "tests/test_connector_sync.py": "6156acd51f5e1f36bd8f1d4651868be84af2e2ab4d47c7c23c438cb3280a9123",
+    "tests/test_connector_api.py": "7b086ed2093208dd1394ec46b0d98a4568d449932ed5246799fd9bd398f5eb0b",
+    "tests/test_github_connector.py": "46abf6c0bf825dc26fc2caa7f9cf70f9c73c9a3bf2a11c2b259154a76af1d94e",
+    "agentmesh-demo/src/components/knowledge/SourceSyncPanel.tsx": "c85eb58cfb0c1f53b715597b67a23cfd0c9ce55109bf1609a6e6be8d639aef24",
+    "agentmesh-demo/src/components/knowledge/DocumentMaintenancePanel.tsx": "b40777bc3fd77dd7ff0630ba086ea836dd9eeb3460ca86b21b1c078af56d2364",
+    "agentmesh-demo/src/features/knowledge/connectorsApi.ts": "7a5ac38b9079c998476e1291ef0e42ffe79ecc59cec7759cadd0c9bf5d1b8455",
+    "agentmesh-demo/src/features/knowledge/api.ts": "bb93dab5b12c2baff3a267b57f95ed2955e116df3938b4aee87e79607dffd976",
+    "agentmesh-demo/src/api/generated/schema.ts": "c0d6e5a8b27672d734f93fc8f4e5efc20d94e2fbe75279ab87a6a0be4a1a1aeb"
+  },
+  "log_hashes": {
+    "/tmp/agentmesh-connector-incremental-focused-final.log": "5e262814ceb92d768e32373ed7b3e933b85747d602231a26d4a7786fa0fcda02",
+    "/tmp/agentmesh-connector-incremental-ui-final.log": "eff0f8fe129b0b761003041df6181ab7a46b5d98a20ebeb1c5c848fcd4f37398",
+    "/tmp/agentmesh-connector-incremental-api-types.log": "29f334638a8ae88533fddf489f611076f4c61b1e1194b231f3e6255d9b26103e",
+    "/tmp/agentmesh-connector-incremental-frontend-build-final.log": "73c3034e219db08349cd53307a7247027f1bb1e8bab745e46793821c6f7f80ba",
+    "/tmp/agentmesh-connector-incremental-ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "/tmp/agentmesh-connector-incremental-diff-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/agentmesh-connector-incremental-real-pilot.log": "3f3b9fa15b457af4ccc4ae0800fcd12b14315158f993ef71afb84560ae60a436",
+    "/tmp/agentmesh-connector-access-restart-red.log": "720eab0ff14a7c1ed2323980bd9744c6f941a95c3d2fd248d6cef10860c974c1",
+    "/tmp/agentmesh-connector-ego-first-page.log": "149597dab72a3a05f90b793577724bb8d37c3c49901fd744cf2b73528d2ec5ae",
+    "/tmp/agentmesh-connector-ego-source-completed.log": "1284a3b8762e578d40c15bb2896b200f51b1a76eaf0b8172ba9b6056aed832cf",
+    "/tmp/agentmesh-connector-ego-managed-readonly.log": "495b6fbb90e5d9ead90a66ff238eba479180eff594196cf126dcaaa85048341d",
+    "/tmp/agentmesh-connector-ego-managed-import.log": "07b3cd7182a82067ba85baf78e9a929b6447595a602aa8876871e500807ffc10",
+    "/tmp/agentmesh-connector-ego-managed-import-final.log": "ac0403c5a6d84cee20b51c19b496c9b16126c24a824a74435f07280377972769",
+    "/tmp/agentmesh-connector-ego-qa-cleanup.log": "2b98577af653b6a827b26407df8b62bb9b52c2a600bced9c59edf638692d41f0"
+  }
+}

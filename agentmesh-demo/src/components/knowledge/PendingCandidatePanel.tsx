@@ -187,6 +187,14 @@ export function PendingCandidatePanel({
                     打开任务审核
                   </Button>
                 ) : null}
+                {actions.includes('open_inspection_report') && item.inspectionRunId?.value ? (
+                  <a className="rounded-control bg-mint-400/10 px-4 py-2 text-sm text-mint-300 hover:bg-mint-400/20"
+                    href={`/tasks?inspection=${encodeURIComponent(item.inspectionRunId.value)}`}>查看巡检报告</a>
+                ) : null}
+                {actions.includes('open_delegated_query') && item.delegatedQueryId?.value ? (
+                  <a className="rounded-control bg-mint-400/10 px-4 py-2 text-sm text-mint-300 hover:bg-mint-400/20"
+                    href={`/collaboration?query=${encodeURIComponent(item.delegatedQueryId.value)}`}>打开代答确认</a>
+                ) : null}
                 {actions.includes('open_memory_review') ? (
                   <Button
                     variant="secondary"

@@ -6,6 +6,7 @@ import re
 from agents import Agent, ModelSettings, RunConfig, Runner
 from agents.models.interface import Model
 
+from agentmesh.memory_context.request_budget import ModelAdmissionError
 from agentmesh.models import SkillNodeResult, SkillPlanNode, SkillSynthesisResult
 from agentmesh.task_routing.contracts import CompletionCheckResult, TaskRoutingResult
 
@@ -259,6 +260,8 @@ class SkillSynthesisService:
                 synthesis.summary = _strip_internal_result_ids(synthesis.summary)
                 synthesis.sections = compose_report_sections(results, plan_nodes=plan_nodes)
                 return synthesis, False
+            except ModelAdmissionError:
+                raise
             except SynthesisValidationError as error:
                 errors = error.codes
             except Exception:

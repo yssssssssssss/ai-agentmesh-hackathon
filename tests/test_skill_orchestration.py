@@ -32,6 +32,7 @@ from agentmesh.models import (
     AgentToolGrant,
     ChatThread,
     InboxItem,
+    Project,
     Scope,
     SkillCapabilityProfile,
     SkillCapabilityType,
@@ -48,6 +49,7 @@ from agentmesh.models import (
     SkillSourceScope,
     SkillSynthesisResult,
     Source,
+    User,
     now_utc,
 )
 from agentmesh.seed import USER, ensure_base_workspace_data
@@ -94,14 +96,25 @@ def _persist_plan(
     *,
     output_contract: list[str],
     suffix: str,
+    owner: User | None = None,
 ) -> tuple[SkillPlan, AgentRun]:
+    actor = owner or User(id='user', workspace_id='workspace', default_project_id='project',
+                         name='Test owner', role='user', personal_agent_id='agent_test')
+    if repository.get_user(actor.id) is None:
+        repository.save_user(actor)
+    if repository.get_project(actor.default_project_id) is None:
+        repository.save_project(Project(id=actor.default_project_id, workspace_id=actor.workspace_id,
+                                        name='Test project', goal='Test execution', member_ids=[actor.id]))
+    if repository.get_chat_thread(f'thread_{suffix}') is None:
+        repository.add_chat_thread(ChatThread(id=f'thread_{suffix}', user_id=actor.id, workspace_id=actor.workspace_id,
+                                             project_id=actor.default_project_id, title='Test execution'))
     run = repository.save_agent_run(
         AgentRun(
             id=f"run_{suffix}",
             thread_id=f"thread_{suffix}",
-            user_id="user",
-            workspace_id="workspace",
-            project_id="project",
+            user_id=owner.id if owner else "user",
+            workspace_id=owner.workspace_id if owner else "workspace",
+            project_id=owner.default_project_id if owner else "project",
             input_text="execute the plan",
             status=AgentRunStatus.RUNNING,
             deadline_at=now_utc() + timedelta(seconds=300),
@@ -625,11 +638,14 @@ def test_executor_does_not_replay_node_after_model_stream_retries_are_exhausted(
 
 def test_model_stream_retries_do_not_replay_completed_tool_or_dag_node(tmp_path) -> None:
     repository = SQLiteStore(tmp_path / "model-stream-retry-tool-reuse.sqlite3")
+    ensure_base_workspace_data(repository)
+    repository.save_user(USER)
     plan, run = _persist_plan(
         repository,
         [_node("model_stream_tool_reuse", output_contract=["analysis"], side_effect=SkillSideEffect.READ)],
         output_contract=["analysis"],
         suffix="model_stream_tool_reuse",
+        owner=USER,
     )
     tool_calls: list[str] = []
     node_calls = 0
@@ -957,6 +973,104 @@ def test_cancelling_executor_atomically_cancels_plan_nodes_and_run(tmp_path) -> 
     assert persisted_plan is not None and persisted_plan.status == SkillPlanStatus.CANCELLED
     assert persisted_plan.nodes[0].status == SkillPlanNodeStatus.CANCELLED
     assert [event.event_type for event in repository.list_agent_run_events(run.id)][-1] == "run_cancelled"
+
+
+@pytest.mark.parametrize("change", ["writer", "plan_version", "runner"])
+def test_cancelled_old_executor_cannot_cancel_a_replacement_writer(tmp_path, change) -> None:
+    repository = SQLiteStore(tmp_path / "old-executor-cancel.sqlite3")
+    plan, run = _persist_plan(repository, [_node("slow")], output_contract=["synthesis"], suffix="old_cancel")
+    expected = {}
+
+    async def node_runner(_plan, _node, _upstream):
+        current = repository.get_agent_run(run.id)
+        assert current is not None
+        if change == 'plan_version':
+            current_plan = repository.get_skill_plan(plan.id)
+            assert current_plan is not None
+            repository.save_skill_plan(current_plan.model_copy(update={'version': current_plan.version + 1}))
+        else:
+            update = {'writer_generation_epoch': 2} if change == 'writer' else {'runner_id': 'replacement_runner'}
+            repository.save_agent_run(current.model_copy(update=update))
+        expected['run'] = repository.get_agent_run(run.id)
+        expected['plan'] = repository.get_skill_plan(plan.id)
+        expected['events'] = repository.list_agent_run_events(run.id)
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(BoundedDAGExecutor(
+            repository, node_runner=node_runner, synthesis_runner=_synthesis_runner([]),
+        ).run(plan, run))
+    assert repository.get_agent_run(run.id) == expected['run']
+    assert repository.get_skill_plan(plan.id) == expected['plan']
+    assert repository.list_agent_run_events(run.id) == expected['events']
+
+
+@pytest.mark.parametrize("change", ["writer", "plan_version", "runner"])
+def test_executor_cancel_commit_rechecks_the_writer_and_plan_version(tmp_path, monkeypatch, change) -> None:
+    repository = SQLiteStore(tmp_path / "late-executor-cancel.sqlite3")
+    plan, run = _persist_plan(repository, [_node("slow")], output_contract=["synthesis"], suffix="late_cancel")
+    finish = repository.finish_skill_plan_and_run
+    expected = {}
+
+    def replace_before_commit(**kwargs):
+        current = repository.get_agent_run(run.id)
+        current_plan = repository.get_skill_plan(plan.id)
+        assert current is not None and current_plan is not None
+        if change == 'plan_version':
+            repository.save_skill_plan(current_plan.model_copy(update={'version': current_plan.version + 1}))
+        else:
+            update = {'writer_generation_epoch': 2} if change == 'writer' else {'runner_id': 'replacement_runner'}
+            repository.save_agent_run(current.model_copy(update=update))
+        expected['run'] = repository.get_agent_run(run.id)
+        expected['plan'] = repository.get_skill_plan(plan.id)
+        expected['events'] = repository.list_agent_run_events(run.id)
+        return finish(**kwargs)
+
+    async def node_runner(_plan, _node, _upstream):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(repository, 'finish_skill_plan_and_run', replace_before_commit)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(BoundedDAGExecutor(
+            repository, node_runner=node_runner, synthesis_runner=_synthesis_runner([]),
+        ).run(plan, run))
+    assert repository.get_agent_run(run.id) == expected['run']
+    assert repository.get_skill_plan(plan.id) == expected['plan']
+    assert repository.list_agent_run_events(run.id) == expected['events']
+
+
+def test_cancelled_node_stops_its_waiting_sibling_and_releases_capacity(tmp_path) -> None:
+    from agentmesh.runtime_capacity import RuntimeCapacityController
+
+    repository = SQLiteStore(tmp_path / "cancel-sibling.sqlite3")
+    plan, run = _persist_plan(repository, [_node("cancel"), _node("sibling")],
+        output_contract=["synthesis"], suffix="cancel_sibling")
+    capacity = RuntimeCapacityController(node_limit=2)
+
+    async def scenario():
+        sibling_started = asyncio.Event()
+        sibling_stopped = asyncio.Event()
+
+        async def node_runner(_plan, node, _upstream):
+            if node.id == "cancel":
+                await sibling_started.wait()
+                raise asyncio.CancelledError
+            sibling_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                sibling_stopped.set()
+
+        async with asyncio.timeout(5):
+            with pytest.raises(asyncio.CancelledError):
+                await BoundedDAGExecutor(repository, node_runner=node_runner,
+                    synthesis_runner=_synthesis_runner([]), capacity=capacity).run(plan, run)
+        assert sibling_stopped.is_set()
+
+    asyncio.run(scenario())
+    assert capacity.snapshot()['active_nodes'] == 0
+    assert repository.get_agent_run(run.id).status is AgentRunStatus.CANCELLED
+    assert all(node.status is SkillPlanNodeStatus.CANCELLED for node in repository.get_skill_plan(plan.id).nodes)
 
 
 def test_late_node_completion_cannot_overwrite_external_cancellation(tmp_path) -> None:
@@ -1549,7 +1663,7 @@ def test_synthesis_rejects_a_node_source_that_no_longer_exists(tmp_path, configu
     model = ScriptedModel([])
     runtime = AgentRuntimeService(repository, model=model, enabled=True, skill_catalog=catalog)
 
-    with pytest.raises(ValueError, match="unknown_synthesis_source"):
+    with pytest.raises(RuntimeError, match="synthesis_sources_changed"):
         asyncio.run(runtime._execute_approved_skill_plan(plan=plan, run=run, user=USER))
 
     failed_run = repository.get_agent_run(run.id)
@@ -1559,16 +1673,25 @@ def test_synthesis_rejects_a_node_source_that_no_longer_exists(tmp_path, configu
     assert model.calls == ()
 
 
+@pytest.mark.parametrize('context_mode', ['off', 'inject'])
 def test_plan_node_high_risk_tool_confirmation_resumes_node_then_remaining_dag(
     tmp_path,
     monkeypatch,
     configure_pilot_wiki,
+    context_mode,
 ) -> None:
+    from agentmesh.memory_learning.contracts import MemoryPreferencesPatchV1
+    from agentmesh.memory_learning.service import MemoryLearningService
+
     monkeypatch.setenv("AGENTMESH_SKILL_ORCHESTRATION", "execute")
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', context_mode)
     configure_pilot_wiki(tmp_path / "wiki")
     repository = SQLiteStore(tmp_path / "approval.sqlite3")
     ensure_base_workspace_data(repository)
     repository.save_user(USER)
+    MemoryLearningService(repository).patch_preferences(MemoryPreferencesPatchV1(
+        command_id='approval-core', expected_version=1, core_preferences=['先列出验证结果。'],
+    ), USER)
     catalog = SkillCatalogService(repository)
     catalog.reload()
     skill = catalog.get_by_name("prd-feasibility", USER.personal_agent_id)
@@ -1733,6 +1856,8 @@ def test_plan_node_high_risk_tool_confirmation_resumes_node_then_remaining_dag(
     assert len(repository.list_thread_messages(thread.id)) == 1
     model.assert_complete()
     assert [call.model_settings.max_tokens for call in model.calls if call.streamed] == [8_192, 8_192]
+    assert all(('先列出验证结果' in (call.system_instructions or '')) == (context_mode == 'inject')
+               for call in model.calls if call.streamed)
 
 
 def test_plan_node_approval_is_refused_without_mutation_when_orchestration_is_off(tmp_path, monkeypatch) -> None:
@@ -1912,6 +2037,8 @@ def test_revoked_grant_fails_optional_waiting_node_and_continues_partial_plan(
     repository = SQLiteStore(tmp_path / "revoked-optional-grant.sqlite3")
     ensure_base_workspace_data(repository)
     repository.save_user(USER)
+    repository.add_chat_thread(ChatThread(id='thread_revoked_optional_grant', user_id=USER.id,
+        workspace_id=USER.workspace_id, project_id=USER.default_project_id, title='Optional grant recovery'))
     catalog = SkillCatalogService(repository)
     catalog.reload()
     skill = catalog.get_by_name("prd-feasibility", USER.personal_agent_id)

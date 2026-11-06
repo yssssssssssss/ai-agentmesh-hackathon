@@ -1338,3 +1338,73 @@ def test_legacy_agent_run_retriever_still_exposes_only_ten_pilot_profiles(
 
     assert len({candidate.skill_name for candidate in candidates}) <= 10
     assert not ({candidate.skill_name for candidate in candidates} & DRAFT_PROFILE_NAMES)
+
+
+def _count_property_reads(monkeypatch, name: str) -> list[int]:
+    original = getattr(SQLiteStore, name)
+    reads = [0]
+
+    def counted(self):
+        reads[0] += 1
+        return original.fget(self)
+
+    monkeypatch.setattr(SQLiteStore, name, property(counted))
+    return reads
+
+
+def test_universal_search_reads_tool_tables_once_per_search_regardless_of_candidates(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    service, _tool_names = _remote_tool_universal_service(
+        tmp_path,
+        ["target_output"] * 6,
+        probe=lambda _tool_name: _HealthDescriptor("implementation-0", "1", "healthy"),
+    )
+    intent = SkillIntent(goal="Need target_output", deliverables=["target_output"])
+    corpus = service._build_corpus(USER, include_unreviewed=False, assume_unreviewed_ready=False)
+    requirements = recommendation_module._build_universal_requirements(
+        intent,
+        (entry.loaded_profile for entry in corpus.entries),
+        routing_result=None,
+        task_catalog=None,
+    )
+    definition_reads = _count_property_reads(monkeypatch, "tool_definitions")
+    grant_reads = _count_property_reads(monkeypatch, "agent_tool_grants")
+
+    ranking = service._assemble_ranked_candidates(USER, intent, requirements, corpus, assume_unreviewed_ready=False)
+
+    assert len(ranking.candidates) == 6
+    assert definition_reads[0] == 1
+    assert grant_reads[0] == 1
+
+
+def test_universal_search_still_reports_missing_grants_from_the_shared_tool_snapshot(tmp_path) -> None:
+    service, _tool_names = _remote_tool_universal_service(
+        tmp_path,
+        ["target_output", "target_output"],
+        probe=lambda _tool_name: _HealthDescriptor("implementation-0", "1", "healthy"),
+    )
+    service._repository.save_agent_tool_grant(
+        AgentToolGrant(
+            id="grant_remote_1",
+            agent_id=USER.personal_agent_id,
+            tool_id="tool_remote_1",
+            granted_by=USER.id,
+            enabled=False,
+        )
+    )
+    intent = SkillIntent(goal="Need target_output", deliverables=["target_output"])
+    corpus = service._build_corpus(USER, include_unreviewed=False, assume_unreviewed_ready=False)
+    requirements = recommendation_module._build_universal_requirements(
+        intent,
+        (entry.loaded_profile for entry in corpus.entries),
+        routing_result=None,
+        task_catalog=None,
+    )
+
+    ranking = service._assemble_ranked_candidates(USER, intent, requirements, corpus, assume_unreviewed_ready=False)
+
+    diagnostics = {candidate.skill_name: candidate.diagnostics for candidate in ranking.candidates}
+    assert "tool_grant_missing" not in diagnostics["remote-candidate-0"]
+    assert "tool_grant_missing" in diagnostics["remote-candidate-1"]

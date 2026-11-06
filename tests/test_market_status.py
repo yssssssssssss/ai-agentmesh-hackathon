@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from tests.test_chat_flow import authenticated_client
+from tests.test_chat_flow import authenticated_client, clear_store
 
 
 def test_market_status_reports_worker_state_and_counts() -> None:
+    clear_store()
     client = authenticated_client()
 
     response = client.get("/api/market/status")
@@ -19,6 +20,7 @@ def test_market_status_reports_worker_state_and_counts() -> None:
 
 
 def test_market_board_returns_signals_and_matches() -> None:
+    clear_store()
     client = authenticated_client()
 
     response = client.get("/api/market/board")
@@ -29,4 +31,3 @@ def test_market_board_returns_signals_and_matches() -> None:
         assert key in payload
     assert isinstance(payload["signals"], list)
     assert isinstance(payload["matches"], list)
-

@@ -157,6 +157,7 @@ def test_retrieval_honors_memory_type_project_and_result_limit_bindings(tmp_path
         agent_id=USER.personal_agent_id,
         allowed_scopes=[Scope.PRIVATE],
         allowed_memory_types=["finding"],
+        type_policy_version=1,
         allowed_project_ids=[USER.default_project_id],
         max_results_per_query=1,
     )

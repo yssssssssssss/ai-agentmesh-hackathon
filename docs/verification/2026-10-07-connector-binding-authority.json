@@ -1,0 +1,86 @@
+{
+  "recorded_at": "2026-10-07T04:54:59.269270+00:00",
+  "status": "current_binding_authority_verified_overall_plan_in_progress",
+  "verification_policy": "Directly affected checks per change; full multi-version regressions at stage acceptance.",
+  "python": "3.13.0",
+  "focused": {
+    "files": 4,
+    "passed": 101,
+    "seconds": 12.65
+  },
+  "bootstrap": {
+    "files": 1,
+    "passed": 14,
+    "seconds": 6.05
+  },
+  "frontend": {
+    "passed": 4,
+    "api_types": "passed",
+    "build": "passed",
+    "largest_bundle_bytes": 322425,
+    "bundle_limit_bytes": 500000
+  },
+  "static_checks": {
+    "targeted_ruff": "passed",
+    "git_diff_check": "passed"
+  },
+  "verified_behaviors": [
+    "removed/changed operator binding immediately withholds retrieval",
+    "canonical observations require exact owned enabled cursor and current binding",
+    "status reconciliation persists source/cursor invalidation",
+    "restoring invalidated configuration does not automatically restore sources",
+    "startup reconciliation invalidates removed bindings",
+    "existing Source authority and legacy-hash regressions remain green"
+  ],
+  "scope": "Temporary isolated test databases; mocked HTTP; Source gate reused by existing consumers; Runner worktree preserved.",
+  "not_run": [
+    "full_backend_suite",
+    "dual_python_regression",
+    "new_real_Provider_reads",
+    "browser_e2e",
+    "real_LLM_calls",
+    "enterprise_pilot",
+    "deployment"
+  ],
+  "limits": [
+    "current declared binding is not a live Provider ACL check",
+    "physical projection cleanup occurs at startup/status reconciliation; no periodic worker yet",
+    "permission-revoked/inactive owners are withheld by existing gates, not given proxy observation writes",
+    "missing operator_bound on old cursors defaults to true; trusted injected readers explicitly persist false",
+    "source and Memory hashes are preserved until an actual source observation/lifecycle change"
+  ],
+  "remaining": [
+    "persistent first-page admission/lease",
+    "background bounded scheduling/rate limits/retry/cancellation",
+    "complete Provider ACL/deletion discovery and observation freshness",
+    "complete indirect Session/Runner/Artifact lineage",
+    "unified context/process reuse",
+    "real model quality and enterprise acceptance"
+  ],
+  "source_hashes_at_recording": {
+    "agentmesh/connector_sync/authority.py": "5b2a3afc2b087d24a6bf9faa8badfd061ca50cd7071c4d68e4470d18a08caf74",
+    "agentmesh/connector_sync/contracts.py": "6a084f4333fbe9873aa1dc5d948ae5755d1a41b9ca59d440a709d7188240f45a",
+    "agentmesh/connector_sync/service.py": "ae8ef2f977d8aa62c354e34c2956ea34348e52b9d3b3c05b96abf278c5185c7c",
+    "agentmesh/source_authority.py": "d918ffc9968fa26f8e32ee247e8d8029d57e8f26e057bf3bfa744f28369bcc73",
+    "agentmesh/routes/data_sources.py": "804f156c7ae587852fcdf607621da66e4f0fe0faebaf6a01874b1d226b4bcce5",
+    "agentmesh/app.py": "7abd90b48595c0e136f6c8d0fb2fee4bdeaa1b77cdb32b516301c20afd57337f",
+    "tests/test_connector_api.py": "20786b07d01216edcb88605b4dad42ddd3472f1c89f889c59502f0375b225b0e",
+    "agentmesh-demo/src/components/knowledge/SourceSyncPanel.tsx": "bf82bbfd561cbf6daf9589f5686d1c5dc647e9fe0334c8084ea958e1ae156b35",
+    "agentmesh-demo/src/components/knowledge/SourceSyncPanel.test.tsx": "fbc38502d775ba7e50be276396c28525d59fdf15f384c81c8636de63b108b5dc",
+    "agentmesh-demo/src/api/generated/schema.ts": "07ccbdd8e0c4e3f888fef08d0b4c7489ca44a026286f71ebd0e8aa8327c02da4"
+  },
+  "log_hashes": {
+    "/tmp/agentmesh-connector-binding-authority-red.log": "29af6847fb66ab5b90db555b0e864257e30a2886adc54499cddf0698168a918d",
+    "/tmp/agentmesh-connector-binding-authority-green.log": "66c6516c066bc92ca38d9a1353c14aab947fa3c0f8b01770dd2a302979ef8857",
+    "/tmp/agentmesh-connector-binding-reconcile-red.log": "ba3f0a6f62404fecb7020544cf2c9607a6c5eded6c9c58cd4519942271f8b5f6",
+    "/tmp/agentmesh-connector-binding-reconcile-green.log": "85a8d84d8ff96f482913453219eb4b3307b60c865b769ae088ad3cc9e8d69413",
+    "/tmp/agentmesh-connector-startup-binding-red.log": "de66ad00f17df8cfc5701f4ad09883961b5c9937511ccd09f6e26c64bcbe7a3e",
+    "/tmp/agentmesh-connector-binding-focused.log": "b45915a72fa149f248a2d1cf7c7648ab7476a7a9a4f3649b01f3309ec3742750",
+    "/tmp/agentmesh-connector-binding-bootstrap.log": "2481f0b31ee38962658bdc4582002b107384d49bcb9f5bfb2b0e7ae629487a3d",
+    "/tmp/agentmesh-connector-binding-api-types.log": "b05dc657d58d1ac07b548bbdeeef73a8da14522af03191edc26f80458e7a8133",
+    "/tmp/agentmesh-connector-binding-ui.log": "7c71eea7b73198256e940ab403b1033f05cfdff94dcef3afb8dcb754006e8cd7",
+    "/tmp/agentmesh-connector-binding-build.log": "f2defec1289b24dd0e65d15915d982411267c3bcd8de2f5efae5758cd6184834",
+    "/tmp/agentmesh-connector-binding-ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "/tmp/agentmesh-connector-binding-diff-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

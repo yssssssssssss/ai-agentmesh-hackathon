@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -17,12 +18,14 @@ from agentmesh.agent_runtime.service import (
     _StandardSkillNodeResultDraft,
 )
 from agentmesh.agent_runtime.settings import SkillOrchestrationMode
+from agentmesh.memory_context.service import MemoryContextError
 from agentmesh.models import (
     AgentExecutionContractVersion,
     AgentPlanningContractVersion,
     AgentPlanningMode,
     AgentRunStatus,
     CapabilityGapV1,
+    ChatThread,
     SkillDefinition,
     SkillIntent,
     SkillIntentComplexity,
@@ -30,6 +33,7 @@ from agentmesh.models import (
     SkillSourceScope,
     SkillSynthesisResult,
 )
+from agentmesh.runtime_capacity import RuntimeCapacityController
 from agentmesh.seed import USER, ensure_base_workspace_data
 from agentmesh.skill_runtime import universal_execution
 from agentmesh.skill_runtime.executor import NodeExecutionOutcome
@@ -107,6 +111,12 @@ metadata:
     catalog = SkillCatalogService(repository)
     catalog._skills = {skill.name: skill}
     return repository, catalog, skill
+
+
+def _thread_id(repository: SQLiteStore, thread_id: str) -> str:
+    repository.add_chat_thread(ChatThread(id=thread_id, user_id=USER.id, workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id, title='Universal preview'))
+    return thread_id
 
 
 def test_planning_contract_selection_is_mode_specific_and_direct_runs_stay_unmarked(tmp_path) -> None:
@@ -200,7 +210,7 @@ def test_standard_universal_preview_freezes_marker_snapshot_and_skeleton(tmp_pat
         run = await runtime.start_orchestrated(
             content=intent.goal,
             user=USER,
-            thread_id="thread_universal_preview",
+            thread_id=_thread_id(repository, "thread_universal_preview"),
             history=[],
             client_turn_id="turn_universal_preview",
             mode=SkillOrchestrationMode.PREVIEW,
@@ -323,7 +333,7 @@ def test_all_blocked_universal_run_projects_safe_match_diagnostics(
         run = await runtime.start_orchestrated(
             content=intent.goal,
             user=USER,
-            thread_id="thread_universal_all_blocked",
+            thread_id=_thread_id(repository, "thread_universal_all_blocked"),
             history=[],
             client_turn_id="turn_universal_all_blocked",
             mode=SkillOrchestrationMode.PREVIEW,
@@ -387,7 +397,7 @@ def test_routed_universal_preview_accepts_server_owned_scenario_assignment(tmp_p
         run = await runtime.start_orchestrated(
             content=intent.goal,
             user=USER,
-            thread_id="thread_universal_routed_preview",
+            thread_id=_thread_id(repository, "thread_universal_routed_preview"),
             history=[],
             client_turn_id="turn_universal_routed_preview",
             mode=SkillOrchestrationMode.PREVIEW,
@@ -443,7 +453,7 @@ def test_universal_retry_replans_with_a_new_snapshot_backed_plan(tmp_path, monke
         original = await runtime.start_orchestrated(
             content=intent.goal,
             user=USER,
-            thread_id="thread_universal_retry",
+            thread_id=_thread_id(repository, "thread_universal_retry"),
             history=[],
             client_turn_id="turn_universal_retry_original",
             mode=SkillOrchestrationMode.PREVIEW,
@@ -521,7 +531,7 @@ def test_universal_planner_timeout_fails_the_persisted_skeleton(tmp_path, monkey
         run = await runtime.start_orchestrated(
             content=intent.goal,
             user=USER,
-            thread_id="thread_universal_timeout",
+            thread_id=_thread_id(repository, "thread_universal_timeout"),
             history=[],
             client_turn_id="turn_universal_timeout",
             mode=SkillOrchestrationMode.PREVIEW,
@@ -575,7 +585,7 @@ def test_universal_retrieval_failure_terminates_run_without_empty_plan(tmp_path,
         run = await runtime.start_orchestrated(
             content=intent.goal,
             user=USER,
-            thread_id="thread_universal_unsupported",
+            thread_id=_thread_id(repository, "thread_universal_unsupported"),
             history=[],
             client_turn_id="turn_universal_unsupported",
             mode=SkillOrchestrationMode.PREVIEW,
@@ -680,7 +690,7 @@ def test_phase2b_executes_a_frozen_read_only_universal_plan(tmp_path, monkeypatc
         created = await runtime.start_orchestrated(
             content=intent.goal,
             user=USER,
-            thread_id="thread_universal_execute",
+            thread_id=_thread_id(repository, "thread_universal_execute"),
             history=[],
             client_turn_id="turn_universal_execute",
             mode=SkillOrchestrationMode.EXECUTE,
@@ -761,7 +771,7 @@ def test_phase2a_approve_api_rejects_persisted_universal_plan_in_execute_mode(
         run = await runtime.start_orchestrated(
             content=intent.goal,
             user=USER,
-            thread_id="thread_universal_approval_blocked",
+            thread_id=_thread_id(repository, "thread_universal_approval_blocked"),
             history=[],
             client_turn_id="turn_universal_approval_blocked",
             mode=SkillOrchestrationMode.PREVIEW,
@@ -814,3 +824,63 @@ def test_phase2b_freezes_execution_contract_for_new_universal_runs(tmp_path) -> 
     assert runtime.execution_contract_for(
         AgentPlanningContractVersion.STANDARD_LEGACY_V1
     ) is None
+
+
+def test_universal_model_planning_rechecks_authority_after_capacity_without_repair(tmp_path, monkeypatch) -> None:
+    repository, catalog, skill = _catalog(tmp_path)
+    thread = repository.add_chat_thread(ChatThread(user_id=USER.id, workspace_id=USER.workspace_id,
+        project_id=USER.default_project_id, title='Current planner authority'))
+    intent = SkillIntent(goal='Analyze this product', deliverables=['analysis_result'],
+                         complexity=SkillIntentComplexity.WORKFLOW)
+
+    class IntentAnalyzer:
+        async def analyze(self, *_args, **_kwargs):
+            return intent, []
+
+    class Trust:
+        available = True
+
+        def __call__(self, _skill, _loaded):
+            return True
+
+    monkeypatch.setenv('AGENTMESH_TASK_SCENARIO_ROUTING', 'false')
+    monkeypatch.setenv('AGENTMESH_MEMORY_CONTEXT', 'off')
+    trust = Trust()
+    search = UniversalSkillSearchService(repository, catalog, profile_trust=trust,
+        profile_ranker=lambda queries, _ids: [([], [skill.id], []) for _query in queries])
+    model = ScriptedModel([])
+
+    async def scenario():
+        queued = asyncio.Event()
+
+        class WaitingCapacity(RuntimeCapacityController):
+            @asynccontextmanager
+            async def llm_slot(self):
+                queued.set()
+                async with super().llm_slot():
+                    yield
+
+        capacity = WaitingCapacity(llm_limit=1)
+        runtime = AgentRuntimeService(repository, model=model, enabled=True, skill_catalog=catalog,
+            intent_analyzer=IntentAnalyzer(), profile_trust=trust, universal_search=search,
+            universal_preview_enabled=True, capacity=capacity)
+        async with capacity.llm_slot():
+            queued.clear()
+            run = await runtime.start_orchestrated(content=intent.goal, user=USER, thread_id=thread.id,
+                history=[], client_turn_id='queued_universal_planner', mode=SkillOrchestrationMode.PREVIEW)
+            task = runtime._tasks[run.id]
+            await asyncio.wait_for(queued.wait(), timeout=5)
+            repository.save_user(USER.model_copy(update={'status': 'disabled'}))
+        with pytest.raises(MemoryContextError, match='model_handoff_not_authorized'):
+            await task
+        return repository.get_agent_run(run.id), repository.get_skill_plan_for_run(run.id)
+
+    try:
+        run, plan = asyncio.run(scenario())
+        assert run.status is AgentRunStatus.FAILED and plan.status.value == 'failed'
+        assert run.error_code == 'model_handoff_not_authorized'
+        assert model.calls == ()
+        assert len([event for event in repository.list_agent_run_events(run.id)
+                    if event.event_type == 'context_request_budget']) == 1
+    finally:
+        repository.close()

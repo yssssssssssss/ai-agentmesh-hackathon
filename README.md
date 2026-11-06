@@ -13,7 +13,7 @@ The first implementation slice proves:
 3. Natural chat stays private, while explicit `$` skills start workflows.
 4. The backend creates a task.
 5. The task creates an internal blackboard request.
-6. A mock research Agent returns evidence.
+6. A configured research provider returns evidence; demo mode can return explicitly labelled samples.
 7. The chat response includes a source.
 8. Activity logs record what the personal Agent and external Agent did.
 9. The workspace can search chat, activity, blackboard evidence, and memory items with source-aware results.
@@ -44,9 +44,48 @@ The first implementation slice proves:
 Set up an isolated environment:
 
 ```bash
-/opt/homebrew/bin/python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
+uv sync --locked --extra dev --python 3.12
 ```
+
+The committed `uv.lock` is the dependency baseline. CI checks clean installs on Python 3.12 and 3.13; use `uv lock --check` to verify it and update the lock intentionally when changing dependencies.
+
+Task and Knowledge drawers now query bounded current-project relations through `POST /api/memory/relations/query`. Native Task relationships, reviewed delivery evidence and qualified document/fact/span citations reuse the current records. An authorized Memory panel can annotate displayed records using frozen Task/document evidence; `POST /api/memory/relations` also accepts other visible endpoints. Candidate is the default, and explicit human confirmation does not change Task/Memory governance or expose private origins. Changed references stop expanding; writes/audit and replay are atomic. See [ADR 0043](docs/adr/0043-current-project-memory-relations.md) for limits and remaining graph/connector work.
+
+The Tasks page provides three project inspections: daily progress, blockers/overdue, and pending reviews. They query shared local Task/Review records without an LLM or Task write mode, show source versions and missing evidence, and link to existing action flows. Project managers can save versioned schedules, edit/pause/restore them, run an inspection, and inspect durable execution records. Reports and Inbox notifications are owner-only.
+
+Automatic inspections default to `AGENTMESH_AUTOMATION_MODE=off`. Use `observe` to calculate due slots and budgets without creating Runs, dispatches, or notifications. `execute` additionally requires `AGENTMESH_AGENT_RUNTIME=v2`; the three templates use the existing Runtime dispatch queue and real local records, with zero model usage. A schedule being enabled does not override this global switch. Historical unvalidated definitions require an explicit project/template resave. Cron is five-field/IANA-timezone, minimum five minutes; missed slots coalesce to the latest, overlap skips, and committed read dispatches recover on restart.
+
+Schedules can explicitly opt into committed project Task/Task Review changes in the same form. This defaults off; private chat and raw edits without a native command do not trigger. A 30-second quiet window merges bursts, sustained edits coalesce within five minutes before queue admission, and automatic Runs retain their five-minute floor. Opt-in/resuming/template changes begin at the current committed watermark. Change Runs use the same authorized read-only dispatch, owner report and Inbox; paused-period changes do not independently replay on resume. History distinguishes change, cron and manual triggers.
+
+Legacy research requests now persist shared manual/background claims, bounded read retries, safe outcomes and restart-visible queue health. Partially published evidence requires reconciliation. Marketplace workers paginate participants and signals, persist matching fingerprints, and never create standing consent. Shared match posts contain status only. Unconfigured/failed answer models return blocked, and absent evidence returns insufficient_evidence. Legacy status posts cannot be adopted as answers. Collaboration now offers durable project queries, owner confirmation and explicit per-peer automatic policies. Automatic answering requires both users' market opt-in, and sensitive inputs still require confirmation. Only requester/target can read a currently authorized sealed result; private adoption is atomic and idempotent. Queries survive restart, while interrupted started model calls are not retried automatically. This first slice covers governed plain-text personal evidence; structured delegation, full synchronous-model budget/delivery governance and real model quality remain in development.
+
+Structured facts and procedures attach to the existing governed Memory records. `GET /api/memory/facts/source-documents/{id}` freezes an owned Document evidence identity; `POST /api/memory/facts/remember` explicitly confirms private facts and optionally corrects an existing owned fact record using its expected version. Corrections submit the complete approved history. `POST /api/memory/facts/query` supports a point or interval and reports conflicts, unknowns or unavailable evidence. Task capture/revision can include structured payloads; team acceptance still requires independent Memory Review. The knowledge drawer displays their times, sources and procedure conditions.
+
+Document learning defaults to `AGENTMESH_MEMORY_LEARNING=off` and additionally requires the owner's opt-in. `execute` observes eligible persisted documents and runs bounded, durable SDK extraction jobs. Exact source spans support private suggestions; the owner must select and confirm facts before activation. Unknown validity remains unknown. Digital Self stores private core preferences and a separate daily learning cap. Knowledge exposes jobs, source quotes, confirmation, bounded retry and owned forgetting. Forgetting/owned document withdrawal writes a durable barrier, invalidates provable derived records and removes searchable bytes; it cannot recall already delivered content, audits or backups. Shared records retain team governance and become disputed/expired when their source is withdrawn. See ADR 0020 for the current limits.
+
+Learning retries respect bounded Provider `Retry-After` timing and preserve unknown-usage reservations. Active extraction renews its fenced lease while rechecking current source and learning policy; opting out cancels the wait. The owner's learning panel shows current authorized queue counts, daily reserved budget, expired leases and cleanup backlog, without job/source bodies in the status API. See [ADR 0031](docs/adr/0031-document-learning-operations.md).
+
+`AGENTMESH_MEMORY_CONTEXT=inject` applies owner core preferences in local direct/Standard execution. Shared Run assembly gives full core preferences priority within an 8000-character component allowance, then budgets the complete recalled material and headers; it uses the existing SQL/fact/reviewed-procedure/Memory authorities. Natural private chat does not automatically retrieve project Memory. Local streamed SDK requests additionally budget the complete instructions, Session, tool results and schemas on every turn, including approval recovery. Unknown tokenizers use an explicitly labeled UTF-8 estimate. Automatic Memory and SDK memory_search results record use after final budget/source checks at the local model boundary. Local direct/Standard approvals restore a private frozen context snapshot and recheck its input, sources, preferences and execution identities before approval and handoff. Owned forgetting redacts affected snapshots and rejects late restoration. Workspace shows recent request budget decisions separately from actual Memory use. Local direct compaction uses the complete first-request budget, even for a few large messages, and retains complete recent user turns and tool-call/result units. The bounded summary must fit before replacing the Session through its existing version check. Adaptive recall allocation and remote context parity remain in development; see ADR 0063 and the complete optimization plan.
+
+Local SDK Sessions bind a private owner/Project and fenced Run writer. Bootstrap imports canonical ChatMessage bodies; append/pop/clear compare observed versions and append commands have durable replay receipts. Memory-derived history rechecks its frozen dependencies, including in off mode; forgetting clears affected cached bodies and blocks late restoration. Compaction has a bounded deadline and repeats Session checks after capacity waits. Direct approvals also freeze Session version/content hash and recheck it in the approval claim transaction. Automatic SDK replay deduplication, unverified legacy migration, general external evidence archives and remote Session parity remain unfinished; see ADRs 0026–0027.
+
+Explicit current-project owner questions route through authorized temporal facts; memory_search also supports typed entity/time queries using current Run IDs. Only complete eligible assertions enter context; conflicts, unknowns and budget drops provide diagnostics. Receipt commit rechecks evidence and newly introduced conflicts in the same transaction. Withheld fact candidates are included in forgetting barriers. Explicit current-project count/status and linked-Task state/dependency questions now route through the current Task/Review SQL authority. `GET /api/task-operations/{project_id}/state` and the governed project_state tool expose the same exact counts and bounded dependency evidence. Private/foreign/archived Tasks are excluded, unavailable dependencies remain unknown, and SQL state creates no Memory use receipts. Frozen results are checked on local approval recovery and model requests. Local Runtime model requests also check current Run/writer identity, actor/project/thread authority and deadline when Memory is off. Capacity-wrapped calls repeat budgeting and source/authority checks after waiting for the model slot; prepared Memory is recorded only at that handoff. Remote Runner admission and complete Session hardening remain unfinished; see ADRs 0021–0025.
+
+Knowledge exposes a current-project glossary confirmed by members with team-memory management permission. Exact aliases preserve original evidence and expose merged conflicts; version changes invalidate frozen term queries and archived SDK output. Task Review capture can explicitly record a procedure. Local project requests select one bounded literal-goal match; typed memory_search accepts procedure_query. Current preconditions, registered native tool grants/versions, installation versions and independent acceptance evidence determine applicability. Unknowns and oversized steps stay out of model context; qualified references never grant or automatically invoke tools. SDK history distinguishes fact-only and procedure delivery, and forgetting redacts withheld selections. See ADRs 0028–0029.
+
+Memory search applies current scope, lifecycle, layer and binding filters in SQL before its bounded candidate limit. Search hits and their visibility checks share a read transaction; unsafe Memory is removed before result budgeting. Local FTS recall queues without holding external embedding calls. The isolated 50k-record, 10-concurrent-query FTS benchmark passed at 642.471ms p95; vector capacity and real-model quality remain unverified. See [ADR 0030](docs/adr/0030-bounded-authorized-memory-search.md) and run `.venv/bin/python eval/run_memory_retrieval_benchmark.py --output /tmp/memory-retrieval.json` to reproduce.
+
+Agent memory binding configuration checks current user, workspace, ownership and management permission in the actual read/write transaction. IDs and timestamps come from the server; duplicate or mismatched records fail explicitly, and project restrictions preserve the requested project. `allowed_memory_types` consistently means Memory content types such as finding or decision, filtered before candidate budgets. Restricted legacy bindings with missing/null `type_policy_version` require an authorized PUT after reviewing their types; the server saves version 1. Empty type lists retain existing authorization. See [ADR 0040](docs/adr/0040-current-authority-agent-memory-binding.md) and [ADR 0044](docs/adr/0044-consistent-agent-memory-content-types.md).
+
+Local nonstream SDK intent/planning, requirement/problem-graph refinement, synthesis and review now apply complete-request budgets and current Run/actor/deadline checks after model capacity waits. Planning and execution have separate allowed phases. Admission refusals terminate with specific safe codes, without format repair or a DeepSearch digest/report. Standard synthesis also repeats existing Source identity checks at handoff. The request wrapper owns its asynchronous gate, including cancellation and compaction; cumulative cost, general Source versions and remote Runner delivery remain unfinished. See [ADR 0045](docs/adr/0045-bounded-nonstream-sdk-model-handoffs.md).
+
+Market matching selects qualified private titles for each signal project with bounded SQL candidates and current source proofs. Every primary/fallback send and returned decision rechecks source authority and the matching claim; stale native chunks are withheld even when document versions were not bumped. Peer answers still require the existing consent workflow. See [ADR 0041](docs/adr/0041-current-project-market-scout-material.md).
+
+Workspace also displays body-free candidate decisions for the owner's Run. Preparation does not count as use; an exact durable receipt proves delivery. Current permissions, sources, fact conflicts and procedure capabilities are rechecked before displaying titles. Forgetting clears candidate-only snapshots and tool payloads and fences late restoration. See [ADR 0032](docs/adr/0032-owned-memory-candidate-decisions.md).
+
+Run the offline frozen inspection rule evaluation with `.venv/bin/python eval/run_automation_eval.py`. It uses isolated synthetic records and zero model calls; it is not a real-model quality score.
+
+Replay 120 frozen memory controls with `.venv/bin/python eval/run_memory_eval.py`. It checks explicitly confirmed fixture facts, temporal updates, conflicts, current authority, withdrawal and database reopening in isolated stores. A separate generation example is excluded from the holdout. It makes zero model calls and reports extraction/answer quality as unmeasured; four real-model baselines and two-Run procedure traces remain pending.
 
 Install and build the React frontend for FastAPI hosting:
 
@@ -75,6 +114,8 @@ AGENTMESH_DEMO_MODE=1 AGENTMESH_DB_PATH=data/agentmesh-demo.sqlite3 \
 
 Demo mode creates deterministic fixture accounts and content with known local-only credentials. Never enable it for a shared or production database.
 
+Fixed research and `local_metrics` samples also require `AGENTMESH_DEMO_MODE=1`. Production queries without a real provider return a stable unavailable reason; empty or unverified evidence cannot complete a query. Uploaded documents remain usable as real local evidence. Query metadata and chat traces separate `data_mode` (`real`, `demo`, `derived`) from provider fallback mode, and the Workspace labels demo answers even when an LLM synthesizes them. Policy-rejected research dispatches persist a failed Task and an audit reason rather than completing with a sample.
+
 Task Center mutations are fail-closed. The default `read_only` mode keeps the current board and details available without accepting project-task writes. Enable the approved Task, AgentRun, sealed Artifact, and Task Review mutation contracts explicitly in a local or controlled environment:
 
 ```bash
@@ -87,14 +128,16 @@ After a Task Review is accepted, its Run owner may explicitly capture the frozen
 
 Accepted Team Knowledge is immutable in place. Its owner or a user with effective `manage_team_memory` permission may submit a revision candidate; accepting that candidate atomically activates the new version and deprecates its predecessor. Lifecycle managers can dispute, deprecate, expire, archive, and restore governed versions through versioned command endpoints. Inactive versions remain auditable but are excluded from automatic Agent retrieval.
 
-Automatic Task-linked Memory context is separately gated and defaults to `off`:
+Automatic Task-linked and private Workspace AgentRun Memory context is separately gated and defaults to `off`:
 
 ```bash
 export AGENTMESH_MEMORY_CONTEXT=observe  # retrieve and measure; do not inject or write use receipts
 export AGENTMESH_MEMORY_CONTEXT=inject   # inject eligible Memory and persist MemoryUseReceiptV1
 ```
 
-Only Memory that passes credential/prompt-injection quarantine and reaches the final model-context handoff receives an immutable use receipt. Explicit Runtime `memory_search` defers the receipt until its exact visible output passes encoding, size, safety, audit, and Tool settlement checks. Citation labels are transactionally reserved per Run so concurrent searches cannot assign one label to different Memory versions. Candidate, disputed, deprecated, expired, and archived versions remain excluded before retrieval ranking and budgets in every mode; the complete rendered context, including citation and Source metadata, is budgeted.
+Only Task-linked Runs and private Workspace Runs (`project_chat=true`) are eligible for this automatic path. Only Memory that passes credential/prompt-injection quarantine and reaches the final model-context handoff receives an immutable use receipt. Explicit Runtime `memory_search` defers the receipt until its exact visible output passes encoding, size, safety, audit, and Tool settlement checks. Citation labels are transactionally reserved per Run so concurrent searches cannot assign one label to different Memory versions. Candidate, disputed, deprecated, expired, and archived versions remain excluded before retrieval ranking and budgets in every mode; the complete rendered context, including citation and Source metadata, is budgeted.
+
+Completed direct Skills that declare `private_short_term` and completed Standard Skill Plans containing such Skills project exactly one private short-term Memory per Run. Ordinary Workspace conversations remain policy-skipped, but their owner can explicitly save a completed or partial result through the Workspace action; this never publishes Team Knowledge. Task-derived Team Knowledge continues to require accepted Task Review, explicit capture, and independent Memory Review.
 
 Project operations build on the same Task facts. Project managers can define parent and dependency relationships; the server rejects cross-project targets and graph cycles, and incomplete dependencies prevent both the `start` transition and new Task-linked AgentRun claims. `GET /api/task-operations/{project_id}` serves the project overview, milestone progress, calendar, and Agent queue; `GET /api/task-operations/{project_id}/task-options` serves bounded relationship choices. These are read models, not an automatic scheduler. The SQLite `task_operations_projection` is rebuilt from canonical Task and Thread records at startup and can be dropped without losing project facts.
 
@@ -127,6 +170,42 @@ http://127.0.0.1:8010/
 The app UI shows a local login panel when no session exists. In explicit demo mode, use the fixture-account controls shown by the local UI; production-safe mode has no built-in account credentials.
 
 For frontend development, keep FastAPI on port `8010` and run `npm run dev` in `agentmesh-demo/`; Vite serves `http://127.0.0.1:5178/` and proxies `/api` to FastAPI. The retired single-file UI remains temporarily available at `/legacy/app.html` and `/app.html` for one release cycle.
+
+### Local Runner execution (experimental)
+
+The current local-Runner slice supports device enrollment, credential storage, heartbeat, lease renewal, cancellation, `standard_direct` execution, and read-only Standard Skill node execution. The control plane still owns plan creation, DAG state transitions, and final synthesis. DeepSearch and Runner-side Tool approval remain unavailable while Runner execution mode is selected.
+
+New CLI Runners negotiate structured direct Sessions through `structured-session-v1`. They receive the existing Session's complete user/assistant and tool call/result items, compact history against the full request budget when needed, and return actual SDK continuation items in a versioned completion. Cloud completion checks the frozen snapshot and current version/authority in the same transaction as settling the Run. Duplicate completions and a reopened local spool reuse the prior execution result; restart `agentmesh runner start` to resend a pending completion while its lease remains valid. Older clients retain the V1 envelope. Both versions and Standard nodes check complete SDK request budgets; see [ADR 0064](docs/adr/0064-structured-runner-session-round-trip.md).
+
+Current CLI Runners also negotiate `context-handoff-v1` for V3 direct and Standard node envelopes. Automatic Memory and core preferences remain prepared until execution: each model request obtains live cloud authorization, and Memory usage is recorded only after the model returns a response and the cloud accepts delivery. Confirmation persists before sending; restart resends confirmation before completion without rerunning the model. Successful completion rechecks current context and requires confirmed delivery. Remote model requests reserve against the same durable Run budget as cloud SDK work, including compaction and retries. Valid input/output usage settles the original reservation; unknown calls retain it, and late usage cannot restore cancelled context. Fees require explicitly configured prices. Native file tools additionally require `tool-handoff-v1`, current authorization and shared Run tool quota before IO. New claims freeze the selected profile and the first declared actual model identity. Clients without the tool protocol receive no native file tools. Unfinished-run recovery remains in development; see [ADR 0065](docs/adr/0065-runner-context-handoff-and-delivery.md).
+
+Start the control plane without a server-side dispatch pump:
+
+```bash
+AGENTMESH_AGENT_RUNTIME=v2 AGENTMESH_EXECUTION_LOCATION=runner \
+  .venv/bin/uvicorn agentmesh.app:app --reload --port 8010
+```
+
+Enroll the current terminal:
+
+```bash
+agentmesh setup --server http://127.0.0.1:8010
+```
+
+The CLI opens the authenticated Runner confirmation page. Configure the model Provider in the Runner process environment, then start local execution:
+
+```bash
+export AI_API_URL=https://your-openai-compatible-provider.example/v1/chat/completions
+export AI_API_KEY=your-local-key
+export AI_MODEL=your-model
+# Optional: make the explicitly granted local_file_read tool available inside these roots.
+export AGENTMESH_RUNNER_ALLOWED_ROOTS=/absolute/path/to/approved/projects
+agentmesh runner start
+```
+
+`local_file_read` is not granted by default. Enable it explicitly for the user's Personal Agent from Agent configuration; the Runner still restricts reads to `AGENTMESH_RUNNER_ALLOWED_ROOTS`, resolves symlinks, rejects path escape, caps files at 100 KiB, and withholds credential-like content.
+
+Use `agentmesh runner doctor` to inspect local protocol and credential readiness. The Runner token is stored through the operating-system keyring and is never written to `config.toml`.
 
 ### Skill Matrix orchestration
 
@@ -477,7 +556,7 @@ AgentMesh keeps external acquisition as an interface boundary:
 
 - `AcquisitionRequest` describes what the personal Agent needs.
 - `AcquisitionResult` returns evidence, sources, actor, permission, and metadata.
-- `MockAcquisitionAgent` keeps the default local flow working.
+- `MockAcquisitionAgent` supplies labelled samples only in explicit demo mode; production requires a real provider or matching uploaded documents.
 - `WebAcquisitionAgent` can call a configured Web provider.
 - `ExternalAcquisitionConnector` remains a placeholder for an implementation supplied by another project.
 - External content is treated as untrusted input. Suspicious prompt-injection text is saved for audit, marked `needs_review`, routed to Inbox, and excluded from LLM synthesis.
@@ -537,9 +616,62 @@ Document ingestion is also kept as a thin boundary:
 - Image OCR uses a configured `tesseract` command; without that runtime, image uploads fail with an explicit parser error.
 - `POST /api/documents/upload` stores parsed documents, creates Sources, and writes a short-term document-summary memory item.
 - Files larger than the sync threshold are parsed through a `DocumentParseJob` background task and can be checked with `/api/documents/jobs/{job_id}`.
+- New uploads retain hash-checked private original input for up to seven days, claim a durable lease, and atomically commit the Source/document/private memories and completed Job. Startup resumes queued/expired work; cache cleanup failure preserves successful results. Job lists are scoped/paginated and owned failed Jobs can be retried with `POST /api/documents/jobs/{id}/retry` using version/command identity, up to three attempts. Knowledge exposes upload/status/retry. Old incomplete Jobs without input proof require re-upload; partial legacy imports require review. See ADR 0035 for durable imports and ADR 0038 for manual edits/reimports.
+- Production uploads use an owned POSIX parser process (ADR 0046), with a private temporary input, a minimal environment, a 90-second deadline, CPU/file/descriptor limits, and process-tree RSS monitoring. Shutdown or failed claim renewal cancels parsing; the parser and OCR process group are killed and reaped, while the durable original remains available for an authorized retry. PDF pages, OOXML expansion/DTD, parsed text and JSON results have explicit limits. This provides process/resource containment; filesystem/network permissions still require a deployment policy. macOS tests cover actual workers and a controlled OCR adapter; Linux container execution and real OCR quality are not yet verified.
+- Ordinary local SDK synthesis (ADR 0047) checks persisted citation metadata, freezes the current Source record identity, and repeats source/owner checks at actual model handoff and after synthesis returns. Changed references or revoked execution authority yield a safe failure without delivering the new synthesis. Source identity creation is serialized in one SQLite transaction; conflicting concurrent creation cannot overwrite an earlier identity. The frozen identity describes the local citation record; external content versions/hashes and persistent source snapshots remain in development.
+- Ordinary/Universal finalization (ADR 0048) now repeats current authority, deadline, writer/plan/input and Source checks in the actual terminal write transaction. Universal synthesis Artifacts, Plan/Run state and events commit or roll back together. Admission refusals cannot become partial output, and an old execution cannot fail a newer writer or plan version. This closes the synthesis-return/terminal-commit window; output authority is covered by ADR 0049, while generic origin invalidation and remote source delivery remain separate work.
+- Terminal chat/private-Memory projection (ADR 0049) rechecks current actor/project/thread access and the expected Run writer/content inside its existing atomic write. Automatic Memory uses current Skill policy; explicit saving rejects outputs changed after HTTP validation. Projection preserves an existing manual save and respects forgetting tombstones. Session sync markers cannot acquire foreign or unproven bodies or overwrite another writer. Recovery remains idempotent; persistent Source/input proof and remote SDK delivery are still pending.
+- Direct SDK completion/pause and approval recovery (ADR 0050) fence the original execution identity inside state commits. Completion repeats current Session authority/deadline checks; pause verifies its checkpoint before creating approval state. Old errors/cancellations cannot terminate a replacement writer. Terminal state, Inbox closure and event commit together, while explicit user cancellation still targets the current Run. Local producer cancellation is covered by ADR 0051; persistent leases and cumulative budgets remain pending.
+- SDK stream completion (ADR 0051) now confirms the public producer task after event draining, so cancelled model work cannot become empty successful output. A cancelled DAG child stops its parent and siblings, releases capacity and preserves unknown external outcomes. Cancellation commits fence the original writer/Plan; shared transient Run identity now includes Runner identity. Full budgets, durable leases and remote delivery remain pending.
+- Approved local node execution (ADR 0052) carries the original Run and Plan through claims, result commits, approval pauses/resumes and internal cancellation. Transient execution hashes freeze Plan inputs and node definitions while existing CAS checks allow normal state/attempt progress. Queued claims and post-commit continuation cannot adopt a replacement writer; legitimate committed results remain reusable. Planning leases, cumulative budgets and remote delivery remain pending.
+- Ordinary local SDK requests (ADR 0053) and newly authorized V3 Runner requests (ADR 0065) share a durable Run model budget across planning, nodes, approval recovery, synthesis and Session compaction. Defaults cap 32 calls, 256k accounted tokens, 65,536 output tokens and three identical request attempts. Limits and configured prices freeze at first accounting. Concurrent remote authorization reserves atomically with its handoff; replay does not consume another call. Positive, internally consistent input/output usage settles to reported tokens; failed, cancelled, missing, legacy total-only or zero-default usage retains the conservative reservation. Known local admission refusal before the adapter call releases only that unsent reservation. The configured SDK model factory defaults HTTP retries to zero; SDK retries each consume a reservation. Native remote file tools share the Run tool counter; tool fees and unfinished-run recovery remain pending.
+- Optional ordinary model cost estimates (ADR 0054) use a frozen server-declared price map keyed by actual model name. Set both cost currency and micro-unit cap to enable the gate; absent, expired or mismatched prices refuse calls. Without a cost gate, unavailable prices remain unknown. Integer per-request estimates retain unknown usage reservations, preserve actual overspend, and settle late receipts using original prices. They are not Provider invoices, do not combine currencies and do not price tools or background learning. Configuration and units are documented in `.env.example`.
+- Ordinary local SDK tools (ADR 0055) reuse the same frozen policy and the existing Run counter. `AGENTMESH_RUN_MAX_TOOL_CALLS` can tighten the existing 24-attempt maximum. Admission checks the original Run, Plan and node attempt atomically; native tools, Skill resources and MCP repeat that proof and deadline checks after capacity waiting, before claiming an actual call. Stale Run saves and approval recovery cannot refund attempts. Governed MCP failures abort SDK execution and preserve typed admission codes. V3 native Runner file tools (ADR 0065) share this counter after live authorization; old clients receive no native file tools. This counts admitted attempts, excludes tool fees/background accounting, and leaves DeepSearch's ledger unchanged.
+- Optional Source snapshots (ADR 0056) record external identity, opaque version, exact text hash and lifecycle on the existing Source. Current owner/project authority and CAS gate observations; retrieval, document evidence, learning and queued SDK Memory delivery withhold changed or unavailable origins. Selected sources join private publication dependencies; startup retracts older direct-source/document publications without that proof. Managed document mirrors are read-only locally. Legacy hashes are preserved; native upload snapshots and complete remote/derived-origin invalidation remain unfinished.
+- Project connector APIs (ADRs 0057–0062) read configured repository documents and GitHub Issues into owned versioned mirrors. Each page claims a durable 90-second lease before external reading, including the first page. Exact claim/current authority checks fence completion; expired leases recover at startup/status/periodic reconciliation. Incremental pages freeze the since boundary; full scans withhold missing sources. Canonical-source checks verify current operator bindings. `AGENTMESH_CONNECTOR_WORKER_ENABLED=false` defaults off; each owner must separately enable a cursor's automatic sync. The worker continues pages, schedules completed cycles, limits transient retries to three attempts and persists provider waits shared by the same configured source. Knowledge supports automatic controls, waiting/progress, first-page cancellation and explicit mirror import. Direct HTTP abort, complete Provider ACL/deletion discovery and freshness remain in development.
+- Market status/board/me/activity use the current authorized default project (ADR 0036). Explicit published scope and active membership precede SQL aggregation and bounded decoding; worker queues/errors are owned metadata. Recent graphs/timelines are projections, and verified private answers remain in the durable Query flow.
+- Automatic signal publication (ADR 0037) requires current opt-in and qualified ordinary inputs, freezes authority/material and rechecks before send and atomic post/index/audit commit. Sensitive/structured/private peer-answer material is excluded. Opt-out and owned forgetting/withdrawal erase the generated public summary and its indexes. Market APIs accept an explicit authorized project and client caches keep projects separate. SDK budget/delivery governance and general origin invalidation remain in development.
+- Manual document edits and reimports (ADR 0038) recheck current authority inside their atomic writes. Editing saves the new version and invalidates owned old native chunks/summary indexes together; import commits stable scoped Sources/chunks/indexes/progress once, with a selected-version check. Forgotten, archived or inconsistent chunks require review. Knowledge offers separate save/reimport controls; imported text still requires fact confirmation and independent team review.
+- Generated signals now retain private selected-record dependencies (ADR 0039). Source or authority changes retract the old body and search projections inside the source write, including raw SQL paths and database reopen. Dependency triggers ignore identical, new and unselected Memory writes; explicit document/forgetting commands retain conservative aggregate withdrawal. Legacy generated aggregates without proof require fresh publication; private dependency IDs remain absent from public metadata. External Source propagation and full SDK governance continue separately.
 - `ExternalDocumentParserConnector` remains only as an extension boundary for future richer parsers, not as the default path for the file types above.
 
+Knowledge provides project/term fact queries for current, historical and interval time, with an optional observation cutoff. Results distinguish unknown, conflicting and insufficient evidence and link source Memory/documents. Current confirmed procedure details can carry their goal into a selected-project Task draft; saving and starting remain explicit actions. Task creation accepts an optional authorized project without changing legacy omitted-project command hashes. State questions can also reference a qualified method within the shared context allowance: current SQL retains priority and only the method creates a Memory receipt after both authorities are rechecked. These features reuse existing APIs and do not establish real-model quality or team adoption.
+
 ## Data Source Connector Boundary
+
+Manual document/Issue sync is configured with `AGENTMESH_CONNECTOR_PROJECT_ID`,
+`AGENTMESH_REPO_DOCS_ROOT` and/or `AGENTMESH_GITHUB_REPOSITORY` (`owner/repository`).
+These bindings are disabled while empty. Public GitHub repositories require no token;
+private repositories use server-only `AGENTMESH_GITHUB_TOKEN` and an explicit
+`AGENTMESH_GITHUB_CREDENTIAL_VERSION` that changes with the credential's principal/permission binding.
+
+Read `GET /api/projects/{project_id}/connectors`, then submit
+`POST /api/projects/{project_id}/connectors/{provider}/sync` with `{"expected_version": 0}`
+for a new cursor, or the returned cursor version for subsequent pages. Supported providers
+are `repo_docs` and `github_issues`. Paths, API URLs and credentials are not HTTP request fields.
+Each call reads one bounded page; a completed cursor starts a new scan on the next call.
+The page attempt increments the cursor version when claimed, before external reading; terminal settlement
+uses that version and its exact private claim identity. Status reads expose `reading` while the attempt holds
+a 90-second lease. A live claim rejects overlapping sync; cancellation uses the latest status version.
+Expired claims recover with a new version, retain the previous successful observation and allow a fresh read.
+First-page claims are cancellable. Source/document/index and terminal cursor state still commit atomically.
+The request defaults to `"mode": "incremental"`; use `"mode": "full"` for a complete review.
+GitHub uses a fixed since boundary with a 60-second overlap; repository documents always scan fully.
+The first scan and a sync invoked at least one day after the last full scan also scan fully.
+Failures persist a new cursor version: refresh connector status before retrying. Access/root failures
+withhold prior sources and restart a full scan on recovery; transient failures retain the last observation.
+Only completed full scans mark unseen old sources unavailable. These are observations, not live Provider state.
+Changed configuration returns a conflict until explicitly reset. Knowledge exposes versioned controls;
+`POST /api/projects/{project_id}/connectors/{cursor_id}/control` accepts `expected_version`
+and `action` (`disable`, `reset`, `cancel`). Disable/reset withhold old sources atomically;
+reset adopts the current operator binding for the same provider/namespace and requires a fresh full scan.
+Cancel retains prior observations and rejects late commits; already issued HTTP requests may still run until timeout.
+Removed bindings remain listed so the owner can disable them. A changed repository namespace starts a new cursor;
+the old binding becomes unavailable under current-source checks and is durably invalidated at startup or a status read.
+Canonical connector sources require their exact owned cursor and active operator binding; credentials remain server-only.
+Restoring an invalidated binding requires explicit reset and fresh full observation. This checks declared configuration,
+not live Provider ACL on every citation; complete remote ACL/deletion discovery and freshness policy remain unfinished.
+Synced mirrors use existing document APIs and explicit import/learning. No Task state changes are implied.
 
 Data source integration is reserved as a generic connector contract:
 
@@ -548,7 +680,7 @@ Data source integration is reserved as a generic connector contract:
 - `DataSourceRegistry` routes queries to registered connectors.
 - `http_data_api` is a production-facing read-only HTTP connector enabled by `AGENTMESH_DATA_API_URL`.
 - `data_agent` tries configured production data connectors before falling back to O2 and `local_metrics`.
-- `local_metrics` is a working local connector used by `POST /api/data-agent/query`.
+- `local_metrics` supplies fixed demo samples to `POST /api/data-agent/query` only when `AGENTMESH_DEMO_MODE=1`.
 - `ExternalDataSourceConnector` is a placeholder until a concrete external project provides the real data shape and access method.
 
 Enable a real read-only data API:

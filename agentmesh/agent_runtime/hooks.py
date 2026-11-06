@@ -3,6 +3,7 @@ from __future__ import annotations
 from agents.lifecycle import RunHooksBase
 
 from agentmesh.agent_runtime.models import AgentMeshRunContext
+from agentmesh.memory_context.request_budget import ModelAdmissionError
 from agentmesh.models import AgentPlanningMode
 from agentmesh.skill_runtime.quiesce import OrchestrationQuiesceController
 from agentmesh.store import SQLiteStore
@@ -57,10 +58,13 @@ class AgentMeshRunHooks(RunHooksBase[AgentMeshRunContext, object]):
         if isinstance(run_context, AgentMeshRunContext):
             run = self.repository.get_agent_run(run_context.run_id)
             if run is None or run.planning_mode is not AgentPlanningMode.DEEPSEARCH:
+                if run_context.run_execution_hash is None:
+                    raise ModelAdmissionError('run_tool_budget_execution_identity_missing')
                 with self.admission.permit():
-                    count = self.repository.consume_agent_run_tool_call(run_context.run_id)
+                    count = self.repository.consume_agent_run_tool_call(run_context.run_id,
+                        expected_execution_hash=run_context.run_execution_hash, expected_context=run_context)
                 if count is None:
-                    raise RuntimeError("Agent run exceeded the 24 tool-call limit")
+                    raise ModelAdmissionError('run_tool_budget_exhausted')
                 run_context.tool_call_count = count
         self._event(context, "sdk_tool_hook_started", {"tool_name": str(getattr(tool, "name", ""))})
 

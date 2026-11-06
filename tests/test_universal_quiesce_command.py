@@ -676,6 +676,14 @@ def test_quiesce_preserves_terminal_run_and_requires_projection_before_settlemen
             "output_text": "Completed output",
         }
     )
+    from agentmesh.models import ChatThread, Project, User
+
+    repository.save_user(User(id=run.user_id, name='Output owner', role='user', workspace_id=run.workspace_id,
+        default_project_id=run.project_id, personal_agent_id='agent_test'))
+    repository.save_project(Project(id=run.project_id, workspace_id=run.workspace_id, name='Output project',
+        goal='Keep terminal output', member_ids=[run.user_id]))
+    repository.add_chat_thread(ChatThread(id=run.thread_id, user_id=run.user_id,
+        workspace_id=run.workspace_id, project_id=run.project_id, title='Terminal output'))
     receipt = RunDispatchReceiptV1(
         operation_key="dispatch:"
         + canonical_json_sha256(
@@ -702,6 +710,7 @@ def test_quiesce_preserves_terminal_run_and_requires_projection_before_settlemen
 
     repository.project_terminal_run_output(
         run_id=run.id,
+        expected_run=run,
         content=run.output_text or "",
         workflow_trace=ChatWorkflowTrace(
             intent=Intent.GENERAL_CHAT,

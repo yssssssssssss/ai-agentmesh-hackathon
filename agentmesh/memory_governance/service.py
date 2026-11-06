@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from urllib.parse import quote
 
 from agentmesh.canonical_json import canonical_json_sha256
 from agentmesh.memory_context.service import MemoryContextService
+from agentmesh.memory_facts import MemoryFactsError, authorize_fact_project, task_capture_payloads
 from agentmesh.memory_governance.contracts import (
     MemoryCaptureResponseV1,
     MemoryCaptureTarget,
@@ -33,6 +35,7 @@ from agentmesh.memory_governance.lifecycle import (
     memory_content_hash,
     transition_memory_item,
 )
+from agentmesh.memory_payloads import structured_request_content
 from agentmesh.models import (
     AuditEvent,
     InboxItem,
@@ -94,7 +97,7 @@ class MemoryGovernanceService:
         user: User,
     ) -> MemoryCaptureResponseV1:
         request_hash = canonical_json_sha256(
-            {"task_review_id": task_review_id, "request": request.model_dump(mode="json")}
+            {"task_review_id": task_review_id, "request": structured_request_content(request)}
         )
         receipt_id = self._receipt_id(user.id, request.command_id)
         existing = self._get_receipt(receipt_id)
@@ -131,6 +134,18 @@ class MemoryGovernanceService:
             created_by=user.id,
             created_at=now,
         )
+        structured_payload = {"facts": None, "procedure": None}
+        if request.facts is not None or request.procedure is not None:
+            try:
+                with closing(self.repository._read_connect()) as connection, connection:
+                    connection.execute("BEGIN")
+                    _, project = authorize_fact_project(connection, user, thread.project_id)
+                    structured_payload = task_capture_payloads(
+                        connection, assertions=request.facts, draft=request.procedure, project=project,
+                        review=task_review, confirmed_by=user.id, observed_at=now,
+                    )
+            except MemoryFactsError as error:
+                raise MemoryGovernanceError(error.code, status_code=error.status_code) from error
         memory_review: MemoryReviewV1 | None = None
         inbox: InboxItem | None = None
         if request.target is MemoryCaptureTarget.PERSONAL:
@@ -146,6 +161,7 @@ class MemoryGovernanceService:
                 project_id=thread.project_id,
                 source_task_id=task_review.task_id,
                 provenance=provenance,
+                **structured_payload,
                 created_at=now,
                 updated_at=now,
             )
@@ -168,6 +184,7 @@ class MemoryGovernanceService:
                 workspace_id=user.workspace_id,
                 project_id=thread.project_id,
                 provenance=provenance,
+                **structured_payload,
                 created_at=now,
                 updated_at=now,
             )
@@ -389,7 +406,7 @@ class MemoryGovernanceService:
         user: User,
     ) -> MemoryRevisionResponseV1:
         request_hash = canonical_json_sha256(
-            {"memory_id": memory_id, "request": request.model_dump(mode="json")}
+            {"memory_id": memory_id, "request": structured_request_content(request, preserve_explicit_null=True)}
         )
         receipt_id = self._receipt_id(user.id, request.command_id)
         existing = self._get_receipt(receipt_id)
@@ -420,18 +437,34 @@ class MemoryGovernanceService:
             raise MemoryGovernanceError("memory_version_conflict")
         if source.owner_user_id != user.id and not self._can_manage_team_memory(user):
             raise MemoryGovernanceError("memory_revision_forbidden", status_code=403)
-        if (
-            request.title == source.title
-            and request.summary == source.summary
-            and request.memory_type == source.memory_type
-        ):
-            raise MemoryGovernanceError("memory_revision_no_changes")
         if source.project_id is None or source.provenance.review_id is None:
             raise MemoryGovernanceError("memory_governance_required")
         reviewer = self.repository.select_memory_reviewer(project_id=source.project_id, owner_id=user.id)
         if reviewer is None:
             raise MemoryGovernanceError("memory_reviewer_unavailable")
         now = now_utc()
+        structured_payload = {"facts": source.facts, "procedure": source.procedure}
+        if "facts" in request.model_fields_set or "procedure" in request.model_fields_set:
+            try:
+                with closing(self.repository._read_connect()) as connection, connection:
+                    connection.execute("BEGIN")
+                    _, project = authorize_fact_project(connection, user, source.project_id)
+                    row = connection.execute("SELECT * FROM task_reviews WHERE id = ?", (source.provenance.review_id,)).fetchone()
+                    if row is None:
+                        raise MemoryGovernanceError("memory_source_review_not_found", status_code=404)
+                    payload = task_capture_payloads(
+                        connection, assertions=request.facts, draft=request.procedure, project=project,
+                        review=self.repository._task_review_from_row(row), confirmed_by=user.id, observed_at=now,
+                    )
+                    structured_payload.update({key: payload[key] for key in ("facts", "procedure")
+                                               if key in request.model_fields_set})
+            except MemoryFactsError as error:
+                raise MemoryGovernanceError(error.code, status_code=error.status_code) from error
+        if (
+            request.title == source.title and request.summary == source.summary and request.memory_type == source.memory_type
+            and structured_payload["facts"] == source.facts and structured_payload["procedure"] == source.procedure
+        ):
+            raise MemoryGovernanceError("memory_revision_no_changes")
         provenance = MemoryProvenanceV1(
             source_kind=MemorySourceKind.MEMORY_REVISION,
             task_id=source.provenance.task_id,
@@ -458,6 +491,7 @@ class MemoryGovernanceService:
             team_id=source.team_id,
             sources=list(source.sources),
             metadata=dict(source.metadata),
+            **structured_payload,
             provenance=provenance,
             supersedes_memory_id=source.id,
             created_at=now,
@@ -868,6 +902,8 @@ class MemoryGovernanceService:
                 version=item.version,
                 content_hash=memory_content_hash(item),
                 provenance=item.provenance,
+                facts=item.facts,
+                procedure=item.procedure,
                 provenance_state="verified" if item.provenance is not None else "legacy_unverified",
                 supersedes_memory_id=item.supersedes_memory_id,
                 archived_at=item.archived_at,
@@ -914,6 +950,8 @@ class MemoryGovernanceService:
             version=item.version,
             content_hash=memory_content_hash(item),
             provenance=item.provenance,
+            facts=item.facts,
+            procedure=item.procedure,
             provenance_state="verified" if item.provenance is not None else "legacy_unverified",
             supersedes_memory_id=item.supersedes_memory_id,
             archived_at=item.archived_at,

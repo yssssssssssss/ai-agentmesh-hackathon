@@ -1,0 +1,74 @@
+{
+  "recorded_at": "2026-10-07T04:36:57.176461+00:00",
+  "status": "manual_connector_controls_verified_overall_plan_in_progress",
+  "verification_policy": "Directly affected checks per change; full multi-version regressions at stage acceptance.",
+  "python": "3.13.0",
+  "backend": {
+    "files": 3,
+    "passed": 42,
+    "seconds": 6.01
+  },
+  "frontend": {
+    "files": 1,
+    "passed": 4,
+    "api_types": "passed",
+    "build": "passed",
+    "largest_bundle_bytes": 322425,
+    "bundle_limit_bytes": 500000
+  },
+  "static_checks": {
+    "targeted_ruff": "passed",
+    "git_diff_check": "passed"
+  },
+  "verified_behaviors": [
+    "disable withholds old sources and rejects sync",
+    "stale control version rejected",
+    "reset restores enabled state without restoring old sources",
+    "same-namespace configuration reset requires fresh full observation",
+    "cancel during Provider read prevents old page commit",
+    "removed configuration remains owned and manageable",
+    "disabled current actor cannot control cursor or mutate sources",
+    "disabled/removed sources expose truthful frontend actions"
+  ],
+  "scope": "Temporary isolated test databases and mocked GitHub HTTP only; existing Runner worktree preserved.",
+  "not_run": [
+    "full_backend_suite",
+    "dual_python_regression",
+    "new_real_Provider_reads",
+    "browser_e2e",
+    "real_LLM_calls",
+    "deployment"
+  ],
+  "remaining": [
+    "automatic invalidation after configuration removal/change",
+    "first-page admission/lease and cancellation before a cursor exists",
+    "abort already issued HTTP requests",
+    "background bounded scheduling/rate limits/retry",
+    "complete Provider ACL/deletion discovery and observation freshness",
+    "complete indirect Session/Runner/Artifact lineage",
+    "unified context/process reuse",
+    "real model quality and enterprise acceptance"
+  ],
+  "source_hashes_at_recording": {
+    "agentmesh/connector_sync/contracts.py": "1e9038c37321cf08ce06e62397f6da3284f81ffaa5cc70a8faee3cd7ac06c5fa",
+    "agentmesh/connector_sync/service.py": "07f358d205170fba2224827199d0bb91e60885b174e2a4c0a1cf46774d890da6",
+    "agentmesh/routes/data_sources.py": "2b9ebce3ad3f755cfbac03b42e8394557eff8e6c2a395138815bad1ec5119698",
+    "tests/test_connector_api.py": "2409f3db45b4020927013b3f23d89cca2389332875821ea7249faf4f3ec8500b",
+    "agentmesh-demo/src/features/knowledge/connectorsApi.ts": "655d83186309d122de6b108065f5271f0ed76b66491112c50a6ca4d5d7e03676",
+    "agentmesh-demo/src/components/knowledge/SourceSyncPanel.tsx": "ce7ae504197fab4c70a1f2dde4fed12e7ccdd0f7610708c560e19f6eb205afbe",
+    "agentmesh-demo/src/components/knowledge/SourceSyncPanel.test.tsx": "ffbd155d2bc12c8c479257bb57b0db8fea81aefc14c809522292aa01a6fae7a0",
+    "agentmesh-demo/src/api/generated/schema.ts": "da417133a6843b91765cff301a46f4f8840c4b8dfb2dc2e3c9dbf8243942f4e7"
+  },
+  "log_hashes": {
+    "/tmp/agentmesh-connector-disable-red.log": "49526d4b5533a7e843787dc1fbe32b1ca478263393d7cdf20aa1fe233b238a81",
+    "/tmp/agentmesh-connector-disable-green.log": "0d1192f14dc28d3227b459e5f61f45e9a316e4d26f54b9bf7b63e2f7992bf262",
+    "/tmp/agentmesh-connector-reset-green.log": "d4a1943bb501700cbfb4f9738b63938be6ba72ed96429afcb75627899856c05a",
+    "/tmp/agentmesh-connector-control-races.log": "10b956228936a53988eac86336f591f8bd14cb560eeee852a4d3ac483783ea9d",
+    "/tmp/agentmesh-connector-controls-focused.log": "f35c87d8414fa8884851c2d5cc3029945a42854183e54360137d211b9f56034e",
+    "/tmp/agentmesh-connector-controls-api-types.log": "e141e7f4f76f8da8c69ce306caf0111c20f36b6b23d3681f3c1d75347da1b0eb",
+    "/tmp/agentmesh-connector-controls-ui-final.log": "be7862b310283c452333f5dc2f0d0308685fb5283f803c8d545c1eaf03e337a8",
+    "/tmp/agentmesh-connector-controls-build-final.log": "b337b1cd73fa932d4c1fe8bc87d13effe66e9b58d63e10f57a61df23d74da3bd",
+    "/tmp/agentmesh-connector-controls-ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "/tmp/agentmesh-connector-controls-diff-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

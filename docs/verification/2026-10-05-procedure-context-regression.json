@@ -1,0 +1,45 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "qualified-local-procedure-context",
+  "date": "2026-10-05",
+  "full_snapshot_before_external_provider_followup": {
+    "3.12": {"passed": 2266, "warnings": 5, "seconds": 639.54},
+    "3.13": {"passed": 2266, "warnings": 5, "seconds": 641.18}
+  },
+  "final_procedure_and_fact_regression_including_external_provider_followup": {
+    "3.12": {"passed": 38, "seconds": 40.50},
+    "3.13": {"passed": 38, "seconds": 40.74}
+  },
+  "earlier_related_boundaries": {"passed": 133, "seconds": 114.35},
+  "frontend": {"passed": 224, "files": 42, "seconds": 2.91},
+  "browser": {"passed": 4, "seconds": 44.0,
+    "scope": ["real local project operations", "real local terminology", "real local source-backed facts"],
+    "procedure_capture_interaction_verified": false},
+  "checks": {"openapi_types": "passed", "production_build": "passed", "bundle_budget": "passed",
+    "largest_chunk_bytes": 322372, "ruff": "passed", "diff_check": "passed", "locked_dependency_check": "passed"},
+  "evidence_boundary": {
+    "actual_accepted_review_and_sealed_artifact_capture": true,
+    "scripted_sdk_tool_and_automatic_context_delivery": true,
+    "current_capability_rechecked_in_receipt_transaction": true,
+    "mixed_payload_fact_delivery_has_no_procedure_obligation": true,
+    "archived_procedure_output_rechecks_capabilities_even_memory_off": true,
+    "forget_withheld_selection_and_database_late_restore_barrier": true,
+    "literal_goal_matching_only": true,
+    "maximum_automatic_candidates": 8,
+    "maximum_selected_procedures": 1,
+    "freeform_conditions_remain_unknown": true,
+    "external_provider_dependencies_remain_unverified": true,
+    "remote_actual_delivery": false,
+    "human_skill_publication": false,
+    "candidate_state_ui": false,
+    "full_context_assembler_complete": false,
+    "phase3_complete": false, "phase4_complete": false,
+    "enterprise_provider_smoke": false, "real_model_quality": false
+  },
+  "checkpoint_compatibility": {
+    "initial_failed_cases_per_interpreter": 3,
+    "corrected_approval_cases": 8,
+    "reason": "Session checkpoints reject changed owner/source/writer before the previous MemoryContextError boundary; assertions now require the earliest exact error and zero extra calls.",
+    "evidence": "2026-10-05-project-terminology-regression.json"
+  }
+}

@@ -8,7 +8,9 @@ test.beforeEach(async ({ page }) => {
 
 test('DigitalSelf keeps the reference activity composition with provenance', async ({ page }) => {
   await page.goto('/digital-self')
-  await expect(page.getByText('需要你处理', { exact: true })).toBeVisible()
+  // Other real HTTP flows may have added today's ActivityLogs. The section then
+  // presents read-only history instead of seeded pending-work suggestions.
+  await expect(page.getByRole('region', { name: /^(需要你处理|今日工作记录)$/ })).toBeVisible()
   await expect(page.getByRole('heading', { name: '数字员工动态' })).toBeVisible()
   await expect(page.getByText('对你的工作理解', { exact: true })).toBeVisible()
   await expect(page.getByText('本周新掌握', { exact: true })).toBeVisible()

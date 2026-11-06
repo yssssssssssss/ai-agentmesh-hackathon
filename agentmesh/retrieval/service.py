@@ -41,7 +41,7 @@ class RetrievalService:
         selected = profile or RetrievalProfile()
         allowed_scopes = set(selected.allowed_scopes)
         allowed_scopes.discard(Scope.TEAM_CANDIDATE)
-        allowed_record_ids: set[str] | None = None
+        memory_types: set[str] | None = None
         max_results = selected.top_k
         binding = self.repository.get_binding_for_agent(agent_id)
         if binding is not None:
@@ -49,14 +49,7 @@ class RetrievalService:
             max_results = min(max_results, max(1, binding.max_results_per_query))
             if binding.allowed_project_ids and user.default_project_id not in binding.allowed_project_ids:
                 allowed_scopes.clear()
-            if binding.allowed_memory_types:
-                memory_types = set(binding.allowed_memory_types)
-                allowed_record_ids = {
-                    item.id
-                    for item in [*self.repository.memory_items, *self.repository.user_memory_items]
-                    if item.memory_type in memory_types
-                    and (item.project_id is None or item.project_id == user.default_project_id)
-                }
+            memory_types = binding.effective_memory_types
         results = self.repository.search(
             query,
             allowed_scopes,
@@ -65,7 +58,7 @@ class RetrievalService:
             user_id=user.id,
             max_results=max_results,
             result_types=set(selected.result_types) if selected.result_types else None,
-            allowed_record_ids=allowed_record_ids,
+            memory_types=memory_types,
             agent_context=True,
         )
         results = self.repository.filter_agent_memory_results(results)

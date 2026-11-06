@@ -43,10 +43,15 @@ def is_active_inbox_item(item: InboxItem, now) -> bool:
 
 
 def inbox_item_view(item: InboxItem, user: User) -> InboxItemView:
+    if item.item_type == 'delegated_answer_confirmation':
+        actions = ['open_delegated_query'] if item.metadata.get('query_id') and item.status != 'resolved' else []
+        return InboxItemView(**item.model_dump(), allowed_actions=actions)
     if item.item_type == "memory_review":
         actions = ["open_memory_review"] if item.status != "resolved" and item.user_id == user.id else []
         return InboxItemView(**item.model_dump(), allowed_actions=actions)
     actions: list[str] = []
+    if item.item_type == "project_inspection" and item.status != "resolved" and item.user_id == user.id:
+        actions.append("open_inspection_report")
     if item.status != "resolved" and item.item_type != "research_tool_approval":
         if item.status != "snoozed":
             actions.append("snooze")
@@ -192,6 +197,7 @@ def resolve_injection_review_item(
     user: User = Depends(current_user),
 ) -> dict[str, object]:
     from agentmesh.agents import RequestAlreadyFulfilledError
+    from agentmesh.provider_status import ProviderQueryError
     from agentmesh.routes.chat import agent
 
     item = store.get_inbox_item(item_id)
@@ -218,6 +224,8 @@ def resolve_injection_review_item(
         fulfillment = agent.resolve_quarantined_research(request_post, evidence_post, user, action)
     except RequestAlreadyFulfilledError as error:
         raise HTTPException(status_code=409, detail="Quarantined evidence has already been resolved") from error
+    except ProviderQueryError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.public_detail()) from error
 
     now = now_utc()
     item.status = "resolved"
@@ -407,6 +415,7 @@ def requires_dedicated_transition(item: InboxItem) -> bool:
         "research_tool_approval",
         "task_review",
         "memory_review",
+        "delegated_answer_confirmation",
     } or is_brief_confirmation(item)
 
 
@@ -415,7 +424,20 @@ def requires_dedicated_transition(item: InboxItem) -> bool:
 def inbox_visible_to_user(item: InboxItem, user: User) -> bool:
     if item.workspace_id is not None and item.workspace_id != user.workspace_id:
         return False
-    if item.item_type in {"task_review", "memory_review"}:
+    if item.item_type == 'delegated_answer_confirmation':
+        if item.scope is not Scope.PRIVATE or item.user_id != user.id:
+            return False
+        if not item.metadata.get('query_id'):
+            return False
+        from agentmesh.delegated_queries import DelegatedQueryError, DelegatedQueryService
+
+        try:
+            query = DelegatedQueryService(store).get(user, item.metadata['query_id'])
+            return (query.target_id == user.id and query.project_id == item.project_id
+                    and item.workspace_id == user.workspace_id)
+        except DelegatedQueryError:
+            return False
+    if item.item_type in {"task_review", "memory_review", "project_inspection"}:
         return (
             item.scope == Scope.PRIVATE
             and item.user_id == user.id

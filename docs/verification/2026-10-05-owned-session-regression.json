@@ -1,0 +1,33 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "owned-local-session-and-memory-lineage",
+  "date": "2026-10-05",
+  "scope": "private Session authority, exclusive fenced writer, canonical bootstrap, append CAS/idempotent command receipts, bounded compaction and Memory-derived history barriers",
+  "full_regression_before_approval_checkpoint_followup": {
+    "3.12": {"passed": 2219, "warnings": 5, "seconds": 615.78},
+    "3.13": {"passed": 2219, "warnings": 5, "seconds": 618.18}
+  },
+  "focused_memory_native_origin_followup": {"passed": 97, "seconds": 57.8},
+  "final_owner_wrapper_and_lineage_followup": {"passed": 37, "seconds": 25.71},
+  "checks": {"ruff": "passed", "diff_check": "passed"},
+  "public_api_or_frontend_contract_changed": false,
+  "last_frontend_and_browser_verification": "2026-10-04-project-state-context-regression.json",
+  "evidence_boundary": {
+    "current_private_owner_and_project_authority": true,
+    "exclusive_run_writer_and_generation_reclaim": true,
+    "canonical_message_bodies_and_ids": true,
+    "append_pop_clear_compare_observed_version": true,
+    "same_append_command_idempotent_after_database_reopen": true,
+    "compaction_admission_after_capacity_and_outer_timeout": true,
+    "memory_dependency_checks_at_off_mode_model_handoff": true,
+    "owned_forgetting_redacts_derived_session_cache": true,
+    "late_cache_restoration_rejected_after_reopen": true,
+    "trusted_approval_session_checkpoint_in_this_full_snapshot": false,
+    "automatic_sdk_restart_append_command_deduplication": false,
+    "general_external_tool_source_archive_complete": false,
+    "full_context_assembler_complete": false,
+    "phase3_complete": false, "phase4_complete": false,
+    "remote_runner_session_parity": false,
+    "enterprise_provider_smoke": false, "real_model_quality": false
+  }
+}

@@ -1,8 +1,24 @@
-# AgentMesh 开发进度
+# AgentMesh 开发状态
+
+## 当前分支收口（2026-11-06）
+
+T01 / [PR #44](https://github.com/yssssssssssss/ai-agentmesh-hackathon/pull/44) 已合并至 main（`01e2d38755e8d6130d52aaae1d787c966f302f31`）。确切交付提交 `1c6a37d` 的权限专项和[完整 CI](https://github.com/yssssssssssss/ai-agentmesh-hackathon/actions/runs/42177076551) 均已通过。
+
+当前 `feature/workspace-memory-closed-loop` 正常吸收该 main 基线，保留管理员目录兼容、项目与 Team 权限边界及既有记忆闭环实现。CI 增加与现有分支保护名称一致的后端汇总检查；Python 3.12/3.13 均成功时才通过。PR #45 / #46 仍按 T17 / 试点依赖顺序单独处理，尚未合并至 main。
+
+后续业务开发目录保留为 `/Users/heyunshen/work/PROJECT/jdc/agentmesh-t01`。规格使用原工程根目录的 `AGENTMESH_DEVELOPMENT.md`；业务动态进度见活动目录的 [DEVELOPMENT_STATUS.md](../agentmesh-t01/DEVELOPMENT_STATUS.md)。
+
+## 原工程基线记录（2026-10-10）
+
+**基线变更（2026-10-10，用户授权）：** 原工程不再保留未提交源码。原 `5a7e7c5` 上的 126 项改动和 285 项未跟踪条目已分层提交，并合并 `origin/main`（`fed741b`）。旧的 `git diff HEAD --binary` SHA-256 `1ad64180…` 不再适用。合并前状态保留在本地分支 `backup/pre-main-merge-20261010`。运行数据 `data/` 与交接目录 `AgentMesh_Handoff_PR44/` 改为 gitignore，未删除。
+
+## T01 历史验证记录（2026-10-09）
+
+以下保留 T01 当时的兼容范围、验证证据和工作记录。此处的历史 Git 状态、远端检查及运行进程记录以当时日期为准；当前交付状态见上方 PR 链接。
 
 更新时间：2026-10-09 11:33（Asia/Shanghai）。
 
-## 当前工作
+### 当前工作
 
 - 阶段：S0；工作项：T01 / PR #44 管理员 Workspace 目录兼容回归。
 - 工作项状态：VERIFIED；本地交付状态：LOCAL_VERIFIED。本轮停在阶段检查点。
@@ -14,7 +30,7 @@
 - 本地 Codex 统一负责分析、实现、测试、失败修复和记录。旧交接包的云端修复/本地回传分工已取消。
 - 未执行推送、合并、部署、保护规则修改、真实数据破坏或付费模型调用。
 
-## 原工程保护与环境
+### 原工程保护与环境
 
 - 原工程仍为 `feature/workspace-memory-closed-loop` / `5a7e7c5d101df208b475ce696deed38150b9115a`。
 - 原工程 126 项已跟踪改动保留；本轮前后 `git diff HEAD --binary` 的 SHA-256 一致：`1ad6418007d3a0d8cb91d079038e226b828390f862c56874500dfe1b49d1fb2b`。
@@ -24,7 +40,7 @@
 - 实际执行版本：Python 3.12.7；命令包装器子进程 Node v26.7.0 / npm 11.19.0。远端 Node 20 / Linux 环境未由此次 Mac 本地检查替代。
 - 本地命令包装器：`/Users/heyunshen/agentmesh-local/t01/run.py`，禁用 dotenv、真实 Provider、Embedding、O2、OAuth 和自动执行 worker，设置隔离数据库。
 
-## 完成内容与权限边界
+### 完成内容与权限边界
 
 1. 在未修改的 PR 基线上复现原管理员创建/持久化/目录读回失败；同一轮原 49 项权限检查通过。
 2. 项目列表增加第 20 章的窄兼容分支：仅管理员显式查询另一已存在 Workspace，且 `member_ids` 明确包含该管理员时，返回管理目录。
@@ -34,7 +50,7 @@
 6. 原管理员测试及原 49 项断言未删除、跳过或削弱；在既有 `tests/test_read_visibility.py` 复用夹具增加 18 项边界案例，为跨 Workspace 项目构造真实 Workspace。
 7. 更新 `CONTEXT.md` 的兼容说明。业务改动仅在 `routes/workspace.py`；无 schema、迁移、全局 Store policy、角色体系或前端业务变更。
 
-## 本轮真实结果
+### 本轮真实结果
 
 日志目录：`/Users/heyunshen/agentmesh-local/t01/logs/`。以下均为本轮实际执行，没有用历史结果替代。
 
@@ -58,7 +74,7 @@
 
 仅执行一轮必要完整后端回归。定向红/绿检查用于复现和修复；未重复扩大到无关评估或真实模型验证。
 
-## 远端状态与未测项
+### 远端状态与未测项
 
 - 本轮只读查询：PR #44 仍 open / draft、未合并，远端 head 为基线 `5fe161b...`；后端 CI **failure**，其余四项 success。远端既有交付状态仍为 **BLOCKED_CI**。
 - 失败记录：[Backend clean install, Ruff, pytest](https://github.com/yssssssssssss/ai-agentmesh-hackathon/actions/runs/37761712458/job/113259851190)。本地修复尚未推送，该记录未被此次本地通过替换。
@@ -67,7 +83,7 @@
 - 真人产品体验：**PARTIAL**（用户截图及文字反馈）。M03 默认项目列表、M04 管理员跨 Workspace 目录读回符合预期；M05 的项目详情拒绝符合预期，知识拒绝尚未确认。页面、刷新及账号切换仍待确认，没有标记整体人工验收通过。
 - 真实 Provider、付费模型、OAuth/O2 实际系统、外部 Wiki 语料、模型质量评估、部署验收：**NOT_RUN**，不在本轮 T01 范围。S0 其他工作项及整个产品没有因此完成。
 
-## 本地运行与集中体验
+### 本地运行与集中体验
 
 修复后的同源 React + FastAPI 已运行在 **http://localhost:18011**，绑定 `127.0.0.1`，服务 PID `82406`。旧验收服务 `18010` 保留；本次体验使用 `18011`。
 
@@ -89,7 +105,7 @@ cd /Users/heyunshen/work/PROJECT/jdc/agentmesh-t01
 
 管理员创建后的目录回读和跨 Workspace 拒绝已由 Codex 在真实本地会话中完成，无需用户手工执行 API。目录兼容不代表跨 Workspace 业务协作。
 
-## 唯一下一动作
+### 唯一下一动作
 
 停在 **T01 LOCAL_VERIFIED** 检查点。用户在本地说「继续」后，从此 worktree 推进 **T02：成员创建后的项目加入**，先分析管理员建号、注册/OAuth 初始化及默认项目访问，保留授权项目边界。
 

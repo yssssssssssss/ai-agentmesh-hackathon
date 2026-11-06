@@ -1,0 +1,74 @@
+{
+  "recorded_at": "2026-10-07T05:17:55.413110+00:00",
+  "status": "durable_page_claim_slice_verified_overall_plan_in_progress",
+  "verification_policy": "Directly affected checks per change; full multi-version regressions at stage acceptance.",
+  "python": "3.13.0",
+  "focused": {
+    "files": 3,
+    "passed": 49,
+    "seconds": 5.74
+  },
+  "frontend": {
+    "passed": 5,
+    "api_types": "passed",
+    "build": "passed",
+    "largest_bundle_bytes": 322425,
+    "bundle_limit_bytes": 500000
+  },
+  "static_checks": {
+    "targeted_ruff": "passed",
+    "git_diff_check": "passed"
+  },
+  "verified_behaviors": [
+    "first page has visible cancellable durable claim",
+    "active claim rejects overlapping reads",
+    "cancel fences first and later page results",
+    "expired claim survives database reopening and startup recovers it",
+    "expired old producer cannot overwrite recovered successful page",
+    "source/document commit rollback preserves separately settled attempt metadata",
+    "authority loss settles only the exact previously authorized claim, never observations",
+    "reading frontend state exposes cancellation and withholds completion claims"
+  ],
+  "initial_related_failures": "Three prior expectations assumed no admission cursor or an unchanged in-flight version; updated to the durable-claim contract while preserving data/authority assertions.",
+  "scope": "Isolated temporary databases, injected process-loss and time, mocked HTTP; Runner worktree preserved.",
+  "not_run": [
+    "full_backend_suite",
+    "dual_python_regression",
+    "new_real_Provider_reads",
+    "browser_e2e",
+    "real_LLM_calls",
+    "enterprise_pilot",
+    "deployment"
+  ],
+  "remaining": [
+    "bounded background scheduling and periodic reconciliation",
+    "rate limits/Retry-After/bounded retry",
+    "background cancellation and abort issued HTTP requests",
+    "complete Provider ACL/deletion discovery/freshness",
+    "complete indirect Session/Runner/Artifact lineage",
+    "unified context/process reuse",
+    "real model quality and enterprise acceptance"
+  ],
+  "source_hashes_at_recording": {
+    "agentmesh/connector_sync/contracts.py": "a6607435afff682d7320540cb398c037d9b2e932f1d24b059860411c8f8d5495",
+    "agentmesh/connector_sync/service.py": "3f7210d32106b2f8a153d5c5e5d843f72edef846b87070fe6b72e423c9b16d4e",
+    "tests/test_connector_api.py": "98f116ec5cf6deb10907e69523bf18381d5a36cbec3813bcc482a712202fdaa4",
+    "tests/test_connector_sync.py": "effef745511db8cd05a56494136af760ed7655c21dbd14e273a65293ebcf10fe",
+    "agentmesh-demo/src/components/knowledge/SourceSyncPanel.tsx": "f5e6ff4ae552d74e54d271ae2c9902ba737167c478f7f41d5e3cd43099f30188",
+    "agentmesh-demo/src/components/knowledge/SourceSyncPanel.test.tsx": "aae44e6ae59afee9ff84aaf682bae90867b33d7e37eb5655e6cb709b271f6196",
+    "agentmesh-demo/src/api/generated/schema.ts": "8c917a9b79b6434fba9e420b76d055bb849927e54c0db801ac288c16c61fd840"
+  },
+  "log_hashes": {
+    "/tmp/agentmesh-connector-first-claim-red.log": "bea960a3bec6cd56ee66e9218b0703e4ea567a909180504bb88e68243af97b00",
+    "/tmp/agentmesh-connector-first-claim-green.log": "1504f45bb9fc34d1d3d82b83a74c089b5892b8bfdd64db4b2dca88997348b7fd",
+    "/tmp/agentmesh-connector-lease-recovery-red.log": "e194799cf821ddaf4c8145114c73275d7fd4f4706c1bfce9549f1482c64f42f6",
+    "/tmp/agentmesh-connector-lease-recovery-green.log": "25b9f7dd72f5a5fc8c550a7959718e5ee44c04dcc582f76ce06272c95a0f1bbf",
+    "/tmp/agentmesh-connector-claim-focused-initial.log": "1175893e3ed322c3a6ee0db3d262011ec5c4fc9bb10884c6006b5a364be9233d",
+    "/tmp/agentmesh-connector-claim-focused-final.log": "8176b6a0122bbc5d85ca9fbc6cbd8579ecce8fd5206b7b40af45f61efcea1bb9",
+    "/tmp/agentmesh-connector-claim-api-types.log": "7672553a10df47d1546ffadb709a523e79c5a4a607fbc5d87cdc02f957c034e1",
+    "/tmp/agentmesh-connector-claim-ui.log": "a759467343b7012d9a2d7e406abea05a23347d1e91862017aeb1698d7d12ef36",
+    "/tmp/agentmesh-connector-claim-build.log": "d2a392a91f3f355d9f4a65b21d08da0028f40dd732b13baf7d0ac36e3d53e982",
+    "/tmp/agentmesh-connector-claim-ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "/tmp/agentmesh-connector-claim-diff-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

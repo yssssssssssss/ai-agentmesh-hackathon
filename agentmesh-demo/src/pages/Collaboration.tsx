@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { Activity, Handshake, RadioTower, RefreshCw, Users } from 'lucide-react'
 
 import { ApiError } from '../api/client'
@@ -30,6 +31,7 @@ import {
 import { knowledgeApi } from '../features/knowledge/api'
 import { governanceErrorMessage, knowledgeKeys } from '../features/knowledge/queries'
 import type { PresentedValue, PresentationState } from '../lib/presentation'
+import { DelegatedQueryPanel } from '../features/market/components/DelegatedQueryPanel'
 
 const CAPABILITY_TONES = ['mint', 'knowledge', 'collab', 'remind'] as const
 
@@ -47,6 +49,7 @@ function queryState(
 }
 
 export function Collaboration() {
+  const [searchParams] = useSearchParams()
   const { user, bootstrap } = useAuth()
   const context = {
     userId: user?.id ?? '',
@@ -221,11 +224,18 @@ export function Collaboration() {
         </div>
       )}
 
+      <DelegatedQueryPanel key={`${context.userId}:${context.projectId}`} userId={context.userId} projectId={context.projectId}
+        selectedQueryId={searchParams.get('query')}
+        peers={(bootstrap?.users ?? []).flatMap((peer) => !peer.id || peer.id === context.userId || peer.status !== 'active'
+          || peer.workspace_id !== context.workspaceId
+          || ((bootstrap?.project.member_ids ?? []).length && !(bootstrap?.project.member_ids ?? []).includes(peer.id))
+          ? [] : [{ id: peer.id, name: peer.name }])} />
+
       <section aria-labelledby="market-participants-title">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 id="market-participants-title" className="text-[16px] font-semibold text-slate-100">组织协作参与者</h2>
-            <p className="mt-0.5 text-[12px] text-slate-400">展示市场供给、需求和匹配；匹配原因缺失时才使用 M 数据。</p>
+            <p className="mt-0.5 text-[12px] text-slate-400">加入后会用本人普通文本记忆和当前项目任务标题发布协作摘要；高敏材料不参与。当前项目最多展示 200 条最近信号和 30 条最近匹配，代答默认需要本人确认。</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <SourceLegend sources={view.market.sources} />
@@ -256,8 +266,8 @@ export function Collaboration() {
             <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
               <MarketCount label="参与者" value={view.market.data.counts.value.participants} />
               <MarketCount label="供需信号" value={view.market.data.counts.value.signals} />
-              <MarketCount label="完成匹配" value={view.market.data.counts.value.matches} />
-              <MarketCount label="授权记录" value={view.market.data.counts.value.consent_grants} />
+              <MarketCount label="匹配记录" value={view.market.data.counts.value.matches} />
+              <MarketCount label="我的有效授权" value={view.market.data.counts.value.consent_grants} />
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {view.market.data.signals.value.map((signal) => (

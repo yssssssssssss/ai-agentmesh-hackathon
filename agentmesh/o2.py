@@ -20,6 +20,7 @@ from agentmesh.provider_status import (
     build_provider_status,
     provider_error_code,
     provider_metadata,
+    validate_query_result,
 )
 from agentmesh.store import SQLiteStore
 from agentmesh.web_research import WebSearchProvider, WebSearchResult
@@ -398,6 +399,10 @@ class CompositeAcquisitionAgent(AcquisitionAgent):
             actor_name = getattr(agent, "actor", provider_name)
             try:
                 result = agent.acquire(request)
+                if result.sources:
+                    result.metadata = validate_query_result(
+                        result.metadata, requested_provider=requested_provider, has_evidence=True,
+                    )
             except Exception as error:  # pragma: no cover - provider boundary
                 error_code = provider_error_code(error)
                 diagnostics.append(f"{provider_name}:{error_code}")
@@ -431,6 +436,11 @@ class CompositeAcquisitionAgent(AcquisitionAgent):
             requested_provider=requested_provider,
             actual_provider=actual_provider,
             mode="real",
+            data_mode=(
+                "demo" if any(item.metadata["data_mode"] == "demo" for item in results)
+                else "derived" if any(item.metadata["data_mode"] == "derived" for item in results)
+                else "real"
+            ),
             latency_ms=latency_ms,
             fallback_reason=" | ".join(diagnostics) or None,
         )

@@ -75,7 +75,7 @@ def evaluate(*, fake_vector: bool) -> list[SmokeResult]:
         return results
 
 
-def render(results: list[SmokeResult], *, mode: str) -> tuple[str, bool]:
+def render(results: list[SmokeResult], *, mode: str, enforce_latency: bool = True) -> tuple[str, bool]:
     if len(results) != EXPECTED_CASES:
         raise RuntimeError("profile_smoke_case_count_invalid")
     top1 = sum(result.skill_name in result.candidates[:1] for result in results) / len(results)
@@ -93,7 +93,7 @@ def render(results: list[SmokeResult], *, mode: str) -> tuple[str, bool]:
         len(observed_skills) == EXPECTED_SKILLS
         and top3 >= TOP_3_MIN
         and recall5 >= RECALL_AT_5_MIN
-        and p95 <= P95_MAX_MS
+        and (p95 <= P95_MAX_MS or not enforce_latency)
         and not failed_skills
     )
     lines = [
@@ -105,7 +105,7 @@ def render(results: list[SmokeResult], *, mode: str) -> tuple[str, bool]:
         f"top_1: {top1:.1%}",
         f"top_3: {top3:.1%} (gate >= {TOP_3_MIN:.0%})",
         f"recall_at_5: {recall5:.1%} (gate >= {RECALL_AT_5_MIN:.0%})",
-        f"p95_ms: {p95:.3f} (gate <= {P95_MAX_MS:.0f})",
+        f"p95_ms: {p95:.3f} (gate <= {P95_MAX_MS:.0f}{'' if enforce_latency else ', not enforced'})",
     ]
     if failed_skills:
         lines.append(f"FAILED_SKILLS={failed_skills}")

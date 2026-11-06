@@ -1,0 +1,5923 @@
+{
+  "schema_version": "memory-cases-v1",
+  "fixture_type": "synthetic-frozen-records",
+  "evidence_boundary": "Scripted replay confirms explicitly remembered fixture assertions; it does not measure extraction or answer quality.",
+  "generation_examples": [
+    {
+      "id": "generation_example",
+      "source": "示例项目审批负责人为示例成员。",
+      "value": "示例成员"
+    }
+  ],
+  "cases": [
+    {
+      "id": "fact_extraction_01",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲01；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲01",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲01"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_02",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲02；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲02",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲02"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_03",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲03；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲03",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲03"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_04",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲04；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲04",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲04"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_05",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲05；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲05",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲05"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_06",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲06；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲06",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲06"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_07",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲07；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲07",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲07"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_08",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲08；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲08",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲08"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_09",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲09；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲09",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲09"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_10",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲10；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲10",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲10"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_11",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲11；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲11",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲11"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_12",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲12；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲12",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲12"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_13",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲13；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲13",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲13"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_14",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲14；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲14",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲14"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_15",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲15；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲15",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲15"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_16",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲16；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲16",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲16"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_17",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲17；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲17",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲17"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_18",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲18；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲18",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲18"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_19",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲19；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲19",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲19"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "fact_extraction_20",
+      "category": "fact_extraction",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲20；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲20",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲20"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_01",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲01；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲01",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲01"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_02",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲02；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲02",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲02"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_03",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲03；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲03",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲03"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_04",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲04；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲04",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲04"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_05",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲05；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲05",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲05"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_06",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲06；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲06",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲06"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_07",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲07；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲07",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲07"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_08",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲08；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲08",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲08"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_09",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲09；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲09",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲09"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_10",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲10；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲10",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲10"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_11",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲11；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲11",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲11"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_12",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲12；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲12",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲12"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_13",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲13；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲13",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲13"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_14",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲14；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲14",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲14"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_15",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲15；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲15",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲15"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_16",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲16；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲16",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲16"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_17",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲17；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲17",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲17"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_18",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲18；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲18",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲18"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_19",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲19；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲19",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲19"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "cross_session_20",
+      "category": "cross_session",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲20；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲20",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": true,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲20"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_01",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲01；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲01",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "owner = 合成值甲01；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙01；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲01",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙01",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙01"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_02",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲02；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲02",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "module_owner = 合成值甲02；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙02；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲02",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙02",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙02"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_03",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲03；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲03",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "decision = 合成值甲03；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙03；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲03",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙03",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙03"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_04",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲04；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲04",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "release_tag = 合成值甲04；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙04；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲04",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙04",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙04"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_05",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲05；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲05",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "owner = 合成值甲05；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙05；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲05",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙05",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙05"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_06",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲06；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲06",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "module_owner = 合成值甲06；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙06；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲06",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙06",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙06"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_07",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲07；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲07",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "decision = 合成值甲07；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙07；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲07",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙07",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙07"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_08",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲08；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲08",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "release_tag = 合成值甲08；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙08；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲08",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙08",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙08"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_09",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲09；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲09",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "owner = 合成值甲09；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙09；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲09",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙09",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙09"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_10",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲10；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲10",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "module_owner = 合成值甲10；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙10；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲10",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙10",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙10"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_11",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲11；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲11",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "decision = 合成值甲11；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙11；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲11",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙11",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙11"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_12",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲12；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲12",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "release_tag = 合成值甲12；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙12；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲12",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙12",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙12"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_13",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲13；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲13",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "owner = 合成值甲13；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙13；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲13",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙13",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙13"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_14",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲14；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲14",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "module_owner = 合成值甲14；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙14；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲14",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙14",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙14"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_15",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲15；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲15",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "decision = 合成值甲15；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙15；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲15",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙15",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙15"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_16",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲16；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲16",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "release_tag = 合成值甲16；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙16；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲16",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙16",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙16"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_17",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲17；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲17",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "owner = 合成值甲17；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙17；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲17",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙17",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙17"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_18",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲18；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲18",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "module_owner = 合成值甲18；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙18；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲18",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙18",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙18"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_19",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲19；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲19",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "decision = 合成值甲19；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙19；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲19",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙19",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙19"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "multi_version_20",
+      "category": "multi_version",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲20；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲20",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "release_tag = 合成值甲20；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙20；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲20",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙20",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": 0
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙20"
+        ],
+        "evidence": [
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_01",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-15T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲01；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙01；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲01",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙01",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-09-15T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲01"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_02",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-30T23:59:59Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲02；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙02；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲02",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙02",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-09-30T23:59:59Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲02"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_03",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-01T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲03；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙03；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲03",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙03",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-01T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙03"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_04",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-05T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲04；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙04；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲04",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙04",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-05T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙04"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_05",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-15T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲05；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙05；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲05",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙05",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-09-15T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲05"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_06",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-30T23:59:59Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲06；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙06；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲06",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙06",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-09-30T23:59:59Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲06"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_07",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-01T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲07；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙07；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲07",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙07",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-01T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙07"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_08",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-05T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲08；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙08；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲08",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙08",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-05T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙08"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_09",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-15T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲09；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙09；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲09",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙09",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-09-15T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲09"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_10",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-30T23:59:59Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲10；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙10；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲10",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙10",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-09-30T23:59:59Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲10"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_11",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-01T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲11；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙11；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲11",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙11",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-01T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙11"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_12",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-05T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲12；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙12；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲12",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙12",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-05T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙12"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_13",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-15T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲13；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙13；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲13",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙13",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-09-15T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲13"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_14",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-30T23:59:59Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲14；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙14；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲14",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙14",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-09-30T23:59:59Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲14"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_15",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-01T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲15；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙15；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲15",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙15",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-01T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙15"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_16",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-05T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲16；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙16；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲16",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙16",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-05T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙16"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_17",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-15T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲17；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nowner = 合成值乙17；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲17",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙17",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-09-15T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲17"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_18",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-09-30T23:59:59Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲18；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nmodule_owner = 合成值乙18；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲18",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙18",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-09-30T23:59:59Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲18"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_19",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-01T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲19；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\ndecision = 合成值乙19；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲19",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙19",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-01T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙19"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "historical_time_20",
+      "category": "historical_time",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-05T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲20；有效时间 [2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)。\nrelease_tag = 合成值乙20；有效时间 [2026-10-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲20",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": "2026-10-01T00:00:00Z"
+            },
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙20",
+              "valid_from": "2026-10-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-05T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值乙20"
+        ],
+        "evidence": [
+          "document_1"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "conflict_unknown_01",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲01；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲01",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "owner = 合成值乙01；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值乙01",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "conflict",
+        "values": [
+          "合成值乙01",
+          "合成值甲01"
+        ],
+        "evidence": [
+          "document_1",
+          "document_2"
+        ],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_02",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲02；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲02",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "module_owner = 合成值甲02；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲02",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲02"
+        ],
+        "evidence": [
+          "document_1",
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "conflict_unknown_03",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 unrecorded_predicate 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲03；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲03",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "unrecorded_predicate",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_04",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-08-31T23:59:59Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲04；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲04",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-08-31T23:59:59Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_05",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲05；有效时间 [None, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲05",
+              "valid_from": null,
+              "valid_to": null,
+              "time_precision": "unknown"
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_06",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲06；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲06",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "module_owner = 合成值乙06；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值乙06",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "conflict",
+        "values": [
+          "合成值乙06",
+          "合成值甲06"
+        ],
+        "evidence": [
+          "document_1",
+          "document_2"
+        ],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_07",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲07；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲07",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "decision = 合成值甲07；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲07",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲07"
+        ],
+        "evidence": [
+          "document_1",
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "conflict_unknown_08",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 unrecorded_predicate 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲08；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲08",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "unrecorded_predicate",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_09",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-08-31T23:59:59Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲09；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲09",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-08-31T23:59:59Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_10",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲10；有效时间 [None, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲10",
+              "valid_from": null,
+              "valid_to": null,
+              "time_precision": "unknown"
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_11",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲11；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲11",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "decision = 合成值乙11；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值乙11",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "conflict",
+        "values": [
+          "合成值乙11",
+          "合成值甲11"
+        ],
+        "evidence": [
+          "document_1",
+          "document_2"
+        ],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_12",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲12；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲12",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "release_tag = 合成值甲12；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲12",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲12"
+        ],
+        "evidence": [
+          "document_1",
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "conflict_unknown_13",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 unrecorded_predicate 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲13；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲13",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "unrecorded_predicate",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_14",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-08-31T23:59:59Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲14；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲14",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-08-31T23:59:59Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_15",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲15；有效时间 [None, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲15",
+              "valid_from": null,
+              "valid_to": null,
+              "time_precision": "unknown"
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_16",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲16；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲16",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "release_tag = 合成值乙16；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值乙16",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "conflict",
+        "values": [
+          "合成值乙16",
+          "合成值甲16"
+        ],
+        "evidence": [
+          "document_1",
+          "document_2"
+        ],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_17",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲17；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲17",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        },
+        {
+          "id": "document_2",
+          "title": "合成项目记录 document_2",
+          "text": "owner = 合成值甲17；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲17",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "known",
+        "values": [
+          "合成值甲17"
+        ],
+        "evidence": [
+          "document_1",
+          "document_2"
+        ],
+        "automatic_eligible": true
+      }
+    },
+    {
+      "id": "conflict_unknown_18",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 unrecorded_predicate 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲18；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲18",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "unrecorded_predicate",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_19",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-08-31T23:59:59Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲19；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲19",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-08-31T23:59:59Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "conflict_unknown_20",
+      "category": "conflict_unknown",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲20；有效时间 [None, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲20",
+              "valid_from": null,
+              "valid_to": null,
+              "time_precision": "unknown"
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": null,
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_01",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲01；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲01",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "withdraw_document",
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_02",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲02；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲02",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "forget_memory",
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_03",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲03；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲03",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "revoke_project",
+      "expected": {
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "withdrawal_permission_04",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲04；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲04",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "disable_actor",
+      "expected": {
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "withdrawal_permission_05",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲05；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲05",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "move_workspace",
+      "expected": {
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "withdrawal_permission_06",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲06；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲06",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "replace_document",
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_07",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲07；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲07",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "withdraw_document",
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_08",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲08；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲08",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "forget_memory",
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_09",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲09；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲09",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "revoke_project",
+      "expected": {
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "withdrawal_permission_10",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲10；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲10",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "disable_actor",
+      "expected": {
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "withdrawal_permission_11",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲11；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲11",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "move_workspace",
+      "expected": {
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "withdrawal_permission_12",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲12；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲12",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "replace_document",
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_13",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲13；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲13",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "withdraw_document",
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_14",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲14；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲14",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "forget_memory",
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_15",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲15；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲15",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "revoke_project",
+      "expected": {
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "withdrawal_permission_16",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲16；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲16",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "disable_actor",
+      "expected": {
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "withdrawal_permission_17",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "owner = 合成值甲17；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "owner",
+              "value": "合成值甲17",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "move_workspace",
+      "expected": {
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "withdrawal_permission_18",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 module_owner 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "module_owner = 合成值甲18；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "module_owner",
+              "value": "合成值甲18",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "module_owner",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "replace_document",
+      "expected": {
+        "outcome": "insufficient_evidence",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_19",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 decision 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "decision = 合成值甲19；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "decision",
+              "value": "合成值甲19",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "decision",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "withdraw_document",
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    },
+    {
+      "id": "withdrawal_permission_20",
+      "category": "withdrawal_permission",
+      "split": "holdout",
+      "snapshot_at": "2026-10-06T00:00:00Z",
+      "question": "截至 2026-10-04T00:00:00Z，项目的 release_tag 是什么？",
+      "sources": [
+        {
+          "id": "document_1",
+          "title": "合成项目记录 document_1",
+          "text": "release_tag = 合成值甲20；有效时间 [2026-09-01T00:00:00Z, 持续有效)。",
+          "assertions": [
+            {
+              "subject_type": "project",
+              "subject_id": "project",
+              "predicate": "release_tag",
+              "value": "合成值甲20",
+              "valid_from": "2026-09-01T00:00:00Z",
+              "valid_to": null
+            }
+          ],
+          "supersedes": null
+        }
+      ],
+      "query": {
+        "project_id": "project",
+        "subject_type": "project",
+        "subject_id": "project",
+        "predicate": "release_tag",
+        "as_of": "2026-10-04T00:00:00Z"
+      },
+      "reopen_before_query": false,
+      "operation": "forget_memory",
+      "expected": {
+        "outcome": "unknown",
+        "values": [],
+        "evidence": [],
+        "automatic_eligible": false
+      }
+    }
+  ]
+}

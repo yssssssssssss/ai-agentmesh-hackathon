@@ -6,16 +6,18 @@ from pydantic import BaseModel, Field
 
 
 class AgentMeshRunContext(BaseModel):
-    """Serializable IDs only; SDK RunState may persist this object."""
+    """Serializable identities only; SDK RunState may persist this object."""
 
     user_id: str
     workspace_id: str
     project_id: str
     thread_id: str
     run_id: str
+    run_execution_hash: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     requirement_version_id: str | None = Field(default=None, max_length=120)
     plan_id: str | None = None
     plan_version: int | None = Field(default=None, ge=1)
+    plan_execution_hash: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     node_id: str | None = None
     node_step_number: int | None = Field(default=None, ge=1, le=6)
     node_attempt: int | None = Field(default=None, ge=1, le=2)
@@ -25,6 +27,7 @@ class AgentMeshRunContext(BaseModel):
     resource_manifest_frozen: bool = False
     source_ids: list[str] = Field(default_factory=list)
     memory_use_receipt_ids: list[str] = Field(default_factory=list)
+    context_snapshot_id: str | None = Field(default=None, max_length=120)
     artifact_ids: list[str] = Field(default_factory=list)
     resource_references: list[str] = Field(default_factory=list)
     tool_call_count: int = Field(default=0, ge=0)

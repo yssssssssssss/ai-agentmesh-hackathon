@@ -1,0 +1,1216 @@
+{
+  "schema_version": "automation-cases-v1",
+  "fixture_type": "synthetic-frozen-records",
+  "cases": [
+    {
+      "id": "daily-empty",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [
+          "no_shared_project_tasks"
+        ],
+        "task_count": 0,
+        "outcome": "insufficient_evidence"
+      }
+    },
+    {
+      "id": "daily-unchanged",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "task_id": "alpha",
+          "version": 1,
+          "stage": "in_progress",
+          "observed_at": "2026-10-02T01:00:00+00:00"
+        }
+      ],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "no_change"
+      }
+    },
+    {
+      "id": "daily-created",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "task_id": "alpha",
+          "version": 1,
+          "stage": "in_progress",
+          "observed_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "reviews": [],
+      "expected": {
+        "changes": [
+          [
+            "alpha",
+            "created",
+            1
+          ]
+        ],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [
+          [
+            "task_command",
+            "command_alpha_1",
+            1
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "daily-completed",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 2,
+          "stage": "done",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "task_id": "alpha",
+          "version": 1,
+          "stage": "in_progress",
+          "observed_at": "2026-10-02T01:00:00+00:00"
+        },
+        {
+          "task_id": "alpha",
+          "version": 2,
+          "stage": "done",
+          "observed_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "reviews": [],
+      "expected": {
+        "changes": [
+          [
+            "alpha",
+            "completed",
+            2
+          ]
+        ],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [
+          [
+            "task_command",
+            "command_alpha_2",
+            2
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "daily-reopened",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 2,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "task_id": "alpha",
+          "version": 1,
+          "stage": "done",
+          "observed_at": "2026-10-02T01:00:00+00:00"
+        },
+        {
+          "task_id": "alpha",
+          "version": 2,
+          "stage": "in_progress",
+          "observed_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "reviews": [],
+      "expected": {
+        "changes": [
+          [
+            "alpha",
+            "reopened",
+            2
+          ]
+        ],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [
+          [
+            "task_command",
+            "command_alpha_2",
+            2
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "daily-blocked",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 2,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00",
+          "blocked_reason": "Waiting for design"
+        }
+      ],
+      "events": [
+        {
+          "task_id": "alpha",
+          "version": 1,
+          "stage": "in_progress",
+          "observed_at": "2026-10-02T01:00:00+00:00"
+        },
+        {
+          "task_id": "alpha",
+          "version": 2,
+          "stage": "in_progress",
+          "observed_at": "2026-10-04T01:00:00+00:00",
+          "blocked_reason": "Waiting for design"
+        }
+      ],
+      "reviews": [],
+      "expected": {
+        "changes": [
+          [
+            "alpha",
+            "blocked",
+            2
+          ]
+        ],
+        "blockers": {
+          "alpha": [
+            "blocked"
+          ]
+        },
+        "reviews": {},
+        "evidence": [
+          [
+            "task_command",
+            "command_alpha_2",
+            2
+          ],
+          [
+            "task",
+            "alpha",
+            2
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "daily-unblocked",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 2,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "task_id": "alpha",
+          "version": 1,
+          "stage": "in_progress",
+          "observed_at": "2026-10-02T01:00:00+00:00",
+          "blocked_reason": "Waiting for design"
+        },
+        {
+          "task_id": "alpha",
+          "version": 2,
+          "stage": "in_progress",
+          "observed_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "reviews": [],
+      "expected": {
+        "changes": [
+          [
+            "alpha",
+            "unblocked",
+            2
+          ]
+        ],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [
+          [
+            "task_command",
+            "command_alpha_2",
+            2
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "daily-review",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 2,
+          "stage": "review",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "task_id": "alpha",
+          "version": 1,
+          "stage": "in_progress",
+          "observed_at": "2026-10-02T01:00:00+00:00"
+        },
+        {
+          "task_id": "alpha",
+          "version": 2,
+          "stage": "review",
+          "observed_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "reviews": [],
+      "expected": {
+        "changes": [
+          [
+            "alpha",
+            "pending_review",
+            2
+          ]
+        ],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [
+          [
+            "task_command",
+            "command_alpha_2",
+            2
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "daily-missing-history",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 2,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [
+          "task_history_incomplete"
+        ],
+        "task_count": 1,
+        "outcome": "insufficient_evidence"
+      }
+    },
+    {
+      "id": "daily-private-excluded",
+      "template_id": "daily_progress",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "conversation",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [
+          "no_shared_project_tasks"
+        ],
+        "task_count": 0,
+        "outcome": "insufficient_evidence"
+      }
+    },
+    {
+      "id": "blocker-empty",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [
+          "no_shared_project_tasks"
+        ],
+        "task_count": 0,
+        "outcome": "insufficient_evidence"
+      }
+    },
+    {
+      "id": "blocker-clean",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "no_change"
+      }
+    },
+    {
+      "id": "blocker-explicit",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00",
+          "blocked_reason": "Waiting for design"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {
+          "alpha": [
+            "blocked"
+          ]
+        },
+        "reviews": {},
+        "evidence": [
+          [
+            "task",
+            "alpha",
+            1
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "blocker-overdue",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00",
+          "due_at": "2026-10-03T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {
+          "alpha": [
+            "overdue"
+          ]
+        },
+        "reviews": {},
+        "evidence": [
+          [
+            "task",
+            "alpha",
+            1
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "blocker-stale",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-09-27T01:30:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {
+          "alpha": [
+            "stale"
+          ]
+        },
+        "reviews": {},
+        "evidence": [
+          [
+            "task",
+            "alpha",
+            1
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "blocker-dependency",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        },
+        {
+          "id": "beta",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00",
+          "dependencies": [
+            "alpha"
+          ]
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {
+          "beta": [
+            "dependency"
+          ]
+        },
+        "reviews": {},
+        "evidence": [
+          [
+            "task",
+            "alpha",
+            1
+          ],
+          [
+            "task",
+            "beta",
+            1
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 2,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "blocker-dependency-done",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "done",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        },
+        {
+          "id": "beta",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00",
+          "dependencies": [
+            "alpha"
+          ]
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 2,
+        "outcome": "no_change"
+      }
+    },
+    {
+      "id": "blocker-missing-dependency",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00",
+          "dependencies": [
+            "absent"
+          ]
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [
+          "task_relationship_evidence_unavailable"
+        ],
+        "task_count": 1,
+        "outcome": "insufficient_evidence"
+      }
+    },
+    {
+      "id": "blocker-done-excluded",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "done",
+          "updated_at": "2026-10-04T01:00:00+00:00",
+          "due_at": "2026-10-01T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "no_change"
+      }
+    },
+    {
+      "id": "blocker-due-boundary",
+      "template_id": "blockers",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00",
+          "due_at": "2026-10-04T01:30:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "no_change"
+      }
+    },
+    {
+      "id": "review-empty",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [
+          "no_shared_project_tasks"
+        ],
+        "task_count": 0,
+        "outcome": "insufficient_evidence"
+      }
+    },
+    {
+      "id": "review-none",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "no_change"
+      }
+    },
+    {
+      "id": "review-assigned",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "review",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [
+        {
+          "id": "review_alpha",
+          "task_id": "alpha",
+          "reviewer_id": "owner",
+          "task_version": 1,
+          "status": "pending",
+          "version": 1
+        }
+      ],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {
+          "review_alpha": true
+        },
+        "evidence": [
+          [
+            "task",
+            "alpha",
+            1
+          ],
+          [
+            "task_review",
+            "review_alpha",
+            1
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "review-other",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "review",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [
+        {
+          "id": "review_alpha",
+          "task_id": "alpha",
+          "reviewer_id": "peer",
+          "task_version": 1,
+          "status": "pending",
+          "version": 1
+        }
+      ],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {
+          "review_alpha": false
+        },
+        "evidence": [
+          [
+            "task",
+            "alpha",
+            1
+          ],
+          [
+            "task_review",
+            "review_alpha",
+            1
+          ]
+        ],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "review-accepted",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 2,
+          "stage": "done",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [
+        {
+          "id": "review_alpha",
+          "task_id": "alpha",
+          "reviewer_id": "owner",
+          "task_version": 1,
+          "status": "accepted",
+          "version": 2
+        }
+      ],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "no_change"
+      }
+    },
+    {
+      "id": "review-archived",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "review",
+          "updated_at": "2026-10-04T01:00:00+00:00",
+          "archived_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [
+        {
+          "id": "review_alpha",
+          "task_id": "alpha",
+          "reviewer_id": "owner",
+          "task_version": 1,
+          "status": "pending",
+          "version": 1
+        }
+      ],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "outcome": "no_change"
+      }
+    },
+    {
+      "id": "review-subject-changed",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 2,
+          "stage": "review",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [
+        {
+          "id": "review_alpha",
+          "task_id": "alpha",
+          "reviewer_id": "owner",
+          "task_version": 1,
+          "status": "pending",
+          "version": 1
+        }
+      ],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {
+          "review_alpha": true
+        },
+        "evidence": [
+          [
+            "task",
+            "alpha",
+            2
+          ],
+          [
+            "task_review",
+            "review_alpha",
+            1
+          ]
+        ],
+        "missing_data": [
+          "task_review_subject_changed"
+        ],
+        "task_count": 1,
+        "outcome": "insufficient_evidence"
+      }
+    },
+    {
+      "id": "review-member-revoked",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": false,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "review-foreign-workspace",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "active",
+      "member": true,
+      "workspace_matches": false,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "error_code": "project_not_found"
+      }
+    },
+    {
+      "id": "review-inactive-actor",
+      "template_id": "pending_reviews",
+      "role": "team_lead",
+      "actor_status": "disabled",
+      "member": true,
+      "workspace_matches": true,
+      "snapshot_at": "2026-10-04T01:30:00+00:00",
+      "since": "2026-10-03T01:30:00+00:00",
+      "tasks": [
+        {
+          "id": "alpha",
+          "kind": "task",
+          "version": 1,
+          "stage": "in_progress",
+          "updated_at": "2026-10-04T01:00:00+00:00"
+        }
+      ],
+      "events": [],
+      "reviews": [],
+      "expected": {
+        "changes": [],
+        "blockers": {},
+        "reviews": {},
+        "evidence": [],
+        "missing_data": [],
+        "task_count": 1,
+        "error_code": "project_not_found"
+      }
+    }
+  ]
+}

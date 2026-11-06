@@ -197,7 +197,7 @@ def test_runtime_derives_deepsearch_node_lineage_from_the_persisted_plan() -> No
         plan_id=plan.id,
     )
 
-    assert AgentRuntimeService._deepsearch_node_lineage(
+    assert AgentRuntimeService._node_lineage(
         plan=plan,
         node=node,
         run=run,
@@ -209,7 +209,7 @@ def test_runtime_derives_deepsearch_node_lineage_from_the_persisted_plan() -> No
     }
 
     with pytest.raises(RuntimeError, match="deepsearch_tool_lineage_incomplete"):
-        AgentRuntimeService._deepsearch_node_lineage(
+        AgentRuntimeService._node_lineage(
             plan=plan,
             node=node.model_copy(update={"attempt": 0}),
             run=run,

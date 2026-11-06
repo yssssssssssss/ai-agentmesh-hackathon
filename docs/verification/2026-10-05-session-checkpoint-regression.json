@@ -1,0 +1,25 @@
+{
+  "schema_version": "implementation-verification-v1",
+  "phase": "trusted-local-direct-session-approval-checkpoints",
+  "date": "2026-10-05",
+  "full_baseline_before_checkpoint_changes": "2026-10-05-owned-session-regression.json",
+  "final_related_regression": {
+    "3.12": {"passed": 178, "seconds": 108.58},
+    "3.13": {"passed": 178, "seconds": 109.56}
+  },
+  "scope": ["Session checkpoints/authority/Memory lineage", "SDK Session/tools/direct Runtime", "Memory forgetting", "complete request budgets", "queued handoffs", "temporal facts", "current SQL state", "Skill input preflight"],
+  "new_checkpoint_cases": 10,
+  "checks": {"ruff": "passed", "diff_check": "passed"},
+  "public_api_or_frontend_contract_changed": false,
+  "evidence_boundary": {
+    "current_session_revalidated_in_approval_claim_transaction": true,
+    "same_version_body_changes_rejected": true,
+    "database_reopen_and_projected_chat_markers": true,
+    "unverified_legacy_direct_recovery_rejected": true,
+    "full_regression_rerun_after_checkpoint_changes": false,
+    "full_sdk_state_sealing": false,
+    "remote_runner_session_parity": false,
+    "phase4_complete": false,
+    "enterprise_provider_smoke": false, "real_model_quality": false
+  }
+}

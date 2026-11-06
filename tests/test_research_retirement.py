@@ -179,6 +179,7 @@ def test_store_mutators_trust_either_v3_projection_and_leave_legacy_rows_unchang
 
     assert repository.pause_agent_run_with_inbox(
         run_id=legacy.id,
+        expected_run=legacy,
         paused_state={"kind": "tool_approval"},
         inbox_item=ignored_inbox,
         interruptions=[],

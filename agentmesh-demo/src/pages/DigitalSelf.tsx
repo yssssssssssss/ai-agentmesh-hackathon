@@ -1,5 +1,6 @@
 import { ApiError } from '../api/client'
 import { MyImpact } from '../components/digital-self/MyImpact'
+import { MemoryPreferencesPanel } from '../components/digital-self/MemoryPreferencesPanel'
 import { RecentGrowth } from '../components/digital-self/RecentGrowth'
 import { TodayWork } from '../components/digital-self/TodayWork'
 import { UnderstandingList } from '../components/digital-self/UnderstandingList'
@@ -87,6 +88,7 @@ function DigitalSelfContent({
         <WelcomeHero model={viewModel.hero} />
         <TodayWork model={viewModel.pending} />
       </section>
+      <MemoryPreferencesPanel userId={userId} />
 
       <section className="border-t border-white/[0.08] pt-5" aria-labelledby="digital-self-activity-heading">
         <div className="mb-3">

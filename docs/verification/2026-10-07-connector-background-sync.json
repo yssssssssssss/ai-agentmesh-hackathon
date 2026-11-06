@@ -1,0 +1,79 @@
+{
+  "recorded_at": "2026-10-07T05:48:19.061817+00:00",
+  "status": "opt_in_background_sync_slice_verified_overall_plan_in_progress",
+  "verification_policy": "Directly affected critical checks only; no repeated passing checks without new changes, failures or unresolved concerns; broad acceptance at stage delivery.",
+  "python": "3.13.0",
+  "focused": {
+    "files": 5,
+    "passed": 57,
+    "seconds": 9.33
+  },
+  "frontend": {
+    "passed": 6,
+    "api_types": "passed",
+    "build": "passed",
+    "largest_bundle_bytes": 322425,
+    "bundle_limit_bytes": 500000
+  },
+  "static_checks": {
+    "targeted_ruff": "passed"
+  },
+  "verified_behaviors": [
+    "existing manual cursors do not start automatic reads before explicit opt-in",
+    "due-time comparison uses actual timestamps across Z and UTC-offset serialization",
+    "pending pages continue and complete cycles use the configured interval",
+    "coordinator start/stop controls truthful API availability",
+    "retry scheduling persists and a replacement coordinator honors provider wait",
+    "manual calls and a second owner cannot bypass a shared configured-source wait",
+    "three failed automatic attempts pause the schedule and retain successful evidence",
+    "stopping fences a delayed reader and preserves the prior document",
+    "GitHub Retry-After and primary reset headers are honored; headerless rate limits wait a minute",
+    "access failures remain nonretryable and existing source invalidation/recovery checks pass",
+    "bootstrap isolates host connector worker/repository configuration",
+    "frontend shows explicit enable/pause controls, waiting times and disabled reads"
+  ],
+  "scope": "Temporary SQLite/files, injected clocks, mocked HTTP/read boundaries. Existing Runner worktree preserved. Application lifecycle is wired; no deployed process/browser acceptance claimed.",
+  "not_run": [
+    "full_backend_suite",
+    "dual_python_regression",
+    "browser_e2e",
+    "real_Provider_reads",
+    "real_LLM_calls",
+    "enterprise_pilot",
+    "deployment"
+  ],
+  "remaining": [
+    "direct abortion of issued HTTP requests",
+    "complete remote ACL/deletion discovery and provider freshness",
+    "full indirect Session/Runner/Artifact lineage",
+    "unified context and process reuse",
+    "real model quality and enterprise acceptance",
+    "conditional stage-six scaling"
+  ],
+  "source_hashes_at_recording": {
+    "agentmesh/connector_sync/coordinator.py": "2715bdea2ae777169d5ea8da09766658e935ed568d75a04816a08d6a13a8abab",
+    "agentmesh/connector_sync/contracts.py": "395b5996449a7476dbc4ca64deb63d7e5859dbf4b4f83ffbaa81e3fd130bfded",
+    "agentmesh/connector_sync/service.py": "d8eccde1db6bb5367d0a45366d450796c50b5e6eabc47a0601ec173b036d9d99",
+    "agentmesh/connector_sync/readers.py": "95d5f656375ccc69371b2f796644f5d5ff81a63ce726edd6e9c6a356051cc4b8",
+    "agentmesh/app.py": "18d45e117b696dc9fc86face9fbbdf5a77ab4d7e26f515fe3f9a0fc3cf321868",
+    "agentmesh/routes/data_sources.py": "4236d48fcc9348e21731156572c58a0708385466fc7ccf36a045eeff53bdf062",
+    "tests/test_connector_coordinator.py": "a78d4b94758d44d467a3baf893e4b25d6220ecca346cdf5348c5cce8fe649f91",
+    "tests/test_connector_api.py": "ca8d61c0b577ce73235dd42bccfcca5672d8f46256896888a01ff387e738a372",
+    "tests/test_connector_sync.py": "effef745511db8cd05a56494136af760ed7655c21dbd14e273a65293ebcf10fe",
+    "tests/test_github_connector.py": "7d08f2997769534b06f7fbfe8afdd9449f4cb11b9a94c5b397df47dec1918ff3",
+    "tests/test_provider_bootstrap_isolation.py": "ab73e26543c61985cc6ebb4fc2674f13ac90694b7e3d8310e10101c67f5aa521",
+    "tests/conftest.py": "fb45ceff50176609eac5aea2a13b7e6fa6bb7f3d0346fd0a0fe40471d736f442",
+    "agentmesh-demo/src/components/knowledge/SourceSyncPanel.tsx": "95aa6ad82f7642f37c74c13b5b1494a8d4c300645ecf0ced191070a4ccdc8d28",
+    "agentmesh-demo/src/components/knowledge/SourceSyncPanel.test.tsx": "1f333d21051fded2b424978cc70b78d2e9189f7a7f71cbe499211adc7f6a39f8",
+    "agentmesh-demo/src/api/generated/schema.ts": "2490bb859fd6ac6451a570a0be088c4d254b83161bdbca9f07071163f03ce1f5",
+    "agentmesh-demo/scripts/export_openapi.py": "a16249edc0e0c931e20acb14f1e3feb61275ca7e073fe81fb5b01013d35b504f",
+    ".env.example": "e66e9c54ff7e9a9f0d2f2dea2d8a33c4576c05d2f2290e5f5f77d2b51bf7ecc0"
+  },
+  "log_hashes": {
+    "/tmp/agentmesh-connector-worker-focused-final.log": "53a3e93f19553e464ba8c8675b50d59a6f550231fb3779ed7f1350593220e073",
+    "/tmp/agentmesh-connector-worker-ui.log": "9263f28b3b90c2c86672ffe2a7ef9cdddc74d339eef1b26079ef32ab1a6372ee",
+    "/tmp/agentmesh-connector-worker-build.log": "467e2aa330d21d6ca6db4af4fe30e75530d08f9a68f39e8107357f99b57dac9e",
+    "/tmp/agentmesh-connector-worker-api-types-final.log": "64ff3b84c7b103b4aedc5872edc48e9995c1ba7df3a99668d8a155ac7595d8e2",
+    "/tmp/agentmesh-connector-worker-ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+  }
+}

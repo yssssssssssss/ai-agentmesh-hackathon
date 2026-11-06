@@ -7,7 +7,7 @@ from typing import Protocol
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agentmesh.models import Intent, Source
-from agentmesh.provider_status import provider_metadata
+from agentmesh.provider_status import ProviderQueryError, demo_mode_enabled, provider_metadata
 
 
 class AcquisitionQuery(BaseModel):
@@ -95,6 +95,8 @@ class MockAcquisitionAgent:
     actor = "mock_research_agent"
 
     def acquire(self, request: AcquisitionRequest) -> AcquisitionResult:
+        if not demo_mode_enabled():
+            raise ProviderQueryError("no_real_provider_configured", requested_provider="research")
         source = Source(
             title="2025 618 家电会场复盘",
             source_type="project_review",
@@ -113,6 +115,7 @@ class MockAcquisitionAgent:
                     requested_provider="research",
                     actual_provider="mock",
                     mode="fallback",
+                    data_mode="demo",
                     fallback_reason="no_real_provider_configured",
                     latency_ms=0.0,
                 ),

@@ -8,7 +8,7 @@ from agentmesh.models import (
     BlackboardPostType,
     Scope,
 )
-from agentmesh.seed import USER
+from agentmesh.seed import PROJECT, USER
 from agentmesh.store import store
 from tests.test_chat_flow import authenticated_client, clear_store
 
@@ -24,6 +24,7 @@ def _seed_signal(user_id: str, need: str, created_at: datetime | None = None) ->
             content=f"能力：设计\n可提供：设计经验\n需要：{need}",
             scope=Scope.PROJECT,
             permission="project_visible",
+            metadata={"workspace_id": USER.workspace_id, "project_id": PROJECT.id},
             created_at=created_at or datetime.now(UTC),
         )
     )
@@ -45,6 +46,7 @@ def _seed_match(
             action="marketplace_match",
             target_type="user",
             target_id=needer,
+            workspace_id=USER.workspace_id, project_id=PROJECT.id,
             metadata={"helper": helper, "status": status, "need": need},
             created_at=at or datetime.now(UTC),
         ),
@@ -61,6 +63,18 @@ def test_activity_empty_when_no_events() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["items"] == []
+
+
+def test_unavailable_insufficient_and_unknown_matches_are_not_shown_as_answers() -> None:
+    clear_store()
+    client = authenticated_client()
+    for status in ('blocked', 'insufficient_evidence', 'unverified_legacy_status'):
+        _seed_match(helper='usr_team_lead', needer=USER.id, status=status)
+    response = client.get('/api/market/activity')
+    assert response.status_code == 200
+    items = response.json()['items']
+    assert {item['status'] for item in items} == {'blocked', 'insufficient_evidence', 'open'}
+    assert all('解答了' not in item['text'] for item in items)
 
 
 def test_activity_merges_signals_and_matches() -> None:

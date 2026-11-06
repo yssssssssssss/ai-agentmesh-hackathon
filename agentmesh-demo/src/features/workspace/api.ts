@@ -2,6 +2,7 @@ import { apiRequest } from '../../api/client'
 import type {
   AgentRunEvent,
   AgentRunEventsResponse,
+  AgentRunMemorySaveResponse,
   AgentRunMutationResponse,
   AgentRunResponse,
   ChatResponse,
@@ -214,6 +215,11 @@ export const workspaceApi = {
       }),
     }),
   agentRun: (runId: string) => apiRequest<AgentRunResponse>(`/api/agent/runs/${pathId(runId)}`),
+  saveAgentRunMemory: (runId: string, title?: string) =>
+    apiRequest<AgentRunMemorySaveResponse>(`/api/agent/runs/${pathId(runId)}/memory`, {
+      method: 'POST',
+      body: JSON.stringify({ title: title?.trim() || undefined }),
+    }),
   inputRequest: (runId: string) =>
     apiRequest<SkillInputRequestResponse>(`/api/agent/runs/${pathId(runId)}/input-request`),
   uploadRunInput: (runId: string, fieldId: string, expectedRequestVersion: number, file: File) => {

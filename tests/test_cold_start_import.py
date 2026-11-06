@@ -84,6 +84,8 @@ class TestChunker:
 class TestDocumentImportChunks:
     def setup_method(self) -> None:
         store.reset()
+        store.save_user(USER)
+        store.save_project(PROJECT)
 
     def test_import_creates_long_term_memories(self) -> None:
         doc = store.add_document(

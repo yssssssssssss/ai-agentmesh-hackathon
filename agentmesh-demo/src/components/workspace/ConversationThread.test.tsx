@@ -24,6 +24,33 @@ const messages: ChatMessage[] = [
 ]
 
 describe('ConversationThread layout', () => {
+  it.each([
+    ['demo', '演示样本', true],
+    ['real', '真实资料', false],
+    [null, '未标注', false],
+  ] as const)('shows the evidence type for %s independently of model success', (dataMode, label, warning) => {
+    const html = renderToStaticMarkup(
+      <ConversationThread
+        messages={[{
+          ...messages[1],
+          workflow_trace: {
+            intent: 'request_external_research', confidence: 1, source: 'skill',
+            selected_workflow: '$research.request', persisted: true, llm_used: true,
+            provider_mode: 'fallback', data_mode: dataMode, outcome: 'success',
+          },
+        }]}
+        tracesByAssistantMessageId={new Map()}
+        pending={null}
+        loading={false}
+        onOpenSource={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain(label)
+    expect(html).toContain('查询完成')
+    expect(html.includes('演示样本，不能作为真实查询依据。')).toBe(warning)
+  })
+
   it('uses one width rule for user, assistant, and pending message bubbles', () => {
     const html = renderToStaticMarkup(
       <ConversationThread

@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import {
   Bot,
   CalendarDays,
@@ -19,12 +20,17 @@ import {
 } from 'lucide-react'
 
 import { TaskDetailDrawer } from '../components/tasks/TaskDetailDrawer'
+import { ProjectInspectionPanel } from '../components/tasks/ProjectInspectionPanel'
+import { AutomationSchedulePanel } from '../components/tasks/AutomationSchedulePanel'
 import {
   ProjectOperationsPanel,
   type OperationsSection,
 } from '../components/tasks/ProjectOperationsPanel'
 import { TaskFormDialog, type TaskFormValues } from '../components/tasks/TaskFormDialog'
-import { ApiError } from '../api/client'
+import { ApiError, apiRequest } from '../api/client'
+import type { components } from '../api/generated/schema'
+import type { ProcedureDraft } from '../components/tasks/ProcedureCaptureFields'
+import { taskDraftFromLocation, type ProcedureTaskDraft } from '../features/tasks/procedureReuse'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { PageHeader } from '../components/ui/PageHeader'
@@ -90,6 +96,8 @@ function commandId(operation: string): string {
 export function Tasks() {
   const { user, bootstrap } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const [initialDraft, setInitialDraft] = useState<ProcedureTaskDraft | null>(null)
   const [taskFormOpen, setTaskFormOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<ManagedTask | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
@@ -106,10 +114,16 @@ export function Tasks() {
   const context = {
     userId: user?.id ?? '',
     workspaceId: user?.workspace_id ?? '',
-    projectId: user?.default_project_id ?? '',
+    projectId: searchParams.get('project')?.trim() || user?.default_project_id || '',
   }
+  const proposedDraft = taskDraftFromLocation(location.state, context.projectId)
   const writeEnabled = bootstrap?.task_management_mode === 'write'
   const canManageProjectTasks = (bootstrap?.capabilities ?? []).includes('manage_project_tasks')
+  const procedureTools = useQuery({ queryKey: ['procedure-tools', user?.id, user?.personal_agent_id],
+    enabled: taskFormOpen && Boolean(user?.personal_agent_id), queryFn: () => apiRequest<components['schemas']['ToolsResponse']>(
+      `/api/agents/${encodeURIComponent(user!.personal_agent_id)}/tools`,
+    ),
+  })
   const requestedSurface = searchParams.get('surface')
   const surface: TaskSurface = (
     requestedSurface === 'overview'
@@ -168,7 +182,8 @@ export function Tasks() {
     && !managedQuery.isFetching
     && !taskPagesAligned
   )
-  const projectMemberIds = new Set(bootstrap?.project.member_ids ?? [])
+  const projectMemberIds = new Set(context.projectId === bootstrap?.project.id
+    ? bootstrap.project.member_ids ?? [] : user?.id ? [user.id] : [])
   const projectUsers = (bootstrap?.users ?? []).filter((candidate) => (
     candidate.workspace_id === user?.workspace_id
     && candidate.status === 'active'
@@ -259,9 +274,10 @@ export function Tasks() {
 
   const openTask = (taskId: string) => setParameter('task', taskId)
   const closeTask = () => setParameter('task', '')
-  const openCreate = () => {
+  const openCreate = (draft: ProcedureTaskDraft | null = null) => {
     formSession.current += 1
     setEditingTask(null)
+    setInitialDraft(draft)
     setMutationError(null)
     setMutationNotice(null)
     saveCommandId.current = null
@@ -297,6 +313,17 @@ export function Tasks() {
   const closeFormForSession = (session: number) => {
     if (formSession.current === session) closeForm()
   }
+
+  useEffect(() => {
+    formSession.current += 1
+    setTaskFormOpen(false)
+    setEditingTask(null)
+    setInitialDraft(null)
+    setMutationError(null)
+    setMutationNotice(null)
+    saveCommandId.current = null
+    actionCommand.current = null
+  }, [context.userId, context.workspaceId, context.projectId])
 
   useEffect(() => {
     if (!taskFormOpen || !editingTask) return
@@ -422,6 +449,7 @@ export function Tasks() {
       } else {
         await mutations.create.mutateAsync({
           command_id: stableCommandId,
+          project_id: context.projectId,
           title: values.title,
           description: values.description,
           task_type: values.taskType,
@@ -583,6 +611,7 @@ export function Tasks() {
     target: 'personal' | 'team_candidate',
     title: string,
     summary: string,
+    procedure?: ProcedureDraft,
   ) => {
     const current = managedDetailQuery.data?.item ?? editingTask
     if (!current) return
@@ -590,7 +619,7 @@ export function Tasks() {
     const taskId = current.task.id
     setMutationError(null)
     setMutationNotice(null)
-    const key = JSON.stringify([reviewId, target, title, summary])
+    const key = JSON.stringify([reviewId, target, title, summary, procedure])
     const captureCommandId = captureCommands.current[key] ?? commandId('capture-memory')
     captureCommands.current[key] = captureCommandId
     try {
@@ -603,6 +632,7 @@ export function Tasks() {
           summary,
           memory_type: 'project_experience',
           layer: 'mid_term',
+          ...(procedure ? { procedure } : {}),
         },
       })
       await refreshOpenTask(session, taskId)
@@ -653,7 +683,7 @@ export function Tasks() {
           : '查看现有 Agent 与协作流程产生、且当前账号可见的任务。任务写入当前未开放。'}
         actions={(
           <div className="flex flex-wrap items-center gap-2">
-            {writeEnabled && surface === 'tasks' ? <Button icon={<Plus className="h-4 w-4" />} onClick={openCreate}>新建任务</Button> : null}
+            {writeEnabled && surface === 'tasks' ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => openCreate()}>新建任务</Button> : null}
             <TaskSurfaceSwitcher value={surface} onChange={setSurface} />
             {surface === 'tasks' ? (
               <ViewSwitcher value={viewMode} onChange={(mode) => setParameter('view', mode, 'board')} />
@@ -661,6 +691,21 @@ export function Tasks() {
           </div>
         )}
       />
+      {proposedDraft && writeEnabled && surface === 'tasks' ? <section aria-label="方法复用草稿"
+        className="space-y-3 rounded-soft border border-white/10 p-4">
+        <p className="break-words text-sm text-slate-200">方法目标：{proposedDraft.title}</p>
+        <p className="text-xs text-slate-400">先核对并保存任务草稿，再按任务流程启动。执行时将检查当前可用的方法和来源。</p>
+        <Button size="sm" onClick={() => openCreate(proposedDraft)}>使用目标创建任务</Button>
+      </section> : null}
+
+      {context.projectId ? <ProjectInspectionPanel
+        key={`${context.userId}:${context.workspaceId}:${context.projectId}`}
+        projectId={context.projectId}
+      /> : null}
+
+      {context.projectId && canManageProjectTasks ? <AutomationSchedulePanel
+        key={`automation:${context.userId}:${context.workspaceId}:${context.projectId}`} context={context}
+      /> : null}
 
       {surface !== 'tasks' ? (
         <ProjectOperationsPanel
@@ -763,6 +808,7 @@ export function Tasks() {
       <TaskFormDialog
         open={taskFormOpen}
         task={taskForForm}
+        initialDraft={initialDraft}
         users={assignableUsers}
         agents={assignableAgents}
         taskOptions={taskOptionsQuery.data?.items ?? []}
@@ -786,6 +832,7 @@ export function Tasks() {
         runs={managedDetailQuery.data?.runs ?? []}
         artifacts={managedDetailQuery.data?.artifacts ?? []}
         reviews={managedDetailQuery.data?.reviews ?? []}
+        procedureTools={procedureTools.data?.items ?? []}
         memoryLinks={managedDetailQuery.data?.memory_links ?? []}
         parentTask={managedDetailQuery.data?.parent_task ?? null}
         dependencyTasks={managedDetailQuery.data?.dependency_tasks ?? []}
@@ -812,15 +859,15 @@ export function Tasks() {
         onDecideReview={(reviewId, version, decision, note) => (
           void decideArtifactReview(reviewId, version, decision, note)
         )}
-        onCaptureMemory={(reviewId, target, title, summary) => (
-          void captureReviewMemory(reviewId, target, title, summary)
+        onCaptureMemory={(reviewId, target, title, summary, procedure) => (
+          void captureReviewMemory(reviewId, target, title, summary, procedure)
         )}
       />
 
       <TaskDetailDrawer
         open={selectedTaskId !== null}
         taskId={selectedTaskId}
-        context={context}
+        context={{ ...context, projectId: searchParams.get('project')?.trim() || context.projectId }}
         onClose={closeTask}
       />
     </div>

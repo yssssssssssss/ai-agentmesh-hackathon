@@ -1,0 +1,24 @@
+{
+  "schema_version": "agentmesh-local-verification-v1",
+  "date": "2026-10-04",
+  "scope": "durable inspections, legacy research delivery, durable marketplace matching",
+  "backend": {
+    "python_3_12": {"passed": 2011, "warnings": 5, "seconds": 360.53},
+    "python_3_13": {"passed": 2011, "warnings": 5, "seconds": 361.64},
+    "warnings": "Existing SWIG import deprecations"
+  },
+  "frontend": {"passed": 212, "test_files": 38, "build": "passed", "largest_bundle_bytes": 322333},
+  "browser": {
+    "default_off_suite_passed": 79,
+    "execute_inspection_smoke_passed": 1,
+    "execute_smoke": "SDK Runtime, actual local SQLite Task/Review reads, no LLM or enterprise Provider"
+  },
+  "checks": {"ruff": "passed", "uv_lock": "passed", "openapi_types": "regenerated"},
+  "limitations": [
+    "This is local engineering verification, not the frozen 30-case inspection evaluation",
+    "No enterprise Provider or real-model quality evaluation was run",
+    "Partially published legacy research and delegated results require reconciliation",
+    "Durable DelegatedQuery, explicit market answer-policy choices and full answer-quality contracts are later slices",
+    "PostgreSQL and multiple application workers were not enabled"
+  ]
+}

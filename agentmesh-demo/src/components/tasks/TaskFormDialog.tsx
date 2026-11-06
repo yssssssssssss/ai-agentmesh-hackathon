@@ -17,6 +17,8 @@ import type {
 } from '../../features/tasks/types'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
+import { ProcedureCaptureFields, type ProcedureDraft } from './ProcedureCaptureFields'
+import type { ProcedureTaskDraft } from '../../features/tasks/procedureReuse'
 
 export interface TaskFormValues {
   title: string
@@ -34,8 +36,10 @@ export interface TaskFormValues {
 interface TaskFormDialogProps {
   open: boolean
   task: ManagedTask | null
+  initialDraft?: ProcedureTaskDraft | null
   users: components['schemas']['User'][]
   agents: components['schemas']['Agent'][]
+  procedureTools?: components['schemas']['ToolDefinition'][]
   taskOptions: TaskOption[]
   canManageRelationships: boolean
   relationshipQuery: string
@@ -73,6 +77,7 @@ interface TaskFormDialogProps {
     target: 'personal' | 'team_candidate',
     title: string,
     summary: string,
+    procedure?: ProcedureDraft,
   ) => void
 }
 
@@ -160,6 +165,8 @@ export function TaskFormDialog({
   onSubmitReview,
   onDecideReview,
   onCaptureMemory,
+  procedureTools,
+  initialDraft,
 }: TaskFormDialogProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -176,6 +183,7 @@ export function TaskFormDialog({
   const [decisionNote, setDecisionNote] = useState('')
   const [memoryTitle, setMemoryTitle] = useState('')
   const [memorySummary, setMemorySummary] = useState('')
+  const [procedures, setProcedures] = useState<Record<string, { value?: ProcedureDraft; valid: boolean }>>({})
   const editable = task === null || task.allowed_actions.includes('edit')
   const completedRuns = runs.filter((run) => (
     run.can_submit_review
@@ -190,8 +198,8 @@ export function TaskFormDialog({
     if (!open) return
     // A version refresh after a 409 must not erase the user's unsaved form fields.
     const management = task?.management
-    setTitle(task?.task.title ?? '')
-    setDescription(management?.description ?? '')
+    setTitle(task?.task.title ?? initialDraft?.title ?? '')
+    setDescription(management?.description ?? initialDraft?.description ?? '')
     setTaskType(management?.task_type ?? 'project_action')
     setPriority(management?.priority ?? '')
     setDueAt(datetimeLocalValue(management?.due_at))
@@ -209,6 +217,7 @@ export function TaskFormDialog({
     setDecisionNote('')
     setMemoryTitle(task?.task.title ?? '')
     setMemorySummary(management?.description ?? '')
+    setProcedures({})
   }, [open, task?.task.id])
 
   useEffect(() => {
@@ -637,17 +646,20 @@ export function TaskFormDialog({
                           className={inputClassName}
                         />
                       </Field>
+                      <ProcedureCaptureFields key={`${task?.task.id}:${review.id}`} tools={procedureTools} disabled={submitting}
+                        onChange={(value, valid) => setProcedures((current) => ({ ...current, [review.id]: { value, valid } }))} />
                       <div className="flex flex-wrap gap-2">
                         <Button
                           type="button"
                           size="sm"
                           variant="secondary"
-                          disabled={submitting || !memoryTitle.trim() || !memorySummary.trim()}
+                          disabled={submitting || !memoryTitle.trim() || !memorySummary.trim() || procedures[review.id]?.valid === false}
                           onClick={() => onCaptureMemory(
                             review.id,
                             'personal',
                             memoryTitle.trim(),
                             memorySummary.trim(),
+                            procedures[review.id]?.value,
                           )}
                         >
                           保存为个人记忆
@@ -655,12 +667,13 @@ export function TaskFormDialog({
                         <Button
                           type="button"
                           size="sm"
-                          disabled={submitting || !memoryTitle.trim() || !memorySummary.trim()}
+                          disabled={submitting || !memoryTitle.trim() || !memorySummary.trim() || procedures[review.id]?.valid === false}
                           onClick={() => onCaptureMemory(
                             review.id,
                             'team_candidate',
                             memoryTitle.trim(),
                             memorySummary.trim(),
+                            procedures[review.id]?.value,
                           )}
                         >
                           提交团队候选

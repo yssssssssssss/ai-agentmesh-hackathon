@@ -538,6 +538,23 @@ def _validate_verified_outer_artifact(
     *,
     enforce_writable_state: bool = False,
 ) -> None:
+    if artifact.schema_version == "runner-artifact-v1":
+        if (
+            run.orchestration_version != "v1"
+            or run.execution_location != "runner"
+            or artifact.run_id != run.id
+            or artifact.user_id != run.user_id
+            or artifact.workspace_id != run.workspace_id
+            or artifact.project_id != run.project_id
+            or artifact.verification_state is not ArtifactVerificationState.SEALED
+            or artifact.requirement_version_id != f"runner:{run.id}"
+            or artifact.plan_version_id is not None
+            or artifact.attempt_id is not None
+            or artifact.step_number is not None
+            or artifact.truncated
+        ):
+            raise ArtifactAccessError("artifact_integrity_failed")
+        return
     deepsearch_artifact = (
         run.planning_mode is AgentPlanningMode.DEEPSEARCH
         and artifact.artifact_type
@@ -735,6 +752,15 @@ class V1ArtifactReader:
             or artifact.size_bytes != len(content_bytes)
         ):
             raise ArtifactAccessError("artifact_integrity_failed")
+        if artifact.schema_version == "runner-artifact-v1":
+            if (
+                artifact.requirement_version_id != f"runner:{run.id}"
+                or artifact.plan_version_id is not None
+                or artifact.attempt_id is not None
+                or artifact.step_number is not None
+            ):
+                raise ArtifactAccessError("artifact_integrity_failed")
+            return artifact
         parsed = DeepSearchArtifactSchemaRegistry.parse(
             artifact.artifact_type,
             artifact.schema_version or "",

@@ -8,6 +8,7 @@ import { AgentModule } from './AgentModule'
 import { AuditModule } from './AuditModule'
 import { DiagnosticsModule } from './DiagnosticsModule'
 import { PolicyModule } from './PolicyModule'
+import { RunnerModule } from './RunnerModule'
 import { UsersModule } from './UsersModule'
 import { ADMIN_CAPABILITIES, hasCapability } from './api'
 
@@ -17,6 +18,7 @@ const SECTIONS = [
   { id: 'providers', label: 'Provider 与 O2' },
   { id: 'policies', label: '策略只读' },
   { id: 'audit', label: '审计日志' },
+  { id: 'runners', label: '本地 Runner' },
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]['id']
@@ -36,8 +38,10 @@ export function AdminPage() {
     hasCapability(capabilities, ADMIN_CAPABILITIES.riskPolicies)
   ) allowed.push('policies')
   if (hasCapability(capabilities, ADMIN_CAPABILITIES.audit)) allowed.push('audit')
+  allowed.push('runners')
 
   const requestedSection = new URLSearchParams(window.location.search).get('section') as SectionId | null
+  const enrollmentCode = new URLSearchParams(window.location.search).get('runner_enrollment')?.trim().toUpperCase() || null
   const initialSection = requestedSection && allowed.includes(requestedSection) ? requestedSection : allowed[0]
   const [section, setSection] = useState<SectionId | undefined>(initialSection)
 
@@ -70,6 +74,7 @@ export function AdminPage() {
         ))}
       </div>
       <div role="tabpanel">
+        {section === 'runners' ? <RunnerModule context={context} enrollmentCode={enrollmentCode} /> : null}
         {section === 'users' ? <UsersModule context={context} /> : null}
         {section === 'agents' ? <AgentModule context={context} /> : null}
         {section === 'providers' ? (

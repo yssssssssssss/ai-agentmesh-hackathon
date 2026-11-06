@@ -21,6 +21,10 @@ import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { DataSourceBadge } from '../ui/DataSourceBadge'
 import { Drawer } from '../ui/Drawer'
+import { StructuredMemoryPanel } from './StructuredMemoryPanel'
+import { MemoryForgetControl } from './MemoryForgetControl'
+import { MemoryRelationsPanel } from './MemoryRelationsPanel'
+import type { QueryScope } from '../../app/queryKeys'
 
 export type DrawerTarget =
   | { kind: 'asset'; asset: KnowledgeAssetView }
@@ -41,6 +45,7 @@ interface Props {
   lineageError?: string | null
   onRevise?: (asset: KnowledgeAssetView) => void
   onTransition?: (asset: KnowledgeAssetView, action: MemoryLifecycleAction) => void
+  context?: QueryScope
 }
 
 export function KnowledgeDetailDrawer({
@@ -55,6 +60,7 @@ export function KnowledgeDetailDrawer({
   lineageError = null,
   onRevise,
   onTransition,
+  context,
 }: Props) {
   if (!open || !target) return <Drawer open={false} onClose={onClose}>{null}</Drawer>
   if (target.kind === 'pending') {
@@ -78,6 +84,7 @@ export function KnowledgeDetailDrawer({
           <SectionBlock icon={<Quote className="h-4 w-4" />} label="候选结论">
             <p className="text-[14.5px] font-medium leading-relaxed text-slate-100">{item.summary.value}</p>
           </SectionBlock>
+          {item.structuredMemory ? <StructuredMemoryPanel memory={item.structuredMemory.value} /> : null}
           <SectionBlock icon={<Info className="h-4 w-4" />} label="治理状态">
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
               <MetaRow label="候选类型" value={item.itemType.value} source={item.itemType.source} />
@@ -150,6 +157,14 @@ export function KnowledgeDetailDrawer({
             <SectionBlock icon={<Quote className="h-4 w-4" />} label="核心结论">
               <PresentedParagraph value={asset.conclusion.value} source={asset.conclusion.source} />
             </SectionBlock>
+            {lineage?.item ? <StructuredMemoryPanel memory={lineage.item} projectId={context?.projectId}
+              canReuse={!readOnly && !lineageLoading && !lineageError && ['active', 'accepted'].includes(asset.status.value)} />
+              : asset.structuredMemory ? <StructuredMemoryPanel memory={asset.structuredMemory.value} /> : null}
+            {asset.lifecycleTarget && !readOnly ? <MemoryForgetControl key={`${asset.id.value}-${asset.lifecycleTarget.version}`} target={asset.lifecycleTarget} onForgotten={onClose} /> : null}
+            {context && ['active', 'accepted', 'document'].includes(asset.status.value) ? <MemoryRelationsPanel
+              context={context} root={{ record_type: asset.kind === 'document' ? 'document'
+                : asset.kind === 'user_memory' ? 'user_memory_item' : 'memory_item', record_id: asset.id.value }}
+              canCreate={!readOnly && (asset.kind === 'user_memory' || asset.allowedActions.value.includes('revise'))} /> : null}
             {asset.problem.value ? (
               <SectionBlock icon={<FileText className="h-4 w-4" />} label="解决的问题">
                 <PresentedParagraph value={asset.problem.value} source={asset.problem.source} />

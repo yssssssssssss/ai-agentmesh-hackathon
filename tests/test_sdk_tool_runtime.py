@@ -133,7 +133,8 @@ def test_resume_rejects_column_projected_v3_before_model_or_mcp_initialization(
     assert stored_payload == original_payload
 
 
-def test_sdk_runner_calls_granted_memory_tool(tmp_path) -> None:
+@pytest.mark.parametrize('oversized_next_request', [False, True])
+def test_sdk_runner_calls_granted_memory_tool(tmp_path, monkeypatch, oversized_next_request) -> None:
     repository = _repository(tmp_path)
     repository.add_user_memory_item(
         UserMemoryItem(
@@ -147,13 +148,39 @@ def test_sdk_runner_calls_granted_memory_tool(tmp_path) -> None:
             scope=Scope.PRIVATE,
         )
     )
+    built_agents = []
+
+    def enlarge_next_request(_call):
+        built_agents[0].instructions += '正文' * 15000
+        return [function_call('memory_search', {'query': 'checkout address'}, call_id='memory_call')]
+
     model = ScriptedModel(
         [
+            ModelStep.respond(enlarge_next_request) if oversized_next_request else
             [function_call("memory_search", {"query": "checkout address"}, call_id="memory_call")],
             [assistant_message("Address editing is the strongest known issue.")],
         ]
     )
     runtime = AgentRuntimeService(repository, model=model, enabled=True)
+    if oversized_next_request:
+        original_build = runtime._build_agent
+
+        def capture_agent(**kwargs):
+            agent = original_build(**kwargs)
+            built_agents.append(agent)
+            return agent
+
+        monkeypatch.setattr(runtime, '_build_agent', capture_agent)
+
+    if oversized_next_request:
+        from agentmesh.memory_context.request_budget import ContextRequestError
+
+        with pytest.raises(ContextRequestError, match='context_request_budget_exceeded'):
+            runtime.run_sync(content='What did we learn about checkout?', user=USER,
+                             thread_id='thread_budgeted_memory_tool', history=[])
+        assert len(model.calls) == 1
+        assert repository.memory_use_receipts == []
+        return
 
     answer = runtime.run_sync(
         content="What did we learn about checkout?",
@@ -264,7 +291,7 @@ def test_wiki_imported_skill_tools_are_fail_closed_without_mappable_declarations
     ) == []
 
     ordinary = imported.model_copy(update={"id": "skill_ordinary_tools", "metadata": {}})
-    assert {tool.name for tool in factory.build(USER, ordinary)} == {"data_query", "memory_search"}
+    assert {tool.name for tool in factory.build(USER, ordinary)} == {"data_query", "memory_search", "project_state"}
 
 
 def test_standard_node_result_discards_model_owned_identity_and_evidence(tmp_path) -> None:
