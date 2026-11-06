@@ -21,6 +21,13 @@ deep link 均返回 React index；业务状态和权限以 FastAPI/SQLite 为唯
 
 运行边界：当前 MVP 仅支持单 Workspace、单应用进程和单 SQLite 数据库，并且只部署在可信内网。多 Workspace 租户、SQLite 多进程协调、水平扩容、高可用和公网加固均为 Post-MVP。发布前必须在具备授权凭证/CLI 的内网宿主机运行五类真实 Provider smoke；fallback 通过单元测试不等于真实 Provider 发布验收通过。
 
+管理目录兼容（T01 / PR #44）：管理员显式指定另一个已存在 Workspace 时，项目列表仅返回
+`member_ids` 明确包含该管理员的项目，供管理创建后的目录读回。跨 Workspace 的空成员项目
+不适用旧开放规则；成员撤销后即不可列出。默认/当前 Workspace 的项目列表保留原访问规则。
+此目录例外不授予跨 Workspace 的项目详情、任务、活动、知识或 Agent 上下文访问，也不改变
+Team 权限。普通用户和组长仍不能查询其他 Workspace 的项目目录。本地实现与检查状态见
+`DEVELOPMENT_STATUS.md`；main 和远端 CI 的状态需单独核对。
+
 ## Terms
 
 - **数字分身 / Digital Twin (PersonalAgent)** — the single agent representing one person.

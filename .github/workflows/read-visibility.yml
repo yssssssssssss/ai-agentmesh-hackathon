@@ -1,0 +1,47 @@
+name: Read visibility regression
+
+on:
+  pull_request:
+    paths:
+      - "agentmesh/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/read-visibility.yml"
+  push:
+    branches: [main]
+    paths:
+      - "agentmesh/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/read-visibility.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: read-visibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visibility:
+    name: Project and memory read permissions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -e '.[dev]'
+      - run: .venv/bin/ruff check tests/test_read_visibility.py agentmesh/routes/workspace.py agentmesh/routes/memory.py
+      - name: Check canonical policies and HTTP read projections
+        run: >-
+          .venv/bin/python -m pytest -q
+          tests/test_read_visibility.py
+          tests/test_project_member_access.py
+          tests/test_team_isolation.py
+          tests/test_read_models.py
+        env:
+          AGENTMESH_EMBEDDING_ENABLED: "false"
